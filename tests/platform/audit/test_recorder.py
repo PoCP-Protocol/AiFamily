@@ -43,14 +43,17 @@ def test_events_for_resource_filters_by_type_and_id() -> None:
     assert results == (matching,)
 
 
-async def test_flush_reports_buffered_event_count() -> None:
+async def test_flush_with_nothing_buffered_writes_nothing() -> None:
+    """No events is not an error and must not need a live database.
+
+    Superseded `test_flush_reports_buffered_event_count`, which asserted the
+    old no-op behaviour ("report the count, keep the buffer, write nothing").
+    That test locked in the defect: it passed precisely because flush did not
+    persist. Real flush behaviour is covered in `test_store.py`.
+    """
     recorder = AuditRecorder()
-    recorder.record(_event())
-    recorder.record(_event(resource_id="family-2"))
 
-    flushed_count = await recorder.flush()
-
-    assert flushed_count == 2
+    assert await recorder.flush(session=None) == 0  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(

@@ -66,8 +66,12 @@ def build_router(state: AssessmentApiState | None = None) -> APIRouter:
         return receipt
 
     @router.post("/auth/account-session")
-    def account_session(body: AccountSessionRequest, idempotency_key: str | None = Header(default=None)) -> dict[str, str]:
+    def account_session(
+        body: AccountSessionRequest,
+        idempotency_key: str | None = Header(default=None),
+    ) -> dict[str, str]:
         key = mutation_key(idempotency_key)
+
         def create() -> dict[str, str]:
             # The dev external_ref convention is "<account>:<family>" — the same
             # shape the mobile client sends via EXPO_PUBLIC_FAMILY_DEV_EXTERNAL_REF.
@@ -80,9 +84,26 @@ def build_router(state: AssessmentApiState | None = None) -> APIRouter:
             family_id = family_part or account_id
             token = str(uuid4())
             state.tokens[token] = {"account_id": account_id, "family_id": family_id}
-            result = {"token": token, "expires_at": "2099-01-01T00:00:00+00:00", "account_id": account_id, "family_id": family_id}
-            state.service.audit.record(AuditEvent(actor_id=account_id, tenant_id=family_id, action="auth.session_created", resource_type="IdentitySession", resource_id=token, reason="dev account session", correlation_id=str(uuid4()), after={"account_id": account_id}))
+            result = {
+                "token": token,
+                "expires_at": "2099-01-01T00:00:00+00:00",
+                "account_id": account_id,
+                "family_id": family_id,
+            }
+            state.service.audit.record(
+                AuditEvent(
+                    actor_id=account_id,
+                    tenant_id=family_id,
+                    action="auth.session_created",
+                    resource_type="IdentitySession",
+                    resource_id=token,
+                    reason="dev account session",
+                    correlation_id=str(uuid4()),
+                    after={"account_id": account_id},
+                )
+            )
             return result
+
         return replay_or(f"auth:{key}", create)
 
     @router.get("/auth/me")
@@ -93,63 +114,168 @@ def build_router(state: AssessmentApiState | None = None) -> APIRouter:
     @router.get("/auth/contexts")
     def contexts(authorization: str | None = Header(default=None)) -> dict[str, Any]:
         identity = actor(authorization)
-        return {"account_id": identity["account_id"], "contexts": [{"type": "FAMILY", "tenant_id": identity["family_id"], "family_id": identity["family_id"], "person_id": identity["account_id"], "membership_id": "dev-membership", "role": "GUARDIAN"}]}
+        return {
+            "account_id": identity["account_id"],
+            "contexts": [
+                {
+                    "type": "FAMILY",
+                    "tenant_id": identity["family_id"],
+                    "family_id": identity["family_id"],
+                    "person_id": identity["account_id"],
+                    "membership_id": "dev-membership",
+                    "role": "GUARDIAN",
+                }
+            ],
+        }
 
     @router.post("/auth/session/revoke")
-    def revoke(authorization: str | None = Header(default=None), idempotency_key: str | None = Header(default=None)) -> dict[str, bool]:
+    def revoke(
+        authorization: str | None = Header(default=None),
+        idempotency_key: str | None = Header(default=None),
+    ) -> dict[str, bool]:
         identity = actor(authorization)
         key = mutation_key(idempotency_key)
+
         def revoke_once() -> dict[str, bool]:
-            state.service.audit.record(AuditEvent(actor_id=identity["account_id"], tenant_id=identity["family_id"], action="auth.session_revoked", resource_type="IdentitySession", resource_id=identity["account_id"], reason="dev session revoke", correlation_id=str(uuid4()), after={"revoked": True}))
+            state.service.audit.record(
+                AuditEvent(
+                    actor_id=identity["account_id"],
+                    tenant_id=identity["family_id"],
+                    action="auth.session_revoked",
+                    resource_type="IdentitySession",
+                    resource_id=identity["account_id"],
+                    reason="dev session revoke",
+                    correlation_id=str(uuid4()),
+                    after={"revoked": True},
+                )
+            )
             return {"revoked": True}
+
         return replay_or(f"revoke:{identity['account_id']}:{key}", revoke_once)
 
     @router.get("/families/{family_id}/ui/02/assessment")
-    def assessment_projection(family_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    def assessment_projection(
+        family_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
         actor(authorization, family_id)
         return {"family_id": family_id, "ui_id": "UI-02", "status": "READY", "items": []}
 
     @router.post("/families/{family_id}/assessments/sessions")
-    def start(family_id: str, body: AssessmentStartRequest, authorization: str | None = Header(default=None), idempotency_key: str | None = Header(default=None)) -> Any:
-        identity = actor(authorization, family_id); key = mutation_key(idempotency_key)
-        return replay_or(f"start:{family_id}:{key}", lambda: state.service.start(identity["account_id"], family_id, body.subject_person_id, body.tool_ref))
+    def start(
+        family_id: str,
+        body: AssessmentStartRequest,
+        authorization: str | None = Header(default=None),
+        idempotency_key: str | None = Header(default=None),
+    ) -> Any:
+        identity = actor(authorization, family_id)
+        key = mutation_key(idempotency_key)
+        return replay_or(
+            f"start:{family_id}:{key}",
+            lambda: state.service.start(
+                identity["account_id"], family_id, body.subject_person_id, body.tool_ref
+            ),
+        )
 
     @router.post("/families/{family_id}/assessments/sessions/{session_id}/responses")
-    def response(family_id: str, session_id: str, body: AssessmentResponseRequest, authorization: str | None = Header(default=None), idempotency_key: str | None = Header(default=None)) -> Any:
-        identity = actor(authorization, family_id); key = mutation_key(idempotency_key)
+    def response(
+        family_id: str,
+        session_id: str,
+        body: AssessmentResponseRequest,
+        authorization: str | None = Header(default=None),
+        idempotency_key: str | None = Header(default=None),
+    ) -> Any:
+        identity = actor(authorization, family_id)
+        key = mutation_key(idempotency_key)
         try:
-            return replay_or(f"response:{family_id}:{session_id}:{key}", lambda: state.service.response(identity["account_id"], family_id, session_id, body.item_ref, body.response_type, body.response_value))
+            return replay_or(
+                f"response:{family_id}:{session_id}:{key}",
+                lambda: state.service.response(
+                    identity["account_id"],
+                    family_id,
+                    session_id,
+                    body.item_ref,
+                    body.response_type,
+                    body.response_value,
+                ),
+            )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @router.post("/families/{family_id}/assessments/sessions/{session_id}/submit")
-    def submit(family_id: str, session_id: str, authorization: str | None = Header(default=None), idempotency_key: str | None = Header(default=None)) -> Any:
-        identity = actor(authorization, family_id); key = mutation_key(idempotency_key)
+    def submit(
+        family_id: str,
+        session_id: str,
+        authorization: str | None = Header(default=None),
+        idempotency_key: str | None = Header(default=None),
+    ) -> Any:
+        identity = actor(authorization, family_id)
+        key = mutation_key(idempotency_key)
         try:
-            return replay_or(f"submit:{family_id}:{session_id}:{key}", lambda: state.service.submit(identity["account_id"], family_id, session_id))
+            return replay_or(
+                f"submit:{family_id}:{session_id}:{key}",
+                lambda: state.service.submit(identity["account_id"], family_id, session_id),
+            )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @router.get("/families/{family_id}/ui/03/growth-hypothesis")
-    def hypothesis_projection(family_id: str, authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    def hypothesis_projection(
+        family_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
         actor(authorization, family_id)
-        return {"family_id": family_id, "ui_id": "UI-03", "hypotheses": [h for h in state.service.repository.hypotheses.values() if h["family_id"] == family_id]}
+        return {
+            "family_id": family_id,
+            "ui_id": "UI-03",
+            "hypotheses": [
+                h
+                for h in state.service.repository.hypotheses.values()
+                if h["family_id"] == family_id
+            ],
+        }
 
     @router.post("/families/{family_id}/assessments/{session_id}/growth-hypothesis")
-    def generate(family_id: str, session_id: str, authorization: str | None = Header(default=None), idempotency_key: str | None = Header(default=None)) -> Any:
-        identity = actor(authorization, family_id); key = mutation_key(idempotency_key)
+    def generate(
+        family_id: str,
+        session_id: str,
+        authorization: str | None = Header(default=None),
+        idempotency_key: str | None = Header(default=None),
+    ) -> Any:
+        identity = actor(authorization, family_id)
+        key = mutation_key(idempotency_key)
         try:
-            return replay_or(f"generate:{family_id}:{session_id}:{key}", lambda: state.service.generate_hypothesis(identity["account_id"], family_id, session_id))
+            return replay_or(
+                f"generate:{family_id}:{session_id}:{key}",
+                lambda: state.service.generate_hypothesis(
+                    identity["account_id"], family_id, session_id
+                ),
+            )
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @router.post("/families/{family_id}/growth-hypotheses/decisions")
-    def decide(family_id: str, body: HypothesisDecisionRequest, authorization: str | None = Header(default=None), idempotency_key: str | None = Header(default=None)) -> Any:
-        identity = actor(authorization, family_id); key = mutation_key(idempotency_key)
+    def decide(
+        family_id: str,
+        body: HypothesisDecisionRequest,
+        authorization: str | None = Header(default=None),
+        idempotency_key: str | None = Header(default=None),
+    ) -> Any:
+        identity = actor(authorization, family_id)
+        key = mutation_key(idempotency_key)
         if body.decision_type not in {"CONFIRM", "DISMISS"}:
             raise HTTPException(status_code=422, detail="unsupported decision_type")
         try:
-            return replay_or(f"decide:{family_id}:{key}", lambda: state.service.decide(identity["account_id"], family_id, body.assessment_session_id, body.hypothesis_ref, body.decision_type))
+            return replay_or(
+                f"decide:{family_id}:{key}",
+                lambda: state.service.decide(
+                    identity["account_id"],
+                    family_id,
+                    body.assessment_session_id,
+                    body.hypothesis_ref,
+                    body.decision_type,
+                ),
+            )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 

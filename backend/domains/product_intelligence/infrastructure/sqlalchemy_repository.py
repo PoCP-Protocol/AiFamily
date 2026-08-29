@@ -16,6 +16,7 @@ PR-001R (chief-architect review on PR #27):
   `ServiceBlueprintVersion` together) — a repository that commits on every
   save cannot participate in a larger atomic unit of work.
 """
+
 from __future__ import annotations
 
 from sqlalchemy import select
@@ -53,7 +54,9 @@ class SqlAlchemyProductIntelligenceRepository:
         await self._merge(m.MarketSignalRow(**entity.model_dump()))
 
     async def load_market_signal(self, entity_id: str, tenant_scope: str) -> MarketSignal:
-        row = await self._get_scoped(m.MarketSignalRow, entity_id, tenant_scope, "market_signal_not_found")
+        row = await self._get_scoped(
+            m.MarketSignalRow, entity_id, tenant_scope, "market_signal_not_found"
+        )
         return MarketSignal(**_row_to_dict(row))
 
     # -- supporting objects (create/save only, per Override #6 item 2) --
@@ -74,7 +77,9 @@ class SqlAlchemyProductIntelligenceRepository:
         await self._merge(m.CustomerInsightRow(**entity.model_dump()))
 
     async def load_customer_insight(self, entity_id: str, tenant_scope: str) -> CustomerInsight:
-        row = await self._get_scoped(m.CustomerInsightRow, entity_id, tenant_scope, "customer_insight_not_found")
+        row = await self._get_scoped(
+            m.CustomerInsightRow, entity_id, tenant_scope, "customer_insight_not_found"
+        )
         return CustomerInsight(**_row_to_dict(row))
 
     async def save_unmet_need(self, entity: UnmetNeed) -> None:
@@ -85,7 +90,9 @@ class SqlAlchemyProductIntelligenceRepository:
         await self._merge(m.OpportunityRow(**entity.model_dump()))
 
     async def load_opportunity(self, entity_id: str, tenant_scope: str) -> Opportunity:
-        row = await self._get_scoped(m.OpportunityRow, entity_id, tenant_scope, "opportunity_not_found")
+        row = await self._get_scoped(
+            m.OpportunityRow, entity_id, tenant_scope, "opportunity_not_found"
+        )
         return Opportunity(**_row_to_dict(row))
 
     # -- GrowthProblem --
@@ -93,7 +100,9 @@ class SqlAlchemyProductIntelligenceRepository:
         await self._merge(m.GrowthProblemRow(**entity.model_dump()))
 
     async def load_growth_problem(self, entity_id: str, tenant_scope: str) -> GrowthProblem:
-        row = await self._get_scoped(m.GrowthProblemRow, entity_id, tenant_scope, "growth_problem_not_found")
+        row = await self._get_scoped(
+            m.GrowthProblemRow, entity_id, tenant_scope, "growth_problem_not_found"
+        )
         return GrowthProblem(**_row_to_dict(row))
 
     # -- GrowthHypothesis --
@@ -101,10 +110,14 @@ class SqlAlchemyProductIntelligenceRepository:
         await self._merge(m.GrowthHypothesisRow(**entity.model_dump()))
 
     async def load_growth_hypothesis(self, entity_id: str, tenant_scope: str) -> GrowthHypothesis:
-        row = await self._get_scoped(m.GrowthHypothesisRow, entity_id, tenant_scope, "growth_hypothesis_not_found")
+        row = await self._get_scoped(
+            m.GrowthHypothesisRow, entity_id, tenant_scope, "growth_hypothesis_not_found"
+        )
         return GrowthHypothesis(**_row_to_dict(row))
 
-    async def list_growth_hypotheses_by_problem(self, problem_id: str, tenant_scope: str) -> list[GrowthHypothesis]:
+    async def list_growth_hypotheses_by_problem(
+        self, problem_id: str, tenant_scope: str
+    ) -> list[GrowthHypothesis]:
         result = await self._session.execute(
             select(m.GrowthHypothesisRow).where(
                 m.GrowthHypothesisRow.problem_id == problem_id,
@@ -122,7 +135,9 @@ class SqlAlchemyProductIntelligenceRepository:
         await self._merge(m.GrowthStrategyRow(**entity.model_dump()))
 
     async def load_growth_strategy(self, entity_id: str, tenant_scope: str) -> GrowthStrategy:
-        row = await self._get_scoped(m.GrowthStrategyRow, entity_id, tenant_scope, "growth_strategy_not_found")
+        row = await self._get_scoped(
+            m.GrowthStrategyRow, entity_id, tenant_scope, "growth_strategy_not_found"
+        )
         return GrowthStrategy(**_row_to_dict(row))
 
     # -- ProductConcept --
@@ -130,7 +145,9 @@ class SqlAlchemyProductIntelligenceRepository:
         await self._merge(m.ProductConceptRow(**entity.model_dump()))
 
     async def load_product_concept(self, entity_id: str, tenant_scope: str) -> ProductConcept:
-        row = await self._get_scoped(m.ProductConceptRow, entity_id, tenant_scope, "product_concept_not_found")
+        row = await self._get_scoped(
+            m.ProductConceptRow, entity_id, tenant_scope, "product_concept_not_found"
+        )
         return ProductConcept(**_row_to_dict(row))
 
     # -- ProductComponent / ProductPattern / ProductDefinition / ServiceBlueprintVersion --
@@ -150,7 +167,9 @@ class SqlAlchemyProductIntelligenceRepository:
         await self._session.merge(row)
         await self._session.flush()
 
-    async def _get_scoped(self, model_cls: type, entity_id: str, tenant_scope: str, error_code: str):
+    async def _get_scoped(
+        self, model_cls: type, entity_id: str, tenant_scope: str, error_code: str
+    ):
         row = await self._session.get(model_cls, entity_id)
         if row is None or row.tenant_scope != tenant_scope:
             raise ProductIntelligenceNotFoundError(error_code)

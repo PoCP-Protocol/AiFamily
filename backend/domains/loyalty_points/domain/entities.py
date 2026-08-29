@@ -15,7 +15,7 @@ guardrail test that reflects over this module and over the ORM tables).
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, model_validator
 
@@ -52,7 +52,7 @@ def utcnow() -> datetime:
     unequal to its own round-trip. Same choice as the membership domain, spelled
     out rather than relying on the deprecated `datetime.utcnow()`.
     """
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class _Extensible(BaseModel):
@@ -183,7 +183,7 @@ class PointsAccount(_Extensible, _Audited, _FixtureBoundary):
     frozen_at: datetime | None = None
     closed_at: datetime | None = None
 
-    def freeze(self, *, actor: str, reason: str) -> "PointsAccount":
+    def freeze(self, *, actor: str, reason: str) -> PointsAccount:
         """Freezing stops earning and spending but destroys nothing. A frozen
         account keeps its whole ledger — the family's record of what it did is
         not a lever for enforcement."""
@@ -203,7 +203,7 @@ class PointsAccount(_Extensible, _Audited, _FixtureBoundary):
             }
         )
 
-    def unfreeze(self, *, actor: str) -> "PointsAccount":
+    def unfreeze(self, *, actor: str) -> PointsAccount:
         assert_human_actor(actor, code="account_unfreeze")
         if self.status != "FROZEN":
             raise LoyaltyPointsConflictError(f"account_not_frozen:{self.status}")
@@ -301,7 +301,7 @@ class PointsRedemption(_Extensible, _Audited, _FixtureBoundary):
             raise LoyaltyPointsValidationError("points_spent_must_be_positive")
         return self
 
-    def mark_fulfilled(self, *, actor: str) -> "PointsRedemption":
+    def mark_fulfilled(self, *, actor: str) -> PointsRedemption:
         if self.status != "REQUESTED":
             raise LoyaltyPointsConflictError(f"redemption_not_requested:{self.status}")
         now = utcnow()
@@ -315,7 +315,7 @@ class PointsRedemption(_Extensible, _Audited, _FixtureBoundary):
             }
         )
 
-    def cancel(self, *, actor: str) -> "PointsRedemption":
+    def cancel(self, *, actor: str) -> PointsRedemption:
         assert_human_actor(actor, code="redemption_cancel")
         if self.status != "REQUESTED":
             raise LoyaltyPointsConflictError(f"redemption_not_cancellable:{self.status}")

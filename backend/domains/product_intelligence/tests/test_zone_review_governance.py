@@ -10,9 +10,10 @@ hard gate on approve/reject/retire, the HUMAN-only gate on submit, illegal
 status jumps, the evidence-gate (delegated to `transition_to` but exercised
 here through the command layer), and the override-reason requirement.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -27,7 +28,7 @@ from ..domain.errors import (
 from ..domain.zone_entities import ProductZoneAssessment, ZonePolicyVersion
 from ..infrastructure.fake_repository import FakeProductIntelligenceRepository
 
-UTC_NOW = datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+UTC_NOW = datetime(2026, 8, 29, 12, 0, 0, tzinfo=UTC)
 
 ZONE_REVIEW_PERMISSION = zone_commands.ZONE_REVIEW_PERMISSION
 
@@ -44,13 +45,17 @@ class FakeZoneAssessmentRepository:
     async def save_zone_assessment(self, entity: ProductZoneAssessment) -> None:
         self.assessments[entity.id] = entity
 
-    async def load_zone_assessment(self, entity_id: str, tenant_scope: str) -> ProductZoneAssessment:
+    async def load_zone_assessment(
+        self, entity_id: str, tenant_scope: str
+    ) -> ProductZoneAssessment:
         entity = self.assessments.get(entity_id)
         if entity is None or entity.tenant_scope != tenant_scope:
             raise ProductIntelligenceNotFoundError("zone_assessment_not_found")
         return entity
 
-    async def load_active_zone_policy_version(self, tenant_scope: str | None = None) -> ZonePolicyVersion:
+    async def load_active_zone_policy_version(
+        self, tenant_scope: str | None = None
+    ) -> ZonePolicyVersion:
         for policy in self.policy_versions.values():
             if policy.status == "ACTIVE":
                 return policy
@@ -86,7 +91,10 @@ def _build_policy(**overrides) -> ZonePolicyVersion:
             "commodity_differentiation_max": 40.0,
             "commodity_defensibility_max": 40.0,
         },
-        classification_rules="UNIQUE if defensibility>=75 and floor>=50; COMMODITY if diff<40 and def<40; else ADVANTAGE",
+        classification_rules=(
+            "UNIQUE if defensibility>=75 and floor>=50; "
+            "COMMODITY if diff<40 and def<40; else ADVANTAGE"
+        ),
         review_policy={"unique_requires_reviewers": 1},
         effective_from=UTC_NOW,
         status="ACTIVE",
@@ -96,7 +104,8 @@ def _build_policy(**overrides) -> ZonePolicyVersion:
 
 
 def _pi_repo_with_concept(
-    concept_id: str = "concept-1", tenant_scope: str = "tenant-a",
+    concept_id: str = "concept-1",
+    tenant_scope: str = "tenant-a",
 ) -> FakeProductIntelligenceRepository:
     """Seeds a minimal real `ProductConcept` directly (bypassing the full
     Signal->...->ProductConcept chain, since these zone-engine tests only
@@ -107,10 +116,15 @@ def _pi_repo_with_concept(
     load_product_concept`).
     """
     repo = FakeProductIntelligenceRepository()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     concept = ProductConcept(
-        id=concept_id, created_at=now, updated_at=now, created_by="test-fixture",
-        tenant_scope=tenant_scope, strategy_id="stub-strategy-1", title="stub product concept",
+        id=concept_id,
+        created_at=now,
+        updated_at=now,
+        created_by="test-fixture",
+        tenant_scope=tenant_scope,
+        strategy_id="stub-strategy-1",
+        title="stub product concept",
     )
     repo._product_concepts[concept_id] = concept
     return repo
@@ -168,23 +182,45 @@ def _low_dimension_input() -> list[dict]:
     ]
 
 
-def _reviewer_context(permissions: frozenset[str] = frozenset({ZONE_REVIEW_PERMISSION})) -> ActorContext:
-    return ActorContext(actor_id="human-reviewer-1", actor_type="HUMAN", tenant_scope="tenant-a", permissions=permissions)
+def _reviewer_context(
+    permissions: frozenset[str] = frozenset({ZONE_REVIEW_PERMISSION}),
+) -> ActorContext:
+    return ActorContext(
+        actor_id="human-reviewer-1",
+        actor_type="HUMAN",
+        tenant_scope="tenant-a",
+        permissions=permissions,
+    )
 
 
 def _human_no_permission_context() -> ActorContext:
-    return ActorContext(actor_id="human-no-perm", actor_type="HUMAN", tenant_scope="tenant-a", permissions=frozenset())
+    return ActorContext(
+        actor_id="human-no-perm",
+        actor_type="HUMAN",
+        tenant_scope="tenant-a",
+        permissions=frozenset(),
+    )
 
 
 def _ai_context_with_permission_string() -> ActorContext:
     # AI actor that somehow carries the permission string — must still be
     # forbidden, per ADR-Governance §4 ("AI and SYSTEM actors are forbidden
     # from approving regardless of any permission string they might carry").
-    return ActorContext(actor_id="ai-agent-1", actor_type="AI", tenant_scope="tenant-a", permissions=frozenset({ZONE_REVIEW_PERMISSION}))
+    return ActorContext(
+        actor_id="ai-agent-1",
+        actor_type="AI",
+        tenant_scope="tenant-a",
+        permissions=frozenset({ZONE_REVIEW_PERMISSION}),
+    )
 
 
 def _system_context_with_permission_string() -> ActorContext:
-    return ActorContext(actor_id="system-job-1", actor_type="SYSTEM", tenant_scope="tenant-a", permissions=frozenset({ZONE_REVIEW_PERMISSION}))
+    return ActorContext(
+        actor_id="system-job-1",
+        actor_type="SYSTEM",
+        tenant_scope="tenant-a",
+        permissions=frozenset({ZONE_REVIEW_PERMISSION}),
+    )
 
 
 @pytest.fixture
@@ -195,19 +231,30 @@ def repo():
 async def _scored_assessment(repo, *, dimension_input=None, creator_context=None):
     await repo.save_zone_policy_version(_build_policy())
     creator_context = creator_context or _reviewer_context()
-    pi_repo = _pi_repo_with_concept(concept_id="concept-1", tenant_scope=creator_context.tenant_scope)
+    pi_repo = _pi_repo_with_concept(
+        concept_id="concept-1", tenant_scope=creator_context.tenant_scope
+    )
     draft = await zone_commands.create_zone_assessment(
-        repo, pi_repo, creator_context, product_concept_id="concept-1", zone_policy_version_id="zone-policy-v0",
+        repo,
+        pi_repo,
+        creator_context,
+        product_concept_id="concept-1",
+        zone_policy_version_id="zone-policy-v0",
     )
     scored = await zone_commands.score_zone_assessment(
-        repo, creator_context, assessment_id=draft.id, dimension_assessments=dimension_input or _high_dimension_input(),
+        repo,
+        creator_context,
+        assessment_id=draft.id,
+        dimension_assessments=dimension_input or _high_dimension_input(),
     )
     return scored
 
 
 async def _under_review_assessment(repo, **kwargs):
     scored = await _scored_assessment(repo, **kwargs)
-    return await zone_commands.submit_zone_review(repo, _reviewer_context(), assessment_id=scored.id)
+    return await zone_commands.submit_zone_review(
+        repo, _reviewer_context(), assessment_id=scored.id
+    )
 
 
 # --- create/score -----------------------------------------------------------
@@ -219,7 +266,11 @@ async def test_create_zone_assessment_is_draft_with_empty_dimensions(repo):
     context = _reviewer_context()
     pi_repo = _pi_repo_with_concept(concept_id="concept-1", tenant_scope=context.tenant_scope)
     draft = await zone_commands.create_zone_assessment(
-        repo, pi_repo, context, product_concept_id="concept-1", zone_policy_version_id="zone-policy-v0",
+        repo,
+        pi_repo,
+        context,
+        product_concept_id="concept-1",
+        zone_policy_version_id="zone-policy-v0",
     )
     assert draft.status == "DRAFT"
     # Integration fix: DRAFT now allows an empty dimension_assessments list
@@ -265,7 +316,9 @@ async def test_submit_zone_review_forbidden_for_ai_actor(repo):
 @pytest.mark.asyncio
 async def test_submit_zone_review_forbidden_for_system_actor(repo):
     scored = await _scored_assessment(repo)
-    system_context = ActorContext(actor_id="system-job-1", actor_type="SYSTEM", tenant_scope="tenant-a")
+    system_context = ActorContext(
+        actor_id="system-job-1", actor_type="SYSTEM", tenant_scope="tenant-a"
+    )
     with pytest.raises(ProductIntelligenceForbiddenError):
         await zone_commands.submit_zone_review(repo, system_context, assessment_id=scored.id)
 
@@ -279,7 +332,11 @@ async def test_human_without_zone_review_permission_cannot_approve(repo):
     context = _human_no_permission_context()
     with pytest.raises(ProductIntelligenceForbiddenError):
         await zone_commands.approve_zone_assessment(
-            repo, context, assessment_id=under_review.id, approved_zone="UNIQUE", review_reason="looks good",
+            repo,
+            context,
+            assessment_id=under_review.id,
+            approved_zone="UNIQUE",
+            review_reason="looks good",
         )
 
 
@@ -289,7 +346,11 @@ async def test_ai_actor_with_permission_string_cannot_approve(repo):
     context = _ai_context_with_permission_string()
     with pytest.raises(ProductIntelligenceForbiddenError):
         await zone_commands.approve_zone_assessment(
-            repo, context, assessment_id=under_review.id, approved_zone="UNIQUE", review_reason="looks good",
+            repo,
+            context,
+            assessment_id=under_review.id,
+            approved_zone="UNIQUE",
+            review_reason="looks good",
         )
 
 
@@ -299,7 +360,11 @@ async def test_system_actor_with_permission_string_cannot_approve(repo):
     context = _system_context_with_permission_string()
     with pytest.raises(ProductIntelligenceForbiddenError):
         await zone_commands.approve_zone_assessment(
-            repo, context, assessment_id=under_review.id, approved_zone="UNIQUE", review_reason="looks good",
+            repo,
+            context,
+            assessment_id=under_review.id,
+            approved_zone="UNIQUE",
+            review_reason="looks good",
         )
 
 
@@ -308,7 +373,11 @@ async def test_human_with_zone_review_permission_can_approve(repo):
     under_review = await _under_review_assessment(repo)
     context = _reviewer_context()
     approved = await zone_commands.approve_zone_assessment(
-        repo, context, assessment_id=under_review.id, approved_zone="UNIQUE", review_reason="matches evidence",
+        repo,
+        context,
+        assessment_id=under_review.id,
+        approved_zone="UNIQUE",
+        review_reason="matches evidence",
     )
     assert approved.status == "APPROVED"
     assert approved.approved_zone == "UNIQUE"
@@ -321,7 +390,12 @@ async def test_approve_override_without_reason_is_rejected(repo):
     context = _reviewer_context()
     with pytest.raises(ProductIntelligenceValidationError):
         await zone_commands.approve_zone_assessment(
-            repo, context, assessment_id=under_review.id, approved_zone="COMMODITY", review_reason="disagree", override_reason=None,
+            repo,
+            context,
+            assessment_id=under_review.id,
+            approved_zone="COMMODITY",
+            review_reason="disagree",
+            override_reason=None,
         )
 
 
@@ -330,8 +404,12 @@ async def test_approve_override_with_reason_succeeds(repo):
     under_review = await _under_review_assessment(repo)  # recommended_zone == UNIQUE
     context = _reviewer_context()
     approved = await zone_commands.approve_zone_assessment(
-        repo, context, assessment_id=under_review.id, approved_zone="COMMODITY",
-        review_reason="disagree with model", override_reason="commercial context outweighs the dimension scores",
+        repo,
+        context,
+        assessment_id=under_review.id,
+        approved_zone="COMMODITY",
+        review_reason="disagree with model",
+        override_reason="commercial context outweighs the dimension scores",
     )
     assert approved.approved_zone == "COMMODITY"
     assert approved.override_reason is not None
@@ -346,11 +424,19 @@ async def test_approve_directly_from_draft_is_illegal(repo):
     context = _reviewer_context()
     pi_repo = _pi_repo_with_concept(concept_id="concept-1", tenant_scope=context.tenant_scope)
     draft = await zone_commands.create_zone_assessment(
-        repo, pi_repo, context, product_concept_id="concept-1", zone_policy_version_id="zone-policy-v0",
+        repo,
+        pi_repo,
+        context,
+        product_concept_id="concept-1",
+        zone_policy_version_id="zone-policy-v0",
     )
     with pytest.raises(ProductIntelligenceValidationError):
         await zone_commands.approve_zone_assessment(
-            repo, context, assessment_id=draft.id, approved_zone="COMMODITY", review_reason="skip ahead",
+            repo,
+            context,
+            assessment_id=draft.id,
+            approved_zone="COMMODITY",
+            review_reason="skip ahead",
         )
 
 
@@ -360,7 +446,11 @@ async def test_approve_directly_from_scored_without_submit_is_illegal(repo):
     context = _reviewer_context()
     with pytest.raises(ProductIntelligenceValidationError):
         await zone_commands.approve_zone_assessment(
-            repo, context, assessment_id=scored.id, approved_zone=scored.recommended_zone, review_reason="skip review",
+            repo,
+            context,
+            assessment_id=scored.id,
+            approved_zone=scored.recommended_zone,
+            review_reason="skip review",
         )
 
 
@@ -373,7 +463,11 @@ async def test_missing_evidence_blocks_submit_to_under_review(repo):
     context = _reviewer_context()
     pi_repo = _pi_repo_with_concept(concept_id="concept-1", tenant_scope=context.tenant_scope)
     draft = await zone_commands.create_zone_assessment(
-        repo, pi_repo, context, product_concept_id="concept-1", zone_policy_version_id="zone-policy-v0",
+        repo,
+        pi_repo,
+        context,
+        product_concept_id="concept-1",
+        zone_policy_version_id="zone-policy-v0",
     )
     bad_input = _high_dimension_input()
     bad_input[0]["evidence_refs"] = []
@@ -382,7 +476,10 @@ async def test_missing_evidence_blocks_submit_to_under_review(repo):
         # evidence_refs before transition_to's evidence gate is even
         # reached — either way, "no evidence" must fail at this step.
         await zone_commands.score_zone_assessment(
-            repo, context, assessment_id=draft.id, dimension_assessments=bad_input,
+            repo,
+            context,
+            assessment_id=draft.id,
+            dimension_assessments=bad_input,
         )
 
 
@@ -394,14 +491,18 @@ async def test_reject_requires_zone_review_permission(repo):
     under_review = await _under_review_assessment(repo)
     context = _human_no_permission_context()
     with pytest.raises(ProductIntelligenceForbiddenError):
-        await zone_commands.reject_zone_assessment(repo, context, assessment_id=under_review.id, review_reason="insufficient evidence")
+        await zone_commands.reject_zone_assessment(
+            repo, context, assessment_id=under_review.id, review_reason="insufficient evidence"
+        )
 
 
 @pytest.mark.asyncio
 async def test_reject_with_permission_succeeds(repo):
     under_review = await _under_review_assessment(repo)
     context = _reviewer_context()
-    rejected = await zone_commands.reject_zone_assessment(repo, context, assessment_id=under_review.id, review_reason="insufficient evidence")
+    rejected = await zone_commands.reject_zone_assessment(
+        repo, context, assessment_id=under_review.id, review_reason="insufficient evidence"
+    )
     assert rejected.status == "REJECTED"
 
 
@@ -409,20 +510,32 @@ async def test_reject_with_permission_succeeds(repo):
 async def test_retire_requires_zone_review_permission(repo):
     under_review = await _under_review_assessment(repo)
     approved = await zone_commands.approve_zone_assessment(
-        repo, _reviewer_context(), assessment_id=under_review.id, approved_zone="UNIQUE", review_reason="ok",
+        repo,
+        _reviewer_context(),
+        assessment_id=under_review.id,
+        approved_zone="UNIQUE",
+        review_reason="ok",
     )
     context = _human_no_permission_context()
     with pytest.raises(ProductIntelligenceForbiddenError):
-        await zone_commands.retire_zone_assessment(repo, context, assessment_id=approved.id, reason="superseded")
+        await zone_commands.retire_zone_assessment(
+            repo, context, assessment_id=approved.id, reason="superseded"
+        )
 
 
 @pytest.mark.asyncio
 async def test_retire_with_permission_succeeds(repo):
     under_review = await _under_review_assessment(repo)
     approved = await zone_commands.approve_zone_assessment(
-        repo, _reviewer_context(), assessment_id=under_review.id, approved_zone="UNIQUE", review_reason="ok",
+        repo,
+        _reviewer_context(),
+        assessment_id=under_review.id,
+        approved_zone="UNIQUE",
+        review_reason="ok",
     )
-    retired = await zone_commands.retire_zone_assessment(repo, _reviewer_context(), assessment_id=approved.id, reason="superseded by new policy")
+    retired = await zone_commands.retire_zone_assessment(
+        repo, _reviewer_context(), assessment_id=approved.id, reason="superseded by new policy"
+    )
     assert retired.status == "RETIRED"
 
 
@@ -433,7 +546,10 @@ async def test_retire_with_permission_succeeds(repo):
 async def test_load_zone_assessment_cross_tenant_raises_not_found(repo):
     scored = await _scored_assessment(repo)
     other_tenant_context = ActorContext(
-        actor_id="human-other-tenant", actor_type="HUMAN", tenant_scope="tenant-b", permissions=frozenset({ZONE_REVIEW_PERMISSION}),
+        actor_id="human-other-tenant",
+        actor_type="HUMAN",
+        tenant_scope="tenant-b",
+        permissions=frozenset({ZONE_REVIEW_PERMISSION}),
     )
     with pytest.raises(ProductIntelligenceNotFoundError):
         await zone_commands.submit_zone_review(repo, other_tenant_context, assessment_id=scored.id)

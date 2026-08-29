@@ -17,13 +17,13 @@ touching this domain's API layer, and this Agent's file-ownership scope
 bootstraps an owning app (same deferral as `api/dependencies.py`'s own
 `get_repository`).
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from typing import NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..application import zone_commands
 from ..application.context import ActorContext
@@ -54,10 +54,14 @@ def _raise_http(exc: ProductIntelligenceDomainError) -> NoReturn:
 
 async def get_zone_repository() -> AsyncGenerator[ZoneAssessmentRepositoryPort, None]:
     if _zone_session_factory is None:
-        raise RuntimeError("product_intelligence zone session factory not configured — no owning app exists yet")
-    async with _zone_session_factory() as session:  # type: AsyncSession
-        async with SqlAlchemyUnitOfWork(session):
-            yield SqlAlchemyZoneAssessmentRepository(session)
+        raise RuntimeError(
+            "product_intelligence zone session factory not configured — no owning app exists yet"
+        )
+    async with (
+        _zone_session_factory() as session,  # type: AsyncSession
+        SqlAlchemyUnitOfWork(session),
+    ):
+        yield SqlAlchemyZoneAssessmentRepository(session)
 
 
 @router.post(
@@ -94,7 +98,9 @@ async def score_zone_assessment(
     context: ActorContext = Depends(get_actor_context),
 ):
     try:
-        dimension_assessments = [d.model_dump(exclude_none=True) for d in body.dimension_assessments]
+        dimension_assessments = [
+            d.model_dump(exclude_none=True) for d in body.dimension_assessments
+        ]
         return await zone_commands.score_zone_assessment(
             repo,
             context,
@@ -155,7 +161,10 @@ async def reject_zone_assessment(
 ):
     try:
         return await zone_commands.reject_zone_assessment(
-            repo, context, assessment_id=assessment_id, review_reason=body.review_reason,
+            repo,
+            context,
+            assessment_id=assessment_id,
+            review_reason=body.review_reason,
         )
     except ProductIntelligenceDomainError as exc:
         _raise_http(exc)

@@ -154,6 +154,51 @@ entries:
       2026-08-29 project-owner指示"将你在family-ai做的产品设计平台文档和程序代码迁移到AiFamily"。
       迁移对象是 product_intelligence 域完整的三轮硬化历史（非仅第一版）+ 两份三区引擎 ADR。
 
+  - capability: loyalty_points
+    disposition: NET_NEW
+    source: []
+    target:
+      - backend/domains/loyalty_points
+      - backend/domains/loyalty_points/api
+      - backend/domains/loyalty_points/application
+      - backend/domains/loyalty_points/domain
+      - backend/domains/loyalty_points/infrastructure
+    status: IMPLEMENTED_UNTESTED
+    registration_note: >
+      2026-08-29 由项目经理补登记（第二次——首次登记被并发会话的 manifest 编辑覆盖）。
+      本条目不是迁移：源仓库 D:/family-ai/50_开发_dev/backend\domains\ 下**没有**
+      loyalty_points 域，这是在 AiFamily 内由并发会话新写的代码。补登记的直接原因是
+      R3 架构测试 test_backend_code_dirs_are_all_manifested 因它未登记而失败，阻塞全套测试。
+      target 逐一列出四个子目录而非只写父目录，因为该检查器刻意不做前缀匹配
+      （前缀匹配会让未登记的 rogue 子目录蒙混过关）。
+    evidence:
+      - "约 1984 行，application / domain / infrastructure 三层，后又新增 api 层"
+      - "零测试：tests/ 下无任何 loyalty_points 相关文件"
+      - "源仓库无对应域，故无 reference implementation 可对照"
+    compliance_constraints:
+      - >
+        **最高优先级**：积分体系直接落在《未成年人网络保护条例》第24条第3款的绝对禁止
+        范围内——"不得通过自动化决策方式向未成年人进行商业营销"，无例外、无年龄细分。
+        积分获取/兑换/推荐一律不得面向孩子端，商业主体必须是家长。
+        见 docs/12_governance/COMPLIANCE_HARD_CONSTRAINTS.md 第3节。
+      - >
+        R9 红线：积分不得演化为家庭总分或家庭排名的变体。仓库级检查器
+        test_no_scoring_or_ranking_fields_anywhere 已覆盖字段命名层面，
+        但**业务语义层面的"积分即排名"风险检查器尚不存在**。
+      - >
+        《未成年人网络保护条例》第44条消费限额虽未列举在线教育，但含"等"字可类推适用。
+        积分若可兑换付费权益，须考虑限额能力。
+    blocking_action: >
+      补齐测试前不得声称该域可用。至少需要：(1) 积分台账不可变性测试（对照 membership
+      的 BenefitLedgerEntry 模式）；(2) guardrail 测试证明积分流程无法以孩子为营销对象。
+      第 (2) 项是合规义务，不是可选项。
+    review_required:
+      - >
+        待项目所有者裁决：本域是否应存在于当前阶段。MIGRATION_PLAN_V2 第3节把 COMMERCE
+        闭环排在 Batch 6，且要求"迁移前必须先解决未成年人商业场景权限规则不明确的
+        Stop Condition"。loyalty_points 属 COMMERCE 闭环，当前 Batch 1 阶段就出现
+        约 1984 行实现，与既定批次顺序不符。
+
   - capability: membership
     disposition: MIGRATE
     source:
@@ -374,14 +419,21 @@ entries:
 
   - capability: database_schema
     disposition: MIGRATE
-    source: ["50_开发_dev/database/migrations/*.sql (58个文件, 0001-0058)"]
-    target: [database/migrations]
-    status: PLANNED
+    source: ["50_开发_dev/database/migrations/*.sql (实测62个文件，编号 0001-0058)"]
+    target: [database/migrations, database/baseline]
+    status: IN_PROGRESS
     evidence:
       - "唯一权威 schema 来源，经 tools/migrate.mjs 顺序应用；非 TypeORM/Prisma，是手写 SQL + schema_migrations 追踪表"
-      - "4组文件名重号需先解决线性顺序: 0022/0023/0024/0053 各有两个不同内容的文件"
-      - "growth_profiles 表存在两代列(0003的subject_type/subject_ref_id 被 0007 的 profile_scope/subject_person_id 追加替代但未删除)"
-    blocking_action: "Alembic 首个 revision 生成前必须先解决 4 组重号并决定死列去留"
+      - "口径修正(T-03实测): 源目录实为 62 个 .sql 文件。'58' 是最大编号不是文件数——4 组重号各多出 1 个文件，58+4=62"
+      - "T-03 已完成线性化: 62 个文件重编号为 0001-0062，SQL 内容逐字节不变(sha256 校验通过)。映射表与排序理由见 database/migrations/LINEARISATION_MAP.md"
+      - "4 组重号中 4 组均实测无组内依赖(交换组内两文件后 62 个文件仍全部应用成功、schema 等价)；唯一硬依赖是跨组的 test_experience_workflows -> family_growth_page_objects"
+      - "口径修正(T-03实测): growth_profiles 的 subject_type/subject_ref_id 不是死列。旧列 NOT NULL 且无 DEFAULT；源仓库 apps/api/src/modules/family/family.service.ts:1427 的 insert 同时写两代列；0045 迁移以 profile.subject_type='CHILD' 为读取谓词。已按忠实快照原样带入 baseline"
+      - "Alembic baseline 已落地: database/migrations/versions/0001_legacy_schema_baseline.py。在空 Postgres 16 上 alembic upgrade head 成功(151 表 / 7 视图 / 60 枚举，与 psql 独立测量一致)，且 up->down->up 循环可重复"
+    known_gaps:
+      - "baseline 只是忠实快照。DATA_ARCHITECTURE.md §2 的按域分 schema(identity.*/family.*/assessment.* 等)与每域独立 DB role 尚未实施，是后续独立 PR"
+      - "两代列共存(同一语义双写、无单一真相)这一技术债原样保留。退役路径待 T-05 重建 assessment/growth 模型时随 ADR 给出"
+      - "membership / product_intelligence 的真实 Postgres 仓储测试用 Base.metadata.create_all 建表，不走 baseline，因此源 SQL 里的 DB 级 CHECK 约束仍未被这两个域的测试覆盖"
+    blocking_action: null
 
   - capability: contracts_ui_boundary
     disposition: CONTRACT_ONLY

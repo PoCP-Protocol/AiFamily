@@ -32,10 +32,11 @@ of this module, both resolved here rather than carried forward:
    no way to see `ProductConcept` rows — that separation of ports was
    correct; the gap was that nothing composed them until now.
 """
+
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from ..domain.errors import ProductIntelligenceForbiddenError, ProductIntelligenceValidationError
 from ..domain.zone_entities import DimensionAssessment, ProductZoneAssessment
@@ -52,7 +53,7 @@ def _new_id(prefix: str) -> str:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _require_zone_review_permission(context: ActorContext) -> None:
@@ -105,7 +106,9 @@ async def create_zone_assessment(
         advantage_score=0.0,
         unique_score=0.0,
         recommended_zone="COMMODITY",
-        assessment_origin="HUMAN" if context.actor_type == "HUMAN" else ("AI_PROPOSAL" if context.actor_type == "AI" else "RULE"),
+        assessment_origin="HUMAN"
+        if context.actor_type == "HUMAN"
+        else ("AI_PROPOSAL" if context.actor_type == "AI" else "RULE"),
     )
     await repo.save_zone_assessment(assessment)
     return assessment
@@ -266,7 +269,9 @@ async def approve_zone_assessment(
         }
     )
     approved = updated.transition_to(
-        new_status="APPROVED", actor_id=context.actor_id, reason=review_reason,
+        new_status="APPROVED",
+        actor_id=context.actor_id,
+        reason=review_reason,
     )
     await repo.save_zone_assessment(approved)
     return approved
@@ -297,7 +302,9 @@ async def reject_zone_assessment(
 
     assessment = await repo.load_zone_assessment(assessment_id, context.tenant_scope)
     rejected = assessment.transition_to(
-        new_status="REJECTED", actor_id=context.actor_id, reason=review_reason,
+        new_status="REJECTED",
+        actor_id=context.actor_id,
+        reason=review_reason,
     )
     await repo.save_zone_assessment(rejected)
     return rejected
@@ -325,7 +332,9 @@ async def retire_zone_assessment(
 
     assessment = await repo.load_zone_assessment(assessment_id, context.tenant_scope)
     retired = assessment.transition_to(
-        new_status="RETIRED", actor_id=context.actor_id, reason=reason,
+        new_status="RETIRED",
+        actor_id=context.actor_id,
+        reason=reason,
     )
     await repo.save_zone_assessment(retired)
     return retired

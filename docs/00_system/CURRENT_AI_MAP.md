@@ -30,6 +30,23 @@ design_copilot 的每个方法都是 NotImplementedError
    没有任何一项 AI 能力达到 PILOT 或 PRODUCTION
 ```
 
+**2026-08-29 增量（T-06）**：上面这段结论**仍然成立**，但 `backend/intelligence/` 下不再只有一个占位目录。
+
+```text
+backend/intelligence/
+  model_gateway/    真实代码 + 110 项测试通过（EXPERIMENT）
+  design_copilot/   仍全是 NotImplementedError（未变）
+
+但 model_gateway:
+  零调用方（无业务域使用、无 HTTP 路由）
+  零外部供应商通过第16条准入（唯一真实 adapter 被刻意登记为不可调用）
+
+∴ 有了第一项可运行的 AI 基础设施，仍没有任何一项可运行的 AI 业务能力
+   PILOT 与 PRODUCTION 依旧为 0
+```
+
+详见 §3 表格第 1 项与 **§3.3（落地后仍然为真的话）**。
+
 **源仓库 TS 侧有真实实现（`packages/ai-gateway/src/index.ts`，894 行）不等于 AiFamily 有。** 按 `governance/REPOSITORY_CONSTITUTION.md` R1（唯一后端真相 = Python），TS 实现只能作为**参考实现**（reference implementation），不是 AiFamily 的能力。
 
 **"研究过 / 设计过"不等于"已实现"。** 本文件下方所有 `PLANNED` 条目都有完整的设计文档，这恰恰是最容易被误读为"已有"的情形 —— `SYSTEM_MANIFEST.md` §6（Current Truth ≠ Specification ≠ Evidence）就是为防这个而存在。

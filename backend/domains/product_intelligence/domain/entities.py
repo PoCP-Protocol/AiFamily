@@ -22,9 +22,10 @@ This module has no FastAPI/SQLAlchemy dependency — see `infrastructure/
 sqlalchemy_models.py` for the persistence mapping, per the four-layer rule
 in `architecture/FAMILY_AI_PYTHON_ONLY_MIGRATION_PLAN_V1.md` section 3.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -83,7 +84,7 @@ class _AiProvenanceFields(BaseModel):
     confidence: float | None = None
 
     @model_validator(mode="after")
-    def _all_or_none_ai_provenance(self) -> "_AiProvenanceFields":
+    def _all_or_none_ai_provenance(self) -> _AiProvenanceFields:
         fields = (self.generated_by, self.model_ref, self.prompt_use_case_version, self.confidence)
         if any(f is not None for f in fields) and not all(f is not None for f in fields):
             raise ProductIntelligenceValidationError("ai_provenance_requires_all_fields_or_none")
@@ -188,7 +189,9 @@ class GrowthHypothesis(_CommonFields, _AiProvenanceFields):
     def _statement_non_empty(cls, value: str) -> str:
         return _require_non_empty(value, "statement")
 
-    def mark_validated(self, *, actor_id: str, actor_type: ActorType, reason: str) -> "GrowthHypothesis":
+    def mark_validated(
+        self, *, actor_id: str, actor_type: ActorType, reason: str
+    ) -> GrowthHypothesis:
         """Only a `HUMAN` actor may validate a hypothesis — `actor_type` is
         a trusted domain value passed in by the application layer from
         `ActorContext` (see `application/context.py`), not a string
@@ -208,15 +211,17 @@ class GrowthHypothesis(_CommonFields, _AiProvenanceFields):
             raise ProductIntelligenceValidationError("hypothesis_validation_illegal_source_state")
         if not reason:
             raise ProductIntelligenceValidationError("hypothesis_validation_requires_reason")
-        now = datetime.now(timezone.utc)
-        return self.model_copy(update={
-            "status": "VALIDATED",
-            "updated_at": now,
-            "version": self.version + 1,
-            "validated_by": actor_id,
-            "validated_at": now,
-            "validation_reason": reason,
-        })
+        now = datetime.now(UTC)
+        return self.model_copy(
+            update={
+                "status": "VALIDATED",
+                "updated_at": now,
+                "version": self.version + 1,
+                "validated_by": actor_id,
+                "validated_at": now,
+                "validation_reason": reason,
+            }
+        )
 
 
 class ContradictionModel(_CommonFields, _AiProvenanceFields):
@@ -244,9 +249,11 @@ class GrowthStrategy(_CommonFields, _AiProvenanceFields):
         return _require_non_empty(value, "statement")
 
     @model_validator(mode="after")
-    def _requires_at_least_one_hypothesis(self) -> "GrowthStrategy":
+    def _requires_at_least_one_hypothesis(self) -> GrowthStrategy:
         if not self.hypothesis_ids:
-            raise ProductIntelligenceValidationError("growth_strategy_requires_at_least_one_hypothesis")
+            raise ProductIntelligenceValidationError(
+                "growth_strategy_requires_at_least_one_hypothesis"
+            )
         return self
 
 

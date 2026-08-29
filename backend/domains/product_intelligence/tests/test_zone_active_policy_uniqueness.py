@@ -20,9 +20,10 @@ exercises the *application-level* fail-closed check in
 Postgres syntax verified by inspection/Agent D's real-Postgres pass, not by
 this SQLite suite.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
@@ -33,7 +34,7 @@ from ..infrastructure import zone_sqlalchemy_models as zm
 from ..infrastructure.sqlalchemy_models import Base
 from ..infrastructure.zone_sqlalchemy_repository import SqlAlchemyZoneAssessmentRepository
 
-UTC_NOW = datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+UTC_NOW = datetime(2026, 8, 29, 12, 0, 0, tzinfo=UTC)
 
 
 def _policy_row(*, row_id: str, policy_id: str, version: int) -> zm.ZonePolicyVersionRow:
@@ -104,7 +105,9 @@ async def test_two_active_versions_for_same_policy_id_fails_closed(sqlalchemy_se
 
 
 @pytest.mark.asyncio
-async def test_single_active_version_per_policy_id_still_loads_normally(sqlalchemy_session, zone_repo):
+async def test_single_active_version_per_policy_id_still_loads_normally(
+    sqlalchemy_session, zone_repo
+):
     sqlalchemy_session.add(_policy_row(row_id="p1:1", policy_id="zone-policy-v0", version=1))
     await sqlalchemy_session.flush()
 
@@ -114,7 +117,9 @@ async def test_single_active_version_per_policy_id_still_loads_normally(sqlalche
 
 
 @pytest.mark.asyncio
-async def test_active_versions_across_different_policy_ids_do_not_trigger_false_positive(sqlalchemy_session, zone_repo):
+async def test_active_versions_across_different_policy_ids_do_not_trigger_false_positive(
+    sqlalchemy_session, zone_repo
+):
     # One ACTIVE row per distinct policy_id must NOT be treated as a
     # conflict -- only >1 ACTIVE row sharing the SAME policy_id is a
     # violation. (V0's load_active_zone_policy_version has no policy_id

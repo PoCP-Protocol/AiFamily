@@ -25,15 +25,16 @@ place that proves:
    `domain/entities.py` — this is checked by issuing a raw INSERT that
    bypasses the domain/application layers entirely.
 
-Requires a real, disposable Postgres reachable at `PI_POSTGRES_TEST_DSN`
-(asyncpg DSN, e.g. `postgresql+asyncpg://postgres:postgres@localhost:55433/pi_test`).
-Skipped entirely (not failed) when that env var is unset, so CI without
-Docker/Postgres available is unaffected. See the PR-001R task notes for how
-to stand up a disposable container for local runs.
+Requires a real, disposable Postgres reachable at `AIFAMILY_TEST_DATABASE_URL`
+— the repository-wide convention introduced by T-03; see
+`docker-compose.dev.yml` for how to stand one up. This domain's original
+`PI_POSTGRES_TEST_DSN` still resolves as a deprecated fallback so existing
+local setups keep working. Skipped entirely (not failed) when neither is set,
+so CI without Docker/Postgres available is unaffected.
 """
+
 from __future__ import annotations
 
-import os
 import pathlib
 
 import pytest
@@ -42,18 +43,33 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from backend.platform.persistence.session import (
+    TEST_DATABASE_URL_ENV_VAR,
+    resolve_test_database_url,
+)
+
 from ..application import commands, queries
 from ..application.context import ActorContext
 from ..infrastructure.sqlalchemy_repository import SqlAlchemyProductIntelligenceRepository
 
-PI_POSTGRES_TEST_DSN = os.environ.get("PI_POSTGRES_TEST_DSN")
+# Resolved via the platform helper so every real-Postgres test in the repository
+# reads one variable (T-03). The helper also normalises a bare `postgresql://`
+# onto the async driver and honours the deprecated `PI_POSTGRES_TEST_DSN`.
+POSTGRES_TEST_URL = resolve_test_database_url()
 
 pytestmark = pytest.mark.skipif(
-    not PI_POSTGRES_TEST_DSN,
-    reason="PI_POSTGRES_TEST_DSN not set — real-Postgres integration test skipped (set it to run against a disposable container)",
+    not POSTGRES_TEST_URL,
+    reason=(
+        f"{TEST_DATABASE_URL_ENV_VAR} not set — real-Postgres integration test skipped "
+        "(`docker compose -f docker-compose.dev.yml up -d`, then export it)"
+    ),
 )
 
-MIGRATION_PATH = pathlib.Path(__file__).resolve().parents[1] / "migrations" / "0058_product_intelligence_domain.sql"
+MIGRATION_PATH = (
+    pathlib.Path(__file__).resolve().parents[1]
+    / "migrations"
+    / "0058_product_intelligence_domain.sql"
+)
 
 _ALL_TABLES = [
     "product_intelligence_service_blueprint_versions",
@@ -78,8 +94,8 @@ _ALL_TABLES = [
 
 @pytest_asyncio.fixture
 async def pg_repo():
-    assert PI_POSTGRES_TEST_DSN is not None
-    engine = create_async_engine(PI_POSTGRES_TEST_DSN)
+    assert POSTGRES_TEST_URL is not None
+    engine = create_async_engine(POSTGRES_TEST_URL)
 
     # Drop first so re-running this test against a persistent (not just
     # disposable) database is idempotent, then apply the real migration
@@ -107,7 +123,9 @@ async def pg_repo():
 
 def _human_ctx(tenant: str = "tenant-pg-1") -> ActorContext:
     return ActorContext(
-        actor_id="pm-1", actor_type="HUMAN", tenant_scope=tenant,
+        actor_id="pm-1",
+        actor_type="HUMAN",
+        tenant_scope=tenant,
         permissions=frozenset({"product_intelligence.hypothesis.review"}),
     )
 
@@ -122,23 +140,45 @@ async def test_migration_applies_and_full_chain_creates_and_traces(pg_repo):
     human = _human_ctx()
     ai = _ai_ctx()
 
-    signal = await commands.create_market_signal(repo, human, raw_text="家长普遍反映每天辅导作业太累")
-    insight = await commands.create_customer_insight(
-        repo, ai, signal_id=signal.id, statement="小学高年级家长群体存在学习管理退出困难",
-        model_ref="claude-sonnet-4-6", prompt_use_case_version="v1", confidence=0.7,
+    signal = await commands.create_market_signal(
+        repo, human, raw_text="家长普遍反映每天辅导作业太累"
     )
-    opportunity = await commands.create_opportunity(repo, human, insight_id=insight.id, statement="学习责任转移计划")
-    problem = await commands.create_growth_problem(repo, human, opportunity_id=opportunity.id, symptom="孩子写作业拖延")
+    insight = await commands.create_customer_insight(
+        repo,
+        ai,
+        signal_id=signal.id,
+        statement="小学高年级家长群体存在学习管理退出困难",
+        model_ref="claude-sonnet-4-6",
+        prompt_use_case_version="v1",
+        confidence=0.7,
+    )
+    opportunity = await commands.create_opportunity(
+        repo, human, insight_id=insight.id, statement="学习责任转移计划"
+    )
+    problem = await commands.create_growth_problem(
+        repo, human, opportunity_id=opportunity.id, symptom="孩子写作业拖延"
+    )
     hypothesis = await commands.create_growth_hypothesis(
-        repo, human, problem_id=problem.id, statement="家长控制增加导致孩子自主感下降",
+        repo,
+        human,
+        problem_id=problem.id,
+        statement="家长控制增加导致孩子自主感下降",
     )
     strategy = await commands.create_growth_strategy(
-        repo, human, problem_id=problem.id, hypothesis_ids=[hypothesis.id], statement="先完成学习责任逐步转移",
+        repo,
+        human,
+        problem_id=problem.id,
+        hypothesis_ids=[hypothesis.id],
+        statement="先完成学习责任逐步转移",
     )
-    concept = await commands.create_product_concept(repo, human, strategy_id=strategy.id, title="学习自主21天计划")
+    concept = await commands.create_product_concept(
+        repo, human, strategy_id=strategy.id, title="学习自主21天计划"
+    )
     await session.commit()
 
-    validated = await commands.validate_growth_hypothesis(repo, human, hypothesis_id=hypothesis.id, reason="matches evidence")
+    validated = await commands.validate_growth_hypothesis(
+        repo, human, hypothesis_id=hypothesis.id, reason="matches evidence"
+    )
     await session.commit()
     assert validated.status == "VALIDATED"
     assert validated.validated_by == human.actor_id
@@ -170,10 +210,18 @@ async def test_growth_strategy_check_constraint_rejects_empty_hypothesis_ids_at_
 
     # Need a real parent growth_problem row to satisfy the FK constraint on
     # problem_id, so the only constraint violation triggered is the CHECK.
-    signal = await commands.create_market_signal(repo, human, raw_text="raw text for constraint test")
-    insight = await commands.create_customer_insight(repo, human, signal_id=signal.id, statement="insight")
-    opportunity = await commands.create_opportunity(repo, human, insight_id=insight.id, statement="opportunity")
-    problem = await commands.create_growth_problem(repo, human, opportunity_id=opportunity.id, symptom="symptom")
+    signal = await commands.create_market_signal(
+        repo, human, raw_text="raw text for constraint test"
+    )
+    insight = await commands.create_customer_insight(
+        repo, human, signal_id=signal.id, statement="insight"
+    )
+    opportunity = await commands.create_opportunity(
+        repo, human, insight_id=insight.id, statement="opportunity"
+    )
+    problem = await commands.create_growth_problem(
+        repo, human, opportunity_id=opportunity.id, symptom="symptom"
+    )
     await session.commit()
 
     with pytest.raises(IntegrityError) as excinfo:

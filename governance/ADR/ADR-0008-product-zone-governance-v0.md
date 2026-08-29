@@ -85,7 +85,35 @@ commodity/advantage/unique_count = APPROVED 状态按 approved_zone 拆分
 
 `migrations/0059_product_zone_engine_v0.sql` 里的跨租户校验 trigger 是数据库层纵深防御。**主要修复手段在应用层**：`application/zone_commands.py::create_zone_assessment` 会先加载 `ProductConcept`（通过 `product_intelligence` 域已有的、tenant-scoped 的 `ProductIntelligenceRepositoryPort.load_product_concept`），跨租户引用在应用层就已经被拦截，trigger 只是防止应用层被绕过时的最后一道防线。两者都需要真实 Postgres 测试验证（`tests/test_zone_postgres_integration.py`），不能只靠 SQLite 内存测试证明。
 
-## 相关文档
+## Alternatives Considered
+
+**A. `zone` 只做单值互斥分类（三选一），不保留三个独立分数**——支持理由：模型更简单，前端展示只需要一个标签。否决理由：真实场景里一个能力可以同时有同质基础和独占层（例如底层 OCR 是同质区，叠加专有语料后的整体能力是独占区），互斥分类会强迫做无信息量的取舍，丢失"这个能力该在哪一层继续投入护城河"这个真正有决策价值的信息。
+
+**A2. `recommended_zone` 与 `approved_zone` 共用一个 `zone` 字段，人工批准时直接覆盖**——支持理由：字段更少，模型更简洁。否决理由：一旦覆盖，AI 建议的原始值就永久丢失，无法做"AI 建议 vs 人工判定"的偏差分析（例如发现 AI 在某类场景系统性高估独占区），也违反宪章 R9 的 Perspective/Fact 分层精神——覆盖等于让 Recommendation 直接变成了 Fact。
+
+**A3. UNIQUE 档位硬编码要求两名不同 HUMAN 双签**——支持理由：独占区判断影响重大，直觉上应该更审慎。否决理由：本 ADR 依据的只读研究给出的证据是"双签应作为通用政策"，不是"仅 UNIQUE 需要、其它档位单人即可"这条具体规则的证据——把一般性建议套到一条更窄的具体规则上，是在编造研究没有支持的结论（这类"没有科学验证却假装已验证"的模式正是 `docs/00_system/CURRENT_SYSTEM_BASELINE.md` 与 ADR-0007 都在防的）。改为可配置 `review_policy` 字段，V0 默认单人审核，双签机制留作未来按真实数据决策的开放项。
+
+**A4. 用一张独立的 ProductZoneEvidence 表/对象存三区专用证据**——支持理由：证据结构可以完全为三区场景定制。否决理由：违反"不新建第二套证据体系"的原则（本 ADR §1），会造成两套并行的证据溯源路径，增加维护与审计成本，且 `product_intelligence` 域已有的 `Evidence`/`MarketSignal`/`CustomerInsight` 完全够用。
+
+## Consequences
+
+### 正面
+- `recommended_zone`/`approved_zone` 分离使得未来可以量化"AI 建议准确率"，为后续引入真实 AI 打分（当前仍 `live_model_call_authorized=false`）积累校准数据。
+- Portfolio 严格六桶口径让经营层看到的"当前独占区占比"永远只反映**已批准**的判断，不会被"AI 建议但还没人审"的乐观分数污染。
+- Active Policy 唯一性的双重保证（应用层 + DB 约束）让"policy 数据不一致"这种故障模式在数据层面就不可能发生，不依赖应用代码永远正确。
+
+### 负面 / 代价
+- 六个状态到六个桶的严格映射增加了实现与测试的复杂度（对比"REJECTED 混进 unreviewed"这种更简单但语义模糊的旧口径）。
+- 双签机制"只搭骨架不强制启用"意味着如果经营层现在就想要 UNIQUE 双签，还需要一次新的 policy 配置改动+可能的新 ADR，不能立等可用。
+
+### 需要接受的风险
+- Postgres 跨租户 trigger 是纵深防御，如果应用层的主修复（`load_product_concept` 校验）出现回归，trigger 是最后一道防线，但 trigger 本身依赖真实 Postgres 环境才会生效——本地 SQLite 测试环境下这层防御不存在，只能靠应用层测试兜底。
+
+## Enforcement
+
+由 `backend/domains/product_intelligence/tests/test_zone_review_governance.py`（HUMAN+无权限/HUMAN+错权限/HUMAN+对权限/AI+权限仍拒/SYSTEM+权限仍拒五个场景）、`test_zone_active_policy_uniqueness.py`（同 policy_id 两个 ACTIVE 版本 fail closed）、`test_portfolio_zone_view.py`（六桶口径与不变量）、`test_zone_postgres_integration.py`（真实 Postgres 上的跨租户 trigger 与唯一索引）共同强制执行。`migrations/0059_product_zone_engine_v0.sql` 与 `migrations/0060_product_zone_engine_canonical_cleanup.sql`（见 `migrations/README.md`，当前是 pre-Alembic 的域内 raw SQL）承载对应的数据库层约束。
+
+## References
 
 - `governance/ADR/ADR-0007-product-zone-scoring-v0.md`（数学模型）
 - `backend/domains/product_intelligence/domain/zone_entities.py`（可执行实现）

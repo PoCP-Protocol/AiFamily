@@ -1,0 +1,49 @@
+# Local development/test Postgres for AiFamily.
+#
+# Named `docker-compose.dev.yml` rather than `docker-compose.yml` so that
+# `docker compose up` cannot be mistaken for "start the AiFamily system".
+# It starts one thing: a disposable Postgres for `alembic upgrade head` and the
+# gated real-Postgres repository tests. The FastAPI app is not containerised
+# here; run it with `uv run uvicorn backend.apps.family_api.main:app`.
+#
+# Usage
+#   docker compose -f docker-compose.dev.yml up -d
+#   export AIFAMILY_TEST_DATABASE_URL=postgresql+asyncpg://aifamily:aifamily@localhost:55442/aifamily_test
+#   uv run pytest -q                    # Postgres-gated tests now run instead of skipping
+#   docker compose -f docker-compose.dev.yml down -v
+#
+# Port 55442 is deliberately non-default AND non-obvious: this machine already
+# runs several other projects' Postgres containers, including ones on 5432,
+# 55432 and 55433. A collision would silently point tests at somebody else's
+# database, so this port was picked after checking what was actually bound.
+#
+# Credentials here are local-only fixtures for a throwaway container. Nothing
+# reads them in production: `backend/platform/persistence/session.py` resolves
+# `DATABASE_URL` from the environment, and no default points at this service.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aifamily-dev-postgres
+    environment:
+      POSTGRES_USER: aifamily
+      POSTGRES_PASSWORD: aifamily
+      POSTGRES_DB: aifamily_test
+    ports:
+      # Bound to loopback only — this database must never be reachable off-box.
+      # It holds no real family data (see docs/12_governance/
+      # COMPLIANCE_HARD_CONSTRAINTS.md), and keeping it loopback-only means it
+      # never can.
+      - "127.0.0.1:55442:5432"
+    healthcheck:
+      # `alembic upgrade head` against a still-initialising Postgres fails in a
+      # confusing way, so make readiness explicit.
+      test: ["CMD-SHELL", "pg_isready -U aifamily -d aifamily_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    # No named volume: this container is meant to be disposable, and a
+    # persistent volume would let a stale schema survive a `down`/`up` cycle
+    # and quietly invalidate the next `alembic upgrade head` run.
+    tmpfs:
+      - /var/lib/postgresql/data

@@ -1,7 +1,10 @@
 """SimulationLab — STRUCTURE_ONLY.
 
 Encodes the same "simulated data cannot self-certify" guardrail as
-`domains/product_strategy/domain/entities.py` `Opportunity.promote_to_invest`,
+`backend/domains/product_intelligence/domain/entities.py`
+`GrowthHypothesis.mark_validated` (the sole canonical Product Intelligence
+domain — `domains/product_strategy` was retired as a duplicate canonical
+source, see `governance/MIGRATION_MANIFEST.yaml` → `product_strategy`),
 deliberately duplicated here rather than sharing one gate function. Two
 independent enforcement points mean a bug in one doesn't silently let
 simulated evidence through the other — see `CLAUDE.md` section 4 and
@@ -15,14 +18,15 @@ guessed parameters never).
 """
 from __future__ import annotations
 
+from backend.domains.product_intelligence.domain.entities import ProductDefinition
 from backend.packages.contracts.evidence import NON_ESTABLISHING_LEVELS, Provenance
-from backend.packages.contracts.product_factory import ProductDefinition
 
 
-class ProductStrategyValidationError(Exception):
-    """Mirrors `domains.product_strategy.domain.errors.ProductStrategyValidationError`
-    without importing across domain boundaries — `intelligence/` is not a
-    domain and should not depend on a specific domain's error hierarchy.
+class ProductIntelligenceValidationError(Exception):
+    """Mirrors `backend.domains.product_intelligence.domain.errors.
+    ProductIntelligenceValidationError` without importing across domain
+    boundaries — `intelligence/` is not a domain and should not depend on a
+    specific domain's error hierarchy.
     """
 
 
@@ -59,4 +63,4 @@ class SimulationLab:
         authorize moving to a real family pilot.
         """
         if real_evidence.level in NON_ESTABLISHING_LEVELS:
-            raise ProductStrategyValidationError("pilot_promotion_requires_establishing_evidence")
+            raise ProductIntelligenceValidationError("pilot_promotion_requires_establishing_evidence")

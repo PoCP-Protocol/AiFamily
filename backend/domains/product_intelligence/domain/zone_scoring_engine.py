@@ -15,6 +15,7 @@ Agent C's persisted default policy row), not in this module, precisely so a
 future policy version can change them without a code change (ADR-Governance
 §3).
 """
+
 from __future__ import annotations
 
 from .errors import ProductIntelligenceValidationError
@@ -124,7 +125,10 @@ def compute_defensibility_index(
     if weight_sum == 0.0:
         raise ProductIntelligenceValidationError("zone_policy_defensibility_weights_sum_to_zero")
     return (
-        w_da * data_advantage + w_ne * network_effect + w_le * learning_effect + w_sc * switching_cost
+        w_da * data_advantage
+        + w_ne * network_effect
+        + w_le * learning_effect
+        + w_sc * switching_cost
     ) / weight_sum
 
 
@@ -173,7 +177,8 @@ def classify_zone(
 
     floor_gate_min = thresholds[THRESHOLD_UNIQUE_FLOOR_GATE_MIN]
     passes_floor_gate = all(
-        dimension_scores.get(dim, 0.0) >= floor_gate_min for dim in DEFENSIBILITY_FLOOR_GATE_DIMENSIONS
+        dimension_scores.get(dim, 0.0) >= floor_gate_min
+        for dim in DEFENSIBILITY_FLOOR_GATE_DIMENSIONS
     )
     if defensibility_index >= thresholds[THRESHOLD_UNIQUE_DEFENSIBILITY_MIN] and passes_floor_gate:
         return "UNIQUE"
@@ -243,7 +248,11 @@ def compute_three_scores(
     penalty_factor = policy.thresholds.get(
         THRESHOLD_NON_GATED_UNIQUE_PENALTY_FACTOR, _DEFAULT_NON_GATED_UNIQUE_PENALTY_FACTOR
     )
-    unique_score = defensibility_index if recommended_zone == "UNIQUE" else defensibility_index * penalty_factor
+    unique_score = (
+        defensibility_index
+        if recommended_zone == "UNIQUE"
+        else defensibility_index * penalty_factor
+    )
     commodity_score = ((100.0 - differentiation_index) + (100.0 - defensibility_index)) / 2.0
     advantage_score = 100.0 - abs(commodity_score - unique_score)
 

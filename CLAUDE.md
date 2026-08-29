@@ -47,13 +47,23 @@ AiFamily = AI 原生家庭成长平台的 **canonical 仓库**（Python 3.12 / F
 ## 命令
 
 ```bash
-uv run pytest tests/architecture -v   # 治理护栏，改任何结构后必跑（当前 12 passed）
+uv run pytest tests/architecture -v   # 治理护栏，改任何结构后必跑
 uv run pytest -v                      # 全量
 uv run ruff check .                   # lint（CI 会跑）
+uv run ruff format <改过的文件>        # 格式化，见下方纪律
 make help                             # 全部可用目标
 ```
 
 `make arch` / `make test` / `make lint` / `make check` 是上述命令的等价封装。CI 见 `.github/workflows/ci.yml`（lint + 架构测试 + backend 测试）。
+
+### 格式化纪律（ADR-0009）
+
+`ruff format` 的输出就是本仓库的规范格式，**不接受手工折行风格并存**。
+
+- 写完代码对**你改过的文件**跑 `uv run ruff format <文件>`，不要全量跑 `ruff format .`——仓库当前处于"部分文件已格式化"的混合态，全量跑会产生与你改动无关的大量 diff，且可能覆盖并发会话未提交的工作
+- **禁止 `# noqa: E501` 规避行过长**。长行要么折，要么（长字符串）用隐式拼接拆行且保证字符串值逐字节不变
+- **禁止改 `pyproject.toml` 的 `line-length` 或加 ignore 规则**来让错误消失。规则是既有决定，不因违规多就放宽
+- 全量格式化 sweep 是一次独立任务，前置条件与验证要求见 `governance/ADR/ADR-0009-ruff-format-as-repo-standard.md`
 
 ## 禁止事项
 

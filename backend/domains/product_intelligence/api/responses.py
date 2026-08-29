@@ -8,6 +8,7 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from ..domain.entities import (
+    CustomerInsight,
     GrowthHypothesis,
     GrowthProblem,
     GrowthStrategy,
@@ -15,7 +16,6 @@ from ..domain.entities import (
     Opportunity,
     ProductConcept,
 )
-from ..domain.entities import CustomerInsight
 
 
 class ProductConceptChainResponse(BaseModel):

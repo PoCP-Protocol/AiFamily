@@ -11,9 +11,20 @@ See `0059_product_zone_engine_v0.sql` for the ADR-Governance §3 rationale
 on why `dimension_assessments` is one `JSON` column (a `list[dict]`, i.e.
 `DimensionAssessment.model_dump()` results) rather than a child table.
 """
+
 from __future__ import annotations
 
-from sqlalchemy import CheckConstraint, Column, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.types import JSON
 
 from .sqlalchemy_models import Base, DateTime
@@ -32,9 +43,7 @@ class ZonePolicyVersionRow(Base):
     effective_from = Column(DateTime, nullable=False)
     status = Column(String, nullable=False)
     checksum = Column(String, nullable=False)
-    scoring_algorithm_version = Column(
-        String, nullable=False, server_default="ZONE_SCORING_V0"
-    )
+    scoring_algorithm_version = Column(String, nullable=False, server_default="ZONE_SCORING_V0")
     """Closure fix (chief-architect review, mirrors
     `domain/zone_entities.py::ZonePolicyVersion.scoring_algorithm_version`,
     added by Agent B after this table's original 0059 shape). `server_default`
@@ -47,7 +56,9 @@ class ZonePolicyVersionRow(Base):
 
     __table_args__ = (
         UniqueConstraint("policy_id", "version", name="uq_zone_policy_versions_policy_id_version"),
-        CheckConstraint("status IN ('DRAFT', 'ACTIVE', 'RETIRED')", name="ck_zone_policy_versions_status"),
+        CheckConstraint(
+            "status IN ('DRAFT', 'ACTIVE', 'RETIRED')", name="ck_zone_policy_versions_status"
+        ),
     )
 
 
@@ -69,7 +80,9 @@ class ProductZoneAssessmentRow(Base):
     tenant_scope = Column(String, nullable=False)
     status = Column(String, nullable=False)
     subject_type = Column(String, nullable=False)
-    subject_ref = Column(String, ForeignKey("product_intelligence_product_concepts.id"), nullable=False)
+    subject_ref = Column(
+        String, ForeignKey("product_intelligence_product_concepts.id"), nullable=False
+    )
     zone_policy_version_id = Column(String, nullable=False)
     dimension_assessments = Column(JSON, nullable=False)
     differentiation_index = Column(Float, nullable=False)
@@ -86,7 +99,9 @@ class ProductZoneAssessmentRow(Base):
     assessment_origin = Column(String, nullable=False)
 
     __table_args__ = (
-        CheckConstraint("subject_type = 'PRODUCT_CONCEPT'", name="ck_zone_assessments_v0_subject_type"),
+        CheckConstraint(
+            "subject_type = 'PRODUCT_CONCEPT'", name="ck_zone_assessments_v0_subject_type"
+        ),
         CheckConstraint(
             "recommended_zone IN ('COMMODITY', 'ADVANTAGE', 'UNIQUE')",
             name="ck_zone_assessments_v0_recommended_zone",

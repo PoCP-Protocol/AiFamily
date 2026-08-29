@@ -30,7 +30,6 @@ from backend.domains.membership.application.context import ActionContext
 from backend.domains.membership.infrastructure.fake_repository import FakeMembershipRepository
 from backend.platform.audit.recorder import AuditRecorder
 from backend.platform.identity.context import ActorContext, ActorType
-
 from tests.domains.membership.helpers import FAMILY, GUARDIAN, TENANT, seed_catalogue
 
 FOREIGN_FAMILY = "family-999"

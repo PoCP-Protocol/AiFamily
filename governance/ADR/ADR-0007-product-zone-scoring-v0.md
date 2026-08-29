@@ -86,7 +86,33 @@ ADVANTAGE   其余情况
 
 证据必须是历史行为数据或第三方可验证数据，不是产品经理主观判断——呼应 `docs/05_ai/AI_NATIVE_PRINCIPLES.md`/宪章 R9 的 `Perspective≠Fact` 原则，这不是给这条能力新发明一套证据体系。
 
-## 相关文档
+## Alternatives Considered
+
+**A. 六维度直接喂给一个 LLM 打分（黑箱）**——支持理由：省去设计确定性公式的工作，AI 可能捕捉到规则模型漏掉的模式。否决理由：结果不可复算、不可审计，两次相同输入可能得到不同分数，违反"同输入+同 policy=同结果"这条本 ADR 要求的不变量，也违反宪章 R9（AI 输出不得直接构成经营事实）。
+
+**A2. 六维度做真实因子分析/PCA 去相关，而不是分组两指数**——支持理由：数学上更严谨，能真正消除维度间共线性。否决理由：需要真实历史评估数据才能拟合，V0 阶段没有这批数据（同一模式已在 `docs/00_system/CURRENT_SYSTEM_BASELINE.md` 反复出现："不能假装已科学验证"）。两指数分组是在"没有数据支撑更复杂模型"前提下的次优但诚实的选择，且已把已知的共线维度分到同一组，不是忽略这个问题。
+
+**A3. 权重要求六维度总和为 1.0（或 100）**——支持理由：约束更简单，policy 作者容易理解"总和必须是 1"这条规则。否决理由：会平白增加 policy 作者的负担（每次改一个权重都要重新配平其它五个），而组内归一化在数学上天然等价，且允许两组权重完全独立配置——决定采用归一化，不采用强制总和约束。
+
+## Consequences
+
+### 正面
+- 权重变化会立刻反映在分数上，不再是"存了但没用"的摆设字段。
+- `scoring_algorithm_version` 让未来引入新算法版本时，旧数据不会被静默按新公式重算。
+- floor gate 防止"均值堆分"把明显有单一致命短板的能力误判为独占区。
+
+### 负面 / 代价
+- 阈值（75/50/40/40）与惩罚系数（0.5）都是未经真实数据校准的 fixture 值，V0 阶段的分区结果本身不构成"这个能力真的是独占区"的证据，只是给经营判断提供结构化输入（呼应 ADR-0008 §2 的"AI 只产 Perspective"精神）。
+- 组内独立归一化意味着 Differentiation 与 Defensibility 两组之间没有相对权重可调——如果未来发现某类产品需要让"差异化"整体比"防御力"更重要，需要新的 policy 字段与新 ADR，不是本 ADR 范围内能调的。
+
+### 需要接受的风险
+- 六维度评分仍然依赖人工/AI 给出的 `score` 数值本身的准确性，本 ADR 的数学模型不能修正一个本来就打错的输入分数——这是 ADR-0008 的证据门槛要负责的事，不是本 ADR 的范围。
+
+## Enforcement
+
+由 `backend/domains/product_intelligence/tests/test_zone_scoring.py` 与 `test_zone_adversarial.py` 强制执行，包括：权重改变确实改变 `differentiation_index`（非摆设）、floor gate 阻止高均值低支柱进入 UNIQUE、checksum 随 weights/thresholds/algorithm_version 变化而变化、不支持的 `scoring_algorithm_version` fail closed。`test_zone_postgres_integration.py` 额外在真实 Postgres 上验证 weights 持久化往返后依然生效、历史 assessment 不被新 policy 重写。
+
+## References
 
 - `governance/ADR/ADR-0008-product-zone-governance-v0.md`（生命周期/证据门槛/Human Gate/Portfolio 口径）
 - `backend/domains/product_intelligence/domain/zone_scoring_engine.py`（可执行实现）

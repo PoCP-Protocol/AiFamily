@@ -22,12 +22,12 @@ PR-001R item 6: `get_repository` now wraps the session in
 unhandled exception rolls back — the repository's own `save_*` calls no
 longer commit.
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
 from fastapi import Request
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..application.context import ActorContext
 from ..application.ports import ProductIntelligenceRepositoryPort
@@ -51,7 +51,11 @@ async def get_actor_context(request: Request) -> ActorContext:
 
 async def get_repository() -> AsyncGenerator[ProductIntelligenceRepositoryPort, None]:
     if _session_factory is None:
-        raise RuntimeError("product_intelligence session factory not configured — no owning app exists yet")
-    async with _session_factory() as session:  # type: AsyncSession
-        async with SqlAlchemyUnitOfWork(session):
-            yield SqlAlchemyProductIntelligenceRepository(session)
+        raise RuntimeError(
+            "product_intelligence session factory not configured — no owning app exists yet"
+        )
+    async with (
+        _session_factory() as session,  # type: AsyncSession
+        SqlAlchemyUnitOfWork(session),
+    ):
+        yield SqlAlchemyProductIntelligenceRepository(session)

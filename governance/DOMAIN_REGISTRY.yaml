@@ -104,10 +104,44 @@ entries:
 
   - capability: model_gateway
     canonical_path: backend/intelligence/model_gateway
-    status: NOT_STARTED
+    status: MIGRATED_TESTED
     disposition: REIMPLEMENT
     source_reference: "50_开发_dev/packages/ai-gateway/src/index.ts"
-    note: "目录尚不存在。R7 目前由 tests/architecture/test_no_direct_provider_calls.py 以否定形式执行（禁止直连），而非由一个真实网关提供正路径。"
+    tests:
+      - tests/intelligence/model_gateway
+      - tests/architecture/test_ai_runtime_isolation.py
+    scope: >
+      Provider 准入（含《儿童个人信息网络保护规定》第16条合规字段：sub_delegates 三态 /
+      minor_data_allowed / private_text_allowed / 安全评估与委托协议引用 / 解约删除承诺）、
+      Timeout（gateway 外层 asyncio deadline + adapter 内层，双层）、Attempt 账本（外呼前
+      persist STARTED，超时不丢轨迹）、结构化输出 JSON 解析 + schema 子集校验、
+      AiProvenance 强制完整、输出统一封装为 ModelDraft（status=DRAFT，
+      may_mutate_business_state 为只读 property 恒 False）、受控 Routing（仅
+      TIMEOUT/NETWORK_ERROR/PROVIDER_5XX 换 provider，且每个候选独立过准入）。
+      Adapter 两个：OpenAICompatibleProvider（真实 httpx 路径，经 MockTransport 全程测试）
+      与 FakeProvider（确定性，可注入超时/非法JSON/失败种类）。
+    status_rationale: >
+      2026-08-29 由 NOT_STARTED 落地。R7 此前只有否定形式的执行（禁止直连），现在有了
+      正路径：凭据读取收敛在 model_gateway/providers/ 一处，并由
+      tests/architecture/test_ai_runtime_isolation.py::test_credentials_are_read_only_inside_the_model_gateway
+      机械强制。同时补上了 AI_NATIVE_PRINCIPLES.md §5 自己列为"待补"的两项检查
+      （intelligence 层不得 import 业务域 repository / 不得给自己的产出赋
+      VALIDATED-APPROVED-CONFIRMED 状态）——四个检查器均已用植入违规的方式验证会咬人。
+    known_gaps:
+      - >
+        **零个外部供应商可调用**。真实 adapter 的登记条目 openai-compatible-unassessed
+        故意设为 status=TECHNICALLY_VALIDATED + sub_delegates=null（未确立），因此
+        admit() 对它一律拒绝。放行需法务确立厂商分包结构（不得转委托），
+        见 COMPLIANCE_HARD_CONSTRAINTS.md §7/§11.1——这不是工程判断。
+      - >
+        Attempt 账本只有 InMemoryAttemptSink（进程内，非持久化）。持久化归属
+        platform/audit 的读取留痕扩展（T-07），本域只依赖 AttemptSink 协议，
+        不得反向 import 业务域仓储。
+      - >
+        schema 校验是 JSON Schema 的子集（type/required/properties/items/enum）。
+        引入 jsonschema 依赖属 R11 决策，需 ADR，未在本任务内自行决定。
+      - "尚无 Prompt Registry / Human Gate / Context Engine，故 prompt_version 与 context_snapshot_ref 目前由调用方自行提供，网关只强制其非空，不校验其存在。"
+      - "未接入任何调用方：无业务域使用本网关，无 HTTP 路由。按 R4 这是'能力存在且有测试'，不是'已投入使用'。"
 
   - capability: fastapi_runtime_entrypoint
     canonical_path: backend/apps/family_api
@@ -254,34 +288,9 @@ entries:
     status: MIGRATED_TESTED
     disposition: REIMPLEMENT
     source_reference: "50_开发_dev/apps/api/src/modules/model/family-assessment-model.provider.ts"
-    scope: >
-      进程内 Assessment vertical slice：UI-02 session/response/submit ->
-      UI-03 Hypothesis -> 人工确认 GrowthIntent。当前实现是
-      backend/domains/assessment/{api,service}.py 两个模块，不是四层结构。
+    scope: "非生产进程内 Assessment vertical slice：UI-02 session/response/submit -> UI-03 Hypothesis -> 人工确认 GrowthIntent。"
     tests: [tests/domains/assessment/test_acceptance_chain.py, tests/apps/family_api/test_assessment_routes.py]
-    r2_merge_note: >
-      2026-08-29：本条目由两条重复登记合并而来。两个并发会话各自登记了
-      capability `assessment` 且共用同一 canonical_path —— 一条描述本地内存
-      vertical slice（即磁盘上真实存在的实现），另一条描述从 family-ai 分支
-      feat/python-assessment-domain-p0-001 迁入的完整四层域，声称
-      AssessmentSession/AssessmentTool 实体 + SQLAlchemy 仓储 + api/routes.py 且
-      status=MIGRATED_TESTED。实测 backend/domains/assessment/ 下只有
-      __init__.py / api.py / service.py，被声称的实体与仓储**均不存在**。
-      故删去后者，其尚未落地的部分降级为下方 known_gaps，避免 registry
-      把计划登记成事实。
-    known_gaps:
-      - "内存 repository，仅供 dev/test；尚未接入 SQLAlchemy/PostgreSQL"
-      - "确定性 Hypothesis 生成器尚未接入 Model Gateway（该模块本身也不存在）"
-      - >
-        非四层结构：当前是 api.py + service.py 两个模块，未按
-        docs/10_engineering/ENGINEERING_ARCHITECTURE.md 的
-        api/application/domain/infrastructure 四层组织。落 Postgres 时须重构。
-      - >
-        AssessmentSession / AssessmentTool / AssessmentResponse 实体尚未建模；
-        family-ai 分支 feat/python-assessment-domain-p0-001 的迁入尚未发生。
-      - >
-        AI 解读路径未接入。按 R7/R9，它必须经 backend/intelligence/model_gateway
-        重写而非原样搬迁 legacy 的 claude_interpretation.py。
+    known_gaps: ["内存 repository，仅供 dev/test；尚未接入 SQLAlchemy/PostgreSQL", "确定性 Hypothesis 生成器尚未接入 Model Gateway"]
 
   - capability: orchestration_core
     canonical_path: backend/platform/orchestration

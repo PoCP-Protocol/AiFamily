@@ -191,6 +191,114 @@ capabilities:
     status: IMPLEMENTED_TESTED
 
 # ---------------------------------------------------------------------------
+# AI Runtime 能力（backend/intelligence，R10：各一份）
+# ---------------------------------------------------------------------------
+# 这两条是 AI 能力的前置基础设施，本身不服务某一项业务能力——它们约束的是
+# **所有**业务能力将来怎么调模型。故 business_capability = PLATFORM_INTERNAL，
+# 上溯终点是宪章 R7/R9/R10 与 COMPLIANCE_HARD_CONSTRAINTS.md，不是业务能力地图。
+
+  - capability: admit_model_provider
+    business_capability: PLATFORM_INTERNAL
+    domain: intelligence/model_gateway
+    purpose: >
+      给定 (provider_id, data_class, environment) 返回准入的 ProviderRecord 或
+      POLICY_REJECTED。未登记 / 状态未获批 / 环境不符 / 数据类别越权 / 第16条手续缺失
+      一律 fail-closed，无宽松分支。
+    actor: [system]
+    command: null                # 平台原语，非业务 Named Action
+    api: null
+    code:
+      domain: backend/intelligence/model_gateway/provider_registry.py
+    tests:
+      - tests/intelligence/model_gateway/test_provider_admission.py
+    consent:
+      required: false
+      note: >
+        准入检查的是"这个供应商能不能处理这一类数据"，不替代 consent。
+        涉家庭/未成年人数据的调用方仍须自行过 platform/consent（第14条目的变更须重新同意）。
+    audit:
+      required: true
+      note: "被拒绝的准入不产生 attempt 记录（没有外呼就不谎报外呼）；通过后由 attempt 账本留痕"
+    idempotency: {required: false}
+    ai:
+      involved: false
+      note: "它是约束 AI 外呼的机制本身，不含 AI 推断"
+    status: IMPLEMENTED_TESTED
+    compliance_refs:
+      - >
+        COMPLIANCE_HARD_CONSTRAINTS.md §7：《儿童个人信息网络保护规定》第16条
+        委托第三方处理须先安全评估 + 签委托协议 + 不得超出授权范围 + **不得转委托** +
+        解约时删除。五项各对应一个 ProviderRecord 字段并在 admit() 执行。
+      - "§11.1：不得转委托需法务与商务介入，非纯技术决定"
+    known_gaps:
+      - >
+        **零个外部供应商通过准入**。sub_delegates 为三态（true/false/未确立），
+        未确立按禁止处理——因此 openai-compatible-unassessed 对任何数据类别都被拒。
+        这是当前真实的治理状态，不是待填的占位。
+      - >
+        不做转委托的**技术**核验（无法从代码判断厂商是否再分包），只强制"必须有人
+        填过这个字段且答案是 false"。答案的真实性依赖法务的评估结论。
+
+  - capability: generate_model_draft
+    business_capability: PLATFORM_INTERNAL
+    domain: intelligence/model_gateway
+    purpose: >
+      经准入后对单个 provider 发起一次结构化生成：外呼前登记 attempt → 双层 timeout →
+      JSON 解析 + schema 校验 → 强制完整 AiProvenance → 返回 ModelDraft。
+      任何失败一律抛 ModelGatewayError，绝不返回原始模型文本，绝不降级。
+    actor: [system]
+    command: null
+    api: null
+    code:
+      domain: backend/intelligence/model_gateway/contracts.py
+      application: backend/intelligence/model_gateway/gateway.py
+      infrastructure: backend/intelligence/model_gateway/providers/
+    tests:
+      - tests/intelligence/model_gateway/test_fail_closed.py
+      - tests/intelligence/model_gateway/test_provenance_and_draft.py
+      - tests/intelligence/model_gateway/test_openai_compatible_provider.py
+      - tests/intelligence/model_gateway/test_routing_and_attempts.py
+      - tests/architecture/test_ai_runtime_isolation.py
+    consent:
+      required: false
+      note: "网关本身不判定 consent；调用方在构造 StructuredRequest 前须自行过闸"
+    audit:
+      required: true
+      note: >
+        每次外呼在**调用前**写入 attempt（STARTED），成功/失败/超时回写。
+        顺序是刻意的：写在调用后的话，超时与进程崩溃就不留痕，审计轨迹里只剩成功。
+    idempotency:
+      required: false
+      note: >
+        automatic_retry = 0，因此不需要幂等键去重。retry=0 沿用源仓库决定并追加本仓库
+        自己的理由：重试会把"经过几个受托处理者"变成网络天气的函数（第16条按处理者逐个
+        计算义务），且反复重试直到模型吐出合法 JSON 是在优化"produce an answer"，
+        与 R9 直接冲突。
+    ai:
+      involved: true
+      constraint: >
+        输出恒为 ModelDraft（status=DRAFT），may_mutate_business_state 是只读 property
+        恒 False——不是带 False 默认值的字段，因此 dataclasses.replace 也改不到。
+        backend/intelligence/ 下不得 import 业务域 repository 或 platform/persistence，
+        由 tests/architecture/test_ai_runtime_isolation.py 机械强制（已验证会咬人）。
+        canonical 写入只能经业务域自己的 Named Action + 人工闸门（R8/R9）。
+    status: IMPLEMENTED_TESTED
+    reference_implementation: "50_开发_dev/packages/ai-gateway/src/index.ts（894行，作为设计参考重译为 Python，未搬 TS 代码结构）"
+    compliance_refs:
+      - >
+        COMPLIANCE_HARD_CONSTRAINTS.md §2：PIPL 第24条要求自动化决策可解释，
+        故 provenance 记录 model / model_version / prompt_version /
+        context_snapshot_ref / confidence / latency_ms / provider_id 为**强制**。
+        AiProvenance 的身份字段缺一即构造失败。
+      - "R9 / AI_NATIVE_PRINCIPLES.md §2：AI 原生不放宽约束，AI 是主干所以约束更严"
+    known_gaps:
+      - "Attempt 账本仅进程内（InMemoryAttemptSink），无持久化表。持久化归 T-07 的读取留痕扩展。"
+      - "schema 校验是 JSON Schema 子集（type/required/properties/items/enum）；引入 jsonschema 属 R11 决策需 ADR。"
+      - "confidence 依赖 provider 上报，多数 OpenAI 兼容厂商不报，故记为 None——刻意不编造数值填进合规记录。"
+      - "无 Prompt Registry：prompt_version / context_snapshot_ref 由调用方给出，网关只强制非空，不校验其指向真实存在的 prompt 或快照。"
+      - "无调用方：无业务域使用、无 HTTP 路由。按 R4 是'能力存在且有测试'，不是'已投入使用'。"
+
+# ---------------------------------------------------------------------------
 # 运行时能力（Wave 1）
 # ---------------------------------------------------------------------------
 
@@ -229,8 +337,98 @@ capabilities:
     status: IMPLEMENTED_TESTED
 
 # ---------------------------------------------------------------------------
-# 业务域能力（已迁入代码，但均未接入 API）
+# 业务域能力
 # ---------------------------------------------------------------------------
+
+  - capability: dev_account_session
+    business_capability: PLATFORM_INTERNAL
+    domain: domains/assessment
+    purpose: >
+      开发期账户会话：签发 Bearer token 并绑定 account/family，供 mobile 前端
+      走通家庭作用域请求。这不是生产身份体系。
+    actor: [guardian, system]
+    command: null
+    api:
+      - "POST /auth/account-session"
+      - "GET /auth/me"
+      - "GET /auth/contexts"
+      - "POST /auth/session/revoke"
+    code:
+      api: backend/domains/assessment/api.py
+    tests:
+      - tests/apps/family_api/test_assessment_routes.py
+    consent: {required: false}
+    audit:
+      required: true
+      note: "会话签发与吊销均记 AuditEvent（api.py 的 auth.session_created / auth.session_revoked）"
+    idempotency:
+      required: true
+      note: "idempotency-key header 必填，缺失返回 400"
+    ai: {involved: false}
+    status: IMPLEMENTED_TESTED
+    r2_note: >
+      代码物理位于 domains/assessment 但 business_capability 标 PLATFORM_INTERNAL ——
+      这是**有意记录的错位**，不是笔误。认证不属于测评域，它落在这里只因为 assessment
+      是第一个需要 HTTP 会话的 vertical slice。真正的身份体系是 auth_identity
+      （DOMAIN_REGISTRY 中 status: NOT_STARTED），届时本能力应迁出并退役。
+      在此之前 registry 必须诚实描述它现在在哪，而不是描述它应该在哪。
+    known_gaps:
+      - "token 存在进程内 dict（AssessmentApiState.tokens），重启即失效，非持久化会话"
+      - "无 OTP/真实登录流程；external_ref 直接换 token，仅限 dev"
+      - "expires_at 硬编码 2099-01-01，未实现真实过期"
+
+  - capability: assessment_session_to_hypothesis
+    business_capability: family_growth_assessment
+    domain: domains/assessment
+    purpose: >
+      UI-02 → UI-03 测评链路：建会话 → 逐题作答 → 提交 → 生成 GrowthHypothesis
+      → 人工确认后产出 GrowthIntent。确定性解读，无 AI 参与。
+    actor: [guardian]
+    command:
+      - start
+      - response
+      - submit
+      - generate_hypothesis
+      - decide
+    api:
+      - "GET /families/{family_id}/ui/02/assessment"
+      - "POST /families/{family_id}/assessments/sessions"
+      - "POST /families/{family_id}/assessments/sessions/{session_id}/responses"
+      - "POST /families/{family_id}/assessments/sessions/{session_id}/submit"
+      - "GET /families/{family_id}/ui/03/growth-hypothesis"
+      - "POST /families/{family_id}/assessments/{session_id}/growth-hypothesis"
+      - "POST /families/{family_id}/growth-hypotheses/decisions"
+    code:
+      api: backend/domains/assessment/api.py
+      service: backend/domains/assessment/service.py
+    tests:
+      - tests/domains/assessment/test_acceptance_chain.py
+      - tests/apps/family_api/test_assessment_routes.py
+    consent:
+      required: true
+      note: >
+        **当前未执行**。测评采集未成年人数据，按 COMPLIANCE_HARD_CONSTRAINTS §1
+        属敏感信息处理，须过必要性检验且绑定目的与留存期限。
+        代码目前不调用 ConsentGate —— 这是 known_gaps 第一条，不是已满足项。
+    audit:
+      required: true
+      note: "全链路记 AuditEvent，test_assessment_routes 断言 ≥5 条事件"
+    idempotency:
+      required: true
+      note: "所有 mutation 需 idempotency-key，重放返回同一 receipt"
+    ai:
+      involved: false
+      constraint: >
+        当前是确定性解读器，非 AI。Hypothesis 的 canonical_fact 恒为 false
+        （test_assessment_routes 断言），即假设永不自动成为事实 —— R9 的执行点。
+        接入 AI 解读须经 backend/intelligence/model_gateway，且不得原样搬迁源仓库
+        的 claude_interpretation.py。
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - "**未接 ConsentGate**：采集未成年人测评数据却无同意校验，合规缺口"
+      - "内存 repository，无持久化；进程重启数据全失"
+      - "非四层结构（api.py + service.py 两模块），落 Postgres 时须重构 —— T-05"
+      - "AssessmentSession/AssessmentTool/AssessmentResponse 实体尚未建模"
 
   - capability: membership_tier_lifecycle
     business_capability: membership_and_benefits

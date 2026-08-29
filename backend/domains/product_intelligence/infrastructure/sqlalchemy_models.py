@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from sqlalchemy import Column, Float, Integer, String, Text
 from sqlalchemy.orm import declarative_base
-from sqlalchemy.types import DateTime as _DateTime
 from sqlalchemy.types import JSON
+from sqlalchemy.types import DateTime as _DateTime
 
 Base = declarative_base()
 

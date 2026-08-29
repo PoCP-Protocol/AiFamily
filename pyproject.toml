@@ -11,6 +11,20 @@ requires-python = ">=3.12"
 # tests never require a running Postgres instance (see
 # backend/domains/product_intelligence tests/conftest.py pattern in the source
 # repository for the precedent this follows).
+#
+# T-06 (Model Gateway) promotes two packages from dev to runtime dependencies.
+# Both were already present under [dev]; the move is required because production
+# code now imports them, and a runtime import satisfied only by a dev extra is a
+# deployment that works on a developer machine and fails in production:
+#
+#   httpx   — backend/intelligence/model_gateway/providers/openai_compatible.py
+#             is the real provider adapter. It was dev-only because httpx had
+#             only ever been used by fastapi.testclient.
+#   pyyaml  — model_gateway/provider_registry.py::load_provider_registry parses a
+#             YAML provider-governance declaration. Kept as a deferred import
+#             inside that one function, so a runtime that declares its providers
+#             in code never pays for it — but it is a real runtime dependency of
+#             a supported code path, so it is declared as one.
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
@@ -19,15 +33,15 @@ dependencies = [
     "alembic>=1.13",
     "asyncpg>=0.29",
     "aiosqlite>=0.20",
+    "httpx>=0.27",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.2",
     "pytest-asyncio>=0.24",
-    "pyyaml>=6.0",
     "ruff>=0.6",
-    "httpx>=0.27",
 ]
 
 [build-system]

@@ -37,6 +37,7 @@ here for other agents/Agent G to review):
   ever wants tenant-specific policy overrides) but the V0 contract MUST
   NOT filter by it — implementations should ignore it or accept `None`.
 """
+
 from __future__ import annotations
 
 from typing import Protocol
@@ -47,14 +48,18 @@ from ..domain.zone_entities import ProductZoneAssessment, ZonePolicyVersion
 class ZoneAssessmentRepositoryPort(Protocol):
     async def save_zone_assessment(self, entity: ProductZoneAssessment) -> None: ...
 
-    async def load_zone_assessment(self, entity_id: str, tenant_scope: str) -> ProductZoneAssessment:
+    async def load_zone_assessment(
+        self, entity_id: str, tenant_scope: str
+    ) -> ProductZoneAssessment:
         """Must raise `ProductIntelligenceNotFoundError` for both a
         nonexistent id and an id that exists under a different
         `tenant_scope` — see module docstring, same rule as every
         `load_*` in `application/ports.py`."""
         ...
 
-    async def load_active_zone_policy_version(self, tenant_scope: str | None = None) -> ZonePolicyVersion:
+    async def load_active_zone_policy_version(
+        self, tenant_scope: str | None = None
+    ) -> ZonePolicyVersion:
         """Loads the current `status == "ACTIVE"` `ZonePolicyVersion`.
         NOT tenant-scoped in V0 — see module docstring "Tenancy judgment
         call". `tenant_scope` is accepted (optional, defaults to `None`)

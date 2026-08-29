@@ -3,9 +3,10 @@
 `FakeZoneAssessmentRepository` and a mutable `context_slot` so tests can
 change the acting context between calls on the same client.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from fastapi import FastAPI
@@ -19,7 +20,7 @@ from ..domain.entities import ProductConcept
 from ..infrastructure.fake_repository import FakeProductIntelligenceRepository
 from ..infrastructure.zone_fake_repository import FakeZoneAssessmentRepository
 
-UTC_NOW = datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+UTC_NOW = datetime(2026, 8, 29, 12, 0, 0, tzinfo=UTC)
 
 ZONE_REVIEW_PERMISSION = zone_commands.ZONE_REVIEW_PERMISSION
 
@@ -50,7 +51,10 @@ def _build_policy_payload() -> dict:
             "commodity_differentiation_max": 40.0,
             "commodity_defensibility_max": 40.0,
         },
-        classification_rules="UNIQUE if defensibility>=75 and floor>=50; COMMODITY if diff<40 and def<40; else ADVANTAGE",
+        classification_rules=(
+            "UNIQUE if defensibility>=75 and floor>=50; "
+            "COMMODITY if diff<40 and def<40; else ADVANTAGE"
+        ),
         review_policy={"unique_requires_reviewers": 1},
         effective_from=UTC_NOW,
         status="ACTIVE",
@@ -87,10 +91,15 @@ def _seeded_product_intelligence_repo() -> FakeProductIntelligenceRepository:
     `application/zone_commands.py` "Integration fix" item 2.
     """
     repo = FakeProductIntelligenceRepository()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     repo._product_concepts["concept-1"] = ProductConcept(
-        id="concept-1", created_at=now, updated_at=now, created_by="test-fixture",
-        tenant_scope="tenant-a", strategy_id="stub-strategy-1", title="stub product concept",
+        id="concept-1",
+        created_at=now,
+        updated_at=now,
+        created_by="test-fixture",
+        tenant_scope="tenant-a",
+        strategy_id="stub-strategy-1",
+        title="stub product concept",
     )
     return repo
 
@@ -122,10 +131,14 @@ def repo():
 
 @pytest.fixture
 def context_slot():
-    return [ActorContext(
-        actor_id="human-1", actor_type="HUMAN", tenant_scope="tenant-a",
-        permissions=frozenset({ZONE_REVIEW_PERMISSION}),
-    )]
+    return [
+        ActorContext(
+            actor_id="human-1",
+            actor_type="HUMAN",
+            tenant_scope="tenant-a",
+            permissions=frozenset({ZONE_REVIEW_PERMISSION}),
+        )
+    ]
 
 
 @pytest.fixture
@@ -136,6 +149,7 @@ def client(repo, context_slot):
 @pytest.fixture(autouse=True)
 async def _seed_active_policy(repo):
     from ..domain.zone_entities import ZonePolicyVersion
+
     await repo.save_zone_policy_version(ZonePolicyVersion(**_build_policy_payload()))
 
 
@@ -225,7 +239,9 @@ def test_human_without_permission_cannot_approve_via_http(client, context_slot):
     )
     client.post(f"/product-intelligence/zone-assessments/{assessment_id}/submit-review")
 
-    context_slot[0] = ActorContext(actor_id="human-2", actor_type="HUMAN", tenant_scope="tenant-a", permissions=frozenset())
+    context_slot[0] = ActorContext(
+        actor_id="human-2", actor_type="HUMAN", tenant_scope="tenant-a", permissions=frozenset()
+    )
     r = client.post(
         f"/product-intelligence/zone-assessments/{assessment_id}/approve",
         json={"approved_zone": "UNIQUE", "review_reason": "no permission"},

@@ -202,7 +202,7 @@ Batch 8  条件性收尾：删除范围 = 已完成 cutover 的域，不是"无�
 
 | 项 | 决策 | 阻塞条件 |
 |---|---|---|
-| Alembic baseline | 58 个源 SQL 迁移（0001-0058）MIGRATE 为 Alembic baseline | **必须先解决 4 组文件名重号（0022/0023/0024/0053，各有两个不同内容的文件）并决定 `growth_profiles` 两代死列去留** |
+| ~~Alembic baseline~~ | **已于 2026-08-29 由 T-03 完成** —— 62 个源 SQL 迁移线性化 + Alembic baseline 落地，见 §4.2 | 阻塞已解除 |
 | 域接管节奏 | `NEST_ACTIVE → PYTHON_READY → CUTOVER → PYTHON_ACTIVE → NEST_REMOVED`，**禁止双写、禁止双主** | — |
 | GROWTH 闭环（UI-08/11/12/29） | **不迁移、不重建** | 需产品侧先裁决这些屏幕是否应当存在（R9 红线） |
 | `frontend_web` | REVIEW_REQUIRED / BLOCKED | 需人工裁决 |
@@ -225,12 +225,18 @@ Mobile 依赖端点              ~40+ 业务路径 + 4 个 /auth/* 端点
 
 ### 4.2 数据库
 
-- **未建立 Alembic baseline**，无任何 migration 已应用。
-- PostgreSQL 按域分 schema **未建立**。
-- 58 个源 SQL 迁移文件**仍在源仓库**，未迁入 AiFamily。
-- 4 组文件名重号（0022/0023/0024/0053）**未线性化**。
+**2026-08-29 T-03 后已变化的部分**（原文划线保留以便追溯）：
 
-**没有任何域拥有持久化真相。** 现有测试全部走内存/SQLite，无 Postgres 集成测试（这个缺陷也是从源仓库 `product_intelligence` 原样带入的）。
+- ~~未建立 Alembic baseline~~ → **已建立**：`database/migrations/versions/0001_legacy_schema_baseline.py`。`alembic upgrade head` 在空 Postgres 16 上成功（151 表 / 7 视图 / 60 枚举），up→down→up 循环可重复。
+- ~~58 个源 SQL 迁移文件仍在源仓库~~ → **已迁入** `database/baseline/`（实测 62 个文件，"58" 是最大编号非文件数），内容逐字节不变，sha256 由 `tests/database/test_baseline_linearisation.py` 守着。
+- ~~4 组文件名重号未线性化~~ → **已线性化**，映射与逐组排序理由见 `database/migrations/LINEARISATION_MAP.md`。
+- ~~无 Postgres 集成测试~~ → 真实 Postgres 测试路径已建立，由 `AIFAMILY_TEST_DATABASE_URL` 门控（默认 skip，SQLite 快路径保留为默认）。`membership` 与 `product_intelligence` 两个域、以及 `/ready` 端点都有真实 Postgres 测试通过。
+
+**仍然不存在的部分（不要据上面的进展推断已完成）**：
+
+- PostgreSQL **按域分 schema 未建立**。151 张表全在 `public`，`identity.*`/`family.*`/`assessment.*` 与每域独立 DB role 都还没做——baseline 刻意只做忠实快照，见 `docs/07_data/DATA_ARCHITECTURE.md` §5。
+- **没有任何域拥有持久化真相。** baseline 建的是空表，没有任何域的运行时读写落在这些表上；`membership`/`product_intelligence` 的 Postgres 测试用的是 `Base.metadata.create_all` 建在一次性 schema 里的表，**不是** baseline 化的表。因此源 SQL 里的 DB 级 CHECK 约束在这两个域仍未被覆盖。
+- 已发现一处**待裁决的 schema 矛盾**：`product_intelligence` 域本地 SQL 副本比 baseline 多三列（`validated_by`/`validated_at`/`validation_reason`），而 ORM 要求这三列 —— 在只跑过 `alembic upgrade head` 的库上该域会失败。详见 `backend/domains/product_intelligence/migrations/README.md`。
 
 ### 4.3 AI Runtime
 

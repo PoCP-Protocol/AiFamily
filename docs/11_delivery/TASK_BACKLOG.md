@@ -21,6 +21,50 @@ superseded_by: null
 > `docs/00_system/SYSTEM_MANIFEST.md`（系统边界与真相文档清单）→
 > `governance/REPOSITORY_CONSTITUTION.md`（14 条工程宪章）。
 
+## 0.0 生效中的冻结指令（FREEZE）
+
+> **FREEZE-001 ｜ COMMERCE 方向新增实现 ｜ 2026-08-29 生效 ｜ 下达：项目经理**
+>
+> **范围**：`backend/domains/loyalty_points`、`backend/domains/membership/api`，
+> 以及任何新增的商品目录 / 订单 / 支付 / 积分 / 权益兑换实现。
+>
+> **允许**：补测试、补合规守卫、修既有缺陷、写文档。
+> **禁止**：新增业务能力、新增 API 端点、扩大数据模型。
+>
+> **依据（不是个人判断，是计划的明文要求）**：
+> - `MIGRATION_PLAN_V2.md` 第4节：COMMERCE 闭环排在 **Batch 6**，当前是 Batch 1/2 阶段。
+> - `MIGRATION_PLAN_V2.md` 第3节对 COMMERCE 行的明文前置条件：「迁移前**必须先**解决
+>   UI-17 的硬编码积分和『未成年人商业场景权限规则不明确』的 Stop Condition」。
+>   该 Stop Condition **至今未解决**。
+> - `docs/12_governance/COMPLIANCE_HARD_CONSTRAINTS.md` 第3节：《未成年人网络保护条例》
+>   第24条第3款是**绝对禁止**——不得通过自动化决策方式向未成年人进行商业营销。
+>   积分体系正落在该禁止范围内，且当前**无任何检查器**在业务语义层面拦这件事。
+>
+> **解冻条件（三条全满足）**：
+> 1. 项目所有者对 `loyalty_points`（约 1984 行、源仓库无对应物、零测试）是否应存在于
+>    当前阶段做出裁决 —— 见 `governance/MIGRATION_MANIFEST.yaml` → `loyalty_points`
+>    的 `review_required` 字段。
+> 2. 存在一个能真实失败的 guardrail 测试，证明积分/权益流程无法以孩子为营销对象。
+> 3. UI-17 的硬编码积分兜底值（`pointsBalance ?? 1280`）的处置已确定。
+>
+> **为什么下这条冻结**：项目经理在 2026-08-29 复读迁移计划时确认，COMMERCE 工作已
+> 超出既定批次顺序推进，而同期计划要求提前的 **Batch 2 SERVICE 预约子链 6 个端点
+> 全部 MISSING、无人在做**（见 `contracts/openapi/UI_API_ENDPOINT_INVENTORY.md`）。
+> 优先级实际是反的。冻结不是否定 COMMERCE 的价值，是恢复计划顺序。
+
+## 0.1 已发生的计划偏离（项目经理自查记录）
+
+如实记录，因为不记录就会重复发生：
+
+| # | 偏离 | 后果 | 处置 |
+|---|---|---|---|
+| 1 | COMMERCE 超前推进，Stop Condition 未解决 | loyalty_points 1984 行零测试进仓 | FREEZE-001 |
+| 2 | 计划要求提前的 Batch 2 SERVICE 无人分派 | 已验证的付费主力闭环价值悬空 | 提为下一优先，见 T-15 |
+| 3 | 已提交的 `market_intelligence`/`product_strategy` 被删除，无二次确认记录 | 违反 project-owner「先把所有 Python 代码都迁移过来」指示；违反计划第1节 `DELETE` 需二次确认 | 已从 git 恢复 |
+| 4 | 治理文件编辑被并发会话覆盖两次（loyalty_points 登记、assessment 合并） | registry 与磁盘反复漂移 | 见下方「并发写作纪律」补充 |
+
+**并发写作纪律补充（针对偏离 #4）**：治理 YAML（`governance/*.yaml`）是多会话高频争用点。修改前必须先重读文件最新状态；发现自己的条目消失时，**先查是否被覆盖再重写**，并在条目里留下 `registration_note` 记录这是第几次登记。不要假设自己上次的编辑还在。
+
 ## 0. 当前系统状态（截至 2026-08-29）
 
 ```text
@@ -81,7 +125,23 @@ Lint       383 ruff errors（全部来自新增业务代码，见 T-01）
 
 ---
 
-## T-03 ｜ P1 ｜ 建立 Alembic baseline 与真实 Postgres 接入
+## T-03 ｜ P1 ｜ 建立 Alembic baseline 与真实 Postgres 接入 —— ✅ 已完成（2026-08-29）
+
+**交付物**：
+- `database/migrations/LINEARISATION_MAP.md` —— 62 行映射 + 4 组重号逐组排序理由与实测证伪
+- `database/baseline/*.sql` —— 62 个线性化文件，sha256 与源文件一致
+- `alembic.ini` + `database/migrations/{env.py, script.py.mako, versions/0001_legacy_schema_baseline.py}`
+- `docker-compose.dev.yml` —— 一次性 Postgres（127.0.0.1:55442）
+- `tests/support/postgres.py`、`tests/database/`、`tests/apps/family_api/test_ready_against_postgres.py`
+- `database/README.md`
+
+**实测口径修正**（下方"背景"的数字有误，保留原文以便追溯）：源目录实为 **62** 个 `.sql` 文件（"58" 是最大编号，非文件数）；4 组重号**组内全部无依赖**（逐组交换后 62 个文件仍全部应用成功且 schema 等价），唯一硬依赖是跨组的 `test_experience_workflows` → `family_growth_page_objects`；`growth_profiles` 两代列**不是死列**而是活的双写列。详见 LINEARISATION_MAP.md §0/§3/§4。
+
+**新发现、待裁决**：`product_intelligence` 域本地 `0058` SQL 副本比 baseline 多 `validated_by`/`validated_at`/`validation_reason` 三列，而该域 ORM 要求这三列 —— 在只跑过 `alembic upgrade head` 的库上该域会失败；现有集成测试因自己读本地 SQL 建库、绕开 baseline 而未暴露。处置建议见 `backend/domains/product_intelligence/migrations/README.md`，落地属 T-05。
+
+**未做（刻意）**：按域分 schema（`identity.*`/`family.*`/…）与每域独立 DB role 仍是目标态 —— `docs/07_data/DATA_ARCHITECTURE.md` §5 要求 baseline PR 只做忠实快照，不夹带目标态重设计。T-05 已解除阻塞。
+
+---
 
 **背景**：源仓库有 58 个手写 SQL 迁移（`0001`–`0058`），且**4 组文件名重号**（0022/0023/0024/0053 各有两个不同内容的文件），必须先线性化才能生成 Alembic 初始 revision。当前 AiFamily 所有测试跑在 SQLite 内存库上，`backend/platform/persistence/session.py` 的 Postgres 路径从未验证。
 

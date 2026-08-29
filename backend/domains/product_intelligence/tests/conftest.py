@@ -3,6 +3,7 @@ SQLAlchemy models as production — closer to "real" than the Fake-dict
 repository, but not a real-Postgres guarantee (Override #6 item 4, same
 known/accepted gap as Batch 2 per Override #4 item 4).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -27,6 +28,7 @@ async def sqlalchemy_repo():
 @pytest.fixture
 def fake_repo():
     from ..infrastructure.fake_repository import FakeProductIntelligenceRepository
+
     return FakeProductIntelligenceRepository()
 
 
@@ -40,8 +42,11 @@ def human_context():
     construct their own `ActorContext` with `permissions=frozenset()`.
     """
     from ..application.context import ActorContext
+
     return ActorContext(
-        actor_id="human-reviewer-1", actor_type="HUMAN", tenant_scope="tenant-a",
+        actor_id="human-reviewer-1",
+        actor_type="HUMAN",
+        tenant_scope="tenant-a",
         permissions=frozenset({"product_intelligence.hypothesis.review"}),
     )
 
@@ -49,13 +54,19 @@ def human_context():
 @pytest.fixture
 def ai_context():
     from ..application.context import ActorContext
-    return ActorContext(actor_id="ai-use-case:market.insight.generate", actor_type="AI", tenant_scope="tenant-a")
+
+    return ActorContext(
+        actor_id="ai-use-case:market.insight.generate", actor_type="AI", tenant_scope="tenant-a"
+    )
 
 
 @pytest.fixture
 def other_tenant_human_context():
     from ..application.context import ActorContext
+
     return ActorContext(
-        actor_id="human-reviewer-2", actor_type="HUMAN", tenant_scope="tenant-b",
+        actor_id="human-reviewer-2",
+        actor_type="HUMAN",
+        tenant_scope="tenant-b",
         permissions=frozenset({"product_intelligence.hypothesis.review"}),
     )

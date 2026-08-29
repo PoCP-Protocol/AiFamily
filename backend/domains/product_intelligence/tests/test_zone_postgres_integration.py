@@ -9,10 +9,11 @@ apply cleanly, in that order, on real Postgres, and that DB-level mechanisms
 `0059`/`0060` are enforced by Postgres itself — not merely assumed to work
 because the SQLite test suite (131 passed) happens to pass.
 
-Requires a real, disposable Postgres reachable at `PI_POSTGRES_TEST_DSN`
-(asyncpg DSN, e.g.
-`postgresql+asyncpg://postgres:postgres@localhost:55440/pi_zone_test`).
-Skipped entirely (not failed) when that env var is unset.
+Requires a real, disposable Postgres reachable at `AIFAMILY_TEST_DATABASE_URL`
+(the repository-wide convention introduced by T-03; see
+`docker-compose.dev.yml`). This domain's original `PI_POSTGRES_TEST_DSN` still
+resolves as a deprecated fallback. Skipped entirely (not failed) when neither
+is set.
 
 Coverage checklist (chief-architect's 10-item list for this Agent; item 4 is
 folded into item 1 per the task brief's own note that they overlap):
@@ -43,11 +44,11 @@ folded into item 1 per the task brief's own note that they overlap):
 11. `algorithm_version`/checksum stability across a real Postgres
     persistence round trip (save -> load -> recompute matches).
 """
+
 from __future__ import annotations
 
-import os
 import pathlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
@@ -55,9 +56,13 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from backend.platform.persistence.session import (
+    TEST_DATABASE_URL_ENV_VAR,
+    resolve_test_database_url,
+)
+
 from ..application import zone_commands
 from ..application.context import ActorContext
-from ..domain.errors import ProductIntelligenceValidationError
 from ..domain.zone_entities import ProductZoneAssessment, ZonePolicyVersion
 from ..infrastructure import zone_sqlalchemy_models as zm
 from ..infrastructure.sqlalchemy_repository import SqlAlchemyProductIntelligenceRepository
@@ -66,11 +71,17 @@ from ..infrastructure.zone_sqlalchemy_repository import (
     _load_zone_assessment,
 )
 
-PI_POSTGRES_TEST_DSN = os.environ.get("PI_POSTGRES_TEST_DSN")
+# One variable for every real-Postgres test in the repository (T-03); the helper
+# also normalises a bare `postgresql://` and honours the deprecated
+# `PI_POSTGRES_TEST_DSN`.
+POSTGRES_TEST_URL = resolve_test_database_url()
 
 pytestmark = pytest.mark.skipif(
-    not PI_POSTGRES_TEST_DSN,
-    reason="PI_POSTGRES_TEST_DSN not set — real-Postgres zone-engine integration test skipped (set it to run against a disposable container)",
+    not POSTGRES_TEST_URL,
+    reason=(
+        f"{TEST_DATABASE_URL_ENV_VAR} not set — real-Postgres zone-engine integration test "
+        "skipped (`docker compose -f docker-compose.dev.yml up -d`, then export it)"
+    ),
 )
 
 _MIGRATIONS_DIR = pathlib.Path(__file__).resolve().parents[1] / "migrations"
@@ -107,7 +118,7 @@ _ALL_0059_TABLES = [
     "product_intelligence_zone_policy_versions",
 ]
 
-UTC_NOW = datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+UTC_NOW = datetime(2026, 8, 29, 12, 0, 0, tzinfo=UTC)
 
 
 def _split_statements(sql_text: str) -> list[str]:
@@ -168,14 +179,17 @@ async def _apply_migration(conn, path: pathlib.Path) -> None:
 
 @pytest_asyncio.fixture
 async def pg_engine():
-    assert PI_POSTGRES_TEST_DSN is not None
-    engine = create_async_engine(PI_POSTGRES_TEST_DSN)
+    assert POSTGRES_TEST_URL is not None
+    engine = create_async_engine(POSTGRES_TEST_URL)
 
     async with engine.begin() as conn:
         for table in _ALL_0059_TABLES + _ALL_0058_TABLES:
             await conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
         await conn.execute(
-            text("DROP FUNCTION IF EXISTS product_intelligence_zone_assessment_subject_tenant_guard() CASCADE")
+            text(
+                "DROP FUNCTION IF EXISTS "
+                "product_intelligence_zone_assessment_subject_tenant_guard() CASCADE"
+            )
         )
 
         # Item 1 (+4): apply 0058 -> 0059 -> 0060 in order, verbatim, proving
@@ -208,7 +222,9 @@ def base_repo(pg_session):
 
 def _reviewer_context(tenant_scope: str = "tenant-a") -> ActorContext:
     return ActorContext(
-        actor_id="human-reviewer-1", actor_type="HUMAN", tenant_scope=tenant_scope,
+        actor_id="human-reviewer-1",
+        actor_type="HUMAN",
+        tenant_scope=tenant_scope,
         permissions=frozenset({zone_commands.ZONE_REVIEW_PERMISSION}),
     )
 
@@ -239,7 +255,10 @@ def _build_policy(**overrides) -> ZonePolicyVersion:
             "commodity_differentiation_max": 40.0,
             "commodity_defensibility_max": 40.0,
         },
-        classification_rules="UNIQUE if defensibility>=75 and floor>=50; COMMODITY if diff<40 and def<40; else ADVANTAGE",
+        classification_rules=(
+            "UNIQUE if defensibility>=75 and floor>=50; "
+            "COMMODITY if diff<40 and def<40; else ADVANTAGE"
+        ),
         review_policy={"unique_requires_reviewers": 1},
         effective_from=UTC_NOW,
         status="ACTIVE",
@@ -284,24 +303,47 @@ async def _seed_product_concept(base_repo, *, concept_id: str, tenant_scope: str
     # the real constraint graph, not a fixture shortcut that only works
     # because the backend under test does not enforce it.
     problem = GrowthProblem(
-        id=f"problem-for-{concept_id}", created_at=UTC_NOW, updated_at=UTC_NOW, created_by="human-1",
-        tenant_scope=tenant_scope, status="ACTIVE", symptom="pain point for zone engine test",
+        id=f"problem-for-{concept_id}",
+        created_at=UTC_NOW,
+        updated_at=UTC_NOW,
+        created_by="human-1",
+        tenant_scope=tenant_scope,
+        status="ACTIVE",
+        symptom="pain point for zone engine test",
     )
     await base_repo.save_growth_problem(problem)
     hypothesis = GrowthHypothesis(
-        id=f"hyp-for-{concept_id}", created_at=UTC_NOW, updated_at=UTC_NOW, created_by="human-1",
-        tenant_scope=tenant_scope, status="DRAFT", problem_id=problem.id, statement="hypothesis for zone engine test",
+        id=f"hyp-for-{concept_id}",
+        created_at=UTC_NOW,
+        updated_at=UTC_NOW,
+        created_by="human-1",
+        tenant_scope=tenant_scope,
+        status="DRAFT",
+        problem_id=problem.id,
+        statement="hypothesis for zone engine test",
     )
     await base_repo.save_growth_hypothesis(hypothesis)
     strategy = GrowthStrategy(
-        id=f"strategy-for-{concept_id}", created_at=UTC_NOW, updated_at=UTC_NOW, created_by="human-1",
-        tenant_scope=tenant_scope, status="APPROVED", problem_id=problem.id,
-        hypothesis_ids=[hypothesis.id], statement="grow via zone engine",
+        id=f"strategy-for-{concept_id}",
+        created_at=UTC_NOW,
+        updated_at=UTC_NOW,
+        created_by="human-1",
+        tenant_scope=tenant_scope,
+        status="APPROVED",
+        problem_id=problem.id,
+        hypothesis_ids=[hypothesis.id],
+        statement="grow via zone engine",
     )
     await base_repo.save_growth_strategy(strategy)
     concept = ProductConcept(
-        id=concept_id, created_at=UTC_NOW, updated_at=UTC_NOW, created_by="human-1",
-        tenant_scope=tenant_scope, status="DRAFT", strategy_id=strategy.id, title="concept",
+        id=concept_id,
+        created_at=UTC_NOW,
+        updated_at=UTC_NOW,
+        created_by="human-1",
+        tenant_scope=tenant_scope,
+        status="DRAFT",
+        strategy_id=strategy.id,
+        title="concept",
     )
     await base_repo.save_product_concept(concept)
     return concept
@@ -318,7 +360,9 @@ async def _list_zone_assessments(pg_session, tenant_scope: str) -> list[ProductZ
     identical to `zone_repo.load_zone_assessment`'s.
     """
     result = await pg_session.execute(
-        select(zm.ProductZoneAssessmentRow).where(zm.ProductZoneAssessmentRow.tenant_scope == tenant_scope)
+        select(zm.ProductZoneAssessmentRow).where(
+            zm.ProductZoneAssessmentRow.tenant_scope == tenant_scope
+        )
     )
     return [_load_zone_assessment(row) for row in result.scalars().all()]
 
@@ -371,7 +415,9 @@ async def test_migrations_0058_0059_0060_apply_in_order(pg_engine):
                 """
             )
         )
-        assert index_check.fetchone() is not None, "0060's uq_zone_policy_active_per_id index is missing"
+        assert index_check.fetchone() is not None, (
+            "0060's uq_zone_policy_active_per_id index is missing"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -449,14 +495,24 @@ async def test_two_active_policy_versions_same_policy_id_rejected_by_unique_inde
     )
     await pg_session.execute(
         insert_sql,
-        {"id": "policy-row-1", "policy_id": "zone-policy-dup", "version": 1, "checksum": "checksum-1"},
+        {
+            "id": "policy-row-1",
+            "policy_id": "zone-policy-dup",
+            "version": 1,
+            "checksum": "checksum-1",
+        },
     )
     await pg_session.flush()
 
     with pytest.raises(IntegrityError) as excinfo:
         await pg_session.execute(
             insert_sql,
-            {"id": "policy-row-2", "policy_id": "zone-policy-dup", "version": 2, "checksum": "checksum-2"},
+            {
+                "id": "policy-row-2",
+                "policy_id": "zone-policy-dup",
+                "version": 2,
+                "checksum": "checksum-2",
+            },
         )
         await pg_session.flush()
     await pg_session.rollback()
@@ -471,20 +527,33 @@ async def test_two_active_policy_versions_same_policy_id_rejected_by_unique_inde
 
 
 @pytest.mark.asyncio
-async def test_canonical_zone_table_full_lifecycle_persists_through_approval(pg_session, zone_repo, base_repo):
+async def test_canonical_zone_table_full_lifecycle_persists_through_approval(
+    pg_session, zone_repo, base_repo
+):
     await _seed_product_concept(base_repo, concept_id="concept-lifecycle")
     await zone_repo.save_zone_policy_version(_build_policy())
     context = _reviewer_context()
 
     draft = await zone_commands.create_zone_assessment(
-        zone_repo, base_repo, context, product_concept_id="concept-lifecycle", zone_policy_version_id="zone-policy-v0",
+        zone_repo,
+        base_repo,
+        context,
+        product_concept_id="concept-lifecycle",
+        zone_policy_version_id="zone-policy-v0",
     )
     scored = await zone_commands.score_zone_assessment(
-        zone_repo, context, assessment_id=draft.id, dimension_assessments=_dimension_input(),
+        zone_repo,
+        context,
+        assessment_id=draft.id,
+        dimension_assessments=_dimension_input(),
     )
     submitted = await zone_commands.submit_zone_review(zone_repo, context, assessment_id=scored.id)
     approved = await zone_commands.approve_zone_assessment(
-        zone_repo, context, assessment_id=submitted.id, approved_zone="UNIQUE", review_reason="matches evidence",
+        zone_repo,
+        context,
+        assessment_id=submitted.id,
+        approved_zone="UNIQUE",
+        review_reason="matches evidence",
     )
     await pg_session.commit()
 
@@ -510,18 +579,24 @@ async def test_legacy_zone_assessments_table_dropped_by_0060(pg_engine):
             text(
                 """
                 SELECT table_name FROM information_schema.tables
-                WHERE table_schema = 'public' AND table_name = 'product_intelligence_zone_assessments'
+                WHERE table_schema = 'public'
+                  AND table_name = 'product_intelligence_zone_assessments'
                 """
             )
         )
-        assert result.fetchone() is None, "legacy product_intelligence_zone_assessments table still exists after 0060"
+        assert result.fetchone() is None, (
+            "legacy product_intelligence_zone_assessments table still exists after 0060"
+        )
 
     # Belt-and-suspenders: a direct SELECT against the dropped table must
     # itself raise (UndefinedTable), not merely be absent from the catalog.
     async with pg_engine.connect() as conn:
         with pytest.raises(Exception) as excinfo:
             await conn.execute(text("SELECT 1 FROM product_intelligence_zone_assessments LIMIT 1"))
-        assert "does not exist" in str(excinfo.value).lower() or "undefined" in str(excinfo.value).lower()
+        assert (
+            "does not exist" in str(excinfo.value).lower()
+            or "undefined" in str(excinfo.value).lower()
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -532,7 +607,9 @@ async def test_legacy_zone_assessments_table_dropped_by_0060(pg_engine):
 
 
 @pytest.mark.asyncio
-async def test_rejected_and_retired_excluded_from_active_distribution(pg_session, zone_repo, base_repo):
+async def test_rejected_and_retired_excluded_from_active_distribution(
+    pg_session, zone_repo, base_repo
+):
     from ..application import zone_queries
 
     await _seed_product_concept(base_repo, concept_id="concept-rejected")
@@ -543,39 +620,79 @@ async def test_rejected_and_retired_excluded_from_active_distribution(pg_session
 
     # --- REJECTED assessment ---
     draft_r = await zone_commands.create_zone_assessment(
-        zone_repo, base_repo, context, product_concept_id="concept-rejected", zone_policy_version_id="zone-policy-v0",
+        zone_repo,
+        base_repo,
+        context,
+        product_concept_id="concept-rejected",
+        zone_policy_version_id="zone-policy-v0",
     )
     scored_r = await zone_commands.score_zone_assessment(
-        zone_repo, context, assessment_id=draft_r.id, dimension_assessments=_dimension_input(),
+        zone_repo,
+        context,
+        assessment_id=draft_r.id,
+        dimension_assessments=_dimension_input(),
     )
-    submitted_r = await zone_commands.submit_zone_review(zone_repo, context, assessment_id=scored_r.id)
+    submitted_r = await zone_commands.submit_zone_review(
+        zone_repo, context, assessment_id=scored_r.id
+    )
     await zone_commands.reject_zone_assessment(
-        zone_repo, context, assessment_id=submitted_r.id, review_reason="does not match evidence",
+        zone_repo,
+        context,
+        assessment_id=submitted_r.id,
+        review_reason="does not match evidence",
     )
 
     # --- RETIRED assessment (must pass through APPROVED first) ---
     draft_t = await zone_commands.create_zone_assessment(
-        zone_repo, base_repo, context, product_concept_id="concept-retired", zone_policy_version_id="zone-policy-v0",
+        zone_repo,
+        base_repo,
+        context,
+        product_concept_id="concept-retired",
+        zone_policy_version_id="zone-policy-v0",
     )
     scored_t = await zone_commands.score_zone_assessment(
-        zone_repo, context, assessment_id=draft_t.id, dimension_assessments=_dimension_input(),
+        zone_repo,
+        context,
+        assessment_id=draft_t.id,
+        dimension_assessments=_dimension_input(),
     )
-    submitted_t = await zone_commands.submit_zone_review(zone_repo, context, assessment_id=scored_t.id)
+    submitted_t = await zone_commands.submit_zone_review(
+        zone_repo, context, assessment_id=scored_t.id
+    )
     approved_t = await zone_commands.approve_zone_assessment(
-        zone_repo, context, assessment_id=submitted_t.id, approved_zone="UNIQUE", review_reason="matches evidence",
+        zone_repo,
+        context,
+        assessment_id=submitted_t.id,
+        approved_zone="UNIQUE",
+        review_reason="matches evidence",
     )
-    await zone_commands.retire_zone_assessment(zone_repo, context, assessment_id=approved_t.id, reason="superseded")
+    await zone_commands.retire_zone_assessment(
+        zone_repo, context, assessment_id=approved_t.id, reason="superseded"
+    )
 
     # --- APPROVED (currently active) assessment, for contrast ---
     draft_a = await zone_commands.create_zone_assessment(
-        zone_repo, base_repo, context, product_concept_id="concept-approved", zone_policy_version_id="zone-policy-v0",
+        zone_repo,
+        base_repo,
+        context,
+        product_concept_id="concept-approved",
+        zone_policy_version_id="zone-policy-v0",
     )
     scored_a = await zone_commands.score_zone_assessment(
-        zone_repo, context, assessment_id=draft_a.id, dimension_assessments=_dimension_input(),
+        zone_repo,
+        context,
+        assessment_id=draft_a.id,
+        dimension_assessments=_dimension_input(),
     )
-    submitted_a = await zone_commands.submit_zone_review(zone_repo, context, assessment_id=scored_a.id)
+    submitted_a = await zone_commands.submit_zone_review(
+        zone_repo, context, assessment_id=scored_a.id
+    )
     await zone_commands.approve_zone_assessment(
-        zone_repo, context, assessment_id=submitted_a.id, approved_zone="UNIQUE", review_reason="matches evidence",
+        zone_repo,
+        context,
+        assessment_id=submitted_a.id,
+        approved_zone="UNIQUE",
+        review_reason="matches evidence",
     )
     await pg_session.commit()
 
@@ -593,8 +710,12 @@ async def test_rejected_and_retired_excluded_from_active_distribution(pg_session
     assert summary.commodity_count == 0
     assert summary.advantage_count == 0
     assert (
-        summary.commodity_count + summary.advantage_count + summary.unique_count
-        + summary.unreviewed_count + summary.rejected_count + summary.retired_count
+        summary.commodity_count
+        + summary.advantage_count
+        + summary.unique_count
+        + summary.unreviewed_count
+        + summary.rejected_count
+        + summary.retired_count
         == summary.total_count
     )
 
@@ -619,8 +740,11 @@ async def test_different_policy_weights_produce_different_differentiation_index_
     context = _reviewer_context()
 
     draft_equal = await zone_commands.create_zone_assessment(
-        zone_repo, base_repo, context,
-        product_concept_id="concept-weights-a", zone_policy_version_id=policy_equal.policy_id,
+        zone_repo,
+        base_repo,
+        context,
+        product_concept_id="concept-weights-a",
+        zone_policy_version_id=policy_equal.policy_id,
     )
     # Heterogeneous dimension scores so weight changes actually move the
     # index (a uniform-score input would be weight-invariant).
@@ -629,7 +753,10 @@ async def test_different_policy_weights_produce_different_differentiation_index_
         if row["dimension"] == "replaceability":
             row["score"] = 20.0
     scored_equal = await zone_commands.score_zone_assessment(
-        zone_repo, context, assessment_id=draft_equal.id, dimension_assessments=mixed_input,
+        zone_repo,
+        context,
+        assessment_id=draft_equal.id,
+        dimension_assessments=mixed_input,
     )
     await pg_session.commit()
 
@@ -657,11 +784,17 @@ async def test_different_policy_weights_produce_different_differentiation_index_
     await pg_session.commit()
 
     draft_skewed = await zone_commands.create_zone_assessment(
-        zone_repo, base_repo, context,
-        product_concept_id="concept-weights-b", zone_policy_version_id=policy_skewed.policy_id,
+        zone_repo,
+        base_repo,
+        context,
+        product_concept_id="concept-weights-b",
+        zone_policy_version_id=policy_skewed.policy_id,
     )
     scored_skewed = await zone_commands.score_zone_assessment(
-        zone_repo, context, assessment_id=draft_skewed.id, dimension_assessments=mixed_input,
+        zone_repo,
+        context,
+        assessment_id=draft_skewed.id,
+        dimension_assessments=mixed_input,
     )
     await pg_session.commit()
 
@@ -680,7 +813,9 @@ async def test_different_policy_weights_produce_different_differentiation_index_
 
 
 @pytest.mark.asyncio
-async def test_historical_assessment_not_rewritten_by_later_policy_version(pg_session, zone_repo, base_repo):
+async def test_historical_assessment_not_rewritten_by_later_policy_version(
+    pg_session, zone_repo, base_repo
+):
     await _seed_product_concept(base_repo, concept_id="concept-historical")
 
     policy_v1 = _build_policy(policy_id="zone-policy-historical", version=1)
@@ -689,20 +824,29 @@ async def test_historical_assessment_not_rewritten_by_later_policy_version(pg_se
     context = _reviewer_context()
 
     draft = await zone_commands.create_zone_assessment(
-        zone_repo, base_repo, context,
-        product_concept_id="concept-historical", zone_policy_version_id=policy_v1.policy_id,
+        zone_repo,
+        base_repo,
+        context,
+        product_concept_id="concept-historical",
+        zone_policy_version_id=policy_v1.policy_id,
     )
     mixed_input = _dimension_input(score=90.0)
     for row in mixed_input:
         if row["dimension"] == "replaceability":
             row["score"] = 20.0
     scored = await zone_commands.score_zone_assessment(
-        zone_repo, context, assessment_id=draft.id, dimension_assessments=mixed_input,
+        zone_repo,
+        context,
+        assessment_id=draft.id,
+        dimension_assessments=mixed_input,
     )
     submitted = await zone_commands.submit_zone_review(zone_repo, context, assessment_id=scored.id)
     approved = await zone_commands.approve_zone_assessment(
-        zone_repo, context, assessment_id=submitted.id,
-        approved_zone=scored.recommended_zone, review_reason="matches evidence",
+        zone_repo,
+        context,
+        assessment_id=submitted.id,
+        approved_zone=scored.recommended_zone,
+        review_reason="matches evidence",
     )
     await pg_session.commit()
 
@@ -768,7 +912,9 @@ async def test_algorithm_version_and_checksum_stable_after_pg_round_trip(zone_re
     policy = _build_policy(policy_id="zone-policy-checksum-stability")
     original_checksum = policy.checksum
     original_recomputed = policy.compute_checksum()
-    assert original_checksum == original_recomputed  # sanity: checksum matches its own recompute pre-save
+    assert (
+        original_checksum == original_recomputed
+    )  # sanity: checksum matches its own recompute pre-save
 
     await zone_repo.save_zone_policy_version(policy)
     await pg_session.commit()
@@ -776,7 +922,9 @@ async def test_algorithm_version_and_checksum_stable_after_pg_round_trip(zone_re
     reloaded = await zone_repo.load_active_zone_policy_version()
 
     assert reloaded.checksum == original_checksum
-    assert reloaded.scoring_algorithm_version == policy.scoring_algorithm_version == "ZONE_SCORING_V0"
+    assert (
+        reloaded.scoring_algorithm_version == policy.scoring_algorithm_version == "ZONE_SCORING_V0"
+    )
     # The reloaded entity's own recompute (over the reloaded field values,
     # not the cached checksum) must still land on the identical hash — this
     # is the real "stable and reproducible after a DB round trip" check, not

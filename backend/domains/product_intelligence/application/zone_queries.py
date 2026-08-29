@@ -69,7 +69,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from ..domain.zone_entities import ProductZoneAssessment
-from ..domain.zone_value_objects import ZONE_DIMENSION_NAMES, ApprovedZone, RecommendedZone, ZoneAssessmentStatus
+from ..domain.zone_value_objects import (
+    ZONE_DIMENSION_NAMES,
+    ApprovedZone,
+    RecommendedZone,
+    ZoneAssessmentStatus,
+)
 from .context import ActorContext
 from .zone_query_ports import ZonePortfolioQueryPort
 

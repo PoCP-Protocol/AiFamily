@@ -1,11 +1,26 @@
-"""AuditRecorder — minimal recorder with an in-memory buffer + DB flush seam.
+"""AuditRecorder — in-memory buffer in front of the durable audit table.
 
-Wave 1 scope: hold recorded events in memory and make them queryable
-immediately (so callers can assert "the event I just recorded is there"
-without a database round-trip). The real durable audit table is deferred to
-Batch 3 (Family Core, the first domain that mutates canonical state); at
-that point `flush()` gains a real implementation that persists via
-backend/platform/persistence's UnitOfWork instead of a no-op.
+`record()` buffers; `flush(session)` writes the buffer to
+`platform_audit_events` through the caller's session and only then clears it.
+The buffer exists so callers can assert on "the event I just recorded" without
+a database round-trip, not because durability is optional.
+
+Transaction model (the load-bearing decision)
+---------------------------------------------
+`flush()` takes the **caller's** `AsyncSession` — the one the domain
+repositories write through — and issues no commit. Audit rows therefore become
+visible exactly when the domain rows they describe do. This is a same-
+transaction design, chosen over an outbox: an outbox makes "domain row
+committed, audit row not yet written, process dies" reachable, and that is the
+precise state R6 forbids. The cost is that a failing audit insert aborts the
+business write; that is the correct direction of failure for "无审计不得改状态".
+Full argument in `store.py`'s module docstring.
+
+Failure handling: if the insert raises, the buffer is **left intact** and the
+exception propagates. Losing the events on a failed write would turn a visible
+error into a silent gap in the trail — and since the caller's transaction is
+now doomed anyway, the domain write those events describe will not survive
+either.
 
 Read access (《未成年人网络保护条例》第36条)
 -------------------------------------------
@@ -27,7 +42,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from backend.platform.audit.models import AuditActionKind, AuditEvent
+from backend.platform.audit.store import persist_events
 
 
 class AuditRecorder:
@@ -104,12 +122,27 @@ class AuditRecorder:
             e for e in self._events if e.is_read and e.subject_person_id == subject_person_id
         )
 
-    async def flush(self) -> int:
-        """Persist buffered events to durable storage and clear the buffer.
+    async def flush(self, session: AsyncSession) -> int:
+        """Persist buffered events through `session`, then clear the buffer.
 
-        Wave 1 has no durable audit table yet (see module docstring), so
-        this is a no-op that reports how many events *would* have been
-        flushed, without clearing the in-memory buffer — callers must not
-        assume flush() empties memory until a real backing store lands.
+        Returns the number of rows inserted.
+
+        `session` is required, not optional-with-a-default. A default would let
+        `flush()` be called with no transaction in scope and quietly open its
+        own — which is the outbox failure mode wearing a same-transaction
+        signature (the audit would commit independently of the business write).
+        Making the session an argument means every call site has to name the
+        transaction its audit rows join.
+
+        No commit here: the caller's `UnitOfWork.commit()` owns that. The buffer
+        is cleared only after `persist_events` returns, so a raised exception
+        leaves every event still buffered.
         """
-        return len(self._events)
+        if not self._events:
+            return 0
+        # Snapshot before the await: `record()` from another task during the
+        # insert must not have its event dropped by the clear below.
+        pending = tuple(self._events)
+        written = await persist_events(session, pending)
+        del self._events[: len(pending)]
+        return written

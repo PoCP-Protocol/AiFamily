@@ -6,32 +6,34 @@ exercises `zone_fake_repository.py` for parity (same behaviour on both
 backends), mirroring how `test_acceptance_chain.py`/`test_tenant_isolation.py`
 run shared scenarios against the fake as a cheaper double.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from ..application import zone_commands
 from ..application.context import ActorContext
 from ..domain.errors import ProductIntelligenceNotFoundError
 from ..domain.zone_entities import DimensionAssessment, ProductZoneAssessment, ZonePolicyVersion
-from ..infrastructure import zone_sqlalchemy_models as zm
 from ..infrastructure.sqlalchemy_models import Base
 from ..infrastructure.sqlalchemy_repository import SqlAlchemyProductIntelligenceRepository
-from ..infrastructure.zone_fake_repository import FakeZoneAssessmentRepository
 from ..infrastructure.zone_sqlalchemy_repository import SqlAlchemyZoneAssessmentRepository
 
-UTC_NOW = datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+UTC_NOW = datetime(2026, 8, 29, 12, 0, 0, tzinfo=UTC)
 
 ZONE_REVIEW_PERMISSION = zone_commands.ZONE_REVIEW_PERMISSION
 
 
 def _reviewer_context(tenant_scope: str = "tenant-a") -> ActorContext:
     return ActorContext(
-        actor_id="human-reviewer-1", actor_type="HUMAN", tenant_scope=tenant_scope,
+        actor_id="human-reviewer-1",
+        actor_type="HUMAN",
+        tenant_scope=tenant_scope,
         permissions=frozenset({ZONE_REVIEW_PERMISSION}),
     )
 
@@ -62,7 +64,10 @@ def _build_policy(**overrides) -> ZonePolicyVersion:
             "commodity_differentiation_max": 40.0,
             "commodity_defensibility_max": 40.0,
         },
-        classification_rules="UNIQUE if defensibility>=75 and floor>=50; COMMODITY if diff<40 and def<40; else ADVANTAGE",
+        classification_rules=(
+            "UNIQUE if defensibility>=75 and floor>=50; "
+            "COMMODITY if diff<40 and def<40; else ADVANTAGE"
+        ),
         review_policy={"unique_requires_reviewers": 1},
         effective_from=UTC_NOW,
         status="ACTIVE",
@@ -118,14 +123,26 @@ async def _seed_product_concept(base_repo, *, concept_id: str, tenant_scope: str
     from ..domain.entities import GrowthStrategy, ProductConcept
 
     strategy = GrowthStrategy(
-        id="strategy-1", created_at=UTC_NOW, updated_at=UTC_NOW, created_by="human-1",
-        tenant_scope=tenant_scope, status="APPROVED", problem_id="problem-1",
-        hypothesis_ids=["hyp-1"], statement="grow via zone engine",
+        id="strategy-1",
+        created_at=UTC_NOW,
+        updated_at=UTC_NOW,
+        created_by="human-1",
+        tenant_scope=tenant_scope,
+        status="APPROVED",
+        problem_id="problem-1",
+        hypothesis_ids=["hyp-1"],
+        statement="grow via zone engine",
     )
     await base_repo.save_growth_strategy(strategy)
     concept = ProductConcept(
-        id=concept_id, created_at=UTC_NOW, updated_at=UTC_NOW, created_by="human-1",
-        tenant_scope=tenant_scope, status="DRAFT", strategy_id=strategy.id, title="concept",
+        id=concept_id,
+        created_at=UTC_NOW,
+        updated_at=UTC_NOW,
+        created_by="human-1",
+        tenant_scope=tenant_scope,
+        status="DRAFT",
+        strategy_id=strategy.id,
+        title="concept",
     )
     await base_repo.save_product_concept(concept)
     return concept
@@ -156,11 +173,18 @@ async def test_zone_assessment_round_trip_preserves_dimension_assessments(zone_r
     # and already has "concept-1" seeded above via `_seed_product_concept` —
     # it doubles as `product_intelligence_repo` here.
     draft = await zone_commands.create_zone_assessment(
-        zone_repo, base_repo, context, product_concept_id="concept-1", zone_policy_version_id="zone-policy-v0",
+        zone_repo,
+        base_repo,
+        context,
+        product_concept_id="concept-1",
+        zone_policy_version_id="zone-policy-v0",
     )
     await zone_repo.save_zone_policy_version(_build_policy())
     scored = await zone_commands.score_zone_assessment(
-        zone_repo, context, assessment_id=draft.id, dimension_assessments=_dimension_input(),
+        zone_repo,
+        context,
+        assessment_id=draft.id,
+        dimension_assessments=_dimension_input(),
     )
 
     loaded = await zone_repo.load_zone_assessment(scored.id, "tenant-a")
@@ -178,7 +202,11 @@ async def test_load_zone_assessment_wrong_tenant_raises_not_found(zone_repo, bas
     await zone_repo.save_zone_policy_version(_build_policy())
     context = _reviewer_context()
     draft = await zone_commands.create_zone_assessment(
-        zone_repo, base_repo, context, product_concept_id="concept-1", zone_policy_version_id="zone-policy-v0",
+        zone_repo,
+        base_repo,
+        context,
+        product_concept_id="concept-1",
+        zone_policy_version_id="zone-policy-v0",
     )
     with pytest.raises(ProductIntelligenceNotFoundError):
         await zone_repo.load_zone_assessment(draft.id, "tenant-b")
@@ -196,14 +224,25 @@ async def test_full_lifecycle_persists_through_approval(zone_repo, base_repo):
     await zone_repo.save_zone_policy_version(_build_policy())
     context = _reviewer_context()
     draft = await zone_commands.create_zone_assessment(
-        zone_repo, base_repo, context, product_concept_id="concept-1", zone_policy_version_id="zone-policy-v0",
+        zone_repo,
+        base_repo,
+        context,
+        product_concept_id="concept-1",
+        zone_policy_version_id="zone-policy-v0",
     )
     scored = await zone_commands.score_zone_assessment(
-        zone_repo, context, assessment_id=draft.id, dimension_assessments=_dimension_input(),
+        zone_repo,
+        context,
+        assessment_id=draft.id,
+        dimension_assessments=_dimension_input(),
     )
     submitted = await zone_commands.submit_zone_review(zone_repo, context, assessment_id=scored.id)
     approved = await zone_commands.approve_zone_assessment(
-        zone_repo, context, assessment_id=submitted.id, approved_zone="UNIQUE", review_reason="matches evidence",
+        zone_repo,
+        context,
+        assessment_id=submitted.id,
+        approved_zone="UNIQUE",
+        review_reason="matches evidence",
     )
 
     loaded = await zone_repo.load_zone_assessment(approved.id, "tenant-a")
@@ -214,7 +253,9 @@ async def test_full_lifecycle_persists_through_approval(zone_repo, base_repo):
 
 
 @pytest.mark.asyncio
-async def test_subject_ref_foreign_key_enforced_against_real_product_concept(sqlalchemy_session, zone_repo, base_repo):
+async def test_subject_ref_foreign_key_enforced_against_real_product_concept(
+    sqlalchemy_session, zone_repo, base_repo
+):
     """The `subject_ref` FK to `product_intelligence_product_concepts(id)`
     added in 0059 means a `ProductZoneAssessment` referencing a nonexistent
     `ProductConcept` id must fail at flush time. SQLite only enforces FKs
@@ -246,8 +287,12 @@ async def test_subject_ref_foreign_key_enforced_against_real_product_concept(sql
                 assessed_at=UTC_NOW,
             )
             for dimension in (
-                "customer_scarcity", "replaceability", "data_advantage",
-                "network_effect", "learning_effect", "switching_cost",
+                "customer_scarcity",
+                "replaceability",
+                "data_advantage",
+                "network_effect",
+                "learning_effect",
+                "switching_cost",
             )
         ],
         differentiation_index=0.0,
@@ -258,5 +303,9 @@ async def test_subject_ref_foreign_key_enforced_against_real_product_concept(sql
         recommended_zone="COMMODITY",
         assessment_origin="HUMAN",
     )
-    with pytest.raises(Exception):
+    # The orphan subject_ref must trip the FK constraint at flush time.
+    # Narrowed from a blind `Exception` (B017): a bare Exception would also pass
+    # if the save failed for an unrelated reason (a typo'd attribute, say),
+    # making the test claim FK enforcement it had not actually observed.
+    with pytest.raises(IntegrityError):
         await zone_repo.save_zone_assessment(bad_assessment)

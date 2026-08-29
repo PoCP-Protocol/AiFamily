@@ -8,6 +8,7 @@ PR-001R (chief-architect review on PR #27, item 3): every route now takes
 command/query — `created_by`/`tenant_scope`/`human_actor` no longer appear
 in any request body (see `api/requests.py`).
 """
+
 from __future__ import annotations
 
 from typing import NoReturn
@@ -104,7 +105,9 @@ async def validate_growth_hypothesis(
     context: ActorContext = Depends(get_actor_context),
 ):
     try:
-        return await commands.validate_growth_hypothesis(repo, context, hypothesis_id=hypothesis_id, reason=body.reason)
+        return await commands.validate_growth_hypothesis(
+            repo, context, hypothesis_id=hypothesis_id, reason=body.reason
+        )
     except ProductIntelligenceDomainError as exc:
         _raise_http(exc)
 
@@ -133,13 +136,17 @@ async def create_product_concept(
         _raise_http(exc)
 
 
-@router.get("/product-concepts/{product_concept_id}/chain", response_model=ProductConceptChainResponse)
+@router.get(
+    "/product-concepts/{product_concept_id}/chain", response_model=ProductConceptChainResponse
+)
 async def get_product_concept_chain(
     product_concept_id: str,
     repo: ProductIntelligenceRepositoryPort = Depends(get_repository),
     context: ActorContext = Depends(get_actor_context),
 ):
     try:
-        return await queries.get_product_concept_chain(repo, context, product_concept_id=product_concept_id)
+        return await queries.get_product_concept_chain(
+            repo, context, product_concept_id=product_concept_id
+        )
     except ProductIntelligenceDomainError as exc:
         _raise_http(exc)

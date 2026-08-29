@@ -7,10 +7,31 @@ proposal's compiler-check table (reconciled in
 this class is not called from anywhere; it exists so the 12-check surface is
 agreed on in code before any check is actually implemented, which requires
 Batch 7 authorization.
+
+Imports `ProductDefinition` from `backend.domains.product_intelligence` —
+that domain is the sole canonical source for this business entity (see
+`governance/MIGRATION_MANIFEST.yaml` → `product_intelligence_v2`, and the
+`packages_contracts_provenance` entry's note about `product_factory.py`
+being retired as a duplicate canonical source).
 """
 from __future__ import annotations
 
-from backend.packages.contracts.product_factory import ProductDefinition
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Type-only import. The AI Runtime isolation rule (MIGRATION_PLAN_V2.md §0)
+    # is written about repositories and the persistence layer, and an entity type
+    # is neither — but the direction of the dependency is still wrong: nothing
+    # under backend/intelligence/ should require a business domain to be
+    # importable in order to load.
+    #
+    # Under TYPE_CHECKING the arrow exists for type checkers and readers and does
+    # not exist at runtime, which is the honest state for a module whose every
+    # method raises NotImplementedError and which has zero callers.
+    #
+    # When this compiler is actually implemented (Batch 7 authorization), the
+    # right shape is a Protocol or a shared contract type, not a domain entity.
+    from backend.domains.product_intelligence.domain.entities import ProductDefinition
 
 
 class CompilerCheckResult:

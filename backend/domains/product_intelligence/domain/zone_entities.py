@@ -20,11 +20,12 @@ and validate structural invariants (shape, non-emptiness, required
 cross-field consistency); they do not compute derived numbers themselves,
 per the task brief ("computed by the scoring engine, not by the constructor").
 """
+
 from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -32,8 +33,8 @@ from .entities import _CommonFields
 from .errors import ProductIntelligenceValidationError
 from .zone_value_objects import (
     ZONE_DIMENSION_NAMES,
-    AssessmentOrigin,
     ApprovedZone,
+    AssessmentOrigin,
     RecommendedZone,
     ZoneAssessmentStatus,
     ZoneDimensionName,
@@ -251,7 +252,9 @@ class ZonePolicyVersion(BaseModel):
 
     @field_validator("weights")
     @classmethod
-    def _weights_cover_all_six_dimensions_non_negative(cls, value: dict[str, float]) -> dict[str, float]:
+    def _weights_cover_all_six_dimensions_non_negative(
+        cls, value: dict[str, float]
+    ) -> dict[str, float]:
         # Closure fix: fail closed if a policy omits any of the six frozen
         # dimensions' weights (silently defaulting a missing weight would
         # let a policy author accidentally zero out a dimension's
@@ -260,7 +263,9 @@ class ZonePolicyVersion(BaseModel):
         # weighted average, which no ADR licenses).
         missing = ZONE_DIMENSION_NAMES - value.keys()
         if missing:
-            raise ProductIntelligenceValidationError("zone_policy_weights_missing_required_dimensions")
+            raise ProductIntelligenceValidationError(
+                "zone_policy_weights_missing_required_dimensions"
+            )
         negative = [k for k, v in value.items() if v < 0.0]
         if negative:
             raise ProductIntelligenceValidationError("zone_policy_weights_must_be_non_negative")
@@ -290,7 +295,7 @@ class ZonePolicyVersion(BaseModel):
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     @model_validator(mode="after")
-    def _fill_checksum_if_missing(self) -> "ZonePolicyVersion":
+    def _fill_checksum_if_missing(self) -> ZonePolicyVersion:
         if self.checksum is None:
             object.__setattr__(self, "checksum", self.compute_checksum())
         return self
@@ -327,7 +332,9 @@ class ProductZoneAssessment(_CommonFields):
         # PRODUCT_CONCEPT. Component/ProductDefinition/AIUseCase/Capability
         # are explicitly out of scope for this PR.
         if value != "PRODUCT_CONCEPT":
-            raise ProductIntelligenceValidationError("zone_assessment_subject_type_must_be_product_concept")
+            raise ProductIntelligenceValidationError(
+                "zone_assessment_subject_type_must_be_product_concept"
+            )
         return value
 
     @field_validator("subject_ref", "zone_policy_version_id")
@@ -353,16 +360,26 @@ class ProductZoneAssessment(_CommonFields):
         if status == "DRAFT" and len(value) == 0:
             return value
         if len(value) != 6:
-            raise ProductIntelligenceValidationError("zone_assessment_requires_exactly_six_dimension_assessments")
+            raise ProductIntelligenceValidationError(
+                "zone_assessment_requires_exactly_six_dimension_assessments"
+            )
         seen = [d.dimension for d in value]
         if len(set(seen)) != 6 or set(seen) != ZONE_DIMENSION_NAMES:
-            raise ProductIntelligenceValidationError("zone_assessment_dimension_assessments_must_cover_all_six_uniquely")
+            raise ProductIntelligenceValidationError(
+                "zone_assessment_dimension_assessments_must_cover_all_six_uniquely"
+            )
         return value
 
     @model_validator(mode="after")
-    def _override_reason_required_when_approved_zone_diverges(self) -> "ProductZoneAssessment":
-        if self.approved_zone is not None and self.approved_zone != self.recommended_zone and not self.override_reason:
-            raise ProductIntelligenceValidationError("zone_assessment_override_requires_override_reason")
+    def _override_reason_required_when_approved_zone_diverges(self) -> ProductZoneAssessment:
+        if (
+            self.approved_zone is not None
+            and self.approved_zone != self.recommended_zone
+            and not self.override_reason
+        ):
+            raise ProductIntelligenceValidationError(
+                "zone_assessment_override_requires_override_reason"
+            )
         return self
 
     def dimension_score_map(self) -> dict[str, float]:
@@ -378,7 +395,7 @@ class ProductZoneAssessment(_CommonFields):
         new_status: ZoneAssessmentStatus,
         actor_id: str,
         reason: str | None = None,
-    ) -> "ProductZoneAssessment":
+    ) -> ProductZoneAssessment:
         """Apply a lifecycle transition per ADR-Governance §5, returning a new
         (version-bumped) instance. This method only enforces the *shape* of
         the transition (legal from/to per
@@ -395,17 +412,20 @@ class ProductZoneAssessment(_CommonFields):
         if not is_legal_zone_status_transition(self.status, new_status):
             raise ProductIntelligenceValidationError("zone_assessment_illegal_status_transition")
 
-        if new_status in ("UNDER_REVIEW", "APPROVED"):
-            # ADR-Governance §1: "NO EVIDENCE -> NOT REVIEWABLE". An
-            # unscored DRAFT (0 dimension_assessments, per the integration
-            # fix above) must never reach here either — `any()` over an
-            # empty list is vacuously False, so the length check is
-            # required in addition to the per-dimension evidence check, not
-            # redundant with it.
-            if len(self.dimension_assessments) != 6 or any(not d.evidence_refs for d in self.dimension_assessments):
-                raise ProductIntelligenceValidationError("zone_assessment_missing_evidence_not_reviewable")
+        # ADR-Governance §1: "NO EVIDENCE -> NOT REVIEWABLE". An unscored DRAFT
+        # (0 dimension_assessments, per the integration fix above) must never
+        # reach a reviewable status either — `any()` over an empty list is
+        # vacuously False, so the length check is required in addition to the
+        # per-dimension evidence check, not redundant with it.
+        if new_status in ("UNDER_REVIEW", "APPROVED") and (
+            len(self.dimension_assessments) != 6
+            or any(not d.evidence_refs for d in self.dimension_assessments)
+        ):
+            raise ProductIntelligenceValidationError(
+                "zone_assessment_missing_evidence_not_reviewable"
+            )
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         update: dict[str, object] = {
             "status": new_status,
             "updated_at": now,

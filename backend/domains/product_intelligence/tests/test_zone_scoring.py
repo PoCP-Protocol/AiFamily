@@ -6,9 +6,10 @@ per the PR-002 task split. See `architecture/ADR_PRODUCT_ZONE_SCORING_V0.md`
 and `architecture/ADR_PRODUCT_ZONE_GOVERNANCE_V0.md` for the frozen contract
 being tested against.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -27,7 +28,7 @@ from ..domain.zone_scoring_engine import (
     score_assessment,
 )
 
-UTC_NOW = datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+UTC_NOW = datetime(2026, 8, 29, 12, 0, 0, tzinfo=UTC)
 
 
 def _build_policy(**overrides) -> ZonePolicyVersion:
@@ -166,7 +167,9 @@ def test_low_indices_yield_commodity_zone():
         learning_effect=10.0,
         switching_cost=10.0,
     )
-    (differentiation_index, defensibility_index, *_rest, recommended_zone) = score_assessment(dims, policy)
+    (differentiation_index, defensibility_index, *_rest, recommended_zone) = score_assessment(
+        dims, policy
+    )
 
     assert differentiation_index < 40.0
     assert defensibility_index < 40.0
@@ -250,7 +253,9 @@ def test_floor_gate_blocks_unique_even_with_high_average_defensibility():
         learning_effect=100.0,
         switching_cost=10.0,
     )
-    defensibility_index = compute_defensibility_index(100.0, 100.0, 100.0, 10.0, weights=_EQUAL_WEIGHTS)
+    defensibility_index = compute_defensibility_index(
+        100.0, 100.0, 100.0, 10.0, weights=_EQUAL_WEIGHTS
+    )
     assert defensibility_index >= 75.0  # average alone would qualify for UNIQUE
 
     (*_rest, recommended_zone) = score_assessment(dims, policy)
@@ -324,8 +329,6 @@ def test_dimension_assessment_rejects_empty_evidence_refs():
 
 
 def test_product_zone_assessment_rejects_missing_evidence_on_any_dimension():
-    policy = _build_policy()
-    dims = _build_six_dimensions()
     # Directly construct a bad DimensionAssessment bypassing the helper's
     # default evidence_refs would already fail at DimensionAssessment
     # construction; verify that failure happens before an assessment can be
@@ -374,7 +377,9 @@ def test_approved_zone_diverging_with_override_reason_succeeds():
         dims,
         policy,
         approved_zone="ADVANTAGE",
-        override_reason="Reviewer judged data_advantage evidence too thin for UNIQUE despite score.",
+        override_reason=(
+            "Reviewer judged data_advantage evidence too thin for UNIQUE despite score."
+        ),
     )
     assert assessment.approved_zone == "ADVANTAGE"
     assert assessment.recommended_zone == "UNIQUE"
@@ -408,13 +413,22 @@ def test_assessment_requires_exactly_six_dimensions():
 
     # Also verify the entity-level guard independently with a full but
     # duplicated set (6 entries, but a repeated dimension name).
-    six_with_duplicate = _build_six_dimensions()[:5] + [_build_dimension_assessment("customer_scarcity", 20.0)]
+    six_with_duplicate = _build_six_dimensions()[:5] + [
+        _build_dimension_assessment("customer_scarcity", 20.0)
+    ]
     full_policy_dims = _build_six_dimensions()
     scored = score_assessment(full_policy_dims, policy)
     with pytest.raises(ProductIntelligenceValidationError):
-        _build_assessment(six_with_duplicate, policy, differentiation_index=scored[0], defensibility_index=scored[1],
-                           commodity_score=scored[2], advantage_score=scored[3], unique_score=scored[4],
-                           recommended_zone=scored[5])
+        _build_assessment(
+            six_with_duplicate,
+            policy,
+            differentiation_index=scored[0],
+            defensibility_index=scored[1],
+            commodity_score=scored[2],
+            advantage_score=scored[3],
+            unique_score=scored[4],
+            recommended_zone=scored[5],
+        )
 
 
 def test_assessment_rejects_subject_type_other_than_product_concept():
@@ -449,7 +463,9 @@ def test_lifecycle_happy_path_draft_to_approved_via_intermediate_states():
     under_review = scored.transition_to(new_status="UNDER_REVIEW", actor_id="analyst-1")
     assert under_review.status == "UNDER_REVIEW"
 
-    approved = under_review.transition_to(new_status="APPROVED", actor_id="reviewer-1", reason="Meets bar.")
+    approved = under_review.transition_to(
+        new_status="APPROVED", actor_id="reviewer-1", reason="Meets bar."
+    )
     assert approved.status == "APPROVED"
     assert approved.reviewed_by == "reviewer-1"
     assert approved.reviewed_at is not None
@@ -462,7 +478,9 @@ def test_lifecycle_rejected_and_retired_are_terminal():
     under_review = assessment.transition_to(new_status="SCORED", actor_id="a").transition_to(
         new_status="UNDER_REVIEW", actor_id="a"
     )
-    rejected = under_review.transition_to(new_status="REJECTED", actor_id="reviewer-1", reason="Insufficient evidence.")
+    rejected = under_review.transition_to(
+        new_status="REJECTED", actor_id="reviewer-1", reason="Insufficient evidence."
+    )
     assert rejected.status == "REJECTED"
     with pytest.raises(ProductIntelligenceValidationError):
         rejected.transition_to(new_status="UNDER_REVIEW", actor_id="reviewer-1")
@@ -503,7 +521,9 @@ def test_lifecycle_missing_evidence_blocks_entry_into_under_review():
     stripped = assessment.model_copy(
         update={
             "dimension_assessments": [
-                d.model_copy(update={"evidence_refs": []}) if d.dimension == "customer_scarcity" else d
+                d.model_copy(update={"evidence_refs": []})
+                if d.dimension == "customer_scarcity"
+                else d
                 for d in assessment.dimension_assessments
             ]
         }

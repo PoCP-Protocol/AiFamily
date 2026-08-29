@@ -9,6 +9,7 @@ repository itself. This is what lets a future PR (e.g. the Compiler writing
 aggregate saves atomically in one request, instead of each `save_*` call
 being its own committed transaction.
 """
+
 from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,10 +19,12 @@ class SqlAlchemyUnitOfWork:
     def __init__(self, session: AsyncSession):
         self._session = session
 
-    async def __aenter__(self) -> "SqlAlchemyUnitOfWork":
+    async def __aenter__(self) -> SqlAlchemyUnitOfWork:
         return self
 
-    async def __aexit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: object) -> None:
+    async def __aexit__(
+        self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: object
+    ) -> None:
         if exc_type is not None:
             await self._session.rollback()
             return

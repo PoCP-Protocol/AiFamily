@@ -20,7 +20,24 @@ superseded_by: null
 
 ## 1. 数据库现状：真实技术债，不回避
 
-源仓库唯一权威 schema 来源是 `50_开发_dev/database/migrations/*.sql`，**58个文件（0001-0058），手写SQL，非TypeORM/Prisma**，经 `tools/migrate.mjs` 顺序应用，配合 `schema_migrations` 追踪表记录已应用版本。`governance/MIGRATION_MANIFEST.yaml` 条目 `database_schema` 判定为 **MIGRATE**，但列出明确阻塞项：
+> **2026-08-29 T-03 实测更新（本节三处口径已被证据修正）**
+>
+> 1.1–1.3 的阻塞项**已完成**，`database_schema` 能力已从 `PLANNED` 转 `IN_PROGRESS`。完成物：
+> `database/migrations/LINEARISATION_MAP.md`（62 行映射 + 逐组排序理由与实测证伪）、
+> `database/baseline/*.sql`（62 个线性化文件，sha256 与源文件一致）、
+> `database/migrations/versions/0001_legacy_schema_baseline.py`（Alembic baseline）。
+> `alembic upgrade head` 在空 Postgres 16 上成功产出 151 表 / 7 视图 / 60 枚举，
+> up→down→up 循环可重复。
+>
+> 三处需要读者注意的口径修正（详细证据见 LINEARISATION_MAP.md §0、§3、§4）：
+>
+> | 本节原断言 | T-03 实测 |
+> |---|---|
+> | 源目录 "58个文件（0001-0058）" | 实为 **62 个 `.sql` 文件**。"58" 是最大编号不是文件数；4 组重号各多出 1 个，58+4=62 |
+> | 1.1：4 组重号的顺序信息丢失，须靠考古重建，"顺序错了会叠加错误变更" | 4 组重号**组内全部无依赖**：逐组交换后 62 个文件仍全部应用成功且 schema 等价。唯一硬依赖是**跨组**的 `test_experience_workflows` → `family_growth_page_objects`，而文件名字典序（即 `migrate.mjs` 的真实应用顺序）恰好已满足它。风险边界比本节预想小得多 |
+> | 1.2：`subject_type`/`subject_ref_id` 是"死列"，"新代码大概率只读写新列" | **不是死列**。旧列 `NOT NULL` 且无 DEFAULT；源仓库 `apps/api/src/modules/family/family.service.ts:1427` 的 `insert` 同时写两代列；`0045` 迁移以 `profile.subject_type='CHILD'` 为读取谓词。已按"忠实快照"原样带入 baseline。真正的债不是"有死列"，是"同一语义双写、无单一真相"，退役路径待 T-05 随 ADR 给出 |
+
+源仓库唯一权威 schema 来源是 `50_开发_dev/database/migrations/*.sql`，**实测62个文件（编号 0001-0058），手写SQL，非TypeORM/Prisma**，经 `tools/migrate.mjs` 顺序应用（`readdirSync().sort()`，即纯文件名字典序），配合 `schema_migrations` 追踪表记录已应用版本。`governance/MIGRATION_MANIFEST.yaml` 条目 `database_schema` 判定为 **MIGRATE**，原列出的阻塞项如下（均已由 T-03 解除，保留原文以便追溯当时的判断）：
 
 ### 1.1 四组文件名重号（必须先线性化才能生成 Alembic baseline）
 
@@ -48,6 +65,10 @@ superseded_by: null
 ```
 
 在完成上述 1-3 之前，任何"按域分schema"的目标设计（第2节）都只是**目标态**，不是可以立即执行 `CREATE SCHEMA` 的现状。
+
+**1-3 已于 2026-08-29 由 T-03 完成，第 4 条起生效**：此后所有 schema 变更走 Alembic revision 流程，不再手写 SQL；`database/baseline/*.sql` 是只读历史制品，任何改动都必须是 baseline 之后的新 revision。第 2 节的按域分 schema 仍是**目标态**——baseline 刻意只做忠实快照（见第 5 节），151 张表目前全在 `public`，`CREATE SCHEMA identity/family/...` 与每域独立 DB role 都还没做，是后续独立 PR。
+
+**T-03 发现的一处需裁决 schema 矛盾**：`backend/domains/product_intelligence/migrations/0058_product_intelligence_domain.sql` 与 baseline 里的同源文件**不等价**——它给 `product_intelligence_growth_hypotheses` 多加了 `validated_by`/`validated_at`/`validation_reason` 三列，而源仓库权威 SQL 里 grep 这三个名字为 0 命中。AiFamily 的 ORM 模型（`infrastructure/sqlalchemy_models.py:186-188`）要求这三列，所以在**只跑过 `alembic upgrade head` 的库上，该域会失败**；两个真实 Postgres 集成测试没有暴露它，因为它们自己读那份本地 SQL 建库、绕开了 baseline。处置建议见 `backend/domains/product_intelligence/migrations/README.md`（新增 baseline 之后的 revision，而**不是**改 `database/baseline/`）。
 
 ## 2. 按域分schema的目标设计
 
