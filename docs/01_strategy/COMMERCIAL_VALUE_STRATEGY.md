@@ -1,3 +1,17 @@
+---
+id: STR-COMMERCIAL-001
+title: FAMILY 商业价值战略
+type: strategy
+status: current
+version: 2.0
+owner: project-owner
+created: 2026-08-28
+updated: 2026-08-29
+canonical: true
+supersedes: ARC-2026-STRATEGY-001
+superseded_by: null
+---
+
 # FAMILY 商业价值战略 V2.0 —— 服务孩子、家长、家庭
 
 ```text

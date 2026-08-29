@@ -1,9 +1,23 @@
+---
+id: BIZ-SCENARIO-001
+title: 业务场景与流程架构、功能组件
+type: business
+status: current
+version: 1.0
+owner: chief-architect
+created: 2026-08-29
+updated: 2026-08-29
+canonical: true
+supersedes: null
+superseded_by: null
+---
+
 # 业务场景与流程架构、功能组件 (Business Scenarios, Process Architecture & Functional Components)
 
-- **状态**: CURRENT — 依据 `governance/REPOSITORY_CONSTITUTION.md` R13，本文件是本主题唯一当前真相
+- **状态**: 见上方 front matter `status: current` — 依据 `governance/REPOSITORY_CONSTITUTION.md` R13，本文件是本主题唯一当前真相
 - **生效**: 2026-08-29
 - **与 `BUSINESS_ARCHITECTURE.md` 的关系**: 该文件回答"为什么做、钱从哪来、底线是什么"；本文件回答"具体场景是什么样、流程怎么走、由哪些功能组件承载、每个组件现在做到了什么程度"
-- **GROUNDING**: `docs/20_product/reference/FAMILY_UI_BACKEND_SCENARIO_CONSISTENCY_AUDIT_V1.md`（下称"审计V1"）、`governance/FAMILY_CONSUMER_UI_FRONTEND_BACKEND_CONSISTENCY_MATRIX_001.md`（下称"矩阵001"）、`governance/MIGRATION_PLAN_V2.md`、`docs/20_product/reference/FAMILY_COMMERCIAL_VALUE_STRATEGY_V2.md`（下称"V2战略"）、三份原始战略材料
+- **GROUNDING**: `docs/14_reference/legacy_audits/FAMILY_UI_BACKEND_SCENARIO_CONSISTENCY_AUDIT_V1.md`（下称"审计V1"）、`docs/14_reference/legacy_audits/FAMILY_CONSUMER_UI_FRONTEND_BACKEND_CONSISTENCY_MATRIX_001.md`（下称"矩阵001"）、`docs/11_delivery/migration/MIGRATION_PLAN_V2.md`、`docs/01_strategy/COMMERCIAL_VALUE_STRATEGY.md`（下称"V2战略"）、三份原始战略材料
 
 ---
 

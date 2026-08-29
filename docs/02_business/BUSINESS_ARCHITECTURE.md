@@ -1,9 +1,23 @@
+---
+id: BIZ-ARCH-001
+title: 业务架构
+type: business
+status: current
+version: 1.0
+owner: chief-architect
+created: 2026-08-29
+updated: 2026-08-29
+canonical: true
+supersedes: null
+superseded_by: null
+---
+
 # 业务架构 (Business Architecture)
 
-- **状态**: CURRENT — 依据 `governance/REPOSITORY_CONSTITUTION.md` R13，本文件是本主题唯一当前真相
+- **状态**: 见上方 front matter `status: current` — 依据 `governance/REPOSITORY_CONSTITUTION.md` R13，本文件是本主题唯一当前真相
 - **生效**: 2026-08-29
-- **在...基础上扩展**: `CURRENT_BUSINESS_ARCHITECTURE.md`（Wave 0 迁移判定登记）、`CURRENT_PRODUCT_VISION.md`（产品语言登记）——本文件不推翻二者，是在其基础上补充"业务架构"这一更完整的视角（顶层定位、收入结构、协作机制、战略原则），三者共同构成业务侧当前真相
-- **GROUNDING**: `governance/MIGRATION_PLAN_V2.md`、`docs/20_product/reference/FAMILY_COMMERCIAL_VALUE_STRATEGY_V2.md`（下称"V2战略"）、`docs/20_product/strategy/raw/` 下三份原始材料（V1.1实施方案、战略白皮书30页版、新商业模式PPT）、`governance/REPOSITORY_CONSTITUTION.md`
+- **在...基础上扩展**: `docs/02_business/BUSINESS_CAPABILITY_MAP.md`（Wave 0 迁移判定登记）、`docs/03_product/PRODUCT_VISION.md`（产品语言登记）——本文件不推翻二者，是在其基础上补充"业务架构"这一更完整的视角（顶层定位、收入结构、协作机制、战略原则），三者共同构成业务侧当前真相
+- **GROUNDING**: `docs/11_delivery/migration/MIGRATION_PLAN_V2.md`、`docs/01_strategy/COMMERCIAL_VALUE_STRATEGY.md`（下称"V2战略"）、`docs/01_strategy/source_materials/` 下三份原始材料（V1.1实施方案、战略白皮书30页版、新商业模式PPT）、`governance/REPOSITORY_CONSTITUTION.md`
 
 ---
 

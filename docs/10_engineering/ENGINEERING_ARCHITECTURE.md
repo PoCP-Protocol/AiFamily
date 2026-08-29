@@ -1,9 +1,23 @@
+---
+id: ENG-ARCH-001
+title: 工程/技术架构
+type: engineering
+status: current
+version: 1.0
+owner: chief-architect
+created: 2026-08-29
+updated: 2026-08-29
+canonical: true
+supersedes: null
+superseded_by: null
+---
+
 # 技术架构 (Technical Architecture)
 
-- **状态**: CURRENT — 依据 `governance/REPOSITORY_CONSTITUTION.md` R13，本文件是本主题唯一当前真相
+- **状态**: 见上方 front matter `status: current` — 依据 `governance/REPOSITORY_CONSTITUTION.md` R13，本文件是本主题唯一当前真相
 - **生效**: 2026-08-29
-- **与既有文档的关系**: 本文档在 `CURRENT_TECH_ARCHITECTURE.md`（Wave 0 结束快照）基础上扩展为完整版，不推翻其已建立的断言（uv+pyproject.toml已建立、R11/R12约束、架构测试清单），仅补充 Wave 1 已发生的新事实（平台内核已有真实代码、frontend_mobile 判定变更）与尚未写清楚的分层/通信/前端技术栈细节。凡与 `CURRENT_TECH_ARCHITECTURE.md` 冲突之处，以本文档更新后的事实为准，且需要一次独立任务同步刷新该文件（见 `MASTER_BLUEPRINT.md` §5 说明）。
-- **上游依据**: `governance/MIGRATION_PLAN_V2.md` 第0节保留清单、`governance/REPOSITORY_CONSTITUTION.md` R1/R2/R7/R10/R11/R12/R14
+- **与既有文档的关系**: 本文档在 `docs/00_system/CURRENT_TECHNOLOGY_BASELINE.md`（Wave 0 结束快照）基础上扩展为完整版，不推翻其已建立的断言（uv+pyproject.toml已建立、R11/R12约束、架构测试清单），仅补充 Wave 1 已发生的新事实（平台内核已有真实代码、frontend_mobile 判定变更）与尚未写清楚的分层/通信/前端技术栈细节。凡与 `CURRENT_TECHNOLOGY_BASELINE.md` 冲突之处，以本文档更新后的事实为准，且需要一次独立任务同步刷新该文件（见 `docs/00_system/CURRENT_SYSTEM_BASELINE.md` §5 说明）。
+- **上游依据**: `docs/11_delivery/migration/MIGRATION_PLAN_V2.md` 第0节保留清单、`governance/REPOSITORY_CONSTITUTION.md` R1/R2/R7/R10/R11/R12/R14
 
 ## 1. 技术栈全景
 

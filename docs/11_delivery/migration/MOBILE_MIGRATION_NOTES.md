@@ -1,3 +1,17 @@
+---
+id: DEL-MIGMOBILE-001
+title: Mobile 前端迁移记录
+type: delivery
+status: current
+version: 1.0
+owner: chief-architect
+created: 2026-08-29
+updated: 2026-08-29
+canonical: false
+supersedes: null
+superseded_by: null
+---
+
 # Mobile 前端迁移记录 (frontend_mobile)
 
 - **日期**: 2026-08-29

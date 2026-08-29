@@ -1,3 +1,17 @@
+---
+id: DEL-MIG-001
+title: 源仓库资产清单
+type: delivery
+status: current
+version: 1.0
+owner: chief-architect
+created: 2026-08-29
+updated: 2026-08-29
+canonical: false
+supersedes: null
+superseded_by: null
+---
+
 # 01 — 源仓库资产清单 (Repository Inventory)
 
 - **审计对象**: `PoCP-Protocol/family-ai` @ `1ff168123d147f4d6a6eaaa677bc2f80986233d9`（本地路径 `D:\family-ai\50_开发_dev`）

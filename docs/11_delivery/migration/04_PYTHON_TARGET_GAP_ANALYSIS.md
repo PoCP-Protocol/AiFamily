@@ -1,3 +1,17 @@
+---
+id: DEL-MIG-004
+title: Python 目标差距分析
+type: delivery
+status: current
+version: 1.0
+owner: chief-architect
+created: 2026-08-29
+updated: 2026-08-29
+canonical: false
+supersedes: null
+superseded_by: null
+---
+
 # 04 — Python 目标差距分析 (Gap Analysis for Wave 1 Platform Kernel)
 
 - **用途**: 本文档是 Wave 1（平台内核）的施工前置条件清单。列出从零建的每一项平台原语，标注 TS 侧是否有可参考实现、Python 侧当前现状（全部是"不存在，须新建"），以及依赖管理/运行时入口/数据库迁移工具三项跨切前置问题。

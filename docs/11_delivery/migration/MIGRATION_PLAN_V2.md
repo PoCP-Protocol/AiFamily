@@ -1,3 +1,17 @@
+---
+id: DEL-MIGPLAN-001
+title: AiFamily 精选式迁移计划
+type: delivery
+status: current
+version: 2.0
+owner: chief-architect
+created: 2026-08-29
+updated: 2026-08-29
+canonical: true
+supersedes: null
+superseded_by: null
+---
+
 # AiFamily — 精选式迁移计划 V2.0（取代最初的 Wave 0-10 总计划与源仓库V1）
 
 ```text
@@ -17,8 +31,8 @@ GROUNDING       = 基于对源仓库 D:\family-ai (baseline 1ff1681) 的 apps/ap
                   的独立只读代码审计(非文档自述) —— 详见 governance/MIGRATION_MANIFEST.yaml,
                   以及源仓库 FAMILY_COMMERCIAL_VALUE_STRATEGY_V2.md 的三区方法论、
                   FAMILY_UI_BACKEND_SCENARIO_CONSISTENCY_AUDIT_V1.md 的34UI真实状态、
-                  governance/FAMILY_CONSUMER_UI_FRONTEND_BACKEND_CONSISTENCY_MATRIX_001.md(矩阵001)、
-                  法咪莉教育战略白皮书/新商业模式PPT/家庭教育大模型平台合作方案(见docs/20_product/strategy/)
+                  docs/14_reference/legacy_audits/FAMILY_CONSUMER_UI_FRONTEND_BACKEND_CONSISTENCY_MATRIX_001.md(矩阵001)、
+                  法咪莉教育战略白皮书/新商业模式PPT/家庭教育大模型平台合作方案(见docs/01_strategy/source_materials/)
 ```
 
 ## 0. 与V1的关系：纠正一个根本性错误，不是延续微调

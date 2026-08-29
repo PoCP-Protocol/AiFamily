@@ -1,8 +1,22 @@
+---
+id: DATA-ARCH-001
+title: 数据架构
+type: data
+status: current
+version: 1.0
+owner: chief-architect
+created: 2026-08-29
+updated: 2026-08-29
+canonical: true
+supersedes: null
+superseded_by: null
+---
+
 # 数据架构 (Data Architecture)
 
-- **状态**: CURRENT — 依据 `governance/REPOSITORY_CONSTITUTION.md` R13，本文件是本主题唯一当前真相
+- **状态**: 见上方 front matter `status: current` — 依据 `governance/REPOSITORY_CONSTITUTION.md` R13，本文件是本主题唯一当前真相
 - **生效**: 2026-08-29
-- **上游依据**: `governance/MIGRATION_MANIFEST.yaml` 条目 `database_schema`、`governance/REPOSITORY_CONSTITUTION.md` R9、`docs/20_product/reference/FAMILY_COMMERCIAL_VALUE_STRATEGY_V2.md` §8.2、`docs/20_product/reference/FAMILY_UI_BACKEND_SCENARIO_CONSISTENCY_AUDIT_V1.md`
+- **上游依据**: `governance/MIGRATION_MANIFEST.yaml` 条目 `database_schema`、`governance/REPOSITORY_CONSTITUTION.md` R9、`docs/01_strategy/COMMERCIAL_VALUE_STRATEGY.md` §8.2、`docs/14_reference/legacy_audits/FAMILY_UI_BACKEND_SCENARIO_CONSISTENCY_AUDIT_V1.md`
 
 ## 1. 数据库现状：真实技术债，不回避
 

@@ -1,3 +1,19 @@
+---
+id: REF-UIMATRIX-001
+title: Family 34 页 UI 前后端一致性矩阵
+type: reference
+status: current
+version: 1.0
+owner: chief-architect
+created: 2026-08-29
+updated: 2026-08-29
+canonical: false
+supersedes: null
+superseded_by: null
+---
+
+> **NOT_CANONICAL** —— 本文件是对旧仓库 `family-ai` 的审计证据（Evidence 类，见 `docs/12_governance/DOCUMENT_GOVERNANCE.md` §1），不是 AiFamily 自身的当前真相。AiFamily 现状读 `docs/00_system/CURRENT_SYSTEM_BASELINE.md`。
+
 # Family / 伐木累 34 页 UI 前后端一致性矩阵
 
 > **用途：** 本矩阵是继续开发的逐页基线，不把“原图可渲染”误认为“前后端业务已完成”。页面显示名使用 Family / 伐木累；`bangyang-reference`、历史 source_file 与 asset id 保持原样，仅作为原素材可追溯路径。所有 DEV/TEST 写入只使用固定 fixture、family_test PostgreSQL、测试账户和零外部副作用适配器。

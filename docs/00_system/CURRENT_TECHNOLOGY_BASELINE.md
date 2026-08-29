@@ -1,13 +1,27 @@
+---
+id: SYS-TECHBASELINE-001
+title: AiFamily 当前技术基线
+type: system
+status: current
+version: 1.0
+owner: chief-architect
+created: 2026-08-29
+updated: 2026-08-29
+canonical: true
+supersedes: null
+superseded_by: null
+---
+
 # 当前技术架构 (Current Tech Architecture)
 
-- **状态**: CURRENT — 依据 `governance/REPOSITORY_CONSTITUTION.md` R13，本文件是本主题唯一当前真相
+- **状态**: 见上方 front matter `status: current` — 依据 `governance/REPOSITORY_CONSTITUTION.md` R13，本文件是本主题唯一当前真相
 - **生效**: 2026-08-29 (AIFAMILY-000, Wave 0 结束时快照)
 
 ---
 
 ## 0. 范围声明
 
-本文件描述 AiFamily 仓库在 Wave 0 (AIFAMILY-000) 结束时的技术基线现状，不描述未来 Wave 的目标架构（后者见 `docs/00_foundation/CURRENT_PROGRAM_PLAN.md`）。
+本文件描述 AiFamily 仓库在 Wave 0 (AIFAMILY-000) 结束时的技术基线现状，不描述未来 Wave 的目标架构（后者见 `docs/11_delivery/CURRENT_PROGRAM_PLAN.md`）。
 
 ## 1. 语言与依赖工具链：已建立
 
@@ -60,9 +74,9 @@ R14 的纪律本身来自一条实测伤疤：`50_开发_dev/governance/FPAI_PRO
 - 依赖缺口：**零**。全树搜索 `workspace:` 与 `@family/contracts` 无命中——该 app（`package.json` name: `app-template`）没有 monorepo 内部包依赖。
 - `lib/family/family-api-client.ts:101` 确认 base URL 由环境变量 `EXPO_PUBLIC_FAMILY_API_BASE_URL` 驱动，未配置时 fail-closed（`FAMILY_API_NOT_CONFIGURED`），无硬编码后端地址。
 - `frontend_web` 仍为 **REVIEW_REQUIRED / BLOCKED**（无组件框架、无 bundler，build 脚本只是 `tsc --noEmit`），未迁入。
-- 待修正的记录错误：manifest 证据文本写"202 张 PNG 设计基线"，实测为 87 PNG + 12 WEBP = 99 张图片。这是早期审计的引用错误，已记录在 `docs/40_platform/MOBILE_MIGRATION_NOTES.md`，待更正 manifest 证据文本。
+- 待修正的记录错误：manifest 证据文本写"202 张 PNG 设计基线"，实测为 87 PNG + 12 WEBP = 99 张图片。这是早期审计的引用错误，已记录在 `docs/11_delivery/migration/MOBILE_MIGRATION_NOTES.md`，待更正 manifest 证据文本。
 
-结论：Mobile 前端在本仓库内，但**其可运行性阻塞于 Python 后端**——它消费 ~40+ 后端路径 + 4 个 `/auth/*` 端点，其中 9+ 屏幕依赖源仓库的 `/dev/*` 合成路由。Python FastAPI 必须先满足端点清单，否则 34 个屏幕中最多 24 个会白屏。下一步对齐时机见 `docs/40_platform/MOBILE_MIGRATION_NOTES.md`（Batch 1 Assessment / Batch 2 SERVICE 上线后）。
+结论：Mobile 前端在本仓库内，但**其可运行性阻塞于 Python 后端**——它消费 ~40+ 后端路径 + 4 个 `/auth/*` 端点，其中 9+ 屏幕依赖源仓库的 `/dev/*` 合成路由。Python FastAPI 必须先满足端点清单，否则 34 个屏幕中最多 24 个会白屏。下一步对齐时机见 `docs/11_delivery/migration/MOBILE_MIGRATION_NOTES.md`（Batch 1 Assessment / Batch 2 SERVICE 上线后）。
 
 ## 6. 当前技术基线小结
 

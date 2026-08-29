@@ -1,3 +1,19 @@
+---
+id: REF-UIAUDIT-001
+title: Family UI 与 Backend 场景一致性审计
+type: reference
+status: current
+version: 1.0
+owner: chief-architect
+created: 2026-08-29
+updated: 2026-08-29
+canonical: false
+supersedes: null
+superseded_by: null
+---
+
+> **NOT_CANONICAL** —— 本文件是对旧仓库 `family-ai` 的审计证据（Evidence 类，见 `docs/12_governance/DOCUMENT_GOVERNANCE.md` §1），不是 AiFamily 自身的当前真相。AiFamily 现状读 `docs/00_system/CURRENT_SYSTEM_BASELINE.md`。
+
 # FAMILY UI ↔ BACKEND SCENARIO CONSISTENCY AUDIT V1
 
 ```text
@@ -10,7 +26,7 @@ STATUS      = VERIFIED_FINDINGS_ONLY (unverifiable/incorrect draft claims remove
 
 本文档**不是**第三份逐页一致性矩阵，也不取代：
 
-- `../governance/FAMILY_CONSUMER_UI_FRONTEND_BACKEND_CONSISTENCY_MATRIX_001.md`（下称"矩阵001"）—— 已经是逐页 UI/Route/前端能力/后端契约/Named Action/测试现状/状态/下一步的权威矩阵，覆盖全部34页，且已有 Phase 2、服务预约两轮对象链实现记录的增补。
+- `docs/14_reference/legacy_audits/FAMILY_CONSUMER_UI_FRONTEND_BACKEND_CONSISTENCY_MATRIX_001.md`（下称"矩阵001"）—— 已经是逐页 UI/Route/前端能力/后端契约/Named Action/测试现状/状态/下一步的权威矩阵，覆盖全部34页，且已有 Phase 2、服务预约两轮对象链实现记录的增补。
 - `../governance/UI01_FUNCTION_CLOSURE_MATRIX_V1.md`（下称"UI01矩阵"）—— 已经是"UI01入口 → 目标UI → 核心对象状态 → 当前实现 → 下一验收门"的闭环矩阵，并已引用三份PPT的具体页码作为闭环依据。
 
 一个只读调研 agent 在本文档写出之前，对同一课题做了一轮独立调研，产出了若干"疑似发现"。**这些发现在写入本文档前逐条用源代码核实**，核实结果分三类：

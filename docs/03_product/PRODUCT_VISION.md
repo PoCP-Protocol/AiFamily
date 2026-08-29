@@ -1,6 +1,20 @@
+---
+id: PRD-VISION-001
+title: 当前产品语言
+type: product
+status: current
+version: 1.0
+owner: product-owner
+created: 2026-08-29
+updated: 2026-08-29
+canonical: true
+supersedes: null
+superseded_by: null
+---
+
 # 当前产品语言 (Current Product Vision)
 
-- **状态**: CURRENT — 依据 `governance/REPOSITORY_CONSTITUTION.md` R13，本文件是本主题唯一当前真相
+- **状态**: 见上方 front matter `status: current` — 依据 `governance/REPOSITORY_CONSTITUTION.md` R13，本文件是本主题唯一当前真相
 - **生效**: 2026-08-29 (AIFAMILY-000)
 
 ---
@@ -55,4 +69,4 @@ Family 是贯穿整个业务域的长期根实体，其生命周期覆盖 parent
 
 ## 5. 与本文件相关的待裁决事项
 
-源仓库 `50_开发_dev` 下存在三份互不引用、各自自称"当前基线"的文档（`CURRENT_SPRINT.md`、`governance/PROGRAM_STATUS_PLATFORM_V1.md`、`architecture/FAMILY_PLATFORM_V3_BLUEPRINT.md`），且源仓库已有一份独立推进中的 `architecture/FAMILY_AI_PYTHON_ONLY_MIGRATION_PLAN_V1.md`（2026-08-28）。本文件登记的产品语言（Family 根对象、四层区分、否定禁令、Named Action）在三份文档与该迁移计划之间未发现冲突，但两套迁移工作之间的关系本身尚待人工裁决，详见 `governance/MIGRATION_MANIFEST.yaml` 的 `docs_current_baseline_CONTRADICTION` 条目与 `docs/00_foundation/CURRENT_PROGRAM_PLAN.md` 第 5 节。
+源仓库 `50_开发_dev` 下存在三份互不引用、各自自称"当前基线"的文档（`CURRENT_SPRINT.md`、`governance/PROGRAM_STATUS_PLATFORM_V1.md`、`architecture/FAMILY_PLATFORM_V3_BLUEPRINT.md`），且源仓库已有一份独立推进中的 `architecture/FAMILY_AI_PYTHON_ONLY_MIGRATION_PLAN_V1.md`（2026-08-28）。本文件登记的产品语言（Family 根对象、四层区分、否定禁令、Named Action）在三份文档与该迁移计划之间未发现冲突，但两套迁移工作之间的关系本身尚待人工裁决，详见 `governance/MIGRATION_MANIFEST.yaml` 的 `docs_current_baseline_CONTRADICTION` 条目与 `docs/11_delivery/CURRENT_PROGRAM_PLAN.md` 第 5 节。

@@ -74,7 +74,7 @@ R10 要求所有 AI 能力收敛于 `backend/intelligence/`，且 Model Gateway 
 
 | # | 组件 | 目标位置 | AiFamily 成熟度 | 说明 |
 |---|---|---|---|---|
-| 1 | **Model Gateway** | `backend/intelligence/model_gateway` | `PLANNED` | manifest 条目 `model_gateway`，disposition = REIMPLEMENT，status = PLANNED。Python 侧**零对应物**。是 R7 规定的**唯一凭据读取点**。参考实现：`packages/ai-gateway/src/index.ts`（894 行，Routing / Timeout / Admission / FailClosed / Provenance / HumanGate 均真实存在）、`packages/principal-ai/src/index.ts`、`packages/principal-runtime/src/index.ts` |
+| 1 | **Model Gateway** | `backend/intelligence/model_gateway` | `EXPERIMENT` | **2026-08-29 落地（T-06）**，由 `ABSENT`/`PLANNED` 升为 `EXPERIMENT`。真实可运行代码 + 110 项测试通过：Provider 准入（含第16条合规字段与 `sub_delegates` 三态）、双层 Timeout、外呼前 Attempt 登记、JSON+schema 校验、强制完整 `AiProvenance`、输出恒为 `ModelDraft`（`may_mutate_business_state` 只读恒 False）、受控 Routing。两个 adapter：`OpenAICompatibleProvider`（真实 httpx 路径，`MockTransport` 全程测试）与 `FakeProvider`。是 R7 规定的**唯一凭据读取点**，且该收敛由 `tests/architecture/test_ai_runtime_isolation.py` 机械强制。**不是 `PILOT`**：无任何调用方，且**零个外部供应商通过准入**（详见 §3.3）。参考实现：`packages/ai-gateway/src/index.ts`（894 行）、`packages/principal-ai/src/index.ts` |
 | 2 | **Context Engine** | `backend/intelligence/context_engine` | `ABSENT` | 无 manifest 条目、无设计细目、无代码。Family Context 的载体，见 §5.1 |
 | 3 | **Agent Runtime** | `backend/intelligence/agent_runtime` | `PLANNED` | 设计要求见 `AI_NATIVE_PRINCIPLES.md` §3.2（列为"核心域能工作的前提"，不是"未来可能加"）。无 manifest 条目、无代码 |
 | 4 | **Tool Runtime** | `backend/intelligence/tool_runtime` | `PLANNED` | 同上。工具注册是判据 5（AI 权限边界显式建模）的载体 |
@@ -85,9 +85,17 @@ R10 要求所有 AI 能力收敛于 `backend/intelligence/`，且 Model Gateway 
 | 9 | **Human Gate** | `backend/intelligence/human_gate` | `PLANNED` | R8 规定必须过闸的行为：类诊断输出、家庭计划变更、教师推荐、服务购买、对外沟通、会员升级、涉未成年人的敏感动作。闸门决策必须落库可审计。Python 侧零实现；源仓库 Human Gate 逻辑分散于 TS 侧多处接入模式 |
 | 10 | **Evaluation** | `backend/intelligence/evaluation` | `ABSENT` | `AI_NATIVE_PRINCIPLES.md` §5 明确：判据 4（越用越准）的验证需要真实 eval 框架与回归测试，**不是靠声明**。当前无任何 eval 代码 |
 | 11 | **Observability**（Trace / Cost） | `backend/intelligence/observability` | `ABSENT` | OpenTelemetry **尚未加入 `pyproject.toml`**（见 `CURRENT_SYSTEM_BASELINE.md` §4.6）。无 trace、无成本核算 |
-| 12 | **AI Provenance** | 跨组件（`backend/packages/contracts` + model_gateway） | `EXPERIMENT`（仅类型层） | **唯一有实际代码的一项**：`backend/packages/contracts` 的 `Provenance` / `evidence` 类型已迁入，被 4 个域引用（Python 侧唯一真正跨域共享的原语）。但**只有类型，没有记录机制** —— R6 要求的 model / model_version / prompt_version / context_snapshot / confidence / 人工审批记录链条尚不存在 |
+| 12 | **AI Provenance** | 跨组件（`backend/packages/contracts` + model_gateway） | `EXPERIMENT` | 2026-08-29 由"仅类型层"升级：记录机制已存在。`model_gateway/contracts.py` 的 `AiProvenance` 强制 model / model_version / prompt_version / schema_version / context_snapshot_ref / confidence / latency_ms / provider_id / data_class，身份字段缺一即构造失败（依据 PIPL 第24条，见 `COMPLIANCE_HARD_CONSTRAINTS.md` §2）。`backend/packages/contracts` 的 `Provenance` / `evidence` 类型仍是被 4 个域引用的证据等级原语，两者**不重复**：前者记录"这条 AI 输出是怎么产生的"，后者标注"这条数据的证据等级"。仍缺的是**人工审批记录链条**（Human Gate 未落地）与持久化（attempt 账本仅进程内） |
 
-**汇总**：12 项中 `PLANNED` 7 项、`ABSENT` 4 项、`EXPERIMENT` 1 项（且仅类型层）。**`PILOT` 与 `PRODUCTION` 为 0。**
+**汇总**：12 项中 `PLANNED` 5 项、`ABSENT` 4 项、`EXPERIMENT` 3 项（Model Gateway / AI Provenance / design_copilot 计入方式见下）。**`PILOT` 与 `PRODUCTION` 仍为 0。**
+
+### 3.3 Model Gateway 落地后仍然为真的话（不得被"已落地"掩盖）
+
+1. **零个外部供应商可调用。** 真实 adapter 的登记条目 `openai-compatible-unassessed` 刻意设为 `status=TECHNICALLY_VALIDATED` + `sub_delegates=未确立`，因此 `admit()` 对它的任何数据类别都返回 `POLICY_REJECTED`——并有测试断言这一点。放行的前提是法务确立厂商分包结构（《儿童个人信息网络保护规定》第16条**不得转委托**，见 `COMPLIANCE_HARD_CONSTRAINTS.md` §7 与 §11.1 待办第1项）。**这不是工程可以自行判断的事**，也不是配置项。
+2. **无调用方。** 没有任何业务域或 HTTP 路由使用本网关。按 R4，这是"能力存在且有测试"，不是"已投入使用"——不得据此声称任何 AI 业务能力可用。
+3. **Attempt 账本非持久化。** 仅 `InMemoryAttemptSink`（进程内）。持久化归 `platform/audit` 的读取留痕扩展（T-07）；网关只依赖 `AttemptSink` 协议，不得反向 import 业务域仓储。
+4. **仍无 Prompt Registry / Context Engine。** 故 `prompt_version` 与 `context_snapshot_ref` 由调用方自行提供，网关只强制非空，**不校验它们指向真实存在的 prompt 或上下文快照**。§3 表格第 6 项与第 2 项仍分别为 `PLANNED` / `ABSENT`。
+5. **§3.2 列出的两项"待补检查"已补。** `AI_NATIVE_PRINCIPLES.md` §5 的两项（`backend/intelligence/` 不得 import 业务域 repository；不得把 AI 产出置为 VALIDATED/APPROVED）现由 `tests/architecture/test_ai_runtime_isolation.py` 执行，四个检查器均以植入违规的方式验证过会咬人。§5 第三项（判据4"越用越准"需真实 eval 框架）**仍未补**——Evaluation 仍是 `ABSENT`。
 
 ### 3.1 R10 的伤疤（Python 侧必须避免重演）
 
@@ -105,11 +113,18 @@ R10 要求所有 AI 能力收敛于 `backend/intelligence/`，且 Model Gateway 
 
 ### 3.2 已有的机械护栏
 
-`tests/architecture/test_no_direct_provider_calls.py`（R7）已存在并通过 —— 但当前 AiFamily 无任何 AI 调用代码，所以它目前**没有真实拦截对象**，属"预置护栏"。
+`tests/architecture/test_no_direct_provider_calls.py` 与 `test_compliance_constraints.py::test_no_direct_provider_sdk_outside_model_gateway`（R7）已存在并通过。2026-08-29 之前它们**没有真实拦截对象**（无任何 AI 调用代码），属"预置护栏"；Model Gateway 落地后，`backend/intelligence/model_gateway` 成为它们唯一放行的路径，护栏开始有实际约束对象。
 
-`AI_NATIVE_PRINCIPLES.md` §5 列出两项待补检查，均未实现：
-- `may_mutate_business_state=false` 的静态检查（扫描 `backend/intelligence/` 是否 import 业务域 repository）
-- AI 生成记录的初始 status 检查（扫描是否存在把 AI 产出直接置为 VALIDATED/APPROVED 的代码路径）
+`AI_NATIVE_PRINCIPLES.md` §5 列出的两项待补检查**已于 2026-08-29 补齐**，落在 `tests/architecture/test_ai_runtime_isolation.py`：
+
+| 检查 | 实现 | 验证会咬人 |
+|---|---|---|
+| `backend/intelligence/` 不得 import 业务域 repository | `test_ai_runtime_does_not_import_business_domains`（禁 `backend.domains.*` 与 `backend.platform.persistence`；后者刻意纳入——拿到 UnitOfWork 就等于拿到写 canonical 的能力） | 已植入违规验证失败 |
+| 不得把 AI 产出置为 VALIDATED/APPROVED | `test_ai_runtime_does_not_promote_its_own_output`（查**赋值**而非提及：把这些状态写进拒绝清单是护栏，不是提升） | 已植入违规验证失败 |
+| `may_mutate_business_state = false` 是运行时事实 | `test_model_gateway_output_type_cannot_mutate_business_state`（真实 import 并断言，且断言它**不是** dataclass 字段——带 False 默认值的字段今天能过检查、明天能在构造时被传 True） | 已把 property 改回字段验证失败 |
+| 凭据只由 Model Gateway 读取（R7 原文） | `test_credentials_are_read_only_inside_the_model_gateway` | 已植入违规验证失败 |
+
+§5 的第三项（判据 4"越用越准"需真实 eval 框架与回归测试）**仍未补** —— Evaluation 仍为 `ABSENT`，本轮未触碰。
 
 ---
 
@@ -175,17 +190,21 @@ R10 要求所有 AI 能力收敛于 `backend/intelligence/`，且 Model Gateway 
 ```text
 PRODUCTION    0
 PILOT         0
-EXPERIMENT    1   AI Provenance（仅 contracts 类型层，无记录机制）
-PLANNED       7   Model Gateway, Agent Runtime, Tool Runtime,
-                  Prompt Registry, Schema Registry, Safety, Human Gate
+EXPERIMENT    2   Model Gateway（2026-08-29 落地，有代码有测试，零调用方、
+                  零外部供应商通过准入）
+                  AI Provenance（记录机制已存在，仍缺人工审批链与持久化）
+PLANNED       5   Agent Runtime, Tool Runtime, Prompt Registry,
+                  Schema Registry, Safety, Human Gate
 ABSENT       21   Context Engine, Memory, Evaluation, Observability,
                   Family Principal ×5, 业务 Agent ×5,
                   独占区候选 ×4, design_copilot 的实际能力, ...
 ```
 
-**AiFamily 目前没有任何一项可运行的 AI 能力。** `backend/intelligence/` 下唯一的目录是一个全 `NotImplementedError` 的占位。
+**AiFamily 有了第一项可运行的 AI 基础设施，但仍没有任何一项可运行的 AI 业务能力。** `backend/intelligence/` 下现有两个目录：`model_gateway`（真实代码 + 110 项测试）与 `design_copilot`（全 `NotImplementedError` 的占位，未变）。
 
-这与 `SYSTEM_MANIFEST.md` §2 的定位形成的张力必须被诚实记录：平台被定调为 **AI 原生**，而 AI 层当前是全系统最空的一层 —— 平台内核（6 项有代码有测试）和前端（34 屏幕完整）都比它实在。**AI 原生目前是架构承诺，不是既成事实。**
+必须同时记住：Model Gateway 是**前置基础设施**，不是能力本身。它当前**没有任何调用方**，且**零个外部供应商通过第16条准入**（见 §3.3）。也就是说，网关能否发出一次真实外呼，眼下取决于一个法务问题而不是工程问题。
+
+这与 `SYSTEM_MANIFEST.md` §2 的定位形成的张力仍然成立：平台被定调为 **AI 原生**，而 AI 层依然是全系统最空的一层 —— 平台内核（6 项有代码有测试）和前端（34 屏幕完整）仍比它实在。**AI 原生目前是架构承诺，不是既成事实。** 落地 Model Gateway 改变的是"这条承诺现在有了合规的落地路径"，不是"承诺已实现"。
 
 ---
 

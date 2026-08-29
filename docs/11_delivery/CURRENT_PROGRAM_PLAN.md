@@ -1,6 +1,20 @@
+---
+id: DEL-PROGRAM-001
+title: 当前 Wave 计划
+type: delivery
+status: current
+version: 1.0
+owner: chief-architect
+created: 2026-08-29
+updated: 2026-08-29
+canonical: true
+supersedes: null
+superseded_by: null
+---
+
 # 当前 Wave 计划 (Current Program Plan)
 
-- **状态**: CURRENT — 依据 `governance/REPOSITORY_CONSTITUTION.md` R13，本文件是本主题唯一当前真相
+- **状态**: 见上方 front matter `status: current` — 依据 `governance/REPOSITORY_CONSTITUTION.md` R13，本文件是本主题唯一当前真相
 - **生效**: 2026-08-29 (AIFAMILY-000)
 
 ---
@@ -26,7 +40,7 @@
 - `governance/REPOSITORY_CONSTITUTION.md`（十四条规则）
 - `governance/MIGRATION_MANIFEST.yaml`（逐能力 disposition 判定）
 - `governance/DOMAIN_REGISTRY.yaml`（唯一实现位置登记表）
-- `docs/00_foundation/CURRENT_*.md`（本系列文档）
+- `docs/00_system/CURRENT_*.md`（系统真相层文档）
 - `reports/migration/`（详细审计报告）
 - `tests/architecture/`（架构测试骨架）
 

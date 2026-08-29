@@ -1,6 +1,20 @@
-# 当前业务架构 (Current Business Architecture)
+---
+id: BIZ-CAPMAP-001
+title: 业务能力地图
+type: business
+status: current
+version: 1.0
+owner: chief-architect
+created: 2026-08-29
+updated: 2026-08-29
+canonical: true
+supersedes: null
+superseded_by: null
+---
 
-- **状态**: CURRENT — 依据 `governance/REPOSITORY_CONSTITUTION.md` R13，本文件是本主题唯一当前真相
+# 业务能力地图 (Business Capability Map)
+
+- **状态**: 见上方 front matter `status: current` — 依据 `governance/REPOSITORY_CONSTITUTION.md` R13，本文件是本主题唯一当前真相
 - **生效**: 2026-08-29 (AIFAMILY-000, Wave 0 结束时快照)
 
 ---
@@ -55,4 +69,4 @@
 
 ## 5. 与产品语言的一致性
 
-四层区分（Fact≠Perspective≠Recommendation≠Action≠Outcome）与"不做 Family Total Score/Ranking"的产品语言约束适用于本文件列出的所有业务域，尤其是 family_core 与 membership（`FORBIDDEN_TIER_FIELD_TOKENS` 正是对 R9 中 score/rank 红线的域内呼应）。详见 `docs/00_foundation/CURRENT_PRODUCT_VISION.md`。
+四层区分（Fact≠Perspective≠Recommendation≠Action≠Outcome）与"不做 Family Total Score/Ranking"的产品语言约束适用于本文件列出的所有业务域，尤其是 family_core 与 membership（`FORBIDDEN_TIER_FIELD_TOKENS` 正是对 R9 中 score/rank 红线的域内呼应）。详见 `docs/03_product/PRODUCT_VISION.md`。

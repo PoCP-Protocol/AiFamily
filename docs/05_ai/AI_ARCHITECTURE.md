@@ -1,9 +1,23 @@
+---
+id: AI-ARCH-001
+title: AI 架构
+type: ai
+status: current
+version: 1.0
+owner: chief-architect
+created: 2026-08-29
+updated: 2026-08-29
+canonical: true
+supersedes: null
+superseded_by: null
+---
+
 # AI架构 (AI Architecture)
 
-- **状态**: CURRENT — 依据 `governance/REPOSITORY_CONSTITUTION.md` R13，本文件是本主题唯一当前真相
+- **状态**: 见上方 front matter `status: current` — 依据 `governance/REPOSITORY_CONSTITUTION.md` R13，本文件是本主题唯一当前真相
 - **生效**: 2026-08-29
-- **在...基础上扩展**: `CURRENT_AI_ARCHITECTURE.md`（Wave 0 判定登记：Model Gateway/Human Gate/AI Provenance三项REIMPLEMENT，Python侧零实现）——本文件不推翻其判定，是在其基础上补充Agent体系、数据资产画像、Growth Intervention Engine设计与治理红线的具体展开
-- **GROUNDING**: `docs/20_product/strategy/raw/法咪莉教育战略白皮书_30页演讲汇报版.txt`（Slide 16/17/18/19）、`docs/20_product/reference/FAMILY_COMMERCIAL_VALUE_STRATEGY_V2.md`第8节、`governance/REPOSITORY_CONSTITUTION.md`R7/R9/R10、`governance/MIGRATION_PLAN_V2.md`第0节AI Runtime隔离规则
+- **在...基础上扩展**: `docs/00_system/CURRENT_AI_MAP.md`（Wave 0 判定登记：Model Gateway/Human Gate/AI Provenance三项REIMPLEMENT，Python侧零实现）——本文件不推翻其判定，是在其基础上补充Agent体系、数据资产画像、Growth Intervention Engine设计与治理红线的具体展开
+- **GROUNDING**: `docs/01_strategy/source_materials/` 下战略白皮书30页演讲汇报版（Slide 16/17/18/19）、`docs/01_strategy/COMMERCIAL_VALUE_STRATEGY.md` 第8节、`governance/REPOSITORY_CONSTITUTION.md`R7/R9/R10、`docs/11_delivery/migration/MIGRATION_PLAN_V2.md`第0节AI Runtime隔离规则
 
 ---
 

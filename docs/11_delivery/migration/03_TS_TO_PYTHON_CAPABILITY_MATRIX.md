@@ -1,3 +1,17 @@
+---
+id: DEL-MIG-003
+title: TS 到 Python 能力映射矩阵
+type: delivery
+status: current
+version: 1.0
+owner: chief-architect
+created: 2026-08-29
+updated: 2026-08-29
+canonical: false
+supersedes: null
+superseded_by: null
+---
+
 # 03 — TS → Python 能力映射矩阵 (Capability Matrix)
 
 - **用途**: 本文档是 Wave 3+ 执行者的施工图。每一行回答四个问题：这个能力现在活在 TS 侧哪个文件、去哪个测试文件找验收标准、Python 侧目标位置在哪、disposition 是什么。

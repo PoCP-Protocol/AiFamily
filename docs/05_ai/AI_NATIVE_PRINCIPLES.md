@@ -1,3 +1,17 @@
+---
+id: AI-PRINCIPLES-001
+title: AiFamily AI 原生原则
+type: ai
+status: current
+version: 1.0
+owner: project-owner
+created: 2026-08-29
+updated: 2026-08-29
+canonical: true
+supersedes: null
+superseded_by: null
+---
+
 # AiFamily AI 原生原则 (AI-Native Principles)
 
 ```text
@@ -36,7 +50,7 @@ STATUS        = BINDING
 
 **判据1的重要推论**：不是所有能力都必须 AI 原生。用户登录、支付回调、审计日志本就不该由 AI 主导——它们是**支撑域**。AI 原生的要求作用于**核心域**：测评解读、成长诊断、干预决策、陪伴对话、方案生成。把 AI 塞进支撑域是另一种错误（宪章 R7/R9 正是防这个）。
 
-判断某能力属于核心域还是支撑域，用 `docs/20_product/reference/FAMILY_COMMERCIAL_VALUE_STRATEGY_V2.md` 第8节的三区方法论：**独占区候选必须 AI 原生；优势区应当 AI 原生；同质区和支撑域不要求**。
+判断某能力属于核心域还是支撑域，用 `docs/01_strategy/COMMERCIAL_VALUE_STRATEGY.md` 第8节的三区方法论：**独占区候选必须 AI 原生；优势区应当 AI 原生；同质区和支撑域不要求**。
 
 ## 2. AI 原生 ≠ 放宽约束（与工程宪章的关系）
 
@@ -51,7 +65,7 @@ AI 是主干  →  AI 出错的破坏半径最大  →  约束必须更严，不
 - **R9(AI输出不得自动成为事实)**：AI 原生意味着绝大多数有价值的输出都来自 AI，因此 `Fact / Perspective / Recommendation / Action / Outcome` 的四层区分不是边角规则，是**主数据模型的骨架**。AI 产出永远落在 Perspective/Recommendation 层，跨越到 Fact 层必须经 Named Action + 人工确认。
 - **R7(领域不直连供应商)**：AI 调用越多越必须收敛到单一 Model Gateway，否则供应商调用会像源仓库那样散落在业务服务内部(`family-llm-gateway.service.ts:58-63` 的裸 `new OpenAICompatibleAiGateway`)。
 - **R6(无审计不改状态)** + **AI Provenance**：AI 参与的每一次状态变更都必须可追溯到 model/model_version/prompt_version/context_snapshot/confidence/人工审批记录。AI 原生系统若无 provenance，等于无法解释自己为什么这么建议——对家庭教育场景是不可接受的。
-- **不做家庭总分/家庭排名(R9红线)**：AI 原生不是"用 AI 算出更精准的分数"。恰恰因为 AI 能轻易生成一个看起来专业的分数，这条红线才更需要守——`docs/20_product/reference/FAMILY_COMMERCIAL_VALUE_STRATEGY_V2.md` 第0.1节"家是港湾"定位已经把这一点确立为价值筛选器。
+- **不做家庭总分/家庭排名(R9红线)**：AI 原生不是"用 AI 算出更精准的分数"。恰恰因为 AI 能轻易生成一个看起来专业的分数，这条红线才更需要守——`docs/01_strategy/COMMERCIAL_VALUE_STRATEGY.md` 第0.1节"家是港湾"定位已经把这一点确立为价值筛选器。
 
 ## 3. 架构含义（各分项架构文档必须遵守的具体要求）
 

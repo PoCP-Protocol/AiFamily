@@ -308,9 +308,9 @@ Mobile 依赖端点              ~40+ 业务路径 + 4 个 /auth/* 端点
 | 3 | **`tenancy` canonical path 与实际不一致** —— manifest target 写 `backend/platform/tenant`，该目录不存在；`TenantContext` 实际落在 `backend/platform/identity` | `MIGRATION_MANIFEST.yaml` → `platform_actor_tenant_context` |
 | 4 | **`identity` 两条 registry 条目共用同一 canonical_path**（`platform_actor_tenant_context` + `auth_identity`），平台原语与业务身份域边界模糊 | R2 |
 | 5 | **`growth_plan` stub 与未来 `journey` 域语义重叠**，Batch 4 前不裁决即违反 R2 | `CURRENT_DOMAIN_MAP.md` §3.16 |
-| 6 | **`CURRENT_TECHNOLOGY_BASELINE.md` 缺 YAML front matter**，且正文仍引用已废弃的 `docs/00_foundation/` 路径 | `SYSTEM_MANIFEST.md` front matter 规范 |
+| 6 | ~~**`CURRENT_TECHNOLOGY_BASELINE.md` 缺 YAML front matter**，且正文仍引用已废弃的 `docs/00_foundation/` 路径~~ —— **已修（T-10, 2026-08-29）**：front matter 已补，`docs/00_foundation/` / `docs/40_platform/` 引用已改指现路径 | `SYSTEM_MANIFEST.md` front matter 规范 |
 | 7 | **`SYSTEM_MANIFEST.md` §5.1 列出的 `CURRENT_PROGRAM_STATUS.md` 与 `DOCUMENTATION_MAP.md` 尚不存在** | manifest 声明的 canonical 文档清单未齐 |
-| 8 | **多份文档仍引用旧路径** `docs/00_foundation/`、`docs/20_product/`、`docs/10_domain`、`governance/MIGRATION_PLAN_V2.md`（该文件实际在 `docs/11_delivery/migration/`） | 文档架构 V1.0 归位后遗留的引用未同步 |
+| 8 | ~~**多份文档仍引用旧路径** `docs/00_foundation/`、`docs/20_product/`、`docs/10_domain`、`governance/MIGRATION_PLAN_V2.md`~~ —— **已修（T-10, 2026-08-29）**：正文里的死路径引用已批量校正到 16 层结构下的真实路径。**唯一保留的例外**是 `CURRENT_AI_MAP.md` / `CURRENT_SYSTEM_BASELINE.md` / `TARGET_ARCHITECTURE.md` 三份 front matter 里的 `supersedes:` 字段 —— 它指向的是**已被取代的旧文档 id**，按定义就该是旧路径，改掉反而丢失溯源 | 文档架构 V1.0 归位后遗留的引用未同步 |
 | 9 | **矩阵001 内部对 UI-19/UI-20 有两个不同状态** —— 主表 `GATE_BOUNDARY`，服务对象链回归表 `BACKEND_READY` | `CURRENT_PRODUCT_MAP.md` §2.1 SERVICE 段已记录 |
 | 10 | **源仓库"三份自称当前基线"的裁决未完成** —— manifest 条目 `docs_current_baseline_CONTRADICTION` 状态 BLOCKED，其 blocking_action 要求人工裁决"AIFAMILY-000 与源仓库既有 `FAMILY_AI_PYTHON_ONLY_MIGRATION_PLAN_V1.md` 是同一决定被重复下达还是两个冲突方案" | 该裁决未完成前，**AiFamily 不得假设自己是唯一正在进行的 Python 迁移工作** |
 

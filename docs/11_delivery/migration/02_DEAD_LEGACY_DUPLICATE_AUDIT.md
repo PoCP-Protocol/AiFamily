@@ -1,3 +1,17 @@
+---
+id: DEL-MIG-002
+title: 死代码 / 孤儿 / 重复实现审计
+type: delivery
+status: current
+version: 1.0
+owner: chief-architect
+created: 2026-08-29
+updated: 2026-08-29
+canonical: false
+supersedes: null
+superseded_by: null
+---
+
 # 02 — 死代码 / 孤儿 / 重复实现审计 (Dead, Legacy, Duplicate Audit)
 
 - **审计对象**: `PoCP-Protocol/family-ai` @ `1ff168123d147f4d6a6eaaa677bc2f80986233d9`
