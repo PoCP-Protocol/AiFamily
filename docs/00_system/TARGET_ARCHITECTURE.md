@@ -217,13 +217,44 @@ ServiceBlueprintVersion → ServiceCase → ServiceTask → TaskAssignment
 
 ---
 
-## 6. 待人类架构师裁决（本文件不自行拍板）
+## 6. 曾待人类架构师裁决的 5 项 —— 已于 2026-08-29 全部裁决
 
-1. **`frontend_web` 的最终去向** —— `MIGRATION_MANIFEST.yaml` 判定 `REVIEW_REQUIRED / BLOCKED`。全景图把它画为"存在但状态待定"，不假设会被迁移或废弃。
-2. **Family Growth Graph 的归属分歧** —— §3 给出的"数据归业务域、查询归 intelligence"是方向性归属，不是最终接口设计。是否需要一个专门的只读投影层跨越两个进程，需要更细的 Port 契约设计。
-3. **GROWTH 闭环（UI-08/11/12/29）的产品侧去向** —— 技术侧无法自行决定这类 `GATE_BOUNDARY` 页面是下线还是等产品设计补齐依据后重新打开。这直接影响 Batch 8 的删除范围与 §2 层3 未来的完成度描述方式。
-4. **`growth_plan` stub 与 `journey` 域的关系** —— 二者语义重叠，Batch 4 前必须裁决，否则违反 R2（唯一领域真相）。见 `CURRENT_DOMAIN_MAP.md` §7。
-5. **平台 `identity` 与业务身份域的边界** —— `DOMAIN_REGISTRY.yaml` 有两条条目共用 `backend/platform/identity`，构成 R2 模糊地带。
+**本节已从「待裁决清单」转为「裁决索引」。** 裁决记录在 ADR，本节只做指向；
+**ADR 的 Decision 段是权威，本节的一句话摘要不是**。每份 ADR 的 Enforcement 段都如实标注了
+它当前是否有机械执行者 —— **有 ADR 不等于已落地**，落地任务见
+`docs/11_delivery/TASK_BACKLOG.md` T-19。
+
+| # | 原开放项 | 裁决 | ADR |
+|---|---|---|---|
+| 1 | `frontend_web` 的最终去向 | **应用 ARCHIVE 不迁入**；但其 24 个 spec 文件收割为 `TEST_ORACLE`，作为 T-04 的**第二契约来源**（两来源不一致处即契约的真实歧义点）。原 `REVIEW_REQUIRED` 的证据（无组件框架、无 bundler、build 只是 `tsc --noEmit`）说明它从来不是可部署前端，而是一批伪装成前端的后端契约 | ADR-0013 |
+| 2 | Family Growth Graph 的归属分歧 | **写入真相归业务域聚合，Graph 不是一个域**（登记为域会造出第二个成长真相，直接违 R2）。AI 侧唯一合法通路 = 独立只读投影 schema `graph_projection.*`（outbox → projector 构建）+ `GrowthGraphQueryPort`。**投影角色只授 `SELECT`**，使「AI 不能写业务真相」成为**数据库权限层的事实**而非代码约定。**不新建第四个进程**，projector 由 `workflow_worker` 承载。⚠ 整条链建立在尚不存在的机制上（`DomainEvent` 全域 grep 0 命中），ADR 明确规定在 outbox 存在前**一行代码都不该写** | ADR-0010 |
+| 3 | GROWTH 闭环（UI-08/11/12/29）的产品侧去向 | **保留文件，当前形态不得挂生产路由。** 重启判据：能在**不呈现家庭总分 / 排名 / 等级**的前提下表达「成长样态」。排在 Batch 4 之后。含产品面判断，project-owner 可 override；但 R9 红线本身不可 override | ADR-0014 §5 |
+| 4 | `growth_plan` stub 与 `journey` 域的关系 | **`growth_plan` RETIRE，语义并入 `journey`**（采纳 registry `r2_overlap_risk` 的选项 a）。决定性证据：该 stub 仅 38 行错误类型，而其中的错误码字面量本身就是 `journey_plan_not_draft` / `journey_phase_review_not_due` —— **这不是边界模糊，是一个能力被起了两个名字**。⚠ 删目录需 project-owner **二次确认**（同类删除刚发生过一次并被回滚，见 `TASK_BACKLOG.md` §0.1 偏离 #3） | ADR-0012 |
+| 5 | 平台 `identity` 与业务身份域的边界 | **先纠正一个误读：这不是 R2 违规。** `DOMAIN_REGISTRY.yaml:43-49` 的 `r2_boundary_note` 已写明「两个*不同* capability 有意共享一个目录属 manifest 级决定；R2 禁止的是同一 capability 指向两个真实位置」。裁决的是那个已登记的开放项：平台层**永久限定**为无业务生命周期的值对象；业务身份落 `backend/domains/identity`、租户聚合落 `backend/domains/tenancy`；**删除 manifest 里根本不存在的 `backend/platform/tenant` target**。趁 `auth_identity` 仍是 `NOT_STARTED`，这是零成本改登记的最后时刻 | ADR-0011 |
+
+### 6.1 裁决过程中新发现的、原清单没有的边界问题
+
+| 发现 | 处置 |
+|---|---|
+| **`/auth/*` 四个端点寄居 `backend/domains/assessment/api.py`**，token 存在进程内 dict —— 身份能力住在 assessment 域内，是比「两条登记共享目录」严重得多的真实越界，而它不在任何开放裁决清单里 | ADR-0011 §4：`backend/domains/identity` 建立时迁出；迁出前须在代码里标注临时寄居 |
+| **assessment 域不使用 `ActorContext` 也不使用 `PolicyEngine`**，`is_ai` 密封缝完全没接上 —— **没有任何东西阻止一个 AI actor 确认一个假设**，且它靠一个叫 `actor_id` 的 `str` 参数骗过了现有护栏的启发式 | ADR-0014 §Context 2 + `TASK_BACKLOG.md` T-17 |
+| **`ModelDraft` 的封印有四处实测泄漏**（`status` 可被 `dataclasses.replace` 改写、`Literal` 运行时不校验、`output` 是可变别名、property 可被子类覆盖） | ADR-0014 §2 规格 + `TASK_BACKLOG.md` T-16 |
+| **R9 打分护栏有类名维度漏洞**：原判据要求字段名**同时**命中主体词与打分词，因此 `emotional_value_score` 与 `class FamilyValueScore{emotional: float}` **都能完全通过** | 已补 `tests/architecture/test_r9_value_layer_boundary.py`，已验证会咬人 |
+
+### 6.2 新增的上位组织架构（2026-08-29）
+
+project-owner 定调 **Family Growth Intelligence OS**：平台围绕**家庭价值创造链**组织，
+而非围绕 AI 能力清单或课程/测评清单；**`Model` 是最底层不是最上层**；
+**Agent 不是平台中心** —— 核心资产是 Context / State / Problem / Contradiction /
+Strategy / Evidence / Long-Term Memory，Agent 是执行它们的智能劳动者。
+
+采纳记录与价值层三条边界裁决（家庭侧永不出现分数、State 建模为观察而非属性、
+七引擎不建目录）见 **ADR-0015**。
+
+**本文件与那张价值链骨架是两张不同的图，两张都要在。**
+本文件回答「代码住在哪个进程、哪个域」；价值链回答「为什么建这个、它为家庭创造什么」。
+目标态的 AI 侧展开见 `docs/05_ai/AI_PLATFORM_FORWARD_ARCHITECTURE.md`
+（`status: draft` / `canonical: false`，六项成熟度全部为 `ABSENT` / `PARTIAL`）。
 
 ## 7. 与其它文档的关系
 

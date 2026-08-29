@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Literal
 
 HypothesisStatus = Literal["DRAFT", "UNDER_REVIEW", "VALIDATED", "REJECTED", "RETIRED"]
-ContradictionStatus = Literal["DRAFT", "UNDER_REVIEW", "APPROVED", "RETIRED"]
+ContradictionStatus = Literal["DRAFT", "UNDER_REVIEW", "APPROVED", "REJECTED", "RETIRED"]
 StrategyStatus = Literal["DRAFT", "UNDER_REVIEW", "APPROVED", "RETIRED"]
 OpportunityStatus = Literal["INVEST", "EXPERIMENT", "WATCH", "MAINTAIN", "EXIT"]
 ProductConceptStatus = Literal["DRAFT", "UNDER_REVIEW", "APPROVED", "RETIRED"]
@@ -34,4 +34,12 @@ included here as a reserved, currently-unreachable source state for a
 future PR that adds an explicit "submit for review" step; it is not dead
 code by mistake, it is dead code on purpose (found by independent review
 during PR-001R — flagging so it isn't mistaken for an oversight later).
+"""
+
+CONTRADICTION_REVIEW_ALLOWED_FROM: frozenset[str] = frozenset({"DRAFT", "UNDER_REVIEW"})
+"""PR-003 V1 (Contradiction & Strategy Intelligence): a `ContradictionModel`
+can only move to `APPROVED`/`REJECTED` from `DRAFT` or `UNDER_REVIEW`, same
+terminal-state discipline as `HYPOTHESIS_VALIDATION_ALLOWED_FROM` above —
+`REJECTED`/`RETIRED` are terminal; re-litigating a rejected contradiction
+means creating a new `ContradictionModel`, not resurrecting the old one.
 """

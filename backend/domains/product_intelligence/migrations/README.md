@@ -58,3 +58,18 @@ sha256 校验也会失败(这正是该校验存在的意义)。
 
 在那之前,本目录仍是 `test_postgres_integration.py` / `test_zone_postgres_integration.py`
 两个真实 Postgres 集成测试的执行依据,**不要**把这个目录当作长期的 migration 存放约定。
+
+### 2026-08-29 追加漂移(PR-003 V1,Contradiction & Strategy Intelligence + Value Architecture)
+
+同一类"ORM 领先于这份 pre-Alembic SQL 快照"的漂移,本次新增三处,处理方式与上面
+`validated_by/at/reason` 一致——直接改本目录这份文件(不改 `database/baseline/`),记录在此:
+
+1. `product_intelligence_contradiction_models` 新增 `problem_id`(NOT NULL,FK→growth_problems)/
+   `primary_rank`/`reviewed_by`/`reviewed_at`/`review_reason`,`status` CHECK 新增 `REJECTED`。
+2. 新表 `product_intelligence_value_architectures`(项目负责人四层价值模型:情绪/行动/成长/经济)。
+3. `product_intelligence_growth_strategies` 新增 `value_architecture_id`(FK→上述新表)。
+
+这三处同样**不在** baseline 内(baseline 是源仓库那批迁移线性化后的快照,PR-003 诞生于此之后)。
+真实 Postgres 测试(`test_contradiction_strategy.py::test_full_chain_via_sqlalchemy_repo` 走
+SQLite,`test_postgres_integration.py`/`test_zone_postgres_integration.py` 走真实 PG)已确认
+本目录改后的 0058 能在 `docker-compose.dev.yml` 起的开发库上重新建表通过,151/151 全绿。

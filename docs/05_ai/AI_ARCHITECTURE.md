@@ -171,6 +171,190 @@ Service Blueprint层的呼应（同样来自V2战略8.3节）：如果一个21�
 
 ---
 
-## 5. 与`CURRENT_AI_ARCHITECTURE.md`的关系
+## 5. 与当前真相文档的关系
 
-`CURRENT_AI_ARCHITECTURE.md`第5节小结表（Model Gateway/Human Gate/AI Provenance三项REIMPLEMENT判定）继续有效，本文件不修改该表。本文件补充的是该表之上的产品设计层——5个Agent、三层画像、Growth Intervention Engine——这些设计对Model Gateway/Human Gate/AI Provenance三项基础设施均有依赖，落地顺序上必须先有Model Gateway（P0前置）才能开始任何Agent的实际调用。
+**本节于 2026-08-29 修正**：原文引用的 `CURRENT_AI_ARCHITECTURE.md` **已被
+`docs/00_system/CURRENT_AI_MAP.md` 取代**（见后者 front matter 的 `supersedes` 字段），
+原引用是一处失效链接。其小结表的实质判定（Model Gateway / Human Gate / AI Provenance
+三项 REIMPLEMENT）由 `CURRENT_AI_MAP.md` §3 继承并已更新。
+
+**分工不变**：`CURRENT_AI_MAP.md` 答「有什么、多成熟」，本文件答「该建成什么形状」。
+**两者冲突时，现状以 `CURRENT_AI_MAP.md` 为准。** §1–§4 继续有效。
+落地顺序不变：**必须先有 Model Gateway，才能开始任何 Agent 的实际调用。**
+
+---
+
+# 第二部分：AI Runtime 运行时规格
+
+```text
+本部分（§6 起）于 2026-08-29 新增，兑现 AI_NATIVE_PRINCIPLES.md §3.5 的明文要求：
+「这份文档从『AI 功能清单』升级为**平台核心运行时规格**」。
+
+★ 本部分描述形状与契约，不追认能力。除 Model Gateway 外，
+  §6.3 所列组件的当前成熟度全部为 ABSENT —— 一律以 CURRENT_AI_MAP.md 为准。
+```
+
+## 6. AI Runtime 的组件边界
+
+### 6.1 定位反转（ADR-0015）
+
+```text
+Agent 不是平台中心。核心资产是
+  Family Context / Family State / Growth Problem / Contradiction /
+  Value Architecture / Growth Strategy / Intervention / Evidence / Long-Term Memory
+Agent 是执行这些资产的智能劳动者。Model 在最底层，不在最上层。
+```
+
+含义：**这些核心资产的权威状态一件都不归 AI Runtime**
+（`docs/04_domains/DOMAIN_ARCHITECTURE.md` §2 规则 3）。AI Runtime 拥有的只有
+**推理与检索能力**。模型供应商全部更替，核心资产仍在——这既是「AI 层当前最空」
+不构成致命缺口的原因，也是 R10 只要求「各一份」而不要求「先建齐」的原因。
+
+### 6.2 已存在的唯一组件：Model Gateway
+
+`backend/intelligence/model_gateway/` 是 AI Runtime 第一份真实代码，
+也是 **R7 规定的唯一凭据读取点**。其契约形状（实现细节以代码为准）：
+
+| 契约 | 形状 | 为什么是这个形状 |
+|---|---|---|
+| `StructuredRequest` | `use_case` / `prompt_version` / `schema_version` / `data_class` / `payload` / `output_schema` / `context_snapshot_ref` 均**必填** | `output_schema` 必填是因为**不能校验的网关无法 fail-closed**——它只能把模型散文原样交给调用方，而这正是网关存在要防的退化 |
+| `DataClass` | `SYNTHETIC` / `OPERATIONAL_TEXT` / `FAMILY_PRIVATE_TEXT` / `MINOR_PERSONAL_DATA`，**无默认值** | 无默认值使「调用方不可能在默认设置下误发未成年人数据」。这是《儿童个人信息网络保护规定》第 16 条「不得超出授权范围」被表达成了一个类型 |
+| `AiProvenance` | 身份字段**全部必填、缺一即构造失败** | PIPL 第 24 条赋予个人对自动化决策的解释权。一个能缺一半字段构造出来的 provenance，会让不可解释的建议到达家庭 |
+| `ModelDraft` | `status` 只有 `DRAFT` 一个合法值；`may_mutate_business_state` 是无 setter 的 property | R9 的类型层表达——**但它有四处实测泄漏，见 §8.2**。不要把它当成已封死 |
+
+**唯一接入模式**：经 `build_gateway()` 工厂获取，其签名**不设** `api_key` / `credential` /
+`config` 形参——凭据只能由网关内部按 `credential_env_var` 记录的**变量名**自取。
+这把「凭据从外部被传进来」从「能不能查出」变成「**根本没有形参可传**」。
+
+> **R10 的伤疤**：源仓库只有一份网关实现，却有三套接入模式（DI 工厂 + fail-closed 最严 /
+> DI + 双 env 门控 / 业务方法内裸 `new`）。**重复的不是实现，是纪律。**
+> Python 侧只允许一种接入模式。
+
+### 6.3 明确缺席的组件（不建目录）
+
+按 `CURRENT_AI_MAP.md` §6 命名的「第六类：目录名冒充能力」，
+以下组件**在有可运行实现之前不建目录**——`design_copilot` 是活标本
+（全 `NotImplementedError`、零调用方、零测试）：
+
+`context_engine` / `memory` / `agent_runtime` / `tool_runtime` / `safety` /
+`evaluation` / `observability` —— 七项全部 `ABSENT`。
+
+两项**永不在此建立**，理由是 R10「各一份」：
+
+- **Human Gate 不建 `backend/intelligence/human_gate/`。** 复用
+  `backend/platform/authorization` 的 `PolicyEngine` + `human_only=True`。
+  **R8 的闸门属平台能力而非 AI 能力**——它要闸住的不只是 AI，也包括权限不足的人类 actor。
+  建议 `CURRENT_AI_MAP.md` §3 第 9 项的目标位置随之修正。
+- **Schema Registry 不建目录。** 它就是 `StructuredRequest.output_schema` 字段。
+
+## 7. 一次 AI 调用的完整路径（每一道门都必须存在）
+
+```text
+① 业务域应用层            域自己定义 Port(Protocol)，import ModelDraft
+   └ 依赖方向: domain → intelligence  合法
+                intelligence → domain  违规（test_ai_runtime_isolation.py 执行）
+② ConsentGate             按目的检查同意。无缓存，不可能返回过期的 ALLOW
+③ 构造 StructuredRequest   data_class 必须诚实申报（★ 申报正确性无法机械检验，见 §10）
+④ Provider Admission      该 provider 是否被授权处理这个 data_class；
+                          MINOR_PERSONAL_DATA 命中「不得转委托」检查
+⑤ Routing + Timeout       源仓库刻意设 automatic_retry = 0 + fail-closed
+⑥ 未配置凭据 → 拒绝        ★ 不得静默返回确定性罐头文案
+                          （AI_NATIVE_PRINCIPLES.md §4 反面清单第 3 条）
+⑦ Schema 校验             校验失败 → 拒绝，不把散文交给调用方
+⑧ Attempt 记录            成功与失败都留痕（尝试过、失败了，也是记录）
+⑨ 返回 ModelDraft          status=DRAFT，携带完整 AiProvenance
+⑩ 到此为止                Draft 永不自动成为 Fact —— 见 §8
+```
+
+**第 ⑥ 步是整条链最容易被破坏的一处**：当模型不可用时，「返回一句写好的话」在工程上
+总是比「报错」更省事。`backend/domains/assessment/service.py` 的 `generate_hypothesis()`
+目前就是这样——返回硬编码中文句「家庭可以从一次可观察的沟通实验开始。」且**已挂生产路由**。
+fallback 本身是必要的（fail-closed 要求），但**不得对外呈现为 AI 能力**。
+
+## 8. Draft → Fact 的唯一合法路径
+
+### 8.1 三层机制（ADR-0014）
+
+**先写下做不到的事**：在 Python 中把「AI 输出跨越为事实」做成**不可表达**是做不到的。
+根本原因不是语言缺陷——**Fact 不是一个对象的属性，而是「某一行落进了权威表」这个事件**。
+调用方永远可以 `dict(draft.output)` 然后自己拼 dict 写库，类型系统对此原理上无话可说。
+
+```text
+第 1 层  类型挡意外                        防手滑，不防绕过
+第 2 层  PolicyEngine + AuditEvent 挡越权   ★ 主承重层
+第 3 层  AST 挡绕过                        防「自建 dict 写库」这条类型看不见的路
+```
+
+**第 2 层为什么是主承重层**：`PolicyEngine` 是真 fail-closed——未注册即 DENY，
+`human_only` 检查位于任何 allow 逻辑之前，且**不存在注册 DENY 规则的接口**（DENY 是结构性默认）。
+把 R9 挂在它上面而非挂在类型上，收益是**引擎调用点必然产生 `AuditEvent`；
+而审计是持久的、可查的、可事后复核的，类型不是**。
+
+**一个假门必须点名**：「`HumanDecision` 只能从 `is_ai is False` 的 `ActorContext` 构造」
+**不成立**——`ActorContext` 是公开 frozen dataclass，其 `__post_init__` 只校验三个字段非空，
+任何调用方都能自己造一个 `actor_type=HUMAN` 的实例。
+`HumanDecision` 必须由 `PolicyEngine.check()` 返回 `Decision(allowed=True)` 后签发。
+
+### 8.2 `ModelDraft` 封印的四处已知泄漏（实测，勿当已封死）
+
+```text
+LEAK-1  直接构造 status="APPROVED"   成功   Literal 是 typing-only，且该类无 __post_init__
+LEAK-2  dataclasses.replace 改 status 成功   作者为 may_mutate 点名防住的危险，原样落在 status 上
+LEAK-3  draft.output["x"] = ...      成功   frozen 不深冻结 payload，dict 是可变别名
+LEAK-4  子类覆盖那个 property         成功   slots 不阻止继承
+```
+
+修法规格见 ADR-0014 §2，任务卡 `TASK_BACKLOG.md` T-16。
+**在 T-16 落地之前，第 1 层实际只挡住了 `may_mutate_business_state` 对 `replace` 的那一种情形。**
+
+### 8.3 半强度声明
+
+第 2 层的强度取决于审计落库。**在审计全链路接入完成之前，第 2 层只有一半强度**，
+不得表述为「R6 已执行」。
+
+## 9. 七个引擎在 AI Runtime 内的落位
+
+引擎 ↔ 代码位置的完整映射表在 `docs/04_domains/DOMAIN_ARCHITECTURE.md` §3（不在此重复）。
+本节只记 AI 侧的一条通则：
+
+> **每个引擎的「权威状态」归业务域，「推理与检索」归 `backend/intelligence/`。**
+> 这不是额外规则，是 R9 在七个引擎上的逐行投影。
+
+AI 侧读取业务数据的**唯一合法通路**是 ADR-0010 的只读投影
+（`graph_projection.*` + `GrowthGraphQueryPort`，投影 role 只授 `SELECT`）。
+**在 `DomainEvent` 与 outbox 存在之前，该通路一行代码都不该写**；
+在此期间 AI 侧需要业务数据时，唯一合法做法是**由 `family_api` 侧的应用服务把数据作为参数
+传给 gateway 请求**（域主动推，而非 AI 主动拉）——这不需要投影层，也不违反隔离。
+
+目标态的六项前瞻能力（`AgentAuthorization` / 决策来源图 / 记忆三态 / 运行时 Eval /
+闸门健康度 / 能力声明与模型解耦）见 `docs/05_ai/AI_PLATFORM_FORWARD_ARCHITECTURE.md`
+（`status: draft`、`canonical: false`，六项成熟度全部 `ABSENT` / `PARTIAL`）。
+
+## 10. 执行状态（R14：未被检查覆盖的规则只是意图）
+
+| 规则 | 执行者 | 状态 |
+|---|---|---|
+| R7 领域不直连供应商 | `test_no_direct_provider_calls.py` | **有效** |
+| AI Runtime 不 import 域 repository / 不自我晋升 | `test_ai_runtime_isolation.py` | **有效**（`AI_NATIVE_PRINCIPLES.md` §5 的两项待补检查已兑现） |
+| 凭据只在 Model Gateway 读 | 同上（credential 用例）+ `build_gateway()` 无凭据形参 | **有效** |
+| 主体形状的类不得有分数 | `test_r9_value_layer_boundary.py` | **有效** |
+| §8.2 四处封印 | — | **未落地**，规格已出（T-16） |
+| §7 第 ⑥ 步 fail-closed 不返回罐头文案 | — | **未落地**，assessment 是活反例（T-17） |
+| §8.3 审计落库全链路 | 审计表已落地，链路接入中 | 部分 |
+
+### 机械手段挡不住的（不得假装有护栏）
+
+1. **AI 输出的语义**是否真的只是 Perspective——模型可以输出一句听起来像临床诊断的话，
+   而所有类型检查与 AST 全绿。
+2. **`data_class` 申报是否正确**——字段强制必填，但把未成年人数据报成
+   `OPERATIONAL_TEXT` 没人能查。
+3. **prompt 是否诱导打分/排名**——打分护栏只看字段名与类名。
+4. **不得转委托**（provider 是否再分包给第三方云）——合同问题。
+5. **确定性 provider 是否可从生产路由到达**——Python 中**不可静态证明**
+   （`getattr` / DI / 字符串 `provider_id` 查表均可绕过）。只能靠运行时环境断言 +
+   `provider_registry` 的 `approved_environments` 不含 production。
+   **这是「可测试 + 运行时拦截」，不是护栏，不得写成护栏。**
+6. **人工确认是否实质审阅**——**全部约束中最危险的一条**，因为它会让其它所有护栏
+   在形式上通过而实质失效。部分转化路径见
+   `AI_PLATFORM_FORWARD_ARCHITECTURE.md` §5（闸门健康度可统计监测：
+   审阅耗时分布 / 驳回率 / 批量确认比例。**一个驳回率为零的闸门是坏了的闸门**）。

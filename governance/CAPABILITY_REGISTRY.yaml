@@ -59,6 +59,10 @@ enums:
     - growth_plan_delivery       # 核心层：90天家庭成长计划的交付闭环（§3.2 核心层）
     - membership_and_benefits    # 生态层：会员与权益（§3.2 生态层，白皮书 Slide 8 订阅层）
     - product_intelligence       # 运营侧：市场信号→洞察→假设→验证（非家庭侧业务能力）
+    - service_delivery           # 服务层：咨询、沙龙、城市活动等由真人交付的服务
+                                 # （BUSINESS_ARCHITECTURE §商业层级表「服务层」一行）。
+                                 # 与 membership_and_benefits 分开：会员是关系深度，
+                                 # 服务是一次具体交付，两者不得互相换算
     - platform_runtime           # 运行时可用性（健康/就绪探针等运维面）
 
 # ---------------------------------------------------------------------------
@@ -354,7 +358,7 @@ capabilities:
       - "GET /auth/contexts"
       - "POST /auth/session/revoke"
     code:
-      api: backend/domains/assessment/api.py
+      api: backend/domains/assessment/api/dev_auth.py
     tests:
       - tests/apps/family_api/test_assessment_routes.py
     consent: {required: false}
@@ -399,10 +403,14 @@ capabilities:
       - "POST /families/{family_id}/assessments/{session_id}/growth-hypothesis"
       - "POST /families/{family_id}/growth-hypotheses/decisions"
     code:
-      api: backend/domains/assessment/api.py
-      service: backend/domains/assessment/service.py
+      api: backend/domains/assessment/api/routes.py
+      application: backend/domains/assessment/application/
+      domain: backend/domains/assessment/domain/
+      infrastructure: backend/domains/assessment/infrastructure/
     tests:
-      - tests/domains/assessment/test_acceptance_chain.py
+      - tests/domains/assessment/test_assessment_flow.py
+      - tests/domains/assessment/test_interpretation_boundary.py
+      - tests/domains/assessment/test_transactional_outbox_invariant.py
       - tests/apps/family_api/test_assessment_routes.py
     consent:
       required: true
@@ -429,6 +437,122 @@ capabilities:
       - "内存 repository，无持久化；进程重启数据全失"
       - "非四层结构（api.py + service.py 两模块），落 Postgres 时须重构 —— T-05"
       - "AssessmentSession/AssessmentTool/AssessmentResponse 实体尚未建模"
+
+  - capability: service_booking_chain
+    business_capability: service_delivery
+    domain: domains/service
+    purpose: >
+      服务预约子链：供给登记（ServiceProvider）→ 上架（ServiceOffering）→
+      时段开放（AvailabilitySlot）→ 家长预约（BookingRequest）→ 确认 →
+      履约（ServiceRecord）。另含 UI-06 §4.1 私密复盘草稿。
+      MIGRATION_PLAN_V2 第3节将其从 Batch 5 提前到 Batch 2，
+      理由原文"已验证的付费主力闭环，晚做等于让已验证价值悬空"。
+    actor: [guardian, operator]
+    command:
+      - register_service_provider
+      - publish_service_offering
+      - open_availability_slot
+      - submit_booking_request
+      - confirm_booking_request
+      - cancel_booking_request
+      - fulfil_service_record
+      - create_private_checkin_draft
+    api:
+      # 已发布的 6 个（UI_API_ENDPOINT_INVENTORY.md SERVICE 组，原文照抄）
+      - "GET /families/{family_id}/orchestration/test-loop/services/offerings"
+      - "GET /families/{family_id}/orchestration/test-loop/services/slots"
+      - "POST /families/{family_id}/orchestration/test-loop/services/booking-requests"
+      - "GET /families/{family_id}/orchestration/test-loop/services/customer-projection"
+      - "GET /families/{family_id}/growth/onboardings/{onboarding_id}/service-journey"
+      - "POST /families/{family_id}/growth/onboardings/{onboarding_id}/service-journey/checkin-drafts"
+      # 运营侧（不在已发布 6 个之内；移动端无对应界面，但链路端到端可跑的必要条件）
+      - "POST /families/{family_id}/service/providers"
+      - "POST /families/{family_id}/service/offerings"
+      - "POST /families/{family_id}/service/availability-slots"
+      - "POST /families/{family_id}/service/booking-requests/{booking_request_id}/confirm"
+      - "POST /families/{family_id}/service/booking-requests/{booking_request_id}/cancel"
+      - "POST /families/{family_id}/service/service-records/{booking_service_record_id}/fulfil"
+    code:
+      domain: backend/domains/service/domain
+      application: backend/domains/service/application
+      infrastructure: backend/domains/service/infrastructure
+      api: backend/domains/service/api
+    tests:
+      - tests/domains/service/test_acceptance_chain.py
+      - tests/domains/service/test_api_routes.py
+      - tests/domains/service/test_orm_matches_migrations.py
+    consent:
+      required: true
+      note: >
+        **已执行**（与 assessment_session_to_hypothesis 的 known_gaps 第一条相对照）。
+        submit_booking_request 经 application/ports.py 的 ConsentQueryPort 实时读取
+        被服务主体当前生效的 SERVICE 目的 grant，交 ConsentGate.check 裁决；
+        无 grant → ServiceForbiddenError（403），不是告警也不是软默认。
+        顺序上 consent 先于任何供给读取与容量占用，故被拒的预约不留任何痕迹。
+        测试覆盖：无 grant / grant 已撤回（立即生效）/ grant 目的不符（ASSESSMENT 不顶 SERVICE）/
+        grant 主体不符（一个孩子的同意不覆盖另一个）。
+        缺口：ConsentQueryPort 尚无生产实现，测试用 FakeConsentQuery ——
+        机制就位，数据源待 consent 业务域落地。
+    audit:
+      required: true
+      note: >
+        R6：每个状态变更记 AuditEvent，且 before/after 双记（R6 两者都点名，
+        只记目的地无法回答是否跳过了某一步）。recorder 是每个 mutation 的必填参数
+        而非可选参数 —— 可选的 recorder 就是"谁忘了就在哪儿断"的审计链。
+        走 backend/platform/audit（T-11 已落地持久化），未自建审计表。
+        测试逐个断言 8 个 action 名而非只数条数：只数条数的话，
+        一个命令记两条、另一个记零条也能通过。
+        授权拒绝也记（`<action>:denied`）—— 被拒的预约尝试正是运营后来需要看见的。
+    idempotency:
+      required: true
+      note: >
+        所有 mutation 需 idempotency-key（路由层校验，缺失 → 400）。
+        重放同键返回同一 booking 且不二次占用时段；
+        **同键换 payload 报 409** 而非静默返回首次结果 ——
+        静默返回会掩盖客户端复用键的 bug（调用方要的是另一个时段，拿回了别人的预约）。
+    ai:
+      involved: false
+      constraint: >
+        本链无 AI 参与。R9 执行点是 domain/policies.py::assert_human_actor：
+        `ai:` 前缀的 actor 在**域边界**被拒（提交/确认/取消/履约），
+        故拒绝对不经路由与 PolicyEngine 的调用路径同样成立。
+        路由层再加一道 R8 Human Gate：confirm / fulfil / cancel 注册为
+        human_only=True，由 PolicyEngine 自身的 veto 无条件拒 AI actor。
+        两道是不同层的不同机制，不是重复。
+    status: IMPLEMENTED_TESTED
+    reference_implementation: "50_开发_dev/database/migrations/0032_family_service_booking_objects.sql + family-service-booking.service.ts"
+    compliance_refs:
+      - "docs/12_governance/COMPLIANCE_HARD_CONSTRAINTS.md 第1节（被服务对象可能是未成年人，属敏感信息处理）"
+      - "docs/12_governance/COMPLIANCE_HARD_CONSTRAINTS.md 第5节（consent 按目的分别授予，禁止一次性打包勾选）"
+      - "governance/REPOSITORY_CONSTITUTION.md R5 / R6 / R8 / R9 / R12"
+    r9_boundary_note: >
+      唯一评价性字段 ServiceRecord.service_quality_rating 评价的是**服务方交付的那一场**，
+      不是家庭。顾客评价所购服务与"平台给家庭打分"权力方向相反，不带 R9 要防的伤害。
+      该区分是结构性的：字段落在 ServiceRecord 上、名称不含家庭/孩子主体词，
+      故 test_no_scoring_or_ranking_fields_anywhere 因形状对而通过，非被豁免。
+      非结构化 attributes 逃逸口由 assert_no_family_scoring_semantics 两段式规则守住。
+    known_gaps:
+      - >
+        **6 个已发布端点全部落地并有 HTTP 测试，但生产进程里不可调用**：
+        api/dependencies.py 的四个依赖（repository / consent_query / action_context /
+        actor_context）按设计一律 raise。fail-closed 而非 fail-open ——
+        缺配置时报错，不会替某个凭空捏造的家庭下单。与 membership 域同型，
+        待 family_core / auth_identity 落地接线。
+      - >
+        **路径含 orchestration/test-loop/ 段**，UI_API_ENDPOINT_INVENTORY.md 注3
+        已登记为 R5 风险。原样保留（改路径动客户端契约，需 ADR + 移动端协同）。
+        缓解事实：本域语义确实 fixture-only（environment IN (DEV,TEST) /
+        source_system=TEST_FIXTURE / external_effect=false 三重钉死），
+        路径名与语义这次一致。
+      - >
+        **AvailabilitySlot 并发无行锁**。靠单事务内 reserve() + DB CHECK
+        reserved_count<=capacity 兜底；真实并发下后提交者会失败（方向正确）
+        但错误码是约束冲突而非 slot_not_available。高并发前需补 SELECT FOR UPDATE。
+      - >
+        **真实 Postgres 测试用 Base.metadata 在临时 schema 建表**，
+        故 0035 自带的 DB 层 CHECK（fixture_only=true、source_page_id 白名单、
+        cancelled_ck 等）未被执行，只有 domain 层等价校验被覆盖 ——
+        与 membership 同一已知缺口。
 
   - capability: membership_tier_lifecycle
     business_capability: membership_and_benefits

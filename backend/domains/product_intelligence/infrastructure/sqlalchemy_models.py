@@ -197,16 +197,58 @@ class ContradictionModelRow(Base):
     created_by = Column(String, nullable=False)
     tenant_scope = Column(String, nullable=False)
     status = Column(String, nullable=False)
+    problem_id = Column(String, nullable=False)
     primary_factor_a = Column(String, nullable=False)
     primary_factor_b = Column(String, nullable=False)
     relationship = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     supporting_hypothesis_ids = Column(JSON, nullable=False, default=list)
     evidence_refs = Column(JSON, nullable=False, default=list)
+    primary_rank = Column(Integer, nullable=True)
+    primary_marked_by = Column(String, nullable=True)
+    primary_marked_at = Column(DateTime, nullable=True)
+    reviewed_by = Column(String, nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    review_reason = Column(Text, nullable=True)
     generated_by = Column(String, nullable=True)
     model_ref = Column(String, nullable=True)
     prompt_use_case_version = Column(String, nullable=True)
     confidence = Column(Float, nullable=True)
+    # NOTE (PR-003 V1): this table's real Postgres migration
+    # (`migrations/0058_product_intelligence_domain.sql`) predates
+    # problem_id/primary_rank/reviewed_by/reviewed_at/review_reason — same
+    # "ORM ahead of the pre-Alembic SQL snapshot" situation already recorded
+    # in `migrations/README.md` for GrowthHypothesisRow's validated_by/at/
+    # reason columns. Deferred to the same T-05 Alembic-revision follow-up
+    # rather than adding another ad-hoc raw-SQL file on top of a migration
+    # story that is already mid-cleanup.
+
+
+class ValueArchitectureRow(Base):
+    __tablename__ = "product_intelligence_value_architectures"
+    id = Column(String, primary_key=True)
+    version = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+    created_by = Column(String, nullable=False)
+    tenant_scope = Column(String, nullable=False)
+    status = Column(String, nullable=False)
+    problem_id = Column(String, nullable=False)
+    emotional_current_state = Column(Text, nullable=False)
+    emotional_desired_state = Column(Text, nullable=False)
+    action_next_best_action = Column(Text, nullable=False)
+    growth_outcomes = Column(JSON, nullable=False, default=list)
+    economic_outcomes = Column(JSON, nullable=False, default=list)
+    rationale = Column(Text, nullable=False)
+    evidence_refs = Column(JSON, nullable=False, default=list)
+    generated_by = Column(String, nullable=True)
+    model_ref = Column(String, nullable=True)
+    prompt_use_case_version = Column(String, nullable=True)
+    confidence = Column(Float, nullable=True)
+    # NOTE (PR-003 V1): new table, no real Postgres migration yet — same
+    # deferral as ContradictionModelRow above. Proven via the SQLite-backed
+    # `sqlalchemy_repo` fixture in this PR (the same path the original
+    # acceptance chain used before its own Postgres migration existed).
 
 
 class GrowthStrategyRow(Base):
@@ -221,6 +263,7 @@ class GrowthStrategyRow(Base):
     problem_id = Column(String, nullable=False)
     hypothesis_ids = Column(JSON, nullable=False, default=list)
     contradiction_id = Column(String, nullable=True)
+    value_architecture_id = Column(String, nullable=True)
     statement = Column(Text, nullable=False)
     applicable_segment_ref = Column(String, nullable=True)
     exclusion_conditions = Column(JSON, nullable=False, default=list)

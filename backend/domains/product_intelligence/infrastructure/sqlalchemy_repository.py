@@ -40,6 +40,7 @@ from ..domain.entities import (
     ServiceBlueprintVersion,
     SignalCluster,
     UnmetNeed,
+    ValueArchitecture,
 )
 from ..domain.errors import ProductIntelligenceNotFoundError
 from . import sqlalchemy_models as m
@@ -129,6 +130,37 @@ class SqlAlchemyProductIntelligenceRepository:
     # -- ContradictionModel --
     async def save_contradiction_model(self, entity: ContradictionModel) -> None:
         await self._merge(m.ContradictionModelRow(**entity.model_dump()))
+
+    async def load_contradiction_model(
+        self, entity_id: str, tenant_scope: str
+    ) -> ContradictionModel:
+        row = await self._get_scoped(
+            m.ContradictionModelRow, entity_id, tenant_scope, "contradiction_model_not_found"
+        )
+        return ContradictionModel(**_row_to_dict(row))
+
+    async def list_contradiction_models_by_problem(
+        self, problem_id: str, tenant_scope: str
+    ) -> list[ContradictionModel]:
+        result = await self._session.execute(
+            select(m.ContradictionModelRow).where(
+                m.ContradictionModelRow.problem_id == problem_id,
+                m.ContradictionModelRow.tenant_scope == tenant_scope,
+            )
+        )
+        return [ContradictionModel(**_row_to_dict(row)) for row in result.scalars().all()]
+
+    # -- ValueArchitecture --
+    async def save_value_architecture(self, entity: ValueArchitecture) -> None:
+        await self._merge(m.ValueArchitectureRow(**entity.model_dump()))
+
+    async def load_value_architecture(
+        self, entity_id: str, tenant_scope: str
+    ) -> ValueArchitecture:
+        row = await self._get_scoped(
+            m.ValueArchitectureRow, entity_id, tenant_scope, "value_architecture_not_found"
+        )
+        return ValueArchitecture(**_row_to_dict(row))
 
     # -- GrowthStrategy --
     async def save_growth_strategy(self, entity: GrowthStrategy) -> None:

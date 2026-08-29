@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .errors import ProductIntelligenceForbiddenError, ProductIntelligenceValidationError
 from .value_objects import (
+    CONTRADICTION_REVIEW_ALLOWED_FROM,
     HYPOTHESIS_VALIDATION_ALLOWED_FROM,
     ActorType,
     ContradictionStatus,
@@ -225,13 +226,157 @@ class GrowthHypothesis(_CommonFields, _AiProvenanceFields):
 
 
 class ContradictionModel(_CommonFields, _AiProvenanceFields):
+    """PR-003 V1 (Contradiction & Strategy Intelligence): a contradiction is
+    a claim that *two or more* hypotheses about the same `GrowthProblem` are
+    in tension (e.g. `parent_control` vs `child_autonomy`) — it is not a
+    single hypothesis restated. `supporting_hypothesis_ids` therefore
+    requires at least two entries (validated below), matching the
+    project-owner's own framing ("多 Hypothesis → Contradiction Analysis").
+
+    `primary_rank` (nullable) lets a `GrowthProblem` have more than one
+    candidate `ContradictionModel` while marking at most one as "the"
+    primary contradiction currently driving strategy — set only via
+    `mark_primary`/`clear_primary`, never at construction, so "is this the
+    primary one" is always an explicit, auditable decision rather than a
+    side effect of creation order.
+    """
+
     status: ContradictionStatus = "DRAFT"
+    problem_id: str
     primary_factor_a: str
     primary_factor_b: str
     relationship: str
     description: str | None = None
     supporting_hypothesis_ids: list[str] = Field(default_factory=list)
     evidence_refs: list[str] = Field(default_factory=list)
+    primary_rank: int | None = None
+    primary_marked_by: str | None = None
+    primary_marked_at: datetime | None = None
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
+    review_reason: str | None = None
+
+    @field_validator("supporting_hypothesis_ids")
+    @classmethod
+    def _requires_at_least_two_hypotheses(cls, value: list[str]) -> list[str]:
+        if len(value) < 2:
+            raise ProductIntelligenceValidationError(
+                "contradiction_requires_at_least_two_supporting_hypotheses"
+            )
+        return value
+
+    @field_validator("primary_factor_a", "primary_factor_b", "relationship")
+    @classmethod
+    def _factor_fields_non_empty(cls, value: str, info) -> str:
+        return _require_non_empty(value, info.field_name)
+
+    def submit_for_review(self) -> ContradictionModel:
+        """`DRAFT -> UNDER_REVIEW`. No permission gate — same "anyone can ask
+        for review, only a permissioned HUMAN can decide" split used by
+        `zone_commands.submit_zone_review`."""
+        if self.status != "DRAFT":
+            raise ProductIntelligenceValidationError(
+                "contradiction_submit_for_review_illegal_source_state"
+            )
+        return self.model_copy(
+            update={"status": "UNDER_REVIEW", "updated_at": datetime.now(UTC), "version": self.version + 1}
+        )
+
+    def decide_review(
+        self, *, approved: bool, actor_id: str, actor_type: ActorType, reason: str
+    ) -> ContradictionModel:
+        """`DRAFT`/`UNDER_REVIEW` -> `APPROVED` or `REJECTED`. Same Permission
+        Pattern split as `GrowthHypothesis.mark_validated`: this method only
+        enforces `actor_type == HUMAN` and legal source-state — the
+        `product_intelligence.contradiction.review` permission check itself
+        is the application layer's job (see `application/contradiction_commands.py`).
+        """
+        if actor_type != "HUMAN":
+            raise ProductIntelligenceForbiddenError("contradiction_review_requires_human_actor")
+        if self.status not in CONTRADICTION_REVIEW_ALLOWED_FROM:
+            raise ProductIntelligenceValidationError("contradiction_review_illegal_source_state")
+        if not reason:
+            raise ProductIntelligenceValidationError("contradiction_review_requires_reason")
+        now = datetime.now(UTC)
+        return self.model_copy(
+            update={
+                "status": "APPROVED" if approved else "REJECTED",
+                "updated_at": now,
+                "version": self.version + 1,
+                "reviewed_by": actor_id,
+                "reviewed_at": now,
+                "review_reason": reason,
+            }
+        )
+
+    def mark_primary(self, *, rank: int, actor_id: str) -> ContradictionModel:
+        """Only an `APPROVED` contradiction may be marked primary — an
+        unapproved (still-`DRAFT`/`UNDER_REVIEW`) contradiction has not
+        cleared the Human Gate yet and cannot drive strategy. Records
+        `primary_marked_by`/`primary_marked_at` — per repository R6 ("无审计
+        不得改状态"), every business-state mutation must be attributable to
+        an actor, and "which contradiction currently drives strategy" is a
+        business-state mutation, not bookkeeping. `actor_id` here is not
+        re-validated as HUMAN (that check already happened one layer up, in
+        `application/contradiction_commands.py::mark_contradiction_primary`,
+        before this method is ever called) — this parameter's job is
+        auditability, not authorization.
+
+        Enforcing "at most one primary per problem" is the application
+        layer's job (it must compare across all of a problem's
+        contradictions, which a single entity method cannot see).
+        """
+        if self.status != "APPROVED":
+            raise ProductIntelligenceValidationError("contradiction_mark_primary_requires_approved_status")
+        return self.model_copy(
+            update={
+                "primary_rank": rank,
+                "primary_marked_by": actor_id,
+                "primary_marked_at": datetime.now(UTC),
+                "updated_at": datetime.now(UTC),
+                "version": self.version + 1,
+            }
+        )
+
+
+class ValueArchitecture(_CommonFields, _AiProvenanceFields):
+    """PR-003 V1 — the project owner's four-layer value model (情绪价值→行动价值→
+    成长价值→经济价值), made a first-class object a `GrowthStrategy` links to,
+    per the instruction: "至少在 Domain/ADR 层把 ValueArchitecture 作为 Strategy
+    的一个正式输入定义清楚".
+
+    Deliberately thin for V1 (no sub-object per layer, no numeric scoring):
+    the project owner's own framing is "先让家庭感觉更好,再让家庭变得更好,最后让
+    家庭生活得更好" — a narrative structure, not a metric. Each layer is a
+    short free-text field plus a `rationale`, and the whole object carries
+    `evidence_refs` (non-empty, same "no evidence -> not reviewable" gate
+    used everywhere else in this domain) so a value narrative is grounded in
+    something a reviewer can check, not invented in the moment.
+    """
+
+    status: GenericRecordStatus = "DRAFT"
+    problem_id: str
+    emotional_current_state: str
+    emotional_desired_state: str
+    action_next_best_action: str
+    growth_outcomes: list[str] = Field(default_factory=list)
+    economic_outcomes: list[str] = Field(default_factory=list)
+    rationale: str
+    evidence_refs: list[str] = Field(default_factory=list)
+
+    @field_validator(
+        "emotional_current_state", "emotional_desired_state", "action_next_best_action", "rationale"
+    )
+    @classmethod
+    def _narrative_fields_non_empty(cls, value: str, info) -> str:
+        return _require_non_empty(value, info.field_name)
+
+    @field_validator("evidence_refs")
+    @classmethod
+    def _evidence_refs_non_empty(cls, value: list[str]) -> list[str]:
+        if not value:
+            raise ProductIntelligenceValidationError("value_architecture_requires_evidence_refs")
+        return value
 
 
 class GrowthStrategy(_CommonFields, _AiProvenanceFields):
@@ -239,6 +384,7 @@ class GrowthStrategy(_CommonFields, _AiProvenanceFields):
     problem_id: str
     hypothesis_ids: list[str] = Field(default_factory=list)
     contradiction_id: str | None = None
+    value_architecture_id: str | None = None
     statement: str
     applicable_segment_ref: str | None = None
     exclusion_conditions: list[str] = Field(default_factory=list)

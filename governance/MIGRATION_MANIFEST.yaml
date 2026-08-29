@@ -154,6 +154,87 @@ entries:
       2026-08-29 project-owner指示"将你在family-ai做的产品设计平台文档和程序代码迁移到AiFamily"。
       迁移对象是 product_intelligence 域完整的三轮硬化历史（非仅第一版）+ 两份三区引擎 ADR。
 
+  - capability: service_booking
+    disposition: MIGRATE
+    source:
+      - "50_开发_dev/database/migrations (0032 服务预约, 0049 party/teacher, 0051-0056 allocation)"
+      - "database/baseline/0035_family_service_booking_objects.sql（0032 的线性化副本，本仓库已 baseline）"
+    target:
+      - backend/domains/service
+      - backend/domains/service/api
+      - backend/domains/service/application
+      - backend/domains/service/domain
+      - backend/domains/service/infrastructure
+    status: MIGRATED_TESTED
+    registration_note: >
+      2026-08-29 T-15 重派完成，取代原 PARTIAL_ABANDONED 登记。
+      前一 agent 卡死留下的 domain 层三文件（errors / policies / value_objects）
+      经复核**予以续用**——理由见 continuation_decision。四层结构补齐，
+      application / infrastructure / api 三层新写，测试从零建立。
+    continuation_decision: >
+      续用（非重写）。复核依据：三个文件的每条 Literal 与每条 assert 都能在
+      database/baseline/0035_family_service_booking_objects.sql 找到对应的 enum
+      或 CHECK 约束（逐条核对：五个 status enum、source_page_id 四值白名单、
+      external_effect=false、environment IN (DEV,TEST)、reserved_count<=capacity），
+      即它不是凭空设计而是对已 baseline 的 SQL 的忠实映射；且 domain 层无
+      FastAPI / SQLAlchemy 导入，符合四层规则。重写会产出同一份内容并丢掉
+      value_objects 里关于"服务方质量评价 ≠ 家庭打分"的 R9 边界论证。
+      唯一改动：新增 entities.py（原缺失）。
+    evidence:
+      - "四层齐全：domain（entities/errors/policies/value_objects）+ application（commands/queries/read_models/ports/context）+ infrastructure（fake_repository/sqlalchemy_models/sqlalchemy_repository）+ api（routes/requests/dependencies）"
+      - "对象齐全：ServiceProvider / ServiceOffering / AvailabilitySlot / BookingRequest / ServiceRecord，另加 PrivateCheckinDraft（UI-06 §4.1 端点所需，0035 无对应表）"
+      - "测试 72 passed（含真实 Postgres 参数化），0 skipped；不开 Postgres 门时 51 passed / 21 skipped"
+      - "验收链：供给登记 → 时段开放 → 家长预约 → 确认 → 履约，三套仓储（fake / SQLite / 真实 Postgres）各跑一遍"
+      - "拒绝路径全覆盖：无 consent、consent 已撤回（立即生效）、consent 目的不符、consent 主体不符、跨家庭、时段已占用、幂等键重放、幂等键换 payload、AI actor 预约/确认、供给方被停权、时段与 offering 不匹配、非白名单来源页、PRODUCTION 环境"
+      - "ConsentGate 已接入：ConsentQueryPort 每次预约实时读取 SERVICE 目的的现行 grant，交 ConsentGate.check 裁决，无 grant 即 ServiceForbiddenError。这是 assessment 域当前的缺口，本域未重复"
+      - "R6：每个状态变更经 AuditRecorder 记 AuditEvent，且 before/after 双记（R6 两者都点名）；测试逐个断言 action 名而非只数条数"
+      - "R9：无任何给家庭/孩子打分的字段。ServiceRecord.service_quality_rating 评价的是服务方交付的那一场，不是家庭；policies.assert_no_family_scoring_semantics 守住 attributes 这个非结构化逃逸口"
+      - "R12：全部绝对包路径 from backend.xxx"
+      - "迁移新增 revision 0004_service_booking_additions（未改 baseline），已在空 Postgres 库 alembic upgrade head 通过"
+      - "ORM 与迁移一致性有专测 test_orm_matches_migrations.py：拿 Alembic 建出来的库比对 Base.metadata，堵住 T-03 记录的 product_intelligence 漂移（create_all 建的 schema 与 ORM 必然自洽，看不见这类漂移）"
+    correction_to_plan: >
+      T-03 的教训被明确执行：backend/domains/service 下**没有任何 .sql 文件**，
+      schema 唯一来源是 database/baseline/ + database/migrations/，并由
+      test_this_domain_keeps_no_private_sql_copy 在快路径上强制。
+    known_gaps:
+      - >
+        **6 个已发布端点全部落地并有 HTTP 测试，但在生产进程里不可调用**：
+        api/dependencies.py 的 get_repository / get_consent_query /
+        get_action_context / get_actor_context 四个依赖按设计一律 raise
+        （无 session factory；Account → TenantMembership → Family 绑定链属
+        family_core / auth_identity 后续能力）。这是 fail-closed 而非 fail-open：
+        缺配置时报错，不会替某个凭空捏造的家庭下单。与 membership 域同型缺口。
+      - >
+        **路径含 orchestration/test-loop/ 段**，UI_API_ENDPOINT_INVENTORY.md 注3
+        已将其登记为 R5 风险（疑为源仓库测试回路挂在生产前缀下）。本次原样保留：
+        改路径要动客户端契约，需 ADR + 移动端协同，不是本任务的裁决范围。
+        缓解事实：本域语义确实是 fixture-only（environment IN (DEV,TEST) /
+        source_system=TEST_FIXTURE / external_effect=false 三重钉死），
+        路径名与语义这次是一致的。
+      - >
+        **运营侧四个写端点（供给登记 / 时段开放 / 确认 / 履约）不在已发布的 6 个之内**，
+        因为移动端没有这些界面。挂在显式的 /service/ 前缀下而非 test-loop 形状，
+        以免看起来像客户端契约。它们是链路端到端可跑的必要条件，不是契约扩张。
+      - >
+        **ConsentGate 接的是 ConsentQueryPort，本仓库尚无该 Port 的生产实现**
+        （platform_consent 只有内核 ConsentGate，同意记录本体作为业务域未开工，
+        见 CURRENT_DOMAIN_MAP.md §3.18）。测试用 FakeConsentQuery。
+        即：consent 校验的**机制**已就位并有测试，**数据源**待 consent 域落地。
+      - >
+        **BookingRequest 不落 subject_person_id**：0035 无该列，且"这次预约是关于哪个孩子"
+        属于需要单独定留存期限的数据最小化决策（PIPL 第6条），不顺手加列。
+        落库的是 consent_ref——预约可审计，不必在每条商业记录上留孩子身份。
+      - >
+        **未接 AvailabilitySlot 的悲观锁/乐观锁**：并发同槽预约靠单事务内
+        reserve() + reserved_count<=capacity 的 CHECK 兜底，未做 SELECT FOR UPDATE。
+        真实并发下两个请求可能同时读到同一 reserved_count；DB CHECK 会让后提交的那个
+        失败（正确方向），但错误码会是约束冲突而非 slot_not_available。
+        高并发前需补行锁。
+    project_owner_override: >
+      2026-08-29 T-15 重派指令要求"宁可交付 3 个端点完整可用 + 3 个明确标注未做，
+      也不要 6 个都是半成品"。实际交付：6 个端点全部落地且有 HTTP 测试，
+      生产可调用性统一受上述 dependencies 缺口限制（非部分完成，而是全部同等待接线）。
+
   - capability: loyalty_points
     disposition: NET_NEW
     source: []

@@ -194,6 +194,62 @@ entries:
           ORM 模型当前只靠测试里的 metadata.create_all 建表。
     override_reference: "MIGRATION_MANIFEST.yaml → membership.project_owner_override（2026-08-29，先迁移再补测试，且不得假装测试已存在）"
 
+  - capability: service_booking
+    canonical_path: backend/domains/service
+    status: MIGRATED_TESTED
+    disposition: MIGRATE
+    source_reference: "50_开发_dev/database/migrations/0032_family_service_booking_objects.sql（本仓库已线性化为 database/baseline/0035_family_service_booking_objects.sql）"
+    tests: [tests/domains/service]
+    scope: >
+      服务预约子链：ServiceProvider → ServiceOffering → AvailabilitySlot →
+      BookingRequest → ServiceRecord，另加 PrivateCheckinDraft（UI-06 §4.1 端点对象，
+      0035 无对应表，由 revision 0004_service_booking_additions 新建）。
+      对应 contracts/openapi/UI_API_ENDPOINT_INVENTORY.md 的 SERVICE 组 6 个端点。
+    status_rationale: >
+      2026-08-29 T-15 重派完成，由 MIGRATION_MANIFEST 的 PARTIAL_ABANDONED 转为
+      MIGRATED_TESTED。测试 72 passed（含真实 Postgres 参数化）/ 0 failed。
+      满足 R4 的具体证据：(1) 五步验收链在三套仓储（fake / SQLite in-memory /
+      真实 Postgres 独立 schema）各跑一遍；(2) 13 条拒绝路径逐条断言错误码，
+      不是只断言"抛异常"；(3) R6 审计断言逐个 action 名 + before/after 双记，
+      不是只数事件条数；(4) test_orm_matches_migrations.py 拿 Alembic 建出来的
+      真实库比对 Base.metadata —— 这是本仓库第一个能看见 ORM/迁移漂移的测试，
+      其余域的 create_all 建表法在结构上看不见这类漂移（T-03 记录的
+      product_intelligence 事故正是如此逃过测试的）。
+    r9_boundary_note: >
+      本域存在唯一一个评价性字段 ServiceRecord.service_quality_rating，
+      评价对象是**服务方交付的那一场会话**，不是家庭。R9 禁止的是给家庭和孩子打分
+      （平台不得告诉一个家庭"你是 72 分"）；顾客评价所购服务是权力方向相反的另一件事，
+      不带 R9 要防的伤害。该区分是结构性的而非注释承诺：字段落在 ServiceRecord 上、
+      名称不含任何家庭/孩子主体词，故仓库级检查器
+      test_no_scoring_or_ranking_fields_anywhere 是因为形状对而通过，不是被豁免。
+      非结构化的 attributes 逃逸口由 domain/policies.py 的
+      assert_no_family_scoring_semantics 用"主体词 × 打分词"两段式规则守住。
+    consent_note: >
+      **本域接了 ConsentGate**，purpose = SERVICE。预约的被服务对象可能是未成年人，
+      按 COMPLIANCE_HARD_CONSTRAINTS.md 第1节属敏感信息处理。
+      application/ports.py 的 ConsentQueryPort 每次预约实时读取该主体当前生效的
+      SERVICE grant 交 ConsentGate.check 裁决 —— 撤回立即生效有专测。
+      这正是 assessment 域 known_gaps 第一条记录的缺口，本域未重复。
+    known_gaps: >
+      MIGRATED_TESTED 不等于生产就绪，五处缺口不得被本状态掩盖：
+      (1) api/dependencies.py 的 get_repository / get_consent_query /
+          get_action_context / get_actor_context 四个依赖按设计一律 raise，
+          故 6 个端点在生产进程里不可调用（fail-closed，非 fail-open）；
+          与 membership 域同型，均待 family_core / auth_identity 落地接线；
+      (2) ConsentQueryPort 无生产实现 —— platform_consent 只有内核 ConsentGate，
+          同意记录本体作为业务域未开工（CURRENT_DOMAIN_MAP.md §3.18）。
+          机制就位且有测试，数据源待 consent 域；
+      (3) 路径含 orchestration/test-loop/ 段，UI_API_ENDPOINT_INVENTORY.md 注3
+          已登记为 R5 风险。原样保留（改路径动客户端契约，需 ADR）；
+          缓解事实是本域语义确实 fixture-only，路径名与语义这次一致；
+      (4) AvailabilitySlot 并发无行锁，靠单事务 reserve() + DB CHECK
+          reserved_count<=capacity 兜底。高并发下后提交者会失败（方向正确）
+          但错误码是约束冲突而非 slot_not_available，高并发前需补 SELECT FOR UPDATE；
+      (5) 真实 Postgres 测试用 Base.metadata 在临时 schema 建表，
+          故 0035 自带的 DB 层 CHECK（fixture_only=true、source_page_id 白名单等）
+          未被执行，只有 domain 层等价校验被覆盖 —— 与 membership 同一已知缺口。
+    override_reference: "MIGRATION_MANIFEST.yaml → service_booking.project_owner_override（2026-08-29 T-15 重派）"
+
   - capability: product_strategy
     canonical_path: backend/domains/product_strategy
     status: RETIRED_CANONICAL_CONFLICT

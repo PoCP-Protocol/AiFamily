@@ -49,11 +49,40 @@ superseded_by: null
 
 **Alembic 首个 revision 生成前必须先解决这4组重号并决定死列去留**（见1.2节），这是一次纯粹的历史考古工作，没有捷径，不能靠"随便选一个顺序"糊弄过去——顺序错了会导致 Alembic baseline 里的表结构和真实生产/DEV数据库实际经历过的DDL顺序不一致，未来任何依赖 `ALTER TABLE ... ADD COLUMN` 类迁移都可能在错误的基线上叠加错误的变更。
 
-### 1.2 死列去留：`growth_profiles` 表的两代列共存
+### 1.2 双写冗余列：`growth_profiles` 表的两代列共存
 
-`growth_profiles` 表存在**两代列同时存在于表结构里**：`0003` 迁移建的 `subject_type`/`subject_ref_id`，被 `0007` 迁移追加的 `profile_scope`/`subject_person_id` **实质性替代但未删除旧列**。这是典型的"迁移历史遗留死列"——新代码大概率只读写 `profile_scope`/`subject_person_id`，但旧列仍占用存储空间、仍可能被遗留查询意外引用、仍在任何"select *"式的代码里造成困惑。
+> **本节已于 2026-08-29 按 T-03 的实测证据整体改写。** 原文把这两代列判为"死列"、
+> 推测"新代码大概率只读写新列"，**该判断是错的**。保留这段说明是因为错误的前提会
+>导出错误的处置（在 baseline 里 `DROP COLUMN`），而那会破坏 baseline 的定义。
 
-**Alembic baseline 生成时必须显式决定**：是把这两代列都原样带入 baseline（保留历史真实性但延续技术债），还是在生成 baseline 的同一个 PR 里加一个显式的"删除死列"迁移（把技术债还清但改变了"baseline=对源仓库schema的忠实快照"这一假设）。这个决定不该被本文档代为拍板——它影响的是"baseline 的定义是什么"这个更根本的问题，建议随 `database_schema` 能力从 `PLANNED` 转 `IN_PROGRESS` 时一并提交 ADR。
+`growth_profiles` 表有两代列同时存在：`0003` 迁移建的 `subject_type`/`subject_ref_id`，
+与 `0007` 迁移追加的 `profile_scope`/`subject_person_id`。
+
+**它们不是替代关系，是冗余双写。** 四条实测反证：
+
+1. 旧列 `NOT NULL` 且**无 DEFAULT**（`0003:15-16`）；`0007` 只做 `ADD COLUMN`，从未
+   `DROP NOT NULL` —— 因此任何 INSERT 都**必须**提供旧列，不可能"只写新列"。
+2. 源仓库运行时**同时写两代列**：`apps/api/src/modules/family/family.service.ts:1427`
+   一条 `insert` 里 `subject_type, subject_ref_id, ..., profile_scope, subject_person_id`
+   全在。
+3. 旧列被当**读取谓词**：`0045` 迁移的回填 `UPDATE ... AND profile.subject_type = 'CHILD'`
+   —— 删掉这列该 SQL 不成立。
+4. `growth_profile_drafts` 的一致性 CHECK 把 `profile_scope` 与 `subject_type`
+   **绑在一起**校验（`0007:42-44`）。
+
+**真正的技术债不是"有死列"，是"同一语义两套列在双写、无单一真相"** —— 这本身就是
+R2（唯一领域真相）在数据层的违反。
+
+**已裁决（2026-08-29，项目经理）**：接受 **baseline = 对源仓库 schema 的忠实快照
+（含双写债）**。两代列原样带入，`database/baseline/` 的 sha256 校验守着这一点。
+
+理由：sha256 校验的意义正在于此。baseline 一旦夹带任何清理，就不再等于源快照，
+而"忠实"就从可校验的事实退化为一句声明。清理双写债属于**目标态重设计**，按本文档
+§5 不得在 baseline PR 里夹带。
+
+**退役路径（属 T-05，须配 ADR）**：重建 growth 相关模型时只暴露一代语义、
+另一代降级为 legacy 兼容字段，并在 ADR 里记录退役步骤与回滚方式。**不是**在
+baseline 里 `DROP COLUMN`。
 
 ### 1.3 阻塞顺序（明确写出，不留歧义）
 

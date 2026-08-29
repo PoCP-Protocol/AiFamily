@@ -49,6 +49,17 @@
    保留 `code` 字符串字面量不变（它们是 API 可观测行为，改了会破坏与源仓库的行为等价性，
    见 `errors.py:4-6` 的原意），只改 Python 类名以消除命名分裂。
 2. 删除 `backend/domains/growth_plan/` 目录。
+   **⚠ 删除前必须取得 project-owner 的二次确认，不得由执行者自行删除。**
+   依据有二：(a) `MIGRATION_PLAN_V2.md` §1 规定 `DELETE` 处置需二次确认；
+   (b) **这类动作刚刚发生过一次并被回滚**——`TASK_BACKLOG.md` §0.1 偏离 #3 记录
+   「已提交的 `market_intelligence`/`product_strategy` 被删除，无二次确认记录 →
+   违反 project-owner『先把所有 Python 代码都迁移过来』指示 → 已从 git 恢复」。
+   本 ADR 的裁决理由（38 行错误码 stub 不构成独立能力）与那两个域的情形同类，
+   因此**同一个程序约束适用**：ADR 提供裁决依据，不替代二次确认。
+   若二次确认未取得，执行 §3 的 registry 降级但**保留目录**，
+   并在 registry 的 `note` 里记明「目录待二次确认后删除」——
+   一个被降级为 `RETIRED_CANONICAL_CONFLICT` 但仍在磁盘上的目录，
+   优于一次未经确认的删除。
 3. `DOMAIN_REGISTRY.yaml` 的 `growth_plan_python_stub` 条目 **status 改 `RETIRED_CANONICAL_CONFLICT`**
    （沿用 `product_strategy` / `market_intelligence` 已有的处置词，不新造词表项），
    保留条目行本身作为历史记录，`note` 追加指向本 ADR。

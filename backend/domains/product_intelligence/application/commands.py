@@ -239,6 +239,8 @@ async def create_growth_strategy(
     problem_id: str,
     hypothesis_ids: list[str],
     statement: str,
+    contradiction_id: str | None = None,
+    value_architecture_id: str | None = None,
     model_ref: str | None = None,
     prompt_use_case_version: str | None = None,
     confidence: float | None = None,
@@ -254,6 +256,19 @@ async def create_growth_strategy(
         await repo.load_growth_hypothesis(
             hid, context.tenant_scope
         )  # traceability + tenant check per hypothesis
+    if contradiction_id is not None:
+        # PR-003 V1: linking a strategy to a contradiction is optional (the
+        # original PR-001 acceptance chain never had one), but if a caller
+        # does link one, it must be tenant-scoped and, per the project
+        # owner's "先完成分析，才轮到策略" ordering, APPROVED — a still-DRAFT
+        # or UNDER_REVIEW contradiction has not cleared Human Gate yet.
+        contradiction = await repo.load_contradiction_model(contradiction_id, context.tenant_scope)
+        if contradiction.status != "APPROVED":
+            raise ProductIntelligenceValidationError(
+                "growth_strategy_contradiction_must_be_approved"
+            )
+    if value_architecture_id is not None:
+        await repo.load_value_architecture(value_architecture_id, context.tenant_scope)
     now = _now()
     generated_by = context.actor_id if context.actor_type == "AI" else None
     strategy = GrowthStrategy(
@@ -264,6 +279,8 @@ async def create_growth_strategy(
         tenant_scope=context.tenant_scope,
         problem_id=problem_id,
         hypothesis_ids=hypothesis_ids,
+        contradiction_id=contradiction_id,
+        value_architecture_id=value_architecture_id,
         statement=statement,
         generated_by=generated_by,
         model_ref=model_ref,

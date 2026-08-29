@@ -152,6 +152,13 @@ CREATE TABLE IF NOT EXISTS product_intelligence_growth_hypotheses (
   validation_reason text
 );
 
+-- PR-003 V1 addendum (2026-08-29): problem_id/primary_rank/reviewed_by/
+-- reviewed_at/review_reason and the REJECTED status value did not exist
+-- when this table was first written (see migrations/README.md for the
+-- same kind of drift already recorded for GrowthHypothesisRow's
+-- validated_by/at/reason). Added here rather than opening a second ad-hoc
+-- file, following that same precedent, and re-recorded in
+-- migrations/README.md's drift table.
 CREATE TABLE IF NOT EXISTS product_intelligence_contradiction_models (
   id varchar(160) PRIMARY KEY,
   version integer NOT NULL DEFAULT 1,
@@ -159,13 +166,40 @@ CREATE TABLE IF NOT EXISTS product_intelligence_contradiction_models (
   updated_at timestamptz NOT NULL,
   created_by varchar(160) NOT NULL,
   tenant_scope varchar(160) NOT NULL,
-  status varchar(24) NOT NULL CHECK (status IN ('DRAFT','UNDER_REVIEW','APPROVED','RETIRED')),
+  status varchar(24) NOT NULL CHECK (status IN ('DRAFT','UNDER_REVIEW','APPROVED','REJECTED','RETIRED')),
+  problem_id varchar(160) NOT NULL REFERENCES product_intelligence_growth_problems(id),
   primary_factor_a varchar(240) NOT NULL,
   primary_factor_b varchar(240) NOT NULL,
   relationship varchar(240) NOT NULL,
   description text,
-  supporting_hypothesis_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+  supporting_hypothesis_ids jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_array_length(supporting_hypothesis_ids) >= 2),
   evidence_refs jsonb NOT NULL DEFAULT '[]'::jsonb,
+  primary_rank integer,
+  reviewed_by varchar(160),
+  reviewed_at timestamptz,
+  review_reason text,
+  generated_by varchar(160),
+  model_ref varchar(160),
+  prompt_use_case_version varchar(160),
+  confidence double precision
+);
+
+CREATE TABLE IF NOT EXISTS product_intelligence_value_architectures (
+  id varchar(160) PRIMARY KEY,
+  version integer NOT NULL DEFAULT 1,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL,
+  created_by varchar(160) NOT NULL,
+  tenant_scope varchar(160) NOT NULL,
+  status varchar(24) NOT NULL CHECK (status IN ('DRAFT','ACTIVE','RETIRED')),
+  problem_id varchar(160) NOT NULL REFERENCES product_intelligence_growth_problems(id),
+  emotional_current_state text NOT NULL,
+  emotional_desired_state text NOT NULL,
+  action_next_best_action text NOT NULL,
+  growth_outcomes jsonb NOT NULL DEFAULT '[]'::jsonb,
+  economic_outcomes jsonb NOT NULL DEFAULT '[]'::jsonb,
+  rationale text NOT NULL,
+  evidence_refs jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_array_length(evidence_refs) > 0),
   generated_by varchar(160),
   model_ref varchar(160),
   prompt_use_case_version varchar(160),
@@ -183,6 +217,7 @@ CREATE TABLE IF NOT EXISTS product_intelligence_growth_strategies (
   problem_id varchar(160) NOT NULL REFERENCES product_intelligence_growth_problems(id),
   hypothesis_ids jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_array_length(hypothesis_ids) > 0),
   contradiction_id varchar(160) REFERENCES product_intelligence_contradiction_models(id),
+  value_architecture_id varchar(160) REFERENCES product_intelligence_value_architectures(id),
   statement text NOT NULL,
   applicable_segment_ref varchar(160),
   exclusion_conditions jsonb NOT NULL DEFAULT '[]'::jsonb,

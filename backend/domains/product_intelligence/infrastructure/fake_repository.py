@@ -27,6 +27,7 @@ from ..domain.entities import (
     ServiceBlueprintVersion,
     SignalCluster,
     UnmetNeed,
+    ValueArchitecture,
 )
 from ..domain.errors import ProductIntelligenceNotFoundError
 
@@ -44,6 +45,7 @@ class FakeProductIntelligenceRepository:
     _growth_problems: dict = field(default_factory=dict)
     _growth_hypotheses: dict = field(default_factory=dict)
     _contradiction_models: dict = field(default_factory=dict)
+    _value_architectures: dict = field(default_factory=dict)
     _growth_strategies: dict = field(default_factory=dict)
     _product_concepts: dict = field(default_factory=dict)
     _product_components: dict = field(default_factory=dict)
@@ -117,6 +119,32 @@ class FakeProductIntelligenceRepository:
 
     async def save_contradiction_model(self, entity: ContradictionModel) -> None:
         self._contradiction_models[entity.id] = entity
+
+    async def load_contradiction_model(
+        self, entity_id: str, tenant_scope: str
+    ) -> ContradictionModel:
+        return self._get_scoped(
+            self._contradiction_models, entity_id, tenant_scope, "contradiction_model_not_found"
+        )
+
+    async def list_contradiction_models_by_problem(
+        self, problem_id: str, tenant_scope: str
+    ) -> list[ContradictionModel]:
+        return [
+            c
+            for c in self._contradiction_models.values()
+            if c.problem_id == problem_id and c.tenant_scope == tenant_scope
+        ]
+
+    async def save_value_architecture(self, entity: ValueArchitecture) -> None:
+        self._value_architectures[entity.id] = entity
+
+    async def load_value_architecture(
+        self, entity_id: str, tenant_scope: str
+    ) -> ValueArchitecture:
+        return self._get_scoped(
+            self._value_architectures, entity_id, tenant_scope, "value_architecture_not_found"
+        )
 
     async def save_growth_strategy(self, entity: GrowthStrategy) -> None:
         self._growth_strategies[entity.id] = entity
