@@ -1,3 +1,17 @@
+---
+id: GOV-COMPLIANCE-001
+title: AiFamily 合规硬约束（未成年人与家庭数据）
+type: governance
+status: current
+version: 1.0
+owner: chief-architect
+created: 2026-08-29
+updated: 2026-08-29
+canonical: true
+supersedes: null
+superseded_by: null
+---
+
 # AiFamily 合规硬约束（未成年人与家庭数据）
 
 ```text
@@ -150,7 +164,7 @@ AiFamily 的核心数据主体是**家庭与未成年人**，这使它落入中�
 ### 架构含义
 
 - `backend/platform/authorization/` 需支持最小授权模型（Wave 1 的 fail-closed PolicyEngine 方向正确）；
-- `backend/platform/audit/` 的访问留痕不只覆盖"状态变更"（宪章 R6），还必须覆盖**读取访问**——这是对 R6 的扩展，Wave 1 当前实现只关注 before/after 状态变更，需补读访问日志；
+- `backend/platform/audit/` 的访问留痕不只覆盖"状态变更"（宪章 R6），还必须覆盖**读取访问**——这是对 R6 的扩展。**T-07 已补结构层**：`AuditActionKind.READ` + 第36条四要素 + `AuditRecorder.record_read()`，且"未成年人读取无审批"在构造期即被拒；业务路径级检查待首个真实读取路径落地（见 §11 第3项）；
 - "逐次审批"是保守解读，基于角色的预授权 + 逐次访问日志亦可争辩合规；
 - 年度合规审计需要机制化，不是一次性文档。
 
@@ -191,10 +205,15 @@ AiFamily 的核心数据主体是**家庭与未成年人**，这使它落入中�
 
 1. **第7条（不得转委托）需法务与商务介入**评估 LLM 供应商分包结构，可能限制供应商范围或要求私有化部署。
 2. **DPIA 机制化**：第55/56条要求的影响评估报告与记录留存≥3年，需要建立流程，不是一次性文档。
-3. **读取访问日志**：宪章 R6 当前只覆盖状态变更，需按条例第36条扩展到读取访问留痕。Wave 1 的 `backend/platform/audit/` 需补此能力。
-4. **年度合规审计**：第37条法定义务，需机制化。
-5. **未检索到执法案例**：本轮 deep-research 未找到具体处罚/下架案例，实际执法强度未知。建议后续补一轮针对"教育类/儿童类App 处罚与下架案例"的定向研究。
-6. **14岁线设计校准**：需要逐个 UI/端点复核现有"14岁隐私线"实现是否误用于关闭监护人法定数据通道。
+   → **设计方案已出**：`DPIA_MECHANISM_DESIGN.md`（T-07，`status: draft`，落地需先出 ADR）。核心判断：DPIA 绑定"处理活动"而非代码提交；六个触发器 T1–T6 各有可判定的代码信号；评估报告存 `governance/DPIA/*.yaml`（git 历史即三年不可篡改留存），处理记录存审计表。**尚未落地**——前置依赖是首个真实未成年人数据处理活动的出现。
+3. **读取访问日志**：宪章 R6 当前只覆盖状态变更，需按条例第36条扩展到读取访问留痕。
+   → **结构层已落地**（T-07）：`AuditEvent` 新增 `AuditActionKind`（MUTATION / READ）判别式 + 第36条四要素（`subject_person_id` / `accessed_fields` / `access_purpose` / `approval_ref`），并把"读取未成年人数据而无审批"变成**构造期即失败**的不变量；`AuditRecorder.record_read()` 是唯一读取留痕入口。三个架构检查器守此结构（见 `tests/architecture/test_compliance_constraints.py` 的第36条小节）。
+   → **仍缺业务路径级检查**（"每条读取未成年人数据的代码路径都真的调用了 record_read"）。当前四个业务域（assessment / membership / product_intelligence / loyalty_points）均无未成年人主体读取路径，写这条检查器会检查空集并永远通过，故按 R14 精神明确推迟到首个真实读取路径落地时补。
+4. **留存期限绑定**：每个存储未成年人数据的字段须有明示留存期限、到期处理方式与声明过的具体目的（第10/12条）。
+   → **设计方案已出**：`DATA_RETENTION_BINDING_DESIGN.md`（T-07，`status: draft`）。核心判断：字段级元数据（pydantic `json_schema_extra` / SQLAlchemy `mapped_column(info=)`，五键必填）+ 反射检查器；采纳"按模块范围 opt-out + 全局命名启发式兜底"（方案 C），并如实记录其残余缺口（字段名不含主体 token 时静态检查拦不住）。**尚未落地**——同样等首个真实数据模型。
+5. **年度合规审计**：第37条法定义务，需机制化。
+6. **未检索到执法案例**：本轮 deep-research 未找到具体处罚/下架案例，实际执法强度未知。建议后续补一轮针对"教育类/儿童类App 处罚与下架案例"的定向研究。
+7. **14岁线设计校准**：需要逐个 UI/端点复核现有"14岁隐私线"实现是否误用于关闭监护人法定数据通道。
 
 ## 12. 与商业战略的冲突记录（如实标注，不回避）
 

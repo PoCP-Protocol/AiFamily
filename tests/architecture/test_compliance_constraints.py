@@ -16,6 +16,16 @@ periods, DPIA record-keeping, annual compliance audits and the
 "不得转委托" provider-subprocessing question are organisational duties that no
 unit test can verify — those stay tracked in the doc's §11 待办 list. What *is*
 checkable is checked here, strictly.
+
+Update (T-07): the §11 待办 item "读取访问日志" is now partially enforced —
+see the 第36条 section at the bottom of this file. The *structural* half (the
+audit primitives can express an approved, purpose-bound read of a minor's data,
+and cannot express an unapproved one) is checked. The *path* half (every code
+path that reads minor data actually calls the recorder) is not, and is honestly
+scoped in each docstring rather than faked. The DPIA and retention obligations
+remain unenforced by tests on purpose; their designs are
+`docs/12_governance/DPIA_MECHANISM_DESIGN.md` and
+`docs/12_governance/DATA_RETENTION_BINDING_DESIGN.md`.
 """
 
 from __future__ import annotations
@@ -413,3 +423,172 @@ def test_no_direct_provider_sdk_outside_model_gateway(repo_root: Path) -> None:
         "`orchestration/llm-gateway/family-llm-gateway.service.ts:58-63`, violating its "
         "own declared policy.\n" + "\n".join(violations)
     )
+
+
+# ---------------------------------------------------------------------------
+# 未成年人网络保护条例 36 — read access to a minor's data must be recorded.
+# ---------------------------------------------------------------------------
+# 第36条: staff access to a minor's personal information must be minimally
+# authorised, approved by the responsible person or an authorised manager, and
+# the access itself recorded. COMPLIANCE_HARD_CONSTRAINTS.md §8 states plainly
+# that this extends R6, which only covers state mutation.
+#
+# Scope honesty, stated once for all three checks below: no business domain in
+# this repository reads minor personal data yet (the domains that exist are
+# assessment, membership, product_intelligence, loyalty_points — none of them
+# has a child-subject read path). A checker that claimed to verify "every read
+# of minor data is logged" would therefore be checking an empty set and passing
+# forever, which is exactly the "policy as unenforced constant" failure R14 was
+# written about.
+#
+# So these three are *structural*: they assert the primitives that make read
+# logging possible exist and cannot be bypassed. Together they guarantee that
+# when the first minor-data read path lands, the developer cannot record an
+# access without naming the subject, the fields, the purpose and the approval.
+# The path-level check ("this specific query calls record_read") is deferred
+# until a real read path exists; it is tracked in
+# COMPLIANCE_HARD_CONSTRAINTS.md §11.
+
+AUDIT_MODELS = "backend/platform/audit/models.py"
+AUDIT_RECORDER = "backend/platform/audit/recorder.py"
+
+
+def _load_module_ast(repo_root: Path, rel_path: str) -> ast.Module:
+    path = repo_root / rel_path
+    assert path.is_file(), f"{rel_path} is missing"
+    return ast.parse(path.read_text(encoding="utf-8"))
+
+
+def _class_def(tree: ast.Module, name: str) -> ast.ClassDef:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == name:
+            return node
+    raise AssertionError(f"class {name!r} not found")
+
+
+def test_audit_event_can_express_read_access(repo_root: Path) -> None:
+    """第36条 — the audit record must be able to say "this was a read".
+
+    Before T-07 `AuditEvent` had only before/after, so a read was
+    indistinguishable from a create with no prior state. A discriminator plus
+    the four 第36条 elements (subject / fields / purpose / approval) must be
+    present as declared fields, otherwise read logging is not representable and
+    every later claim about it is aspirational.
+    """
+    tree = _load_module_ast(repo_root, AUDIT_MODELS)
+    event = _class_def(tree, "AuditEvent")
+
+    declared = {
+        stmt.target.id
+        for stmt in event.body
+        if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)
+    }
+    required = {
+        "action_kind",  # MUTATION vs READ discriminator
+        "subject_person_id",  # whose information was accessed
+        "subject_is_minor",  # what makes approval a legal precondition
+        "accessed_fields",  # 最小授权 is unverifiable without this
+        "access_purpose",  # declared processing purpose
+        "approval_ref",  # 第36条 审批
+    }
+    missing = sorted(required - declared)
+    assert not missing, (
+        f"AuditEvent cannot express read access — missing field(s) {missing}. "
+        "《未成年人网络保护条例》第36条 requires access to a minor's personal "
+        "information to be recorded with subject, scope, purpose and approval. "
+        "See docs/12_governance/COMPLIANCE_HARD_CONSTRAINTS.md §8."
+    )
+
+    kinds = {
+        stmt.targets[0].id
+        for stmt in _class_def(tree, "AuditActionKind").body
+        if isinstance(stmt, ast.Assign) and isinstance(stmt.targets[0], ast.Name)
+    }
+    assert {"MUTATION", "READ"} <= kinds, (
+        f"AuditActionKind declares {sorted(kinds)}; both MUTATION and READ are "
+        "required so that 'a read was not recorded' is a detectable condition "
+        "rather than an unrepresentable one."
+    )
+
+
+def test_audit_recorder_has_a_read_access_entry_point(repo_root: Path) -> None:
+    """第36条 — recording a read must be a named, complete operation.
+
+    A structural check by necessity (see the section comment): with no
+    minor-data read path in the repo yet, what can be verified is that the
+    seam exists and demands every 第36条 element. `record_read` must accept
+    subject / accessed_fields / access_purpose / approval_ref as parameters —
+    a method that logs a read without them produces a record that looks
+    compliant and is not.
+    """
+    tree = _load_module_ast(repo_root, AUDIT_RECORDER)
+    recorder = _class_def(tree, "AuditRecorder")
+
+    methods = {
+        node.name: node
+        for node in recorder.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert "record_read" in methods, (
+        "AuditRecorder has no `record_read` method. 《未成年人网络保护条例》第36条 "
+        "requires read access to be recorded; without a single named entry point "
+        "there is nothing for a read path to call and nothing to grep for."
+    )
+
+    node = methods["record_read"]
+    params = {a.arg for a in node.args.args} | {a.arg for a in node.args.kwonlyargs}
+    required_params = {
+        "subject_person_id",
+        "accessed_fields",
+        "access_purpose",
+        "approval_ref",
+        "subject_is_minor",
+    }
+    missing = sorted(required_params - params)
+    assert not missing, (
+        f"AuditRecorder.record_read is missing parameter(s) {missing}. Each one is "
+        "a 第36条 element (whose data / what scope / why / approved by what). An "
+        "incomplete read record is worse than none, because it reports compliance "
+        "that did not happen."
+    )
+
+
+def test_read_audit_of_a_minor_cannot_omit_approval(repo_root: Path) -> None:
+    """第36条 — approval is an invariant, not a convention.
+
+    This is the one behavioural check of the three: it constructs a read event
+    for a minor with no `approval_ref` and requires the model to refuse. If
+    approval were merely documented as "should be set", a read path could log a
+    perfectly-shaped record for an unapproved access, and the audit trail would
+    then actively assert compliance that never occurred.
+    """
+    from backend.platform.audit import AuditActionKind, AuditEvent
+
+    base = {
+        "actor_id": "staff-1",
+        "tenant_id": "tenant-1",
+        "action": "child_profile.read",
+        "resource_type": "ChildProfile",
+        "resource_id": "child-1",
+        "reason": "guardian support request",
+        "correlation_id": "corr-1",
+        "action_kind": AuditActionKind.READ,
+        "subject_person_id": "child-1",
+        "subject_is_minor": True,
+        "accessed_fields": ("emotional_state",),
+        "access_purpose": "assessment",
+    }
+
+    with pytest.raises(ValueError, match="approval_ref"):
+        AuditEvent(**base)  # type: ignore[arg-type]
+
+    # And the approved form must be constructible — an invariant that rejects
+    # everything protects nothing.
+    approved = AuditEvent(**base, approval_ref="approval-7")  # type: ignore[arg-type]
+    assert approved.is_read
+    assert not approved.is_mutation
+
+    # A read must not smuggle state through before/after: that is the shape that
+    # made reads indistinguishable from creates in the first place.
+    with pytest.raises(ValueError, match="before/after"):
+        AuditEvent(**base, approval_ref="approval-7", after={"emotional_state": "calm"})  # type: ignore[arg-type]
