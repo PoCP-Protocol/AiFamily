@@ -42,12 +42,32 @@ enums:
     - system                     # 系统内部调度
     - ai                         # AI Agent（永不可写 canonical 状态，见 R9）
 
+  # 上游归属：每个 capability 必须回答"我服务哪个业务能力"。
+  # 取值来源 docs/02_business/BUSINESS_CAPABILITY_MAP.md 与
+  # BUSINESS_ARCHITECTURE.md §1.3/§3；不是自由文本，新增取值须同时改这里、
+  # 业务文档、以及 tools/architecture/check_traceability.py 的报告基线。
+  #
+  # 为什么是显式字段而不是从 domain 推导：domain 只复述代码位置
+  # （domains/membership → membership），推导出的"归属"是同义反复，
+  # 永远不会断链，也就永远证明不了任何事。上游链的价值恰在于**有人写下了
+  # 这段代码为什么存在**。见 DOCUMENT_GOVERNANCE.md §6「向上」用法。
+  business_capability:
+    - PLATFORM_INTERNAL          # 平台内核原语，不直接服务某项业务能力；
+                                 # 上溯终点是 REPOSITORY_CONSTITUTION 与
+                                 # docs/06_platform/，不是业务能力地图
+    - family_growth_assessment   # 入口层：家庭/父母成长测评（BUSINESS_ARCHITECTURE §3.2 入口层）
+    - growth_plan_delivery       # 核心层：90天家庭成长计划的交付闭环（§3.2 核心层）
+    - membership_and_benefits    # 生态层：会员与权益（§3.2 生态层，白皮书 Slide 8 订阅层）
+    - product_intelligence       # 运营侧：市场信号→洞察→假设→验证（非家庭侧业务能力）
+    - platform_runtime           # 运行时可用性（健康/就绪探针等运维面）
+
 # ---------------------------------------------------------------------------
 # 平台内核能力（Wave 1，非业务域）
 # ---------------------------------------------------------------------------
 capabilities:
 
   - capability: resolve_actor_context
+    business_capability: PLATFORM_INTERNAL
     domain: platform/identity
     purpose: 构造不可变的 ActorContext / TenantContext，回答"谁在什么租户下以什么身份操作"
     actor: [system]
@@ -68,6 +88,7 @@ capabilities:
     status: IMPLEMENTED_TESTED
 
   - capability: authorize_action
+    business_capability: PLATFORM_INTERNAL
     domain: platform/authorization
     purpose: 给定 (actor, action, resource) 返回 ALLOW/DENY，未注册组合 fail-closed
     actor: [system]
@@ -87,6 +108,7 @@ capabilities:
     reference_implementation: "50_开发_dev/apps/api/src/modules/auth/family-authorization.policy.ts"
 
   - capability: check_consent
+    business_capability: PLATFORM_INTERNAL
     domain: platform/consent
     purpose: 按 purpose 校验 consent 是否有效；撤回立即生效，无缓存
     actor: [system]
@@ -109,6 +131,7 @@ capabilities:
       - "尚未支持目的变更触发重新同意（第14条）"
 
   - capability: record_audit_event
+    business_capability: PLATFORM_INTERNAL
     domain: platform/audit
     purpose: 记录 actor/tenant/action/resource/before/after/reason/correlation_id/timestamp
     actor: [system]
@@ -131,6 +154,7 @@ capabilities:
       - "flush 到 DB 的接口存在但真实 audit 表尚未建（Batch 3 Family Core 时落地）"
 
   - capability: reserve_idempotency_key
+    business_capability: PLATFORM_INTERNAL
     domain: platform/idempotency
     purpose: 同一 idempotency key 的重复请求被拒绝，保证命令只生效一次
     actor: [system]
@@ -149,6 +173,7 @@ capabilities:
       - "仅有 InMemoryIdempotencyStore；持久化实现待 Batch 3"
 
   - capability: unit_of_work_transaction
+    business_capability: PLATFORM_INTERNAL
     domain: platform/persistence
     purpose: 同一 UoW 内的多个 repository 操作要么全提交要么全回滚
     actor: [system]
@@ -170,6 +195,7 @@ capabilities:
 # ---------------------------------------------------------------------------
 
   - capability: health_check
+    business_capability: platform_runtime
     domain: apps/family_api
     purpose: 存活探针
     actor: [system]
@@ -186,6 +212,7 @@ capabilities:
     status: IMPLEMENTED_TESTED
 
   - capability: readiness_check
+    business_capability: platform_runtime
     domain: apps/family_api
     purpose: 就绪探针，真实 ping 数据库连接
     actor: [system]
@@ -206,6 +233,7 @@ capabilities:
 # ---------------------------------------------------------------------------
 
   - capability: membership_tier_lifecycle
+    business_capability: membership_and_benefits
     domain: domains/membership
     purpose: 会籍档位建立/升降/续费/过期，权益发放-占用-核销与台账
     actor: [guardian, operator]
@@ -217,13 +245,32 @@ capabilities:
       - reserve_membership_benefit
       - consume_membership_benefit
       - subscribe_membership
-    api: null                    # ⚠️ 无 routes.py，未挂载到 family_api
+    # 纠正（T-08 检查器发现）：原先写 `api: null  # ⚠️ 无 routes.py，未挂载到 family_api`，
+    # 这是**事实错误** —— backend/domains/membership/api/routes.py 存在，且
+    # backend/apps/family_api/main.py:29 确实 include_router(membership_router)。
+    # 注意"已挂载"≠"可用"：其 get_repository / get_action_context 依赖按设计抛异常
+    # （见 main.py 注释与 DOMAIN_REGISTRY membership.known_gaps），端点在依赖层
+    # fail-closed。登记路由是为了 registry 描述事实，不是宣称能力可用。
+    api:
+      - "POST /membership/subscriptions"
+      - "POST /membership/tier-activations"
+      - "POST /membership/period-renewals"
+      - "POST /membership/period-expirations"
+      - "POST /membership/benefit-grants"
+      - "POST /membership/benefit-reservations"
+      - "POST /membership/benefit-reservations/{benefit_reservation_id}/release"
+      - "POST /membership/benefit-consumptions"
+      - "POST /membership/benefit-revocations"
+      - "GET /membership/projection"
+      - "GET /membership/screens/{surface_id}"
     code:
       domain: backend/domains/membership/domain/
       application: backend/domains/membership/application/
       infrastructure: backend/domains/membership/infrastructure/
+      api: backend/domains/membership/api/
     tests:
       - tests/domains/membership/test_acceptance_chain.py
+      - tests/domains/membership/test_tier_field_guardrail.py
     consent:
       required: true
       note: "subscribe_membership 接受 consent_ref"
@@ -238,11 +285,7 @@ capabilities:
       note: >
         assert_human_actor 在域边界拒绝 ai: 前缀 actor —— AI 可以建议升档，
         不能授予档位。对应六项战略原则第5条。
-    status: IMPLEMENTED_UNTESTED
-    status_rationale: >
-      6 个验收测试全部通过，但 policies.py:27 的 FORBIDDEN_TIER_FIELD_TOKENS
-      注释自称"由 guardrail test 强制"，该 guardrail test 仍不存在。
-      按 R4，未被测试覆盖的不变量不算能力，故不升为 IMPLEMENTED_TESTED。
+    status: IMPLEMENTED_TESTED
     compliance_refs:
       - >
         COMPLIANCE_HARD_CONSTRAINTS.md §3：会员权益**不得**基于画像向孩子端
@@ -257,6 +300,7 @@ capabilities:
         修复：引入 SAME_TIER_ALLOWED_SOURCES 白名单。
 
   - capability: product_intelligence_hypothesis
+    business_capability: product_intelligence
     domain: domains/product_intelligence
     purpose: 市场信号→洞察→假设→验证的产品智能链
     actor: [operator]
@@ -305,13 +349,20 @@ not_yet_capabilities:
 # ---------------------------------------------------------------------------
 enforcement:
   implemented:
-    - "tests/architecture/test_capability_registry.py 校验 schema 与枚举合法性（待建）"
+    - "tests/architecture/test_capability_registry.py 校验 schema 与枚举合法性"
+    - "同上：code / tests 字段指向的路径必须真实存在（test_declared_code_paths_exist）"
+    - "同上：business_capability 必须存在且取值合法（test_every_capability_has_upstream_attribution）"
+    - >
+      tools/architecture/check_traceability.py（T-08）报告三类断链：
+      UPSTREAM（无业务能力归属）/ CODE_GAP（backend 下有 .py 但无 capability 覆盖）/
+      API_ORPHAN（代码有路由 registry 无登记，或 registry 声称 api 代码里没有）。
+      **当前为报告模式，退出码恒为 0，不失败 CI** —— 促转强制的顺序见该脚本 docstring。
   missing:
+    - "tests 字段指向的测试是否真实存在且**通过**（存在性已查，通过性未查）"
     - >
-      code 字段指向的路径是否真实存在 —— 目前无检查器，registry 可以指向死路径而 CI 不报错。
-      这正是源仓库 FPAI_PROVIDER_REGISTRY 漂移的同类风险。
-    - "api 字段与实际 FastAPI 路由的一致性检查"
-    - "tests 字段指向的测试是否真实存在且通过"
+      API_ORPHAN 尚未转为强制门。当前快照有 37 条 CERTAIN，其中 11 条来自本文件
+      membership_tier_lifecycle 的 `api: null` 与已存在的
+      backend/domains/membership/api/routes.py 冲突 —— 见该条目 known_gaps。
     - >
-      Traceability 断链检查器（tools/architecture/ 目录当前为空）——
-      Strategy→Capability→Code→Test 的链路完整性尚无自动验证。
+      Product Capability 层（docs/03_product/）与 Metric 层（docs/09_operations/）
+      仍未进入 registry，追溯链两端仍不可机械验证。

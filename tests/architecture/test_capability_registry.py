@@ -54,6 +54,39 @@ def test_registry_declares_its_enums(registry: dict) -> None:
         "change both together or neither"
     )
     assert set(enums.get("actor_type", [])) == LEGAL_ACTOR_TYPES
+    assert enums.get("business_capability"), (
+        "registry must declare an `enums.business_capability` list — it is the "
+        "vocabulary the upstream traceability link is checked against"
+    )
+
+
+def test_every_capability_has_upstream_attribution(registry: dict) -> None:
+    """The upstream half of the DOCUMENT_GOVERNANCE §6 chain.
+
+    The chain runs Strategy → Business Capability → ... → Test. This registry
+    already carries Domain-downwards; `business_capability` is the field that
+    keeps the link above Domain from snapping. It is an explicit declaration
+    rather than something derived from `domain`, because deriving it from the
+    code location would be circular — it could never fail, and a check that
+    cannot fail certifies nothing.
+
+    `PLATFORM_INTERNAL` is a legal answer: platform primitives genuinely do not
+    serve one business capability, and forcing an invented attribution would be
+    worse than recording that fact.
+    """
+    legal = set(registry.get("enums", {}).get("business_capability") or [])
+    problems: list[str] = []
+    for entry in registry.get("capabilities", []):
+        name = entry.get("capability", "<unnamed>")
+        attribution = entry.get("business_capability")
+        if not attribution:
+            problems.append(f"{name}: missing `business_capability`")
+        elif attribution not in legal:
+            problems.append(f"{name}: {attribution!r} not in enums.business_capability")
+    assert not problems, (
+        "capabilities whose upstream traceability link is broken (see "
+        "tools/architecture/check_traceability.py):\n" + "\n".join(problems)
+    )
 
 
 def test_capability_names_are_unique(registry: dict) -> None:
@@ -63,7 +96,15 @@ def test_capability_names_are_unique(registry: dict) -> None:
 
 
 def test_every_capability_has_required_fields(registry: dict) -> None:
-    required = {"capability", "domain", "purpose", "actor", "code", "status"}
+    required = {
+        "capability",
+        "business_capability",
+        "domain",
+        "purpose",
+        "actor",
+        "code",
+        "status",
+    }
     missing: list[str] = []
     for entry in registry.get("capabilities", []):
         absent = required - entry.keys()
