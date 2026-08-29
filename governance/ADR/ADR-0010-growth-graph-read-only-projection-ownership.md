@@ -90,14 +90,39 @@ Graph 的价值在 T0→T1→T2→T3 的变化轨迹。投影行**只追加不�
 严格依赖链，**不得跳步**：
 
 ```
-DomainEvent + outbox 机制（当前 0 命中，不存在）
-  → 至少一个域产出真实事件（Batch 3 family/relationship/consent 是最早候选）
-    → workflow_worker 进程建立
-      → projector + graph_projection schema
-        → GrowthGraphQueryPort
+outbox 写入侧          ✅ 已存在（见下方 2026-08-29 状态修正）
+  → DomainEvent 类型 + 平台级 outbox 所有者        ← 当前卡在这里
+    → relay（把 published_at IS NULL 的事件发出去）
+      → workflow_worker 进程建立
+        → projector + graph_projection schema
+          → GrowthGraphQueryPort
 ```
 
-**在 `DomainEvent` 与 outbox 存在之前，本 ADR 描述的通路一行代码都不该写。**
+> **⚠ 2026-08-29 状态修正（本 ADR 原文有误，保留原判断的理由但更新事实）**
+>
+> 本 ADR 起草时写「`DomainEvent` 与 outbox 机制当前 0 命中，不存在」。**该断言已过期，
+> 且它是本 ADR 中唯一的事实性错误**，必须修正——因为一份声称前置条件不存在的 ADR
+> 会阻止别人推进已经解锁的工作。实测（`grep`，2026-08-29）：
+>
+> | 环节 | 实况 |
+> |---|---|
+> | `outbox_events` 表 | **已存在**，`database/baseline/0002_platform_foundation.sql`。是真正的通用领域事件 outbox：`aggregate_type` / `aggregate_id` / `event_name` / `event_version` / `event_id`(UNIQUE) / `correlation_id` / `payload` jsonb / `occurred_at` / `published_at` / `retry_count`，并带 `WHERE published_at IS NULL` 的部分索引 |
+> | 事务性写入 | **已存在**，但只有 `assessment` 域，经其 `application/ports.py:77` 的 `write_audit_and_outbox` |
+> | `DomainEvent` 类型 | **0 命中**。事件以 `(aggregate_type, event_name, payload: dict)` 的字符串+字典形式写入，§本 ADR 与 `DOMAIN_ARCHITECTURE.md` §4.3 的 Event 契约（过去时命名、自包含快照 + provenance、不可变）**无任何类型在执行** |
+> | `backend/platform/outbox/` | **不存在**。平台层 6 个模块（audit / authorization / consent / idempotency / identity / persistence）中没有 outbox。**一张平台级共享表，没有平台级所有者** |
+> | relay / publisher / projector | **全部不存在**。`published_at` 永远为 NULL |
+>
+> **含义（三条，第 2 条最紧急）**：
+> 1. 本 ADR 的前置条件**已过半**，且过的是较难的那一半（与状态变更同事务）。
+>    投影层比原判断更接近可行。
+> 2. **`outbox_events` 缺平台级所有者，正在复制 R10 的伤疤。** 下一个需要事件的域会照抄
+>    一份 `write_audit_and_outbox` 到自己的 port 上——「重复的不是实现，是纪律」。
+>    **现在拦还来得及；等到第三个域就来不及了。** 见 `TASK_BACKLOG.md` T-20。
+> 3. **没有 relay 的 outbox 是只写日志。** 事件只积累不消费，它**看起来**像事件驱动架构
+>    而实际什么都没连上——这是静默失效，比机制缺失更危险，因为它会让人误判进度。
+
+**在平台级 outbox 所有者与 `DomainEvent` 类型确立之前，本 ADR 的投影层一行代码都不该写**
+（原则不变，只是阻塞点从「outbox 不存在」前移到了「outbox 没有所有者与类型契约」）。
 在此期间 AI 侧若需要业务数据，唯一合法做法是：**由 `family_api` 侧的应用服务
 把数据作为参数传给 gateway 请求**（即 domain 主动推，而非 AI 主动拉）——
 这不需要投影层，也不违反隔离。

@@ -469,7 +469,7 @@ class PrivateCheckinDraft(_Extensible, _FixtureBoundary):
     for it, and inventing one inside this domain is the `product_intelligence`
     mistake T-03 recorded (a private SQL copy whose columns the baseline never
     had). Its own revision creates `family_service_private_checkin_drafts`; see
-    `database/migrations/versions/0003_service_private_checkin_drafts.py`.
+    `database/migrations/versions/0003_service_booking_additions.py`.
 
     "Private" is the whole point: the draft carries an allow-listed
     `action_ref` and **no free-text field**. An allow-list cannot carry a child

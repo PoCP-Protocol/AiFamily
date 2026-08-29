@@ -203,7 +203,7 @@ entries:
     scope: >
       服务预约子链：ServiceProvider → ServiceOffering → AvailabilitySlot →
       BookingRequest → ServiceRecord，另加 PrivateCheckinDraft（UI-06 §4.1 端点对象，
-      0035 无对应表，由 revision 0004_service_booking_additions 新建）。
+      0035 无对应表，由 revision 0003_service_booking_additions 新建）。
       对应 contracts/openapi/UI_API_ENDPOINT_INVENTORY.md 的 SERVICE 组 6 个端点。
     status_rationale: >
       2026-08-29 T-15 重派完成，由 MIGRATION_MANIFEST 的 PARTIAL_ABANDONED 转为

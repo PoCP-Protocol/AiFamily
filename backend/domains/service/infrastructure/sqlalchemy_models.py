@@ -6,7 +6,7 @@ Column names and nullability mirror the SQL SSOT exactly:
   offerings, availability_slots, booking_requests, booking_service_records. This
   Python side maps onto the **existing** tables rather than creating a parallel
   set, so there is one schema per concept.
-* `database/migrations/versions/0003_service_private_checkin_drafts.py` — the
+* `database/migrations/versions/0003_service_booking_additions.py` — the
   one genuinely new table (`family_service_private_checkin_drafts`), plus the
   one column 0035 lacks that this domain needs
   (`family_booking_service_records.service_quality_rating`).

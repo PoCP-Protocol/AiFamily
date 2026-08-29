@@ -175,6 +175,8 @@ CREATE TABLE IF NOT EXISTS product_intelligence_contradiction_models (
   supporting_hypothesis_ids jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_array_length(supporting_hypothesis_ids) >= 2),
   evidence_refs jsonb NOT NULL DEFAULT '[]'::jsonb,
   primary_rank integer,
+  primary_marked_by varchar(160),
+  primary_marked_at timestamptz,
   reviewed_by varchar(160),
   reviewed_at timestamptz,
   review_reason text,

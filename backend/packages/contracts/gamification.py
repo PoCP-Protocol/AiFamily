@@ -165,11 +165,57 @@ FORBIDDEN_GAMIFICATION_COPY: Final[tuple[str, ...]] = (
 )
 
 
+# Negation markers. A forbidden word appearing inside a *disclaimer* is the
+# opposite of a violation — it is the payload telling the reader we do not do
+# that thing.
+#
+# This distinction is not a convenience: without it the guardrail failed on
+# 「会员档位表示服务关系深度,不是等级、分数或排名。」 — a sentence whose whole
+# purpose is to deny ranking. A checker that flags "we do not rank" as "we rank"
+# teaches developers to dismiss R9 failures as noise, which is worse than having
+# no checker, because the next real violation gets waved through too.
+_NEGATION_MARKERS: Final[tuple[str, ...]] = (
+    "不是",
+    "不做",
+    "没有",
+    "并非",
+    "而非",
+    "不含",
+    "不提供",
+    "无关",
+)
+
+
+def _is_disclaimer(text: str, phrase: str) -> bool:
+    """True when `phrase` occurs in a clause that denies it.
+
+    Scoped to the clause, not the whole notice: a notice may legitimately deny
+    one thing and assert another, and only the denied one is exempt.
+
+    `、` is deliberately NOT a boundary. It is an enumeration comma, so
+    「不是等级、分数或排名」 is a single denial covering three nouns; splitting on
+    it strands 排名 in a clause without its 不是 and re-fails the exact sentence
+    this exemption exists for. Only clause-level punctuation ends a clause.
+    """
+    separators = ("，", ",", "。", ".", "；", ";")
+    clauses = [text]
+    for separator in separators:
+        clauses = [part for clause in clauses for part in clause.split(separator)]
+    for clause in clauses:
+        if phrase in clause and not any(m in clause for m in _NEGATION_MARKERS):
+            return False  # asserted, not denied — a real violation
+    return True
+
+
 def assert_gamification_safe(payload_keys: object, notices: object) -> None:
     """Raise `ValueError` if a read model smuggles a forbidden shape.
 
     Called by the guardrail test rather than at runtime — the point is to fail
     the build when someone adds the field, not to add a hot-path check.
+
+    Field names are matched literally: there is no legitimate reason for a
+    read-model key to contain `rank`/`score`. Notice *copy* gets the negation
+    exemption above, because prose can deny what it names and field names cannot.
     """
     for key in payload_keys:  # type: ignore[union-attr]
         lowered = str(key).lower()
@@ -177,6 +223,7 @@ def assert_gamification_safe(payload_keys: object, notices: object) -> None:
             if token in lowered:
                 raise ValueError(f"forbidden_gamification_key:{lowered}")
     for notice in notices:  # type: ignore[union-attr]
+        text = str(notice)
         for phrase in FORBIDDEN_GAMIFICATION_COPY:
-            if phrase in str(notice):
+            if phrase in text and not _is_disclaimer(text, phrase):
                 raise ValueError(f"forbidden_gamification_copy:{phrase}")

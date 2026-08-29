@@ -190,7 +190,7 @@ entries:
       - "R6：每个状态变更经 AuditRecorder 记 AuditEvent，且 before/after 双记（R6 两者都点名）；测试逐个断言 action 名而非只数条数"
       - "R9：无任何给家庭/孩子打分的字段。ServiceRecord.service_quality_rating 评价的是服务方交付的那一场，不是家庭；policies.assert_no_family_scoring_semantics 守住 attributes 这个非结构化逃逸口"
       - "R12：全部绝对包路径 from backend.xxx"
-      - "迁移新增 revision 0004_service_booking_additions（未改 baseline），已在空 Postgres 库 alembic upgrade head 通过"
+      - "迁移新增 revision 0003_service_booking_additions（未改 baseline），已在空 Postgres 库 alembic upgrade head 通过"
       - "ORM 与迁移一致性有专测 test_orm_matches_migrations.py：拿 Alembic 建出来的库比对 Base.metadata，堵住 T-03 记录的 product_intelligence 漂移（create_all 建的 schema 与 ORM 必然自洽，看不见这类漂移）"
     correction_to_plan: >
       T-03 的教训被明确执行：backend/domains/service 下**没有任何 .sql 文件**，

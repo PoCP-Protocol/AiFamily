@@ -447,6 +447,63 @@ project-owner 定调 Family Growth Intelligence OS，四层价值要真进代码
 
 ---
 
+## T-20 ｜ P0 ｜ 给 `outbox_events` 一个平台级所有者 + `DomainEvent` 类型 + relay
+
+**归属**：可独立领取。**这张卡是 P0 不是因为它阻塞谁，而是因为它有时间窗——
+现在只有 1 个域写 outbox，拦得住；到第三个域就拦不住了。**
+
+### 实测现状（`grep`，2026-08-29）
+
+| 环节 | 实况 |
+|---|---|
+| `outbox_events` 表 | **已存在**，`database/baseline/0002_platform_foundation.sql`。真正的通用领域事件 outbox（`aggregate_type` / `aggregate_id` / `event_name` / `event_version` / `event_id` UNIQUE / `correlation_id` / `payload` jsonb / `occurred_at` / `published_at` / `retry_count` + `WHERE published_at IS NULL` 部分索引） |
+| 事务性写入 | **已存在**，但只有 `assessment`，经其 `application/ports.py:77` 的 `write_audit_and_outbox` |
+| `DomainEvent` 类型 | **0 命中** |
+| `backend/platform/outbox/` | **不存在**（平台 6 模块里没有它） |
+| relay / publisher / projector | **全部不存在**，`published_at` 永远 NULL |
+
+### 三个要解决的问题
+
+**① 一张平台级共享表没有平台级所有者。**
+`outbox_events` 被一个**域的** repository 方法写入。按 `docs/04_domains/DOMAIN_ARCHITECTURE.md`
+§5，跨域共享的技术机制属平台层（对照 `platform/audit` 就是这么做的）。
+**下一个需要事件的域会照抄一份 `write_audit_and_outbox`**——这正是 R10 伤疤
+「源仓库只有一份网关实现，却有三套接入模式；重复的不是实现，是纪律」的形状。
+
+**② 事件契约无类型可执行。** `DOMAIN_ARCHITECTURE.md` §4.3 规定的四条
+（过去时命名 / 与状态变更同事务 / 载荷是自包含不可变快照 + provenance，**不得只放 id
+让订阅方回查** / 订阅方必须幂等）**目前没有任何类型或测试在执行**。
+按 R14，它们现在只是意图。
+
+**③ 没有 relay 的 outbox 是只写日志。** 它**看起来**像事件驱动架构而实际什么都没连上。
+这是静默失效——比机制缺失更危险，因为它会让人误判进度
+（我自己就先误判为「outbox 不存在」，后又差点误判为「事件驱动已就绪」）。
+
+### 范围
+
+1. 建 `backend/platform/outbox/`：`DomainEvent`（frozen，必带 `event_name` 过去时校验、
+   `occurred_at`、`correlation_id`、`payload`、provenance）+ `OutboxPort`（写入）
+   + `SqlAlchemyOutbox`（与 UoW 同事务）。**照 `backend/platform/audit/` 的既有形状做**，
+   不要发明第二种风格。
+2. `assessment` 的 `write_audit_and_outbox` 改为经平台 port；**保留其现有行为与测试全绿**
+   （`tests/domains/assessment/test_transactional_outbox_invariant.py` 是既有验收，不得回归）。
+3. relay：**本卡只做到「可被消费」，不做 projector**。最小形态 = 一个能把
+   `published_at IS NULL` 的事件取出并标记已发布的函数 + 幂等重试。
+   **投影层归 ADR-0010，不在本卡范围**（避免一张卡吃掉两个批次）。
+4. 治理登记：`DOMAIN_REGISTRY.yaml` / `CAPABILITY_REGISTRY.yaml` 加
+   `platform_outbox` 条目；`MIGRATION_MANIFEST.yaml` 相应登记。
+
+### 验收
+
+- 新增架构测试**并验证会咬人**：`backend/domains/**` 下不得出现直接写 `outbox_events`
+  的路径（必须经平台 port）。植入违规 → 失败 → 移除，提交说明贴过程。
+- `DomainEvent` 的过去时命名校验有测试（`"HypothesisConfirmed"` 通过，
+  `"ConfirmHypothesis"` 抛错）。
+- relay 的幂等性有测试（同一 `event_id` 重复投递不产生重复效果）。
+- **完成后回来更新 ADR-0010 的「2026-08-29 状态修正」块**——那里记录的阻塞点会因本卡而改变。
+
+---
+
 ## 已由总架构师完成（列出以免重复劳动）
 
 - **ADR-0010 ~ ADR-0015 六份**：裁决了 `TARGET_ARCHITECTURE.md` §6 全部 5 项开放项
