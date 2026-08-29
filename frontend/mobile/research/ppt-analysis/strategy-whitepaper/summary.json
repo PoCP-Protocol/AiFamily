@@ -1,0 +1,133 @@
+{
+  "input": "/home/ubuntu/family-ai/30_素材_materials/榜样教育/榜样教育战略白皮书_30页演讲汇报版_D盘版.pptx",
+  "slide_count": 30,
+  "slide_size": {
+    "width_emu": 12192000,
+    "height_emu": 6858000,
+    "width_inches": 13.333333333333334,
+    "height_inches": 7.5
+  },
+  "colors": {
+    "fill": [
+      {
+        "hex": "FFFFFF",
+        "share": 0.782
+      },
+      {
+        "hex": "0B1220",
+        "share": 0.096
+      },
+      {
+        "hex": "F3F4F6",
+        "share": 0.067
+      },
+      {
+        "hex": "F8FAFC",
+        "share": 0.05
+      }
+    ],
+    "text": [
+      {
+        "hex": "475569",
+        "share": 0.505
+      },
+      {
+        "hex": "111827",
+        "share": 0.283
+      },
+      {
+        "hex": "64748B",
+        "share": 0.105
+      },
+      {
+        "hex": "FFFFFF",
+        "share": 0.042
+      },
+      {
+        "hex": "CBD5E1",
+        "share": 0.029
+      },
+      {
+        "hex": "2563EB",
+        "share": 0.018
+      }
+    ],
+    "theme": {
+      "accent1": "156082",
+      "accent2": "E97132",
+      "accent3": "196B24",
+      "accent4": "0F9ED5",
+      "accent5": "A02B93",
+      "accent6": "4EA72E",
+      "dk1": "000000",
+      "dk2": "0E2841",
+      "folHlink": "96607D",
+      "hlink": "467886",
+      "lt1": "FFFFFF",
+      "lt2": "E8E8E8"
+    }
+  },
+  "fonts": {
+    "title": "Calibri Light",
+    "body": "Calibri",
+    "usage": [
+      {
+        "name": "Calibri",
+        "share": 1
+      }
+    ],
+    "theme_major": "Calibri Light",
+    "theme_minor": "Calibri"
+  },
+  "pages_rendered": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30
+  ],
+  "overview_sheet": "/home/ubuntu/family-ai-mobile/research/ppt-analysis/strategy-whitepaper/sheets/overview.webp",
+  "overview_pages": [
+    1,
+    2,
+    3,
+    4,
+    27,
+    28,
+    29,
+    30
+  ],
+  "sheets": [
+    "/home/ubuntu/family-ai-mobile/research/ppt-analysis/strategy-whitepaper/sheets/sheet-1.webp",
+    "/home/ubuntu/family-ai-mobile/research/ppt-analysis/strategy-whitepaper/sheets/sheet-2.webp",
+    "/home/ubuntu/family-ai-mobile/research/ppt-analysis/strategy-whitepaper/sheets/sheet-3.webp",
+    "/home/ubuntu/family-ai-mobile/research/ppt-analysis/strategy-whitepaper/sheets/sheet-4.webp"
+  ],
+  "content_path": "/home/ubuntu/family-ai-mobile/research/ppt-analysis/strategy-whitepaper/content/deck.md",
+  "content_dir": "/home/ubuntu/family-ai-mobile/research/ppt-analysis/strategy-whitepaper/content"
+}

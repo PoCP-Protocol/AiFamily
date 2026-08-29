@@ -1,0 +1,369 @@
+# AiFamily Domain Registry
+# 每个业务能力在 AiFamily 中只允许有一个正式实现位置。见 governance/REPOSITORY_CONSTITUTION.md R2。
+# 本登记表由 governance/MIGRATION_MANIFEST.yaml 中 disposition = MIGRATE 或 REIMPLEMENT 的条目导出。
+# 架构测试 tests/architecture/test_domain_registry.py 强制：
+#   - 同一 capability 不得出现两次
+#   - 同一 capability 不得声明两个 canonical_path（canonical_path 必须是标量，不是列表）
+#
+# ---------------------------------------------------------------------------
+# 状态声明（2026-08-29 校正，取代原 "Wave 0：本表全部 NOT_STARTED" 声明）
+# ---------------------------------------------------------------------------
+# 原头部声明已与磁盘实况漂移：backend/platform/{identity,authorization,consent,audit,
+# idempotency,persistence}、backend/apps/family_api、backend/packages/contracts、
+# 以及 5 个 backend/domains/* 均已有真实代码（uv run pytest = 57 passed）。
+# 本次校正逐条刷新 status，使 registry 与磁盘一致。
+#
+# status 词表与 docs/00_system/CURRENT_DOMAIN_MAP.md §0 保持同一套语言：
+#   NOT_STARTED              canonical_path 不存在或为空
+#   MIGRATED_STRUCTURE_ONLY  有文件，但是空壳 / stub / 全 NotImplementedError
+#   MIGRATED_UNTESTED        有实质代码，零验收测试（违反 R4，不得称为能力）
+#   MIGRATED_TESTED          有实质代码 + 可在 CI 真实运行的测试（满足 R4）
+#   PRODUCTION               已真正上线服务真实家庭
+#   DONE                     仅用于文档类 capability（其交付物是文档，不是运行代码）
+#
+# 当前**没有任何一个 capability 是 PRODUCTION**。业务 API、数据库 baseline、
+# 远端 CI 三项前提全部缺失，见 docs/00_system/CURRENT_SYSTEM_BASELINE.md §4。
+# MIGRATED_STRUCTURE_ONLY / MIGRATED_UNTESTED 不表示"接近完成"，按 R4 等价于
+# "能力不存在，但代码占了位置"。代码行数不是成熟度。
+schema_version: "1.1"
+
+entries:
+
+  # ---------- Wave 1 平台内核 (REIMPLEMENT) ----------
+
+  - capability: platform_actor_tenant_context
+    canonical_path: backend/platform/identity
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "50_开发_dev/backend/domains/membership/application/context.py"
+    scope: >
+      平台原语层：ActorContext / ActorType / TenantContext / TenantStatus（不可变值对象）。
+      仅提供"当前是谁、属于哪个租户"的类型载体，不含任何账号生命周期业务逻辑。
+    tests: [tests/platform/identity/test_context.py]
+    r2_boundary_note: >
+      本条目与 auth_identity 共用目录 backend/platform/identity，但**职责边界已在此显式切分**：
+      本条目只拥有 context.py 的不可变上下文原语；auth_identity 拥有 Account / IdentitySession /
+      OtpChallenge 等业务对象与登录流程。架构测试 test_no_capability_has_multiple_canonical_paths
+      的 docstring 已明确：两个*不同* capability 有意共享一个目录属 manifest 级决定，不是 R2 违规；
+      R2 禁止的是同一 capability 指向两个"真实位置"。共享目录是否长期保留、还是把业务身份域拆到
+      backend/domains/identity，是 Wave 3 开工前需裁决的开放项（见 CURRENT_DOMAIN_MAP.md §3.17）。
+
+  - capability: platform_authorization_policy
+    canonical_path: backend/platform/authorization
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "50_开发_dev/apps/api/src/modules/auth/family-authorization.policy.ts"
+    tests: [tests/platform/authorization/test_policy.py]
+
+  - capability: platform_consent
+    canonical_path: backend/platform/consent
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "50_开发_dev/specs/ontology/consent.schema.yaml"
+    scope: >
+      内核部分：ConsentGate。同意记录本体（Consent / scope / 撤回历史）作为业务域尚未开工，
+      见 CURRENT_DOMAIN_MAP.md §3.18。
+    tests: [tests/platform/consent/test_gate.py]
+
+  - capability: platform_audit
+    canonical_path: backend/platform/audit
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "50_开发_dev/apps/api/src/modules/audit (audit.module.ts, audit.service.ts)"
+    tests: [tests/platform/audit/test_recorder.py]
+
+  - capability: platform_idempotency
+    canonical_path: backend/platform/idempotency
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "50_开发_dev/backend/domains/membership (infrastructure `_by_idempotency_key`)"
+    tests: [tests/platform/idempotency/test_keys.py]
+
+  - capability: platform_persistence_uow
+    canonical_path: backend/platform/persistence
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "50_开发_dev/backend/domains/membership/infrastructure/sqlalchemy_repository.py"
+    tests: [tests/platform/persistence/test_unit_of_work.py]
+
+  - capability: platform_tenancy
+    canonical_path: backend/platform/identity
+    status: MIGRATED_STRUCTURE_ONLY
+    disposition: REIMPLEMENT
+    source_reference: "50_开发_dev/apps/api/src/modules/auth (tenants, tenant_family_bindings, tenant_account_memberships)"
+    scope: >
+      仅 TenantContext / TenantStatus 值对象，**暂居 backend/platform/identity/context.py 内**。
+      Tenant / TenantFamilyBinding / TenantAccountMembership 三个真实聚合与绑定链判定均不存在。
+    drift_correction: >
+      MIGRATION_MANIFEST.yaml → platform_actor_tenant_context 的 target 列出
+      backend/platform/tenant，该目录在磁盘上**不存在**。本条目按实况登记为
+      backend/platform/identity，不虚构一个尚未创建的目录。
+      租户成为独立聚合（届时 canonical_path 迁往 backend/platform/tenant 或
+      backend/domains/tenancy）需先出 ADR，见 CURRENT_DOMAIN_MAP.md §3.19。
+    test_oracle: "50_开发_dev/apps/api/src/modules/auth/family-scope.integration.spec.ts (6层绑定链逐层 DENY)"
+
+  - capability: model_gateway
+    canonical_path: backend/intelligence/model_gateway
+    status: NOT_STARTED
+    disposition: REIMPLEMENT
+    source_reference: "50_开发_dev/packages/ai-gateway/src/index.ts"
+    note: "目录尚不存在。R7 目前由 tests/architecture/test_no_direct_provider_calls.py 以否定形式执行（禁止直连），而非由一个真实网关提供正路径。"
+
+  - capability: fastapi_runtime_entrypoint
+    canonical_path: backend/apps/family_api
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "50_开发_dev/backend/domains/product_intelligence/api/routes.py"
+    scope: "真实 FastAPI 实例 + /health + /ready。零业务路由：没有任何 domain router 被 include。"
+    tests: [tests/apps/family_api/test_routes.py]
+
+  # ---------- Wave 2 Python 领域 ----------
+
+  - capability: product_intelligence
+    canonical_path: backend/domains/product_intelligence
+    status: MIGRATED_TESTED
+    disposition: MIGRATE
+    source_reference: "见 governance/MIGRATION_MANIFEST.yaml → product_intelligence_v2（覆盖此前 product_intelligence 条目对应的 V0.1 快照）"
+    tests: [backend/domains/product_intelligence/tests]
+    status_rationale: >
+      2026-08-29 由 V0.1 快照（commit 2f9f6a1，Actor/Tenant 未硬化、无三区引擎）
+      升级为 family-ai 三轮硬化后的最终态：Actor/Tenant 信任边界、AI Provenance
+      强制契约、Human Gate 权限模式、Three-Zone Strategy Engine（六维度确定性
+      打分/Portfolio 六桶口径/Active Policy 唯一性）、真实 Postgres 集成测试。
+      详细证据见 MIGRATION_MANIFEST.yaml product_intelligence_v2 条目。
+    known_gaps:
+      - "api/routes.py 与 api/zone_routes.py 均未挂载进 backend/apps/family_api"
+      - "PR-002R（canonical/语义收口）在迁移时是 family-ai 未合并分支，非该仓库主线已批准状态"
+      - "AiFamily 内独立复测结果见本次迁移 PR 的测试报告，不假设与源仓库 142/142 完全一致"
+
+  - capability: membership
+    canonical_path: backend/domains/membership
+    status: MIGRATED_TESTED
+    disposition: MIGRATE
+    source_reference: "50_开发_dev/backend/domains/membership"
+    tests: [tests/domains/membership]
+    status_rationale: >
+      2026-08-29 由 MIGRATED_UNTESTED 升为 MIGRATED_TESTED。解锁依据是前一状态自己写明的
+      blocking_action 已被满足：`tests/domains/membership/test_tier_field_guardrail.py` 落地，
+      对 domain/policies.py 的 FORBIDDEN_TIER_FIELD_TOKENS 做了真实强制 —— 反射全部实体的
+      model_fields 与全部 ORM 表的列名，逐 token 参数化断言无 score/rank/level 类字段；另断言
+      TIER_CODES 恰为三档、内部 _TIER_DEPTH 未泄漏成实体字段或数据库列、attributes 扩展口子
+      拒收 family_score/child_rank/tier_level/growth_percentile。含"守卫的守卫"用例，防止反射
+      找不到实体时全部断言空转通过。该测试与既有周期验收测试合计 18 passed。
+    known_gaps: >
+      升为 MIGRATED_TESTED 不等于生产就绪，仍存在三处已知缺口，不得被本状态掩盖：
+      (1) 无真实 PostgreSQL 集成测试，测试跑 SQLite in-memory，故 DB 层 CHECK 约束
+          （激活来源白名单、external_effect = false、decided_by NOT LIKE 'ai:%'）未被执行，
+          只有 domain 层等价校验被覆盖；
+      (2) api/routes.py 尚未创建，本域未挂载进 backend/apps/family_api，HTTP 层零测试；
+      (3) 数据库迁移未落地 —— AiFamily 选定 Alembic，但 alembic.ini 与 database/ 目录尚不存在，
+          ORM 模型当前只靠测试里的 metadata.create_all 建表。
+    override_reference: "MIGRATION_MANIFEST.yaml → membership.project_owner_override（2026-08-29，先迁移再补测试，且不得假装测试已存在）"
+
+  - capability: product_strategy
+    canonical_path: backend/domains/product_strategy
+    status: RETIRED_CANONICAL_CONFLICT
+    disposition: RETIRE
+    source_reference: "50_开发_dev/backend/domains/product_strategy"
+    note: >
+      159 行，仅 domain + ports + fake repository，无真实持久化，零测试。
+      2026-08-29 迁移 product_intelligence_v2 时发现 domain/entities.py 与
+      product_intelligence 域同名 canonical 实体（GrowthProblem/Opportunity）
+      重复，违反 R2，降级 RETIRE。见 MIGRATION_MANIFEST.yaml → product_strategy
+      的 correction_to_plan。
+
+  - capability: market_intelligence
+    canonical_path: backend/domains/market_intelligence
+    status: RETIRED_CANONICAL_CONFLICT
+    disposition: RETIRE
+    source_reference: "50_开发_dev/backend/domains/market_intelligence"
+    note: >
+      52 行，仅 domain/entities.py + errors.py。2026-08-29 迁移
+      product_intelligence_v2 时发现 MarketSignal/SignalCluster 与
+      product_intelligence 域同名 canonical 实体重复，违反 R2，降级 RETIRE。
+    override_reference: "MIGRATION_MANIFEST.yaml → market_intelligence.project_owner_override（2026-08-29 推翻 ARCHIVE；迁移后仍是空壳，不假装已完整）；本次 RETIRE 降级是发现新事实后的独立裁决，未推翻该 override 本身的理由"
+    registration_note: "本条目为 2026-08-29 补登记：代码早已在磁盘、manifest 早有条目，registry 缺行（R2 判据下的登记缺口）。"
+
+  - capability: growth_plan_python_stub
+    canonical_path: backend/domains/growth_plan
+    status: MIGRATED_STRUCTURE_ONLY
+    disposition: MIGRATE
+    source_reference: "50_开发_dev/backend/domains/growth_plan"
+    note: "单文件 37 行，仅错误类型枚举。无实体，无行为，零测试。"
+    override_reference: "MIGRATION_MANIFEST.yaml → growth_plan_python_stub.project_owner_override（2026-08-29 推翻 ARCHIVE；迁移后仍是错误类型 stub，不假装已有实体模型）"
+    registration_note: "本条目为 2026-08-29 补登记，同 market_intelligence。"
+    r2_overlap_risk: >
+      **R2 风险已知且未解决**：本 stub 的注释自述"mirroring journey-plan.service.ts"，
+      其语义目标（成长计划 / GrowthPlan）与未来的 backend/domains/journey 域重叠——
+      CURRENT_DOMAIN_MAP.md §3.4 已把 GrowthPlan 列为 journey 域的 Owns 之一。
+      若 journey 建成而本 stub 保留，即构成"一个能力两个实现位置"的违宪状态。
+      **裁决时点**：MIGRATION_PLAN_V2.md Batch 4（JOURNEY 闭环）开工前，必须以 ADR 决定
+      三者之一：(a) 本 stub 并入 journey 后删除本条目；(b) growth_plan 明确降级为
+      journey 的内部子模块（不再是独立 capability）；(c) 明确 growth_plan 与 journey
+      是两个不同能力并写出边界。在裁决前不得向本 stub 添加实体模型。
+
+  - capability: design_copilot
+    canonical_path: backend/intelligence/design_copilot
+    status: MIGRATED_STRUCTURE_ONLY
+    disposition: MIGRATE
+    source_reference: "50_开发_dev/backend/intelligence/design_copilot"
+    note: >
+      ProductCompiler / DesignSimulator 的每个方法都是 NotImplementedError，零调用方、零测试。
+      迁移不得被解读为该能力已存在。
+    override_reference: "MIGRATION_MANIFEST.yaml → design_copilot.project_owner_override（2026-08-29 推翻 CONTRACT_ONLY）"
+    registration_note: >
+      本条目为 2026-08-29 补登记。原 registry 尾注称 design_copilot "不适用于本表"，
+      理由是其 disposition 目标是文档而非代码 canonical_path——该理由已被
+      project_owner_override 作废：代码确实落在 backend/intelligence/design_copilot，
+      按 R2 必须有一行登记。
+
+  - capability: packages_contracts_provenance
+    canonical_path: backend/packages/contracts
+    status: MIGRATED_UNTESTED
+    disposition: MIGRATE
+    source_reference: "50_开发_dev/backend/packages/contracts"
+    scope: "跨域共享原语（Provenance / evidence），被 market_intelligence / product_strategy / membership / design_copilot 以 backend.packages.contracts.* 绝对包路径导入。"
+    drift_correction: >
+      原 canonical_path 写作 backend/platform/persistence，与磁盘实况及
+      MIGRATION_MANIFEST.yaml（已于 2026-08-29 对齐为 backend/packages/contracts）矛盾。
+      两个 registry 互相冲突时按 R13/磁盘实况取真：本次统一为 backend/packages/contracts。
+    known_gaps: ["无自有测试；仅被下游域间接导入"]
+
+  # ---------- Wave 3 Family Core ----------
+
+  - capability: family_core
+    canonical_path: backend/domains/family
+    status: NOT_STARTED
+    disposition: REIMPLEMENT
+    source_reference: "50_开发_dev/apps/api/src/modules/family/family.service.ts"
+
+  - capability: auth_identity
+    canonical_path: backend/platform/identity
+    status: NOT_STARTED
+    disposition: MIGRATE
+    source_reference: "50_开发_dev/apps/api/src/modules/auth"
+    scope: >
+      业务身份域：Account / IdentitySession / OtpChallenge、登录与会话生命周期、4 个 /auth/* 端点。
+      **与 platform_actor_tenant_context 的边界**：后者只拥有 context.py 的不可变上下文原语，
+      本条目拥有账号与会话的业务对象与流程。磁盘上目前只有前者存在，本条目 status = NOT_STARTED。
+    r2_boundary_note: "见 platform_actor_tenant_context.r2_boundary_note —— 共享目录是有意的 manifest 级决定，长期是否拆分为开放裁决项。"
+    known_gaps: ["Mobile 硬依赖的 4 个 /auth/* 端点全部缺失", "源仓库 OtpService 的 StubOtpSender 是唯一显式标注的替换点"]
+
+  - capability: assessment
+    canonical_path: backend/domains/assessment
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "50_开发_dev/apps/api/src/modules/model/family-assessment-model.provider.ts"
+    scope: >
+      进程内 Assessment vertical slice：UI-02 session/response/submit ->
+      UI-03 Hypothesis -> 人工确认 GrowthIntent。当前实现是
+      backend/domains/assessment/{api,service}.py 两个模块，不是四层结构。
+    tests: [tests/domains/assessment/test_acceptance_chain.py, tests/apps/family_api/test_assessment_routes.py]
+    r2_merge_note: >
+      2026-08-29：本条目由两条重复登记合并而来。两个并发会话各自登记了
+      capability `assessment` 且共用同一 canonical_path —— 一条描述本地内存
+      vertical slice（即磁盘上真实存在的实现），另一条描述从 family-ai 分支
+      feat/python-assessment-domain-p0-001 迁入的完整四层域，声称
+      AssessmentSession/AssessmentTool 实体 + SQLAlchemy 仓储 + api/routes.py 且
+      status=MIGRATED_TESTED。实测 backend/domains/assessment/ 下只有
+      __init__.py / api.py / service.py，被声称的实体与仓储**均不存在**。
+      故删去后者，其尚未落地的部分降级为下方 known_gaps，避免 registry
+      把计划登记成事实。
+    known_gaps:
+      - "内存 repository，仅供 dev/test；尚未接入 SQLAlchemy/PostgreSQL"
+      - "确定性 Hypothesis 生成器尚未接入 Model Gateway（该模块本身也不存在）"
+      - >
+        非四层结构：当前是 api.py + service.py 两个模块，未按
+        docs/10_engineering/ENGINEERING_ARCHITECTURE.md 的
+        api/application/domain/infrastructure 四层组织。落 Postgres 时须重构。
+      - >
+        AssessmentSession / AssessmentTool / AssessmentResponse 实体尚未建模；
+        family-ai 分支 feat/python-assessment-domain-p0-001 的迁入尚未发生。
+      - >
+        AI 解读路径未接入。按 R7/R9，它必须经 backend/intelligence/model_gateway
+        重写而非原样搬迁 legacy 的 claude_interpretation.py。
+
+  - capability: orchestration_core
+    canonical_path: backend/platform/orchestration
+    status: NOT_STARTED
+    disposition: MIGRATE
+    source_reference: "50_开发_dev/apps/api/src/modules/orchestration"
+
+  - capability: principal_core
+    canonical_path: backend/intelligence/principal
+    status: NOT_STARTED
+    disposition: MIGRATE
+    source_reference: "50_开发_dev/apps/api/src/modules/principal"
+
+  # ---------- 契约 / 数据库 (MIGRATE) ----------
+
+  - capability: database_schema
+    canonical_path: database/migrations
+    status: NOT_STARTED
+    disposition: MIGRATE
+    source_reference: "50_开发_dev/database/migrations/*.sql (58个文件, 0001-0058)"
+    note: "目录尚不存在于本仓库。Alembic baseline 前必须先解决源仓库 4 组重号（0022/0023/0024/0053）与 growth_profiles 两代列并存。"
+
+  - capability: packages_contracts_ts
+    canonical_path: contracts/schemas
+    status: NOT_STARTED
+    disposition: REIMPLEMENT
+    source_reference: "50_开发_dev/packages/contracts/src/family-growth-os.ts, ui01-ui09-first-slice.ts"
+    note: "contracts/ 下当前只有 openapi/，schemas/ 尚未建立。源文件含真实投影函数（projectTodayTask 等），须当逻辑重译不得当 schema 直搬。"
+
+  - capability: test_oracle_excluded_contract_specs
+    canonical_path: tests/architecture
+    status: NOT_STARTED
+    disposition: MIGRATE
+    source_reference: "50_开发_dev/evals/subject-isolation, 50_开发_dev/evals/authorization-planes"
+    note: "tests/architecture 已存在 6 个 R2/R3/R7/R11/R12/R13 测试文件，但源仓库的 subject-isolation / authorization-planes 契约断言尚未迁入，故本 capability 仍为 NOT_STARTED。"
+
+  # ---------- 治理文档 (MIGRATE / REIMPLEMENT) ----------
+
+  - capability: docs_governance_enforced_subset
+    canonical_path: governance
+    status: MIGRATED_STRUCTURE_ONLY
+    disposition: MIGRATE
+    source_reference: "50_开发_dev/governance/MERGE_AUTHORIZATIONS.yaml, AUTHORIZATION_REGISTRY.yaml, FPAI_PROVIDER_REGISTRY.yaml"
+    note: >
+      governance/ 下已有 REPOSITORY_CONSTITUTION.md / DOMAIN_REGISTRY.yaml /
+      MIGRATION_MANIFEST.yaml / ADR/ / schemas/，但源仓库那三份被实际强制执行的
+      授权类 YAML 尚未迁入。
+
+  - capability: docs_truth_hierarchy
+    canonical_path: governance/REPOSITORY_CONSTITUTION.md
+    status: DONE
+    disposition: REIMPLEMENT
+    source_reference: "50_开发_dev/governance/TRUTH_HIERARCHY.md"
+
+  - capability: docs_business_domain_language
+    canonical_path: docs/02_business/CURRENT_BUSINESS_ARCHITECTURE.md
+    status: NOT_STARTED
+    disposition: REIMPLEMENT
+    source_reference: "CLAUDE.md, 50_开发_dev/specs/policies/perspective-fact.policy.yaml"
+    drift_correction: >
+      原 canonical_path 写 docs/00_foundation/CURRENT_BUSINESS_ARCHITECTURE.md 且 status = DONE。
+      docs/00_foundation/ 已被 Documentation Architecture V1.0 的 16 层结构取代（见 ADR-0004），
+      该文件在磁盘上不存在。按新布局业务架构归 docs/02_business/（L1 层），且尚未撰写，
+      故 status 校正为 NOT_STARTED。Fact/Perspective/Recommendation/Action/Outcome 的语义区分
+      本身已写入宪章 R9，但独立的业务架构文档未落地。
+
+  - capability: fels_anti_pattern_contract
+    canonical_path: governance/REPOSITORY_CONSTITUTION.md#R9
+    status: DONE
+    disposition: CONTRACT_ONLY
+    source_reference: "50_开发_dev/legacy-system/contracts/src/index.ts, legacy-system/architecture/FELS_LM1_SEMANTIC_MAPPING_V1.md"
+
+# ============ 未登记的 capability ============
+# frontend_mobile / frontend_web / waf_contracts_and_wf1_lab 未登记：
+#   不属于本表的 Python 后端"代码唯一实现位置"语义（R1 明确前端不要求迁为 Python），
+#   仅在 MIGRATION_MANIFEST.yaml 中追踪。
+# ai_runtime_app / fes_api / waf_domain_service / family_dev_surface_services /
+# fels_runtime_app / frontend_fes_web / frontend_empty_scaffolds：
+#   disposition = ARCHIVE 或 DELETE，永不进入 AiFamily，故本表无行。
+#
+# 尚未成为独立 capability 的业务域（family/growth/assessment/journey/action/outcome/
+# service/teacher/institution/commerce/community）：除 family_core 外均无 registry 行，
+# 因为 R2 登记的是"已批准的实现位置"，不是"计划中的域"。它们的边界见
+# docs/00_system/CURRENT_DOMAIN_MAP.md，排期见 docs/11_delivery/migration/MIGRATION_PLAN_V2.md。
+# 每个域开工的第一个 PR 必须同时新增本表一行。

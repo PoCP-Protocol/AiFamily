@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  architecture:
+    name: Lint + Architecture Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Architecture tests
+        run: uv run pytest tests/architecture -v
+
+      - name: Backend tests (if any exist yet)
+        run: |
+          if [ -d backend ] && find backend -name "test_*.py" -o -name "*_test.py" | grep -q .; then
+            uv run pytest backend -v
+          else
+            echo "No backend tests yet (Wave 0) — skipping."
+          fi

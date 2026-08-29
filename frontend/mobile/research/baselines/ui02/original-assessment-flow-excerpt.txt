@@ -1,0 +1,176 @@
+162-    .replace(/\bNOOP(?:_NOT_INVOKED)?\b\s*/gi, '')
+163-    .replace(/\bno-op\b\s*/gi, '')
+164-    .replace(/外部效果(?:保持)?/g, '')
+165-    .replace(/测试数据/g, '')
+166-    .replace(/\s{2,}/g, ' ')
+167-    .replace(/：\s*[。；]/g, '。')
+168-    .trim();
+169-  const coreGrowthProductContent = {
+170:    'UI-02': { title: '家庭成长测评', summary: '从一次测评开始，了解你当下更关注的成长方向。', next: '开始家庭测评' },
+171-    'UI-03': { title: '成长说明', summary: '根据你的选择，整理家庭互动的参考内容。', next: '查看成长说明' },
+172-    'UI-04': { title: '家庭成长报告', summary: '回顾关键时刻，找到可以慢慢练习的地方。', next: '查看 90 天成长计划' },
+173-    'UI-05': { title: '90 天成长计划', summary: '把关注的方向拆成容易开始、可以坚持的小行动。', next: '查看今天的行动' },
+174-    'UI-06': { title: '成长陪伴', summary: '跟随每周的节奏，给家庭多一点稳定的陪伴。', next: '继续今天的行动' },
+175-    'UI-07': { title: '我的成长服务', summary: '在这里查看正在进行的计划和陪伴内容。', next: '继续成长计划' },
+176-    'UI-08': { title: '成长回顾', summary: '留存过程中的小发现，为下一步提供参考。', next: '继续成长计划' },
+177-    'UI-10': { title: '成长小助手', summary: '为孩子准备轻松、有趣的成长小练习。', next: '挑选一个小练习' },
+178-    'UI-35': { title: '21 天智慧父母成长营', summary: '每天一个小行动，让亲子沟通从温和的陪伴开始。', next: '记录今天的行动' },
+179-  };
+180-  const platformProductContent = {
+181-    'UI-11': '成长旅程', 'UI-12': '成长故事', 'UI-13': '成长好物', 'UI-14': '课程与工具',
+182-    'UI-15': '邀请同行', 'UI-16': '一起参与', 'UI-17': '成长积分', 'UI-18': '我的服务',
+183-    'UI-19': '专家陪伴', 'UI-20': '专家介绍', 'UI-21': '咨询预约', 'UI-22': '主题活动',
+184-    'UI-23': '亲子活动', 'UI-24': '服务进度', 'UI-25': '家长社群', 'UI-26': '分享此刻',
+185-    'UI-27': '成长动态', 'UI-28': '我的分享', 'UI-29': '成长回顾', 'UI-30': '会员服务',
+186-    'UI-31': '我的服务', 'UI-32': '已购内容', 'UI-33': '家庭资料', 'UI-34': '服务记录',
+187-  };
+188-  const firstSlicePanel = (surface) => {
+189-    if (!firstSliceApiEnabled()) return '';
+190-    if (firstSliceLoadState === 'LOADING') return `<output class="by-first-slice-panel" data-first-slice-surface="${surface}">正在读取今日家庭任务…</output>`;
+191-    if (firstSliceLoadState === 'ERROR') return `<output class="by-first-slice-panel is-blocked" data-first-slice-surface="${surface}">今日任务暂时无法加载，请稍后再试。</output>`;
+192-    if (!familyTodayProjection) return '';
+193-    if (!familyTodayProjection.today_task) return `<output class="by-first-slice-panel" data-first-slice-surface="${surface}">当前没有可打卡的今日任务。</output>`;
+194-    const task = familyTodayProjection.today_task;
+--
+809-  const shell = (title, content, noTop = false) => `<section class="by-app">${noTop ? '' : top(title)}<main class="by-screen">${content}</main>${nav()}</section>`;
+810-  const actionBar = (left, right, la, ra) => `<div class="by-bottom-actions">${tap(la, left, 'ghost')}${tap(ra, right, 'primary')}</div>`;
+811-
+812-  function home() { return shell('', `<header class="by-home-top"><div><small>早上好，乐乐妈妈 👋</small><strong>一起成长，一起成为更好的父母</strong></div><button data-by="mine">⋯</button></header>
+813-    <section class="by-blue-banner"><div><b>邀请好友领成长礼包</b><span>邀请越多，奖励越多</span>${tap('invite','立即邀请','white')}</div><div class="by-family-art">👩‍👦</div></section>
+814-    <section class="by-quick-grid">${mini('live','📺','专家直播','今晚 20:00')}${mini('growth-assessment','🛡','家庭成长体检','了解当下需要')}${mini('points','🪙','成长积分商城','任务换奖励')}${mini('member','🛍','会员专享','专属权益')}${mini('plan','🔥','限时挑战','一起完成小目标')}${mini('invite','🎁','邀请有礼','分享成长')}</section>
+815-    <div class="by-section-title"><strong>今日推荐</strong><button data-by="mall">更多 ›</button></div><div class="by-card-scroll">${card('21 天亲子沟通挑战营','¥199 起','product','family')}${card('家庭成长测评卡','¥39','assessment','book')}${card('亲子阅读工具包','¥69','product','yellow')}</div>
+816-    <section class="by-growth-strip"><b>从一次家庭体检开始</b><span>看见当下 · 制定计划 · 一起成长</span>${tap('assessment','开始体检','blue-small')}</section>`, true); }
+817:  function assessment() { const options=[['学','学习习惯','注意力不集中、作业拖拉','cyan'],['心','情绪管理','容易焦虑、暴躁脾气','orange'],['♥','亲子沟通','不愿沟通、冲突较多','rose'],['▣','手机依赖','沉迷手机、使用失控','blue'],['▥','自律能力','缺乏自律、依赖监督','green']]; return shell('家庭测评', `<section class="assessment-step-head"><b>第 2 / 5 步</b><i><em></em></i></section><section class="assessment-step-question"><h1>您孩子目前最需要改善的问题是？</h1><small>（单选）</small></section><div class="assessment-option-list">${options.map((x,i)=>`<button data-by="select-need-${i}" class="${i===2?'selected':''}"><i class="${x[3]}">${x[0]}</i><span><strong>${x[1]}</strong><small>${x[2]}</small></span>${i===2?'<b>✓</b>':''}</button>`).join('')}</div><section class="assessment-extra"><h3>补充信息 <small>（可选）</small></h3><label><span>孩子年龄/阶段</span><b>10岁（小学四年级）⌄</b></label><label><span>家庭情况</span><div><i class="selected">双亲家庭</i><i>单亲家庭</i><i>重组家庭</i></div></label><label><span>孩子性别</span><div><i class="selected">男孩</i><i>女孩</i></div></label></section>${tap('report','下一步','assessment-next')}`); }
+818-  function report() { const chips=['亲子沟通','学习习惯','情绪管理','自律能力','手机依赖']; return shell('家庭成长报告', `<section class="by-child-info"><span>👦</span><div><b>乐乐 10 岁 / 小学四年级</b><small>测评时间：2024-05-20</small></div></section><section class="by-radar-card"><h3>成长综合评估</h3><div class="by-radar"><i>成长<br><b>回顾</b></i></div><div class="by-radar-labels">${chips.map((x,i)=>`<span>${x}<b>${72-i*3}</b></span>`).join('')}</div></section><section class="by-report-lines"><p>🟢 <b>优势</b> 亲子沟通基础不错，愿意表达想法</p><p>🟠 <b>关注</b> 自主学习仍需要更多陪伴</p><p>🟡 <b>优先建议</b> 从每天 15 分钟亲子阅读开始</p></section><section class="by-stage-path"><b>推荐成长路径</b><div><span><strong>7 天</strong>轻松启程</span><i>→</i><span><strong>30 天</strong>养成习惯</span><i>→</i><span><strong>90 天</strong>收获成长</span></div></section><div class="by-section-title"><strong>为你准备的成长路径</strong><button data-by="mall">更多 ›</button></div><div class="by-path-cards">${card('21 天沟通挑战','从每天 15 分钟开始','plan','family')}${card('亲子阅读工具包','和孩子一起读','product','book')}${card('成长活动日历','周末一起参与','plan','yellow')}</div>${tap('plan','生成我的成长计划','full-primary')}`); }
+819-  function taskPage() { return shell('今日成长任务', `<section class="by-robot-banner"><span>🤖</span><div><b>成长管家提醒：</b><p>今天建议完成 3 个成长小任务</p></div></section><div class="by-task-list">${[['亲子沟通 15 分钟','认真倾听孩子今天的 3 件事','15 分钟'],['记录孩子情绪变化','温柔地看见孩子的感受','5 分钟'],['完成专注力小游戏','和孩子一起动动脑','10 分钟']].map((t,i)=>`<button data-by="check-${i}" class="by-task ${checked[i]?'done':''}"><b>${i+1}</b><div><strong>${t[0]}</strong><small>${t[1]}</small><em>+10 成长积分　${t[2]}</em></div><i>${checked[i]?'✓':'□'}</i></button>`).join('')}</div><section class="by-week-progress"><div><b>本周完成度</b><strong>${checked.filter(Boolean).length ? 78 : 60}%</strong></div><span><i style="width:${checked.filter(Boolean).length ? 78 : 60}%"></i></span><p>连续打卡　<b>12 天</b></p></section>${tap('poster','完成今日任务','full-primary')}`); }
+820-  function child() { return shell('成长小助手', `<section class="by-child-hero"><div><b>Hi，乐乐小朋友！</b><p>今天又是元气满满的一天！</p></div><span>🧒</span></section><section class="by-energy"><div><b>⚡ 成长能量</b><strong>66/100 <small>Lv.3</small></strong></div><i><em></em></i></section><div class="by-kid-grid">${mini('task','🎯','专注力训练','单词学习 15 分钟')}${mini('task','📖','阅读打卡','养成阅读习惯')}${mini('poster','🌷','情绪小日记','认识我的情绪')}${mini('plan','📝','今日目标','明天再完成')}</div><section class="by-challenge"><b>🏆 今日挑战</b><p>整理书桌，阅读 20 分钟</p><span>✨ +20 能量　⭐ +10 星星　›</span></section><section class="by-rewards"><b>我的奖励</b><span>⭐ 12　🏅 3　🏆 1　🎁 2</span></section>${tap('task','开始挑战','full-primary')}`); }
+821-  function ranking() { return shell('成长榜单', `<div class="by-segments"><b>本周</b><span>本月</span><span>同城</span><span>同班级</span></div><section class="by-podium"><article><span>🥈</span><i>👩</i><b>阳光妈妈家庭</b><small>积分 1120</small></article><article class="first"><span>👑</span><i>👩</i><b>乐乐妈妈家庭</b><small>积分 1280</small></article><article><span>🥉</span><i>👩</i><b>阳光妈妈家庭</b><small>积分 1660</small></article></section><div class="by-rank-list">${['开心爸爸家庭','小太阳妈妈家庭','聪聪妈妈家庭'].map((x,i)=>`<p><b>${i+4}</b><span>👩　${x}</span><em>连续 ${14-i} 天　 ${980-i*60}</em></p>`).join('')}</div><section class="by-my-rank"><b>我的成长旅程</b><span>和家人一起完成每一天的小行动</span></section>`); }
+822-  function poster() { return shell('成长成果海报', `<article class="by-poster"><header><span>✦</span><b>我们一起见证孩子的成长</b></header><div class="by-poster-user">👦 乐乐　10 岁 / 小学四年级</div><h1>孩子从不愿表达，<br>到主动分享学校里的事情</h1><div class="by-poster-path"><span>成长前<br><b>很少主动分享</b></span><i>→</i><span>成长后<br><b>主动分享学校趣事</b></span></div><div class="by-poster-data"><b>连续打卡<br><strong>21 天</strong></b><b>成长收获<br><strong>+132</strong></b></div><div class="by-medals">🏅　🏆</div><footer><i>▣</i><span>扫码查看成长故事</span></footer></article><div class="by-share-row">${tap('home','分享给好友','share')}${tap('home','分享到朋友圈','share')}${tap('home','生成海报','share')}</div>`); }
+823:  function plan() { return shell('家庭成长计划', `<section class="by-plan-header"><small>成长第 1 阶段</small><h1>21 天亲子沟通挑战营</h1><p>从认真倾听开始，让家里的每一次对话更温暖。</p><span><i></i></span><b>已完成 6 / 21 天</b></section><div class="by-section-title"><strong>今天的计划</strong><button data-by="task">查看任务 ›</button></div><div class="by-plan-list">${[['1','温柔地问候','和孩子聊聊今天的心情'],['2','亲子共读','读一个沟通小故事'],['3','晚间回顾','留下一句今天的小收获']].map(x=>`<button data-by="task"><b>${x[0]}</b><span><strong>${x[1]}</strong><small>${x[2]}</small></span><i>›</i></button>`).join('')}</div><div class="by-section-title"><strong>为你准备</strong><button data-by="mall">更多 ›</button></div><div class="by-path-cards">${card('亲子沟通微课','每天 15 分钟','product','family')}${card('家庭阅读工具包','陪孩子一起读','product','book')}</div>`); }
+824-  function mall() { return shell('家庭成长商城', `<header class="by-home-top"><div><small>早上好，乐乐妈妈 👋</small><strong>一起成长，一起成为更好的父母</strong></div><button data-by="mine">⋯</button></header><section class="by-blue-banner"><div><b>邀请好友领成长礼包</b><span>邀请越多，奖励越多</span>${tap('invite','立即邀请','white')}</div><div class="by-family-art">👩‍👦</div></section><section class="by-quick-grid">${mini('group','👥','拼团专区','多人一起成长')}${mini('points','🪙','积分商城','任务换奖励')}${mini('product','👜','成长好物','课程·工具·服务')}${mini('invite','🎁','邀请有礼','分享成长')}</section><div class="by-section-title"><strong>今日推荐</strong><button data-by="product">更多 ›</button></div><div class="by-card-scroll">${card('21 天亲子沟通挑战营','¥199 起','product','family')}${card('家庭成长测评卡','¥39','assessment','book')}${card('亲子阅读工具包','¥69','product','yellow')}</div>`); }
+825-  function product() { return shell('商品详情', `<section class="by-product-art"><div><h1>21 天亲子沟通挑战营</h1><p>改善亲子关系，从有效沟通开始</p></div><span>👩‍👦</span></section><section class="by-price"><strong>¥399</strong><span>原价 ¥699</span><p>拼团价 <b>¥199</b>（3 人成团）　会员价 <b>¥179</b></p></section><section class="by-benefits"><div>✓ 21 天成长训练</div><div>✓ 17 份社群陪伴</div><div>✓ 专家答疑</div><div>✓ 会员专属服务</div></section><section class="by-product-copy"><h3>你将获得</h3><p>训练营　+　打卡社群　+　顾问答疑</p></section><section class="by-share-tip">分享给 3 位家长，领取专属优惠券</section>${actionBar('立即购买','发起拼团','home','group')}`); }
+826:  function invite() { return shell('邀请有礼', `<section class="by-invite-title"><h2>邀请 3 个家庭，解锁会员权益</h2><p>一起成长，快乐更多更长久</p></section><section class="by-invite-progress"><span>已邀请家庭</span><strong>1/3</strong><i><em></em></i><p>再邀请 <b>2</b> 个家庭即可解锁全部奖励</p></section><div class="by-reward-grid">${mini('home','📘','家庭测评 1 次','价值 ¥59')}${mini('home','🏠','成长积分 300','价值 ¥30')}${mini('home','🎟','专家答疑券','价值 ¥99')}${mini('home','🎫','会员折扣券','9 折优惠')}</div>${tap('home','立即邀请','full-primary')}<div class="by-invite-methods"><span>💬 邀请好友</span><span>◉ 朋友圈</span><span>▣ 生成海报</span></div>`); }
+827-  function group() { return shell('拼团专区', `<div class="by-segments"><b>全部</b><span>课程服务</span><span>会员卡</span><span>工具包</span></div><div class="by-group-list">${[['90 天成长陪跑计划','¥399','还差 2 人成团'],['家庭教育会员年卡','¥499','还差 3 人成团'],['亲子习惯养成工具包','¥99','还差 1 人成团'],['专注力提升训练营','¥199','还差 2 人成团']].map(x=>`<article><h3>${x[0]}</h3><p>👩 乐乐妈妈　👩 👩　${x[2]}</p><span><s>¥799</s>　<b>拼团价 ${x[1]}</b></span>${tap('home','去拼团','orange')}</article>`).join('')}</div>`); }
+828-  function points() { return shell('积分商城', `<section class="by-points-card"><div><small>我的成长积分</small><strong>1280</strong>${tap('home','去签到 +10','white')}</div><span>🏆</span></section><div class="by-section-title"><strong>任务中心</strong><small>做任务，赚积分</small></div><div class="by-points-tasks">${['分享测评报告','邀请好友注册','完成打卡','发布成长案例','参与直播'].map((x,i)=>`<p><b>${['▣','♙','✓','✦','◉'][i]}</b>${x}<span>+${[50,100,20,80,30][i]}</span><button data-by="home">去完成</button></p>`).join('')}</div><div class="by-section-title"><strong>积分可兑换</strong><button data-by="product">更多 ›</button></div><div class="by-exchange-grid">${[['亲子沟通书','📘'],['亲子沟通手册','📗'],['课程优惠券','🎫'],['成长阅读礼包','👜']].map(x=>`<article><b>${x[1]}</b><strong>${x[0]}</strong><small>199 积分起</small>${tap('home','立即兑换','tiny')}</article>`).join('')}</div>`); }
+829-  function mine() { return shell('我的', `<section class="by-profile"><span>👩</span><div><b>乐乐妈妈</b><small>一起成长，一起成为更好的父母</small></div><em>成长合伙人</em></section><section class="by-stat-row">${[['已邀请家庭','12'],['拼团成交','8'],['成长积分','1280'],['可用权益','286']].map(x=>`<span><small>${x[0]}</small><b>${x[1]}</b></span>`).join('')}</section><section class="by-level"><span>我的等级　<b>LV3 成长达人</b><small>距下一等级还差 720 积分</small></span><i>👑</i></section><div class="by-menu">${[['我的订单','home'],['邀请记录','invite'],['奖励明细','points'],['专属海报','poster'],['会员权益','member'],['客服支持','home']].map(x=>`<button data-by="${x[1]}">${x[0]}<b>›</b></button>`).join('')}</div><section class="by-member-banner"><div><b>年度会员服务</b><span>有效期至 2025-05-20</span>${tap('member','会员中心','gold')}</div><i>👑</i></section>`); }
+830-  function member() { return shell('会员中心', `<section class="by-member-banner large"><div><b>家庭成长年度会员</b><span>陪伴每一次重要的成长时刻</span>${tap('plan','查看我的计划','gold')}</div><i>👑</i></section><div class="by-benefit-list">${['90 天家庭成长计划','成长课堂精选内容','每周家庭活动','成长记录与海报','专属服务支持'].map((x,i)=>`<p><b>${['🛡','📖','🎪','📘','♡'][i]}</b><span>${x}<small>陪伴家庭持续成长</small></span><i>›</i></p>`).join('')}</div>`); }
+831-
+832:  function home() { return shell('', `<header class="home-spec-head"><strong>家庭成长平台</strong><span><button data-by="home">···</button><button data-by="home">◉</button></span></header><section class="home-spec-welcome"><div><h1>早上好，</h1><h2>今天也一起陪孩子成长 ☀</h2></div><button data-by="home">♧</button></section><section class="home-spec-banner"><div><h1>免费家庭测评</h1><p>3 分钟了解孩子成长状况</p><small>获取更科学的成长建议</small>${tap('assessment','立即测评 →','home-spec-cta')}</div><figure aria-label="一家四口的家庭插画"><span>👨</span><span>👩</span><span>🧒</span><span>👧</span></figure></section><section class="home-spec-grid">${mini('report','⌁','AI诊断')}${mini('plan','♙','21天挑战营')}${mini('plan','▣','90天成长计划')}${mini('poster','▤','成长案例')}${mini('home','▧','专家直播')}${mini('home','♧','家庭顾问')}</section><section class="home-spec-section"><div class="home-spec-title"><strong>今日成长任务</strong><button data-by="task">查看全部 ›</button></div><div class="home-spec-tasks"><button data-by="task"><i class="task-mint">▣</i><span>亲子沟通小练习</span><b class="complete">✓</b></button><button data-by="task"><i class="task-orange">▣</i><span>完成今日阅读打卡</span><b>去完成</b></button><button data-by="task"><i class="task-orange">▣</i><span>情绪记录</span><b>去完成</b></button></div></section><section class="home-spec-section"><div class="home-spec-title"><strong>推荐内容/服务</strong><button data-by="mall">更多 ›</button></div><div class="home-spec-recommend">${card('妈妈总问我：为什么？','今天 20:00 开播','product','home-r1')}${card('高效学习习惯养成课','限时 12 课 · 1268 人学习','product','home-r2')}${card('从紧张冲突到亲子和谐','真实案例分享','product','home-r3')}</div></section>` , true); }
+833-  function reportExplanationLiveOverlay() {
+834-    if (!coreGrowthApiEnabled()) return '';
+835-    if (coreGrowthLoadState === 'LOADING') return `<output class="by-ui03-live-overlay" data-ui03-explanation-state="LOADING">正在准备你的成长内容…</output>`;
+836-    if (coreGrowthLoadState === 'ERROR') return `<output class="by-ui03-live-overlay is-blocked" data-ui03-explanation-state="ERROR">内容暂时无法加载，请稍后再试。</output>`;
+837-    const focus = coreGrowthProjection?.recent_flow_events?.find((event) => event.ui_id === 'UI-02')?.selection || '未选择';
+838-    return `<output class="by-ui03-live-overlay" data-ui03-explanation-state="READY" data-ui03-parent-focus="${focus}">你当前更关注：${focus}。这里整理的是帮助你了解家庭互动的参考内容，可以结合实际情况慢慢尝试。</output>`;
+839-  }
+840-  function assessment() {
+841-    const hotspots = [
+842:      ['ref-ai-back', 'growth-assessment', '返回家庭测评'],
+843-      ['ref-ai-more', 'ui03-preview-plan', '查看解释边界'],
+844-      ['ref-ai-plan', 'ui03-preview-plan', '生成个性化方案草稿'],
+845-    ];
+846-    return `<section class="by-app by-ui-reference"><div class="by-ui-reference-screen" role="img" aria-label="AI成长诊断报告：家庭上下文、五维可视化、核心关注方向、成长建议和个性化方案草稿入口" style="background-image:url('/public/bangyang-reference/ui18/core-03-ai-report.png')">${hotspots.map((item) => `<button class="by-hotspot ${item[0]}" data-by="${item[1]}" aria-label="${item[2]}"></button>`).join('')}${reportExplanationLiveOverlay()}</div></section>${coreGrowthPanel('UI-03')}`;
+847-  }
+848-
+849-  function homeLiveOverlay() {
+850-    if (!firstSliceApiEnabled()) return '';
+851-    if (firstSliceLoadState === 'LOADING') return `<output class="by-home-live-overlay" data-ui01-live-state="LOADING">正在读取今日任务…</output>`;
+852-    if (firstSliceLoadState === 'ERROR') return `<output class="by-home-live-overlay is-blocked" data-ui01-live-state="ERROR">今日任务不可读取</output>`;
+853-    const task = familyTodayProjection?.today_task;
+854-    if (!task) return `<output class="by-home-live-overlay" data-ui01-live-state="EMPTY">今日暂无待办任务</output>`;
+855-    const state = task.task_state === 'CHECKED_IN' ? '已完成' : '待完成';
+856-    return `<output class="by-home-live-overlay" data-ui01-live-state="${task.task_state}" data-ui01-task-id="${task.task_id}">${state}：${task.assignment_text}</output>`;
+857-  }
+858:  function home() { return `<section class="by-app by-reference-home"><div class="by-reference-screen" role="img" aria-label="家庭成长平台首页：免费家庭测评、六项成长服务、今日成长任务、推荐内容服务和首页计划社群我的导航"><button class="by-hotspot hs-header-more" data-by="core-mine" data-ui01-feature="header_more" aria-label="更多与家庭档案"></button><button class="by-hotspot hs-header-context" data-by="home" data-ui01-feature="header_context" aria-label="家庭上下文"></button><button class="by-hotspot hs-notification" data-by="core-mine" data-ui01-feature="notification" aria-label="提醒"></button><button class="by-hotspot hs-assessment" data-by="growth-assessment" data-ui01-feature="assessment_campaign assessment_cta" aria-label="立即开始测评"></button><button class="by-hotspot hs-ai" data-by="assessment" data-ui01-feature="ai_diagnostic" aria-label="AI成长说明"></button><button class="by-hotspot hs-challenge" data-by="growth-camp-21" data-ui01-feature="challenge_21" aria-label="21天挑战营"></button><button class="by-hotspot hs-plan" data-by="core-plan" data-ui01-feature="plan_90" aria-label="90天成长计划"></button><button class="by-hotspot hs-case" data-by="poster" data-ui01-feature="growth_cases" aria-label="成长案例"></button><button class="by-hotspot hs-live" data-by="teacher-zone" data-ui01-feature="expert_live" aria-label="专家直播"></button><button class="by-hotspot hs-advisor" data-by="teacher-zone" data-ui01-feature="family_advisor" aria-label="家庭顾问"></button><button class="by-hotspot hs-tasks" data-by="growth-daily-task" data-ui01-feature="today_tasks" aria-label="今日成长任务"></button><button class="by-hotspot hs-task-communication" data-by="growth-daily-task" data-ui01-feature="task_communication" aria-label="亲子沟通小练习"></button><button class="by-hotspot hs-task-reading" data-by="growth-daily-task" data-ui01-feature="task_reading" aria-label="完成今日阅读打卡"></button><button class="by-hotspot hs-task-emotion" data-by="growth-daily-task" data-ui01-feature="task_emotion" aria-label="情绪记录"></button><button class="by-hotspot hs-card1" data-by="commerce-mall" data-ui01-feature="recommended_card_1" aria-label="看看推荐内容"></button><button class="by-hotspot hs-card2" data-by="commerce-mall" data-ui01-feature="recommended_card_2" aria-label="看看推荐内容"></button><button class="by-hotspot hs-card3" data-by="commerce-mall" data-ui01-feature="recommended_card_3" aria-label="看看推荐内容"></button><button class="by-hotspot hs-nav-home" data-by="home" data-ui01-feature="nav_home" aria-label="首页"></button><button class="by-hotspot hs-nav-plan" data-by="plan" data-ui01-feature="nav_plan" aria-label="计划"></button><button class="by-hotspot hs-nav-community" data-by="core-community" data-ui01-feature="nav_community" aria-label="社群"></button><button class="by-hotspot hs-nav-mine" data-by="core-mine" data-ui01-feature="nav_mine" aria-label="我的"></button>${homeLiveOverlay()}</div>${firstSlicePanel('UI-01')}</section>`; }
+859-  const visualReference = (file, label, hotspots = []) => `<section class="by-app by-ui-reference"><div class="by-ui-reference-screen" role="img" aria-label="${label}" style="background-image:url('/public/bangyang-reference/ui18/${file}.png')">${hotspots.map((x) => `<button class="by-hotspot ${x[0]}" data-by="${x[1]}" aria-label="${x[2]}"></button>`).join('')}</div></section>`;
+860-  const clearReference = (file, label, hotspots = [], ratio = '434/1124') => `<section class="by-app by-clear-reference"><div class="by-clear-reference-screen" role="img" aria-label="${label}" style="background-image:url('/public/bangyang-reference/${file}');aspect-ratio:${ratio}">${hotspots.map((x) => `<button class="by-hotspot ${x[0]}" data-by="${x[1]}" aria-label="${x[2]}"></button>`).join('')}</div></section>`;
+861-  function familyReportLivePanel() {
+862-    if (!coreGrowthApiEnabled()) return '';
+863-    if (coreGrowthLoadState === 'LOADING') return `<section class="by-report-live-panel" data-ui04-report-state="LOADING">正在准备你的成长报告…</section>`;
+864-    if (coreGrowthLoadState === 'ERROR') return `<section class="by-report-live-panel is-blocked" data-ui04-report-state="ERROR">成长报告暂时无法加载，请稍后再试。</section>`;
+865-    const draft = coreGrowthProjection?.cards?.find((item) => item.surface === 'UI-04')?.report_draft;
+866-    const projection = reportExplanationProjection;
+867-    if (!draft && !projection) return '';
+868-    const observations = projection?.observations?.length ? projection.observations : (draft?.observations ?? []);
+869-    const headline = projection?.title || draft?.headline || '家庭成长报告';
+870-    const summary = projection?.hypotheses?.[0]?.text || draft?.summary || '报告说明正在准备。';
+871-    const focus = draft?.focus || 'PARENT_CHILD_COMMUNICATION';
+872-    return `<section class="by-report-live-panel" data-ui04-report-state="${projection?.state || draft?.state}" data-ui04-focus="${focus}"><small>家庭成长报告 · ${projection?.ai_ready?.model_gateway_status === 'NOOP_NOT_INVOKED' ? '基于规则的说明' : '待复核'}</small><h2>${headline}</h2><p>${summary}</p><ul>${observations.map((item) => `<li><b>${item.label}</b><span>${item.detail}</span></li>`).join('')}</ul><article><b>下一步候选</b><span>${draft?.this_week_action?.when || '由家庭自行决定节奏'}</span><p>${projection?.recommendations?.[0]?.text || draft?.this_week_action?.action || '先查看 90 天计划预览。'}</p><small>这是 Perspective/Recommendation 草稿，不是诊断或效果结论。</small></article><button class="by-btn full-primary" data-by="ui04-plan-handoff">查看 90 天成长计划</button></section>`;
+873-  }
+874-  function familyPlanLivePanel() {
+875-    if (!coreGrowthApiEnabled()) return '';
+876-    if (coreGrowthLoadState === 'LOADING') return `<section class="by-plan-live-panel" data-ui05-plan-state="LOADING">正在准备你的 90 天成长计划…</section>`;
+877-    if (coreGrowthLoadState === 'ERROR') return `<section class="by-plan-live-panel is-blocked" data-ui05-plan-state="ERROR">90 天成长计划暂时无法加载，请稍后再试。</section>`;
+878-    const preview = coreGrowthProjection?.cards?.find((item) => item.surface === 'UI-05')?.plan_preview;
+879-    const projection = planPreviewProjection;
+880-    if (!preview && !projection) return '';
+881-    const stages = projection?.structure?.stages?.length ? projection.structure.stages.map((stage) => ({ label: stage.label, weeks: stage.weeks, intent: stage.intent, small_action: stage.small_action })) : (preview?.stages ?? []);
+882-    const headline = projection?.focus?.label || preview?.headline || '90 天成长计划';
+--
+916-      theme: '从一次认真倾听开始',
+917-      parent_action: '选择一个日常情境，先完整听完孩子的表达，再决定怎样回应。',
+918-      reflection_prompt: '写下你留意到的一个细节和当下的感受。',
+919-    };
+920-    const receipt = coreGrowthProjection?.recent_flow_events?.find((event) => event.ui_id === 'UI-35');
+921-    const stages = (draft?.stages || []).map((stage) => `<li data-ui35-stage="${stage.stage_id}"><b>${stage.label.replace(/^阶段[一二三]：/, '')}</b><span>${stage.day_range}</span><small>${stage.intent}</small></li>`).join('') || '<li data-ui35-stage="PENDING"><b>观察与连接</b><span>Day 1-7</span><small>从每天一次温和的陪伴行动开始。</small></li><li data-ui35-stage="PRACTICE"><b>沟通与练习</b><span>Day 8-14</span><small>把小行动带进熟悉的家庭时刻。</small></li><li data-ui35-stage="REVIEW"><b>回顾与延续</b><span>Day 15-21</span><small>回顾自己的行动，准备下一阶段。</small></li>';
+922-    const receiptText = receipt ? '今天的行动已记录，明天继续。' : '完成后记得为自己点个赞。';
+923-    const state = draft ? draft.status : 'NOT_LOADED';
+924:    return shell('21天智慧父母成长营', `<section class="by-growth-camp-head" data-ui35-curriculum-state="${state}"><small>21 天陪伴课程 · 温和开始</small><h1>${current.theme}</h1><p>${current.parent_action}</p><span><i style="width:${Math.round((current.day_number / (draft?.day_count || 21)) * 100)}%"></i></span><b>第 ${current.day_number} / ${draft?.day_count || 21} 天</b></section><section class="by-growth-camp-stages" aria-label="课程阶段"><h2>成长路径</h2><ul>${stages}</ul></section><section class="by-growth-camp-task"><div><strong>今天的小行动</strong><small>给自己和孩子一点从容的时间</small></div><p>${current.reflection_prompt}</p><button class="by-btn full-primary" data-by="camp21-checkin" data-ui35-day="${current.day_number}">记录今天的行动</button><output data-ui35-receipt="${receipt ? 'RECORDED' : 'EMPTY'}">${receiptText}</output></section><section class="by-growth-camp-support"><b>温和提醒</b><p>每个家庭都有自己的节奏。记录下你的感受和观察，下一次可以从一个更小、更容易开始的行动继续。</p></section>${coreGrowthPanel('UI-35')}`);
+925-  }
+926-  function familyCompanionProgressPanel() {
+927-    if (!coreGrowthApiEnabled()) return '';
+928-    if (config.onboardingId) {
+929-      if (serviceJourneyLoadState === 'LOADING') return `<section class="by-family-companion-progress" data-ui06-service-journey-state="LOADING">正在准备家庭陪伴内容…</section>`;
+930-      if (serviceJourneyLoadState === 'ERROR') return `<section class="by-family-companion-progress is-blocked" data-ui06-service-journey-state="ERROR">陪伴内容暂时无法加载，请稍后再试。</section>`;
+931-      const journey = serviceJourneyProjection;
+932-      if (journey) {
+933-        const cards = (journey.service_cards || []).map((card) => `<li data-ui06-service-ref="${card.service_ref}" data-ui06-service-state="${card.state}"><b>${card.label}</b><span>${card.state === 'HOLD' ? '需要进一步确认后再继续' : '可在这里查看说明'}</span></li>`).join('');
+934-        const feed = (journey.private_feed || []).length ? `<ol>${journey.private_feed.map((entry) => `<li data-ui06-private-entry="${entry.entry_id}">${entry.kind === 'CHECKIN_DRAFT' ? '已留下一个家庭小记' : '已记录一次家庭行动'}</li>`).join('')}</ol>` : '<p>这里会慢慢留下属于家庭自己的过程小记。</p>';
+935-        const receipt = privateCheckinDraftState ? `<output data-ui06-private-draft-state="${privateCheckinDraftState}">家庭小记已留好。可以慢慢回看，之后再决定下一步。</output>` : '';
+936-        return `<section class="by-family-companion-progress" data-ui06-service-journey-state="${journey.state}" data-ui06-visibility="${journey.visibility}"><small>本周陪跑</small><h2>${journey.process_summary.label}</h2><p>${journey.next_hint.text}</p><ul>${cards}</ul><article><b>家庭私有小记</b>${feed}</article><small>这里记录的是家庭过程，不代表成长效果或评价。</small><div><button class="by-btn by-btn-ghost" data-by="ui06-open-family-review">查看家庭回顾</button><button class="by-btn full-primary" data-by="ui06-create-private-draft">留下今天的小记</button></div>${receipt}</section>`;
+937-      }
+938-    }
+939-    if (coreGrowthLoadState !== 'READY') return '';
+940-    const progress = coreGrowthProjection?.cards?.find((item) => item.surface === 'UI-06')?.companion_progress;
+941-    if (!progress) return '';
+942-    return `<section class="by-family-companion-progress" data-ui06-companion-state="${progress.state}" data-ui06-focus="${progress.focus}"><small>本周陪跑</small><h2>${progress.headline}</h2><p>${progress.confirmation}</p><article>${progress.pace_hint}</article><div><button class="by-btn by-btn-ghost" data-by="ui06-open-family-review">查看家庭回顾</button><button class="by-btn full-primary" data-by="ui06-continue-daily-action">继续今天的行动</button></div></section>`;
+943-  }
+944-  function coreCommunity() { return `${clearReference('delivery-community-reference-458x1128.png', '陪跑服务：四张服务卡、本周完成度、成长打卡、家长交流、直播和社群导航', [['clear-fab', 'ui06-create-private-draft', '记录家庭小记']], '458/1128')}${familyCompanionProgressPanel()}`; }
+945-  function familyGrowthProfileProgressPanel() {
+946-    if (!coreGrowthApiEnabled()) return '';
+947-    if (config.onboardingId) {
+948-      if (growthReadbackLoadState === 'LOADING') return `<section class="by-growth-profile-progress" data-ui07-profile-state="LOADING">正在整理家庭成长档案…</section>`;
+--
+973-    const hotspots = [
+974-      ['clear-entry-cta', 'ui02-start-assessment', '立即开始测评'],
+975-      ['clear-assessment-dimension-1', 'ui02-select-dimension', '选择亲子沟通', 'PARENT_CHILD_COMMUNICATION'],
+976-      ['clear-assessment-dimension-2', 'ui02-select-dimension', '选择学习习惯', 'LEARNING_HABITS'],
+977-      ['clear-assessment-dimension-3', 'ui02-select-dimension', '选择情绪管理', 'EMOTION_REGULATION'],
+978-      ['clear-assessment-dimension-4', 'ui02-select-dimension', '选择自律能力', 'SELF_REGULATION'],
+979-      ['clear-assessment-dimension-5', 'ui02-select-dimension', '选择手机依赖', 'DEVICE_USE_CONTEXT'],
+980-    ];
+981:    return `<section class="by-app by-clear-reference"><div class="by-clear-reference-screen" role="img" aria-label="家庭成长体检第1步：三分钟了解孩子成长状态、五大维度和示例问题" style="background-image:url('/public/bangyang-reference/family-assessment-entry-reference-428x952.png');aspect-ratio:428/952">${hotspots.map((item) => `<button class="by-hotspot ${item[0]}" data-by="${item[1]}"${item[3] ? ` data-ui02-selection="${item[3]}"` : ''} aria-label="${item[2]}"></button>`).join('')}${assessmentEntryLiveOverlay()}</div></section>${coreGrowthPanel('UI-02')}`;
+982-  }
+983-  function familyActionReviewPanel() {
+984-    if (!coreGrowthApiEnabled()) return '';
+985-    if (config.onboardingId) {
+986-      if (growthReadbackLoadState === 'LOADING') return `<section class="by-family-action-review" data-ui08-review-state="LOADING">正在整理家庭过程回顾…</section>`;
+987-      if (growthReadbackLoadState === 'ERROR') return `<section class="by-family-action-review is-blocked" data-ui08-review-state="ERROR">家庭回顾暂时无法加载，请稍后再试。</section>`;
+988-      const review = familyReviewReadbackProjection;
+989-      if (review) {
+990-        const records = review.recorded_actions?.length ? `<ol>${review.recorded_actions.map((item) => `<li data-ui08-receipt="${item.receipt_id}">${item.source_ui === 'UI-06' ? '已留下家庭私有小记' : '已记录一次家庭行动'}</li>`).join('')}</ol>` : '<p>还没有需要回看的行动记录。可以按自己的节奏从一个小行动开始。</p>';
+991-        return `<section class="by-family-action-review" data-ui08-review-state="${review.state}" data-ui08-visibility="${review.visibility}"><small>家庭成长回顾</small><h2>${review.state === 'ACTION_RECORDED' ? '已留下过程记录' : '从一次行动开始'}</h2>${records}<article><b>可以想想</b><span>${review.reflection_prompt || '这一次，我注意到了什么？这只是自己的感受和观察。'}</span></article><p class="by-review-next">${review.next_hint?.text || '可以先回到 90 天成长计划，按家庭节奏决定下一步。'}</p><small>行动记录和感受不等于成长结果或孩子评价。</small><button class="by-btn full-primary" data-by="core-plan">回到 90 天成长计划</button></section>`;
+992-      }
+993-    }
+994-    if (coreGrowthLoadState !== 'READY') return '';
+995-    const review = coreGrowthProjection?.cards?.find((item) => item.surface === 'UI-08')?.action_review;
+996-    if (!review) return '';
+997-    return `<section class="by-family-action-review" data-ui08-review-state="${review.state}" data-ui08-focus="${review.focus}"><small>家庭成长回顾</small><h2>${review.headline}</h2><p>${review.confirmation}</p><article><b>可以想想</b><span>${review.reflection_prompt}</span></article><p class="by-review-next">${review.next_step}</p><button class="by-btn full-primary" data-by="core-plan">回到 90 天成长计划</button></section>`;
+998-  }
+999-  const journeyPlanReadbackPanel = (surface) => {
+1000-    if (!config.authToken || journeyPlanLoadState !== 'READY') return '';
+1001-    const plan = journeyPlanProjection?.plan;
+1002-    if (!plan) return '';
+1003-    const current = (plan.phases || []).find((phase) => phase.phase === plan.current_phase);
+1004-    const phaseLabels = { SEE: '看见与倾听', PARENT_FIRST: '父母先行', CO_CREATE: '共同创造', STABILIZE: '稳定练习' };
+1005-    const label = phaseLabels[plan.current_phase] || plan.current_phase;

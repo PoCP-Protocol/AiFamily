@@ -1,0 +1,317 @@
+# AiFamily Capability Registry
+#
+# 这份 registry 的目的是把文档与代码真正打通：一个 capability 一行，
+# 从 domain / actor / command / api / code / events / 治理要求 / status
+# 一路可追溯到测试。它回答的问题是：
+#
+#   「这个能力属于哪个域、谁能调用、走哪个 Named Action、代码在哪、
+#     需不需要 consent/audit/idempotency、有没有 AI 参与、现在能用吗」
+#
+# 与其它 registry 的分工：
+#   DOMAIN_REGISTRY.yaml     — 域的唯一实现位置（R2：一个域一个位置）
+#   MIGRATION_MANIFEST.yaml  — 每项资产的迁移处置（R3：无登记不得入仓）
+#   CAPABILITY_REGISTRY.yaml — 本文件：能力级的端到端映射
+#
+# Traceability 目标链（见 docs/12_governance/DOCUMENT_GOVERNANCE.md）：
+#   Strategy → Business Capability → Product Capability → Domain
+#            → Command/Event → API → Code → Test → Metric
+#
+# ⚠️ 当前状态诚实声明：本 registry 目前只登记**真实存在的** capability。
+# AiFamily 尚无任何业务 API，因此下方只有平台内核能力与健康检查。
+# 业务能力（CompleteGrowthAction 等）在对应 Batch 落地时逐条追加，
+# 不预先登记未实现的能力 —— 预登记会让本文件变成愿望清单，
+# 而 registry 的全部价值在于它描述事实。
+
+schema_version: "1.0"
+updated: "2026-08-29"
+
+# ---------------------------------------------------------------------------
+# 合法取值（供架构测试校验）
+# ---------------------------------------------------------------------------
+enums:
+  status:
+    - PLANNED                    # 已设计未编码
+    - IMPLEMENTED_UNTESTED       # 有代码无测试（R4：不得声称可用）
+    - IMPLEMENTED_TESTED         # 有代码有测试，但未接入生产流量
+    - PRODUCTION                 # 真实承载生产流量（当前无任何能力达到）
+  actor_type:
+    - guardian                   # 家长/监护人
+    - child                      # 未成年成员
+    - operator                   # 平台运营
+    - teacher                    # 教师/专家
+    - system                     # 系统内部调度
+    - ai                         # AI Agent（永不可写 canonical 状态，见 R9）
+
+# ---------------------------------------------------------------------------
+# 平台内核能力（Wave 1，非业务域）
+# ---------------------------------------------------------------------------
+capabilities:
+
+  - capability: resolve_actor_context
+    domain: platform/identity
+    purpose: 构造不可变的 ActorContext / TenantContext，回答"谁在什么租户下以什么身份操作"
+    actor: [system]
+    command: null                # 平台原语，非业务 Named Action
+    api: null
+    code:
+      domain: backend/platform/identity/context.py
+    tests:
+      - tests/platform/identity/
+    consent: {required: false}
+    audit: {required: false, note: "本身不改状态；它是审计记录的输入"}
+    idempotency: {required: false}
+    ai:
+      involved: false
+      note: >
+        ActorContext 必须能诚实回答 is_ai()。这是 R9 的执行前提 ——
+        上层据此拒绝 AI actor 写 canonical 状态。
+    status: IMPLEMENTED_TESTED
+
+  - capability: authorize_action
+    domain: platform/authorization
+    purpose: 给定 (actor, action, resource) 返回 ALLOW/DENY，未注册组合 fail-closed
+    actor: [system]
+    command: null
+    api: null
+    code:
+      domain: backend/platform/authorization/policy.py
+    tests:
+      - tests/platform/authorization/
+    consent: {required: false}
+    audit: {required: false}
+    idempotency: {required: false}
+    ai:
+      involved: false
+      note: "human_only=True 的 action 对 AI actor 无条件拒绝"
+    status: IMPLEMENTED_TESTED
+    reference_implementation: "50_开发_dev/apps/api/src/modules/auth/family-authorization.policy.ts"
+
+  - capability: check_consent
+    domain: platform/consent
+    purpose: 按 purpose 校验 consent 是否有效；撤回立即生效，无缓存
+    actor: [system]
+    command: null
+    api: null
+    code:
+      domain: backend/platform/consent/models.py
+      application: backend/platform/consent/gate.py
+    tests:
+      - tests/platform/consent/
+    consent: {required: false, note: "它就是 consent 机制本身"}
+    audit: {required: false}
+    idempotency: {required: false}
+    ai: {involved: false}
+    status: IMPLEMENTED_TESTED
+    compliance_refs:
+      - "docs/12_governance/COMPLIANCE_HARD_CONSTRAINTS.md §5 (禁止一次性打包勾选)"
+    known_gaps:
+      - "尚未支持《儿童个人信息网络保护规定》第10条要求的『同意界面同时提供拒绝选项』"
+      - "尚未支持目的变更触发重新同意（第14条）"
+
+  - capability: record_audit_event
+    domain: platform/audit
+    purpose: 记录 actor/tenant/action/resource/before/after/reason/correlation_id/timestamp
+    actor: [system]
+    command: null
+    api: null
+    code:
+      domain: backend/platform/audit/models.py
+      application: backend/platform/audit/recorder.py
+    tests:
+      - tests/platform/audit/
+    consent: {required: false}
+    audit: {required: false, note: "它就是审计机制本身"}
+    idempotency: {required: false}
+    ai: {involved: false}
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - >
+        当前只覆盖状态变更（R6）。《未成年人网络保护条例》第36条要求
+        **读取访问**也须留痕，尚未实现 —— 见 COMPLIANCE_HARD_CONSTRAINTS.md §8。
+      - "flush 到 DB 的接口存在但真实 audit 表尚未建（Batch 3 Family Core 时落地）"
+
+  - capability: reserve_idempotency_key
+    domain: platform/idempotency
+    purpose: 同一 idempotency key 的重复请求被拒绝，保证命令只生效一次
+    actor: [system]
+    command: null
+    api: null
+    code:
+      domain: backend/platform/idempotency/keys.py
+    tests:
+      - tests/platform/idempotency/
+    consent: {required: false}
+    audit: {required: false}
+    idempotency: {required: false, note: "它就是幂等机制本身"}
+    ai: {involved: false}
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - "仅有 InMemoryIdempotencyStore；持久化实现待 Batch 3"
+
+  - capability: unit_of_work_transaction
+    domain: platform/persistence
+    purpose: 同一 UoW 内的多个 repository 操作要么全提交要么全回滚
+    actor: [system]
+    command: null
+    api: null
+    code:
+      infrastructure: backend/platform/persistence/unit_of_work.py
+      session: backend/platform/persistence/session.py
+    tests:
+      - tests/platform/persistence/
+    consent: {required: false}
+    audit: {required: false}
+    idempotency: {required: false}
+    ai: {involved: false}
+    status: IMPLEMENTED_TESTED
+
+# ---------------------------------------------------------------------------
+# 运行时能力（Wave 1）
+# ---------------------------------------------------------------------------
+
+  - capability: health_check
+    domain: apps/family_api
+    purpose: 存活探针
+    actor: [system]
+    command: null
+    api: "GET /health"
+    code:
+      api: backend/apps/family_api/routes.py
+    tests:
+      - tests/apps/family_api/
+    consent: {required: false}
+    audit: {required: false}
+    idempotency: {required: false}
+    ai: {involved: false}
+    status: IMPLEMENTED_TESTED
+
+  - capability: readiness_check
+    domain: apps/family_api
+    purpose: 就绪探针，真实 ping 数据库连接
+    actor: [system]
+    command: null
+    api: "GET /ready"
+    code:
+      api: backend/apps/family_api/routes.py
+    tests:
+      - tests/apps/family_api/
+    consent: {required: false}
+    audit: {required: false}
+    idempotency: {required: false}
+    ai: {involved: false}
+    status: IMPLEMENTED_TESTED
+
+# ---------------------------------------------------------------------------
+# 业务域能力（已迁入代码，但均未接入 API）
+# ---------------------------------------------------------------------------
+
+  - capability: membership_tier_lifecycle
+    domain: domains/membership
+    purpose: 会籍档位建立/升降/续费/过期，权益发放-占用-核销与台账
+    actor: [guardian, operator]
+    command:
+      - activate_membership_tier
+      - renew_membership_period
+      - expire_membership_period
+      - grant_membership_benefit
+      - reserve_membership_benefit
+      - consume_membership_benefit
+      - subscribe_membership
+    api: null                    # ⚠️ 无 routes.py，未挂载到 family_api
+    code:
+      domain: backend/domains/membership/domain/
+      application: backend/domains/membership/application/
+      infrastructure: backend/domains/membership/infrastructure/
+    tests:
+      - tests/domains/membership/test_acceptance_chain.py
+    consent:
+      required: true
+      note: "subscribe_membership 接受 consent_ref"
+    audit:
+      required: true
+      note: "档位转换记录 direction/activation_source/decided_by，可回溯『为什么是这个档位』"
+    idempotency:
+      required: true
+      note: "ActionContext.idempotency_key，仓储层按 key 去重"
+    ai:
+      involved: false
+      note: >
+        assert_human_actor 在域边界拒绝 ai: 前缀 actor —— AI 可以建议升档，
+        不能授予档位。对应六项战略原则第5条。
+    status: IMPLEMENTED_UNTESTED
+    status_rationale: >
+      6 个验收测试全部通过，但 policies.py:27 的 FORBIDDEN_TIER_FIELD_TOKENS
+      注释自称"由 guardrail test 强制"，该 guardrail test 仍不存在。
+      按 R4，未被测试覆盖的不变量不算能力，故不升为 IMPLEMENTED_TESTED。
+    compliance_refs:
+      - >
+        COMPLIANCE_HARD_CONSTRAINTS.md §3：会员权益**不得**基于画像向孩子端
+        自动化营销（《未成年人网络保护条例》24条3款绝对禁止）。
+      - "§4：消费限额（44条）在教育类未列举但不宜依赖此漏洞"
+    defect_history:
+      - >
+        renew_membership_period() 曾在任何调用下都抛 tier_transition_is_noop ——
+        policies.py 的同档位 no-op 检查只豁免 ADMIN_MANUAL_GRANT，漏了
+        ANNUAL_MEMBERSHIP_RENEWED，而续费按 baseline invariant 8 就是同档位追加。
+        源仓库零测试所以一直没发现，本仓库补测试后立即暴露。
+        修复：引入 SAME_TIER_ALLOWED_SOURCES 白名单。
+
+  - capability: product_intelligence_hypothesis
+    domain: domains/product_intelligence
+    purpose: 市场信号→洞察→假设→验证的产品智能链
+    actor: [operator]
+    command:
+      - validate_growth_hypothesis
+    api: null                    # ⚠️ routes.py 存在但自述"未挂载到任何 app"
+    code:
+      domain: backend/domains/product_intelligence/domain/
+      application: backend/domains/product_intelligence/application/
+      infrastructure: backend/domains/product_intelligence/infrastructure/
+      api: backend/domains/product_intelligence/api/routes.py
+    tests:
+      - backend/domains/product_intelligence/tests/test_acceptance_chain.py
+      - backend/domains/product_intelligence/tests/test_hypothesis_validation_guardrail.py
+    consent: {required: false, note: "运营侧能力，不涉及家庭数据"}
+    audit: {required: true}
+    idempotency: {required: false}
+    ai:
+      involved: true
+      constraint: >
+        AI 生成的 hypothesis 初始 status=DRAFT，且**没有任何代码路径**可自动置为
+        VALIDATED —— test_hypothesis_validation_guardrail.py 断言
+        human_actor="ai:*" 调用 validate 会被拒绝。这是 R9 的真实落地样例。
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - "无 Postgres 集成测试，仅 SQLite 内存库"
+      - "router 未挂载，实际不可通过 HTTP 调用"
+
+# ---------------------------------------------------------------------------
+# 待登记（有代码但仅为骨架，不构成能力，故不给 capability 条目）
+# ---------------------------------------------------------------------------
+not_yet_capabilities:
+  - path: backend/domains/market_intelligence
+    reason: "52行，仅 domain/entities.py + errors.py，无应用层无持久化"
+  - path: backend/domains/product_strategy
+    reason: "159行，仅 domain + ports + fake repository，无真实持久化"
+  - path: backend/domains/growth_plan
+    reason: "37行，仅错误类型枚举，无实体模型"
+  - path: backend/intelligence/design_copilot
+    reason: "compiler.py / simulation.py 全是 NotImplementedError，零调用方"
+  - path: backend/packages/contracts
+    reason: "共享契约类型（Provenance/evidence），是被依赖的原语而非独立能力"
+
+# ---------------------------------------------------------------------------
+# 执行状态（R14：写成文档不算执行）
+# ---------------------------------------------------------------------------
+enforcement:
+  implemented:
+    - "tests/architecture/test_capability_registry.py 校验 schema 与枚举合法性（待建）"
+  missing:
+    - >
+      code 字段指向的路径是否真实存在 —— 目前无检查器，registry 可以指向死路径而 CI 不报错。
+      这正是源仓库 FPAI_PROVIDER_REGISTRY 漂移的同类风险。
+    - "api 字段与实际 FastAPI 路由的一致性检查"
+    - "tests 字段指向的测试是否真实存在且通过"
+    - >
+      Traceability 断链检查器（tools/architecture/ 目录当前为空）——
+      Strategy→Capability→Code→Test 的链路完整性尚无自动验证。

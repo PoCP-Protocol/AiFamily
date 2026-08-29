@@ -1,0 +1,184 @@
+{
+  "input": "/home/ubuntu/family-ai/30_素材_materials/榜样教育/榜样教育新商业模式对外宣发PPT_原图版(2).pptx",
+  "slide_count": 20,
+  "slide_size": {
+    "width_emu": 12192000,
+    "height_emu": 6858000,
+    "width_inches": 13.333333333333334,
+    "height_inches": 7.5
+  },
+  "colors": {
+    "fill": [
+      {
+        "hex": "F4F8FF",
+        "share": 0.416
+      },
+      {
+        "hex": "FFFFFF",
+        "share": 0.367
+      },
+      {
+        "hex": "09295A",
+        "share": 0.113
+      },
+      {
+        "hex": "EAF2FF",
+        "share": 0.09
+      },
+      {
+        "hex": "0E397A",
+        "share": 0.011
+      }
+    ],
+    "text": [
+      {
+        "hex": "10213E",
+        "share": 0.755
+      },
+      {
+        "hex": "FFFFFF",
+        "share": 0.102
+      },
+      {
+        "hex": "09295A",
+        "share": 0.088
+      },
+      {
+        "hex": "FF7A21",
+        "share": 0.015
+      },
+      {
+        "hex": "FFD77A",
+        "share": 0.015
+      },
+      {
+        "hex": "D7E8FF",
+        "share": 0.013
+      }
+    ],
+    "theme": {
+      "accent1": "156082",
+      "accent2": "E97132",
+      "accent3": "196B24",
+      "accent4": "0F9ED5",
+      "accent5": "A02B93",
+      "accent6": "4EA72E",
+      "dk1": "000000",
+      "dk2": "0E2841",
+      "folHlink": "96607D",
+      "hlink": "467886",
+      "lt1": "FFFFFF",
+      "lt2": "E8E8E8"
+    }
+  },
+  "fonts": {
+    "title": "Calibri Light",
+    "body": "Calibri",
+    "usage": [
+      {
+        "name": "Calibri",
+        "share": 1
+      }
+    ],
+    "theme_major": "Calibri Light",
+    "theme_minor": "Calibri"
+  },
+  "pages_rendered": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20
+  ],
+  "overview_sheet": "/home/ubuntu/family-ai-mobile/research/ppt-analysis/new-business-model/sheets/overview.webp",
+  "overview_pages": [
+    1,
+    2,
+    3,
+    4,
+    17,
+    18,
+    19,
+    20
+  ],
+  "sheets": [
+    "/home/ubuntu/family-ai-mobile/research/ppt-analysis/new-business-model/sheets/sheet-1.webp",
+    "/home/ubuntu/family-ai-mobile/research/ppt-analysis/new-business-model/sheets/sheet-2.webp",
+    "/home/ubuntu/family-ai-mobile/research/ppt-analysis/new-business-model/sheets/sheet-3.webp"
+  ],
+  "content_path": "/home/ubuntu/family-ai-mobile/research/ppt-analysis/new-business-model/content/deck.md",
+  "content_dir": "/home/ubuntu/family-ai-mobile/research/ppt-analysis/new-business-model/content",
+  "media_files": [
+    {
+      "paths": [
+        "/home/ubuntu/family-ai-mobile/research/ppt-analysis/new-business-model/assets/media/page-03/image1.png"
+      ],
+      "slides": [
+        3
+      ]
+    },
+    {
+      "paths": [
+        "/home/ubuntu/family-ai-mobile/research/ppt-analysis/new-business-model/assets/media/page-05/image1.png"
+      ],
+      "slides": [
+        5
+      ]
+    },
+    {
+      "paths": [
+        "/home/ubuntu/family-ai-mobile/research/ppt-analysis/new-business-model/assets/media/page-06/image1.png"
+      ],
+      "slides": [
+        6
+      ]
+    },
+    {
+      "paths": [
+        "/home/ubuntu/family-ai-mobile/research/ppt-analysis/new-business-model/assets/media/page-08/image1.png"
+      ],
+      "slides": [
+        8
+      ]
+    },
+    {
+      "paths": [
+        "/home/ubuntu/family-ai-mobile/research/ppt-analysis/new-business-model/assets/media/page-10/image1.png"
+      ],
+      "slides": [
+        10
+      ]
+    },
+    {
+      "paths": [
+        "/home/ubuntu/family-ai-mobile/research/ppt-analysis/new-business-model/assets/media/page-12/image1.png"
+      ],
+      "slides": [
+        12
+      ]
+    },
+    {
+      "paths": [
+        "/home/ubuntu/family-ai-mobile/research/ppt-analysis/new-business-model/assets/media/page-14/image1.png"
+      ],
+      "slides": [
+        14
+      ]
+    }
+  ]
+}

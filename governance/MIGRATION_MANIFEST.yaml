@@ -1,0 +1,565 @@
+# AiFamily Migration Manifest
+# 没有登记在此、且 disposition 未被批准为 MIGRATE / REIMPLEMENT 的代码，
+# 不允许进入 AiFamily。见 governance/REPOSITORY_CONSTITUTION.md R3。
+schema_version: "1.0"
+
+source:
+  repository: "PoCP-Protocol/family-ai"
+  local_path: "D:\\family-ai"
+  baseline_commit: "1ff168123d147f4d6a6eaaa677bc2f80986233d9"
+  audit_date: "2026-08-29"
+  audit_caveat: >
+    源仓库在审计时有 64 个未提交文件属于另一并发会话（family-gateway 网关重构、
+    membership/growth_plan Python 域）。本 manifest 基于当时的磁盘状态，未修改任一文件。
+
+entries:
+
+  # ============ Wave 1 平台内核 —— 全部 REIMPLEMENT，源仓库无对应基础设施 ============
+
+  - capability: platform_actor_tenant_context
+    disposition: REIMPLEMENT
+    target: [backend/platform/identity]
+    status: MIGRATED_TESTED
+    target_correction: >
+      2026-08-29：原 target 含 backend/platform/tenant，该目录从未创建。ActorContext 与
+      TenantContext 双双落在 backend/platform/identity/context.py 内。target 收敛为实际落点，
+      不保留一个磁盘上不存在的路径（保留它会让 R3 的 target 覆盖检查形同虚设）。
+      租户若要成为独立聚合（Tenant / TenantFamilyBinding / TenantAccountMembership），
+      须先出 ADR 再新增 target，见 DOMAIN_REGISTRY.yaml → platform_tenancy。
+    evidence:
+      - "源仓库全域 grep ActorContext/TenantContext/UnitOfWork/DomainEvent 精确类名 = 0 命中"
+      - "唯一域内等价物：50_开发_dev/backend/domains/membership/application/context.py:20-27 的 ActionContext dataclass，仅 membership 域私有，非共享基础设施"
+    reason: "计划假设的平台原语在 Python 侧不存在，必须新建，不是迁移"
+
+  - capability: platform_authorization_policy
+    disposition: REIMPLEMENT
+    target: [backend/platform/authorization]
+    status: PLANNED
+    evidence:
+      - "TS 侧真实存在但域内私有：apps/api/src/modules/auth/family-authorization.policy.ts (82行，含未知角色 fail-closed 测试)"
+      - "TS 侧 family-scope.guard.ts / family-scope.integration.spec.ts 是完整的租户-家庭隔离矩阵测试，见 TEST_ORACLE 清单"
+    reason: "业务规则要重译为 Python，具体规则来自 auth 模块，见 reference_implementations"
+    reference_implementations:
+      - "50_开发_dev/apps/api/src/modules/auth/family-authorization.policy.ts"
+      - "50_开发_dev/apps/api/src/modules/auth/family-scope.guard.ts"
+
+  - capability: platform_consent
+    disposition: REIMPLEMENT
+    target: [backend/platform/consent]
+    status: PLANNED
+    reference_implementations:
+      - "50_开发_dev/specs/ontology/consent.schema.yaml"
+      - "50_开发_dev/apps/api/src/modules/family/grant-consent.integration.spec.ts (交叉家庭拒绝矩阵，TEST_ORACLE)"
+
+  - capability: platform_audit
+    disposition: REIMPLEMENT
+    target: [backend/platform/audit]
+    status: PLANNED
+    evidence:
+      - "TS 侧 AuditModule (audit.module.ts 8行 + audit.service.ts 22行) 是最小实现，值得参考但太薄，需按 R6 重新设计"
+
+  - capability: platform_idempotency
+    disposition: REIMPLEMENT
+    target: [backend/platform/idempotency]
+    status: PLANNED
+    evidence:
+      - "Python 侧只有字段级去重(membership infra `_by_idempotency_key`)，无中间件/装饰器抽象"
+
+  - capability: platform_persistence_uow
+    disposition: REIMPLEMENT
+    target: [backend/platform/persistence]
+    status: PLANNED
+    evidence:
+      - "membership/infrastructure/sqlalchemy_repository.py 的 commit()/_stage() 是手写约定，非正式 UnitOfWork 类"
+
+  - capability: model_gateway
+    disposition: REIMPLEMENT
+    target: [backend/intelligence/model_gateway]
+    status: PLANNED
+    evidence:
+      - "TS 侧 packages/ai-gateway/src/index.ts (894行) 是唯一真实网关实现：Routing/Timeout/Admission/FailClosed/Provenance/HumanGate 均真实存在(见 report 03)"
+      - "违规先例：apps/api/src/modules/orchestration/llm-gateway/family-llm-gateway.service.ts:58-63 绕过网关直连 new OpenAICompatibleAiGateway —— R7 的存在依据"
+    reason: "架构与策略常量作为设计参考重译，不搬 TS 运行时代码；Python 侧无任何对应物"
+    reference_implementations:
+      - "50_开发_dev/packages/ai-gateway/src/index.ts"
+      - "50_开发_dev/packages/principal-ai/src/index.ts"
+      - "50_开发_dev/packages/principal-runtime/src/index.ts"
+
+  - capability: fastapi_runtime_entrypoint
+    disposition: REIMPLEMENT
+    target: [backend/apps/family_api]
+    status: PLANNED
+    evidence:
+      - "全仓库零个 FastAPI()/uvicorn.run()/include_router() 首方调用，唯一 APIRouter (product_intelligence/api/routes.py) 自述 'Not mounted into any app yet'"
+    reason: "Python 侧从未有过运行时入口，Wave 1 是第一次创建"
+
+  - capability: dependency_management
+    disposition: REIMPLEMENT
+    target: [pyproject.toml]
+    status: DONE
+    evidence:
+      - "源仓库零个 pyproject.toml/requirements*.txt/lock 文件；两个 venv 无对应 manifest；apps/ai-runtime 的 .pth 硬编码绝对路径 D:\\family-ai\\... 不可移植"
+    note: "AiFamily 已用 uv + pyproject.toml 建立，见 R11"
+
+  # ============ Wave 2 — Python 领域，计划假设需要纠偏 ============
+
+  - capability: product_intelligence
+    disposition: MIGRATE
+    source:
+      - "50_开发_dev/backend/domains/product_intelligence"
+    target: [backend/domains/product_intelligence]
+    status: SUPERSEDED_BY_product_intelligence_v2
+    evidence:
+      - "唯一有测试的 Python 域(21文件/1492行)，domain/application/infrastructure/api/tests 五层俱全"
+      - "但 api/routes.py 自述未挂载；无 Postgres 集成测试(只有 SQLite)；commit 2f9f6a1 自称 V0.1"
+      - "test_hypothesis_validation_guardrail.py 含真实 TEST_ORACLE：AI actor 不能验证 hypothesis"
+    correction_to_plan: "计划称其为'已具备生产条件'，实测为 V0.1、路由未挂载、无 Postgres 集成测试——仍是 MIGRATE 但需补测试与挂载才算完成"
+    note: >
+      本条目对应的 commit 2f9f6a1 是源仓库该域的**第一个**提交（PR-001 原始草稿），
+      不是源仓库当前状态。源仓库同一 agent 会话在此后又完成三轮硬化
+      （PR-001R 地基硬化 / PR-002 三区战略引擎 / PR-002R canonical+语义收口），
+      详见下一条 `product_intelligence_v2`。本条目保留作为迁移历史记录，不再是
+      当前 AiFamily 内 `backend/domains/product_intelligence` 的权威来源——已被
+      product_intelligence_v2 的文件覆盖。
+
+  - capability: product_intelligence_v2
+    disposition: MIGRATE
+    source:
+      - "50_开发_dev/backend/domains/product_intelligence (family-ai main @ 76da33714ac8f83c25011e45e7f5c7758bad81f3, PR-001R+PR-002 已合并)"
+      - "50_开发_dev/backend/domains/product_intelligence (family-ai 分支 fix/product-zone-engine-v0-closure, PR-002R，本条目登记时尚未合并 family-ai main，disposition 仍按 MIGRATE 批准——理由见下)"
+      - "50_开发_dev/database/migrations/0058_product_intelligence_domain.sql, 0059_product_zone_engine_v0.sql, 0060_product_zone_engine_canonical_cleanup.sql"
+      - "50_开发_dev/architecture/ADR_PRODUCT_ZONE_SCORING_V0.md, ADR_PRODUCT_ZONE_GOVERNANCE_V0.md"
+    target:
+      - backend/domains/product_intelligence
+      - governance/ADR/ADR-0007-product-zone-scoring-v0.md
+      - governance/ADR/ADR-0008-product-zone-governance-v0.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "Actor/Tenant 信任边界：ActorContext 取代裸 created_by/tenant_scope 参数，每个 load_* 均 tenant-scoped，跨租户引用统一报 NotFound（不泄露存在性）"
+      - "AI Provenance 强制契约：actor_type==AI 时 model_ref/prompt_use_case_version/confidence 必须同时提供，all-or-none 结构性校验"
+      - "Human Gate 权限模式：GrowthHypothesis.mark_validated 与 zone review 均要求 actor_type==HUMAN 且持有对应 permission 字符串，domain 层管状态机合法性、application 层管 actor 资格，两层职责分离"
+      - "唯一 canonical：domain/zone_entities.py::ProductZoneAssessment 是三区评估唯一实现，源仓库曾出现过的重复占位类已删除"
+      - "Three-Zone Strategy Engine：六维度确定性打分（ZonePolicyVersion.weights 真正驱动计算，非摆设）、floor-gate 分区规则、Portfolio 严格六桶口径（REJECTED/RETIRED 独立，不混入 unreviewed）、Active Policy 唯一性（应用层 fail-closed + DB partial unique index 双重保证）"
+      - "真实 PostgreSQL 集成测试：disposable 容器验证 0058→0059→0060 迁移顺序、跨租户 DB trigger、Active Policy 唯一索引、历史 assessment 不被新 policy 重写、checksum 持久化稳定性"
+      - "源仓库测试数：142/142（含真实 Postgres），本次迁移后需在 AiFamily 内独立复测，见 backend/domains/product_intelligence/tests"
+    correction_to_plan: >
+      计划未预见此域会在 product_intelligence 条目登记后继续演进三轮——这正是
+      R14 想防的"registry 与磁盘漂移"，本条目在同一次迁移动作里把状态和证据
+      一次对齐到最新，不留下"又一个滞后的登记行"。
+    known_gaps:
+      - "api/routes.py 与 api/zone_routes.py 仍未挂载进 backend/apps/family_api（源仓库原样带入的缺陷，Batch 1 待办）"
+      - "源仓库 PR-002R（三区引擎 canonical/语义收口）在本条目登记时仍是 family-ai 的未合并分支（fix/product-zone-engine-v0-closure），不是该仓库 main 的已合并状态——本仓库迁移的是这个分支的最终代码内容，不等于 family-ai 官方主线已经批准合并；若 family-ai 后续对该分支有变更，两仓库会出现内容漂移，需要人工核对"
+      - "迁移时同时发现并处理了与 market_intelligence / product_strategy(domain 内) / packages/contracts 里 product_strategy.py & product_factory.py 的 canonical 名称重复（MarketSignal/GrowthProblem/Opportunity 等）——处置见 market_intelligence 与 product_strategy 条目的更新"
+    project_owner_override: >
+      2026-08-29 project-owner指示"将你在family-ai做的产品设计平台文档和程序代码迁移到AiFamily"。
+      迁移对象是 product_intelligence 域完整的三轮硬化历史（非仅第一版）+ 两份三区引擎 ADR。
+
+  - capability: membership
+    disposition: MIGRATE
+    source:
+      - "50_开发_dev/backend/domains/membership"
+    target: [backend/domains/membership]
+    status: PLANNED
+    project_owner_override: >
+      2026-08-29 project-owner指示"保险起见,先把所有Python代码都迁移过来",
+      推翻本条目此前的REVIEW_REQUIRED/BLOCKED状态。原判定依据(零测试目录,
+      FORBIDDEN_TIER_FIELD_TOKENS的guardrail test不存在)不是错误,而是被
+      "先迁移进来再补测试"这一顺序决定覆盖——迁移执行时必须原样带着这个已知缺口,
+      不得在迁移过程中假装测试已存在。
+    evidence:
+      - "2627行，五个 Python 域中代码量最大，domain/policies.py 含真实不变量(assert_tier_transition_legal 等)"
+      - "零测试目录；sqlalchemy_repository.py:8-9 docstring 声称的 tests/conftest.py 在磁盘上不存在——文档与代码矛盾"
+      - "policies.py:24-28 的 FORBIDDEN_TIER_FIELD_TOKENS(禁止 score/rank/level 字段)注释自称'由 guardrail test 强制'，该测试不存在"
+    correction_to_plan: >
+      计划完全没提到此域。它比 product_intelligence 代码量更大、不变量更真实，但零测试——
+      是审计中发现的最大单点风险。禁止在补齐测试前判定为 MIGRATE。
+    blocking_action: "必须先写出 FORBIDDEN_TIER_FIELD_TOKENS 的 guardrail test，再决定 MIGRATE vs REIMPLEMENT"
+
+  - capability: product_strategy
+    disposition: RETIRE
+    source: ["50_开发_dev/backend/domains/product_strategy"]
+    target: [backend/domains/product_strategy]
+    status: RETIRED_CANONICAL_CONFLICT
+    evidence: ["159行，仅 domain+ports+fake repository，无真实持久化，无测试"]
+    correction_to_plan: >
+      2026-08-29 迁移 product_intelligence_v2 时发现：本域的 domain/entities.py
+      定义了与 product_intelligence 域完全同名的 canonical 实体
+      （GrowthProblem/Opportunity 等）——这正是 R2 要防的"重复领域真相"，
+      源仓库自己在 2026-08-28 的 PR-001R 里已经裁决 `domain/zone_entities.py::
+      ProductZoneAssessment` 与 product_intelligence 域整体是这条产品智能链
+      唯一 canonical 实现，并删除了本域与 market_intelligence 域的重复定义。
+      本次迁移把该裁决同步应用到 AiFamily：本域降级为 RETIRE（保留目录与本
+      registry 记录作为迁移历史证据，代码内容不再被任何地方引用）。这不是推翻
+      2026-08-29 project-owner 的"先迁移全部 Python 代码"override（那条 override
+      针对的是"不因不完整而不迁移"，不是"就算发现真实 canonical 冲突也不能收口"）。
+
+  - capability: market_intelligence
+    disposition: RETIRE
+    source: ["50_开发_dev/backend/domains/market_intelligence"]
+    target: [backend/domains/market_intelligence]
+    status: RETIRED_CANONICAL_CONFLICT
+    evidence: ["52行，仅 domain/entities.py + errors.py，空目录占位 api/application/infrastructure"]
+    project_owner_override: "2026-08-29 project-owner指示先迁移全部Python代码,推翻ARCHIVE判定;迁移后仍是空壳状态,不假装已完整"
+    correction_to_plan: >
+      2026-08-29 迁移 product_intelligence_v2 时发现：本域 domain/entities.py 的
+      MarketSignal/SignalCluster 与 product_intelligence 域同名 canonical 实体
+      重复，理由与处置方式同 product_strategy 条目——降级为 RETIRE，不再与原
+      "先迁移全部代码"override 冲突（该 override 未预见到这条同名冲突，本次是
+      发现新事实后的独立裁决，不是重新评价其完整性）。
+
+  - capability: growth_plan_python_stub
+    disposition: MIGRATE
+    source: ["50_开发_dev/backend/domains/growth_plan"]
+    target: [backend/domains/growth_plan]
+    status: PLANNED
+    evidence: ["单文件 37行，仅错误类型枚举，注释称'mirroring journey-plan.service.ts'但无实体"]
+    project_owner_override: "2026-08-29 project-owner指示先迁移全部Python代码,推翻ARCHIVE判定;迁移后仍是错误类型stub,不假装已有实体模型"
+
+  - capability: design_copilot
+    disposition: MIGRATE
+    source: ["50_开发_dev/backend/intelligence/design_copilot"]
+    target: [backend/intelligence/design_copilot, docs/10_domain]
+    status: MIGRATED_STRUCTURE_ONLY
+    evidence: ["compiler.py/simulation.py 全是 NotImplementedError 占位，只保留方法名分类作设计参考"]
+    project_owner_override: >
+      2026-08-29 project-owner指示"先把所有Python代码都迁移过来"，推翻此前的
+      CONTRACT_ONLY(仅落 docs/10_domain)处置。代码已迁入 backend/intelligence/design_copilot，
+      但其能力状态不变：ProductCompiler / DesignSimulator 的每个方法仍是 NotImplementedError，
+      零调用方、零测试。迁移不得被解读为该能力已存在。
+    note: >
+      2026-08-29 迁移 product_intelligence_v2 时随手修：本模块原本 import
+      backend.packages.contracts.product_factory / evidence 里的
+      ProductDefinition 类型，而该 contracts 文件与 product_intelligence 域的
+      canonical ProductDefinition 同名重复（见 packages_contracts_provenance
+      条目的更新）。已改为 import backend.domains.product_intelligence.domain.
+      entities.ProductDefinition，与源仓库 PR-001R 对这两个文件做的等价修复
+      一致。方法体仍全部是 NotImplementedError，能力状态不变。
+
+  - capability: packages_contracts_provenance
+    disposition: MIGRATE
+    source: ["50_开发_dev/backend/packages/contracts"]
+    target: [backend/packages/contracts, contracts/schemas]
+    status: MIGRATED_PENDING_REVIEW
+    evidence: ["Provenance/evidence 类型是 Python 侧唯一真正跨域共享的原语，被 4 个域引用"]
+    note: >
+      实际落点为 backend/packages/contracts（保持源仓库的共享包语义，供
+      market_intelligence / product_strategy / membership / design_copilot 以
+      backend.packages.contracts.* 绝对包路径导入）。此前 target 写作
+      backend/platform/persistence 与磁盘实况不符，2026-08-29 对齐为实际路径。
+
+      2026-08-29 迁移 product_intelligence_v2 时删除本包内的
+      product_strategy.py / product_factory.py 两个文件：它们定义的
+      MarketSignal/GrowthProblem/GrowthHypothesis/Opportunity/ProductDefinition
+      等类型与 product_intelligence 域的 canonical 实体同名重复，是源仓库
+      PR-001R 已经识别并删除的同一个问题（"packages/contracts 不能成为第二份
+      domain truth"）。design_copilot 对 ProductDefinition 的引用已改指向
+      product_intelligence 域（见 design_copilot 条目）。本包保留的
+      evidence.py / versioned.py / product_learning.py / gamification.py /
+      ui_surfaces.py / value_ordering.py 不受影响。
+
+  - capability: ai_runtime_app
+    disposition: ARCHIVE
+    source: ["50_开发_dev/apps/ai-runtime"]
+    status: NOT_MIGRATING
+    evidence:
+      - "git 从未跟踪；.py 源码已从磁盘删除只剩 .pyc；dist-info 自述 'not wired into the default request path'"
+      - "venv 内 .pth 硬编码绝对路径 D:\\family-ai\\50_开发_dev\\apps\\ai-runtime\\src，不可移植"
+
+  # ============ Wave 3 Family Core —— REIMPLEMENT，行为规格来自 TS ============
+
+  - capability: family_core
+    disposition: REIMPLEMENT
+    source: ["50_开发_dev/apps/api/src/modules/family/family.service.ts"]
+    target: [backend/domains/family]
+    status: PLANNED
+    evidence:
+      - "2293行，全仓库最大服务文件，真实 Postgres(families/persons/consents 等)，60+路由，e2e/integration/spec 全覆盖"
+    test_oracles:
+      - "50_开发_dev/apps/api/src/modules/family/family-core-integration.e2e-spec.ts (M1-E2E-01: family→parent→child→relationship→lifestage→consent 全链路)"
+
+  - capability: family_dev_surface_services
+    disposition: ARCHIVE
+    source:
+      - "50_开发_dev/apps/api/src/modules/family/dev-platform-surfaces.service.ts"
+      - "50_开发_dev/apps/api/src/modules/family/dev-core-growth.service.ts"
+    status: NOT_MIGRATING_AS_BUSINESS_CODE
+    evidence:
+      - "自述 data_source: 'SYNTHETIC_DEV_ONLY'、model_gateway: 'NOOP_NOT_INVOKED'，24张硬编码UI卡片+中文文案字典，零DB读写"
+      - "却挂在生产路由 /:familyId/dev/* 上，且被 mobile 端 9+ 个真实屏幕(UI-10/11/12/22/23/25/27/28/29)消费"
+    correction_to_plan: >
+      计划把这两个服务当作"证明合成数据危害"的反面教材(正确)，但遗漏了一个事实：
+      它们不是死代码，前端真的在用它们渲染 UI。Wave 3 REIMPLEMENT family 时必须显式决定
+      这些 UI 屏幕的数据来源，否则移动端会在切后端后出现空白页，而不是"清理了假数据"。
+
+  - capability: waf_domain_service
+    disposition: ARCHIVE
+    source: ["50_开发_dev/apps/api/src/modules/family/../waf/waf-domain.service.ts"]
+    status: NOT_MIGRATING
+    evidence: ["纯内存 Map，零 DB，零路由引用，唯一消费者是自己的 spec 文件——死代码"]
+
+  - capability: auth_identity
+    disposition: MIGRATE
+    source: ["50_开发_dev/apps/api/src/modules/auth"]
+    target: [backend/platform/identity]
+    status: PLANNED
+    evidence: ["1546行，真实 Postgres(identity_sessions/otp_challenges/accounts/tenants等)，唯一显式标注为替换点的是 OtpService 的 StubOtpSender"]
+
+  - capability: assessment
+    disposition: REIMPLEMENT
+    source: ["50_开发_dev/apps/api/src/modules/model/family-assessment-model.provider.ts"]
+    target: [backend/domains/assessment]
+    status: MIGRATED_TESTED
+    evidence: ["Batch 1 UI-02 -> UI-03 首批可运行闭环；只产 Hypothesis，确认后产 GrowthIntent，不计算 score/ranking/diagnosis"]
+    note: "当前为显式非生产、进程内 dev/test 实现；repository port 为后续 SQLAlchemy 替换 seam。"
+
+  - capability: model_provider_assessment
+    disposition: REVIEW_REQUIRED
+    source: ["50_开发_dev/apps/api/src/modules/model/family-assessment-model.provider.ts"]
+    status: BLOCKED
+    evidence: ["目录名为 modules/model 但根本不是 Nest module，只是裸 provider；default 走确定性 fallback，真实路径靠双 env 开关"]
+
+  - capability: orchestration_llm_gateway_violation
+    disposition: REVIEW_REQUIRED
+    source: ["50_开发_dev/apps/api/src/modules/orchestration/llm-gateway/family-llm-gateway.service.ts"]
+    status: BLOCKED
+    evidence: ["58-63行 domain service 内部裸 new OpenAICompatibleAiGateway，违反代码自身声明的 AI_GATEWAY_POLICY.business_module_direct_provider_call='forbidden'"]
+    blocking_action: "REIMPLEMENT 时必须走 R7 的 Model Gateway，不得重复此违规"
+
+  - capability: orchestration_core
+    disposition: MIGRATE
+    source: ["50_开发_dev/apps/api/src/modules/orchestration"]
+    target: [backend/platform/orchestration]
+    status: PLANNED
+    evidence: ["5519行，明确设计为不写 Growth 权威表(仅写自己的 non-canonical 表)，见 orchestration.repository.ts:106 注释"]
+
+  - capability: principal_core
+    disposition: MIGRATE
+    source: ["50_开发_dev/apps/api/src/modules/principal"]
+    target: [backend/intelligence/principal]
+    status: PLANNED
+    evidence: ["2337行，真实 Postgres(principal_* 表)，明确不写 Growth 权威状态，DI 工厂 fail-closed 最严格"]
+
+  - capability: principal_livecheck_scripts
+    disposition: TEST_ORACLE
+    source: ["50_开发_dev/apps/api/src/modules/principal/*.livecheck.ts"]
+    status: PLANNED
+    evidence: ["命名故意避开 .spec.ts 使其不被 CI 收集，是真实外部调用的手动烟雾测试，非生产代码"]
+
+  - capability: fes_api
+    disposition: ARCHIVE
+    source: ["50_开发_dev/apps/fes-api"]
+    status: NOT_MIGRATING
+    evidence: ["声明 NestJS 依赖却无 @Module/NestFactory/controller，运行即打印一行JSON后退出，从未真正监听端口"]
+
+  # ============ FELS / legacy-system —— 唯一的语义保留候选 ============
+
+  - capability: fels_anti_pattern_contract
+    disposition: CONTRACT_ONLY
+    source:
+      - "50_开发_dev/legacy-system/contracts/src/index.ts"
+      - "50_开发_dev/legacy-system/apps/api/src/flm-anti-corruption.spec.ts"
+      - "50_开发_dev/legacy-system/architecture/FELS_LM1_SEMANTIC_MAPPING_V1.md"
+    target: [governance/REPOSITORY_CONSTITUTION.md#R9]
+    status: DONE
+    evidence: ["family_score/ranking→RETIRE，legacy_checkin→打卡≠Outcome，legacy_tag→非诊断 等否定语义已写入宪章 R9"]
+    note: "已完成迁移，规则已内嵌进 R9，不再依赖 FELS 代码本身存在"
+
+  - capability: fels_runtime_app
+    disposition: ARCHIVE
+    source: ["50_开发_dev/legacy-system/apps", "50_开发_dev/legacy-system/db", "50_开发_dev/legacy-system/synthetic"]
+    status: NOT_MIGRATING
+    evidence: ["自述 REFERENCE_IMPLEMENTATION=TRUE / REAL_BANGYANG_SOURCE=FALSE，零生产运行时引用(pnpm workspace可见但零 import)"]
+
+  # ============ 契约 / 数据库 —— 大部分 CONTRACT_ONLY 或 MIGRATE ============
+
+  - capability: database_schema
+    disposition: MIGRATE
+    source: ["50_开发_dev/database/migrations/*.sql (58个文件, 0001-0058)"]
+    target: [database/migrations]
+    status: PLANNED
+    evidence:
+      - "唯一权威 schema 来源，经 tools/migrate.mjs 顺序应用；非 TypeORM/Prisma，是手写 SQL + schema_migrations 追踪表"
+      - "4组文件名重号需先解决线性顺序: 0022/0023/0024/0053 各有两个不同内容的文件"
+      - "growth_profiles 表存在两代列(0003的subject_type/subject_ref_id 被 0007 的 profile_scope/subject_person_id 追加替代但未删除)"
+    blocking_action: "Alembic 首个 revision 生成前必须先解决 4 组重号并决定死列去留"
+
+  - capability: contracts_ui_boundary
+    disposition: CONTRACT_ONLY
+    source: ["50_开发_dev/contracts/frontend/UI-0*.md", "50_开发_dev/contracts/authorization", "50_开发_dev/contracts/subject"]
+    target: [docs/20_product]
+    status: PLANNED
+    evidence: ["全部 Markdown-only，无 OpenAPI/JSON-Schema 落地，自身状态字段即为 CONTRACT_ONLY_PROPOSED_FOR_REVIEW"]
+
+  - capability: packages_contracts_ts
+    disposition: REIMPLEMENT
+    source: ["50_开发_dev/packages/contracts/src/family-growth-os.ts", "50_开发_dev/packages/contracts/src/ui01-ui09-first-slice.ts"]
+    status: PLANNED
+    evidence: ["不是纯类型，含真实投影函数(projectTodayTask等)计算 UI 状态机——必须当逻辑重译，不能当 schema 直接搬"]
+    correction_to_plan: "计划把 packages/contracts 归为纯 DTO 层，实测其中两个文件含真实业务逻辑，需拆开处理"
+
+  - capability: waf_contracts_and_wf1_lab
+    disposition: KEEP_NON_PYTHON
+    source: ["50_开发_dev/packages/waf-contracts", "50_开发_dev/products/we-are-family/apps/wf1-lab"]
+    status: PLANNED
+    evidence: ["wf1-lab 是零后端耦合的纯前端 React demo，与后端语言无关"]
+
+  # ============ 前端 —— 不进 Python 迁移，按 KEEP/ARCHIVE/DELETE 分类 ============
+
+  - capability: frontend_mobile
+    disposition: MIGRATE
+    source: ["50_开发_dev/apps/mobile"]
+    target: [frontend/mobile]
+    status: MIGRATED_PENDING_BACKEND_INTEGRATION
+    evidence:
+      - "唯一在活跃 CI 中的前端(family-35ui-alignment.yml)，35个测试文件，真实设计资产(202 PNG baseline)"
+      - "consumes ~40+ 后端路径 + 4个 /auth/* 端点，其中9+屏幕依赖 /dev/* 合成路由——Python 后端必须显式决定这些屏幕的数据来源"
+    project_owner_override: "2026-08-29 project-owner明确指示:34个UI已经做得很好,需要把整个Mobile迁移过来(不是KEEP_NON_PYTHON留在源仓库),推翻此前的处置"
+    blocking_action: "Python FastAPI 必须先满足 mobile 依赖的端点清单，否则 34 个屏幕中最多 24 个会因缺 /dev/* 而白屏"
+
+  - capability: frontend_web
+    disposition: REVIEW_REQUIRED
+    source: ["50_开发_dev/apps/web"]
+    status: BLOCKED
+    evidence: ["无组件框架、无 bundler，build 脚本只是 tsc --noEmit；24个 spec 文件价值更多是后端路由的契约参照，不是可部署UI"]
+
+  - capability: frontend_fes_web
+    disposition: ARCHIVE
+    source: ["50_开发_dev/apps/fes-web"]
+    status: NOT_MIGRATING
+    evidence: ["11行单函数，零网络调用，零UI框架"]
+
+  - capability: frontend_empty_scaffolds
+    disposition: DELETE
+    source: ["50_开发_dev/apps/consumer-web", "50_开发_dev/apps/ops-web"]
+    status: NOT_MIGRATING
+    evidence: ["目录内仅 node_modules，无 package.json，无源码"]
+
+  # ============ 测试资产 —— TEST_ORACLE 清单(节选，完整清单见 reports/migration/03) ============
+
+  - capability: test_oracle_family_core_chain
+    disposition: TEST_ORACLE
+    source: ["50_开发_dev/apps/api/src/modules/family/family-core-integration.e2e-spec.ts"]
+    status: PLANNED
+    note: "M1-E2E-01/07/08 —— family全链路+否定推断守卫(不得从relationship推断consent/从birthdate推断lifestage)"
+
+  - capability: test_oracle_growth_chain
+    disposition: TEST_ORACLE
+    source: ["50_开发_dev/apps/api/src/modules/family/family.e2e-spec.ts"]
+    status: PLANNED
+    note: "E2E-M2-101~105 —— onboarding→perspective→profile→report→journey全链路，含'确认profile产生零AI/Model事件'的否定断言"
+
+  - capability: test_oracle_tenant_isolation
+    disposition: TEST_ORACLE
+    source: ["50_开发_dev/apps/api/src/modules/auth/family-scope.integration.spec.ts"]
+    status: PLANNED
+    note: "6层绑定链(Account→Person→FamilyMembership→TenantFamilyBinding→TenantAccountMembership→Session)逐层DENY测试"
+
+  - capability: test_oracle_dead_duplicate
+    disposition: DELETE
+    source: ["50_开发_dev/apps/web/src/case-access-client.spec.js"]
+    status: NOT_MIGRATING
+    evidence: ["与同目录 .spec.ts 逐字节相同的重复文件，被vitest配置排除，纯死代码"]
+
+  - capability: test_oracle_excluded_contract_specs
+    disposition: MIGRATE
+    source:
+      - "50_开发_dev/evals/subject-isolation/subject-isolation.contract.spec.ts"
+      - "50_开发_dev/evals/authorization-planes/authorization-planes.contract.spec.ts"
+    status: PLANNED
+    evidence: ["未被任何 workspace/vitest config 收集(evals/不在pnpm-workspace.yaml内)；断言逻辑是spec文件内联重实现，非真实生产代码覆盖"]
+    note: "作为需求规格迁移断言,不作为覆盖率证明"
+
+  # ============ 文档/治理 —— 关键发现：源仓库存在三方矛盾的"当前基线" ============
+
+  - capability: docs_truth_hierarchy
+    disposition: REIMPLEMENT
+    source: ["50_开发_dev/governance/TRUTH_HIERARCHY.md"]
+    target: [governance/REPOSITORY_CONSTITUTION.md]
+    status: DONE
+    evidence: ["7级真相优先序(Runtime/DB > GitHub状态 > 机器治理registry > Gate证据 > Roadmap > PR body > README)，其思路已被R13吸收"]
+
+  - capability: docs_current_baseline_CONTRADICTION
+    disposition: REVIEW_REQUIRED
+    status: BLOCKED
+    evidence:
+      - "源仓库同时存在三份互不引用、自称'当前基线'的文档：CURRENT_SPRINT.md(2026-08-29,声称Python-only后端已在推进,7条Override)、governance/PROGRAM_STATUS_PLATFORM_V1.md(2026-08-16裁定,PR#36/Principal-AI-Coach为主线)、architecture/FAMILY_PLATFORM_V3_BLUEPRINT.md(自称架构SSOT,2026-08-16冻结)"
+      - "更关键：源仓库自己已经有一份 architecture/FAMILY_AI_PYTHON_ONLY_MIGRATION_PLAN_V1.md(2026-08-28)，且 CURRENT_SPRINT.md 记录了7条项目所有者Override正按它推进 Batch 1-6"
+    blocking_action: >
+      **必须人工裁决**：本 AIFAMILY-000 计划与源仓库已有的 FAMILY_AI_PYTHON_ONLY_MIGRATION_PLAN_V1.md
+      是同一个决定被重复下达，还是两个并行/冲突的迁移方案？在裁决前，AiFamily 不得假设自己是
+      "唯一正在进行的 Python 迁移工作"。见 reports/migration/02 的详细比对。
+
+  - capability: docs_business_domain_language
+    disposition: REIMPLEMENT
+    target: [docs/00_foundation/CURRENT_BUSINESS_ARCHITECTURE.md]
+    status: PLANNED
+    evidence:
+      - "Fact≠Perspective≠Recommendation≠Action≠Outcome 的区分在 CLAUDE.md/specs/policies/perspective-fact.policy.yaml 反复声明，且有真实e2e断言(fact_boundary:'PERSPECTIVE_NOT_FACT'等)支撑，非空话"
+      - "禁止 Family Total Score / Family Ranking 与宪章 R9 一致，双重证据(FELS+CLAUDE.md)交叉确认"
+
+  - capability: docs_reports_536files
+    disposition: ARCHIVE
+    source: ["50_开发_dev/reports/"]
+    status: NOT_MIGRATING
+    evidence: ["536个历史Sprint/Gate证据文件，仅2个例外值得作为最新快照参考(reports/baseline/2026-08-29-*.md, reports/v5/V5_00_RUNTIME_TRUTH_CONVERGENCE_REPORT.md)"]
+
+  - capability: docs_governance_enforced_subset
+    disposition: MIGRATE
+    source:
+      - "50_开发_dev/governance/MERGE_AUTHORIZATIONS.yaml"
+      - "50_开发_dev/governance/AUTHORIZATION_REGISTRY.yaml"
+      - "50_开发_dev/governance/FPAI_PROVIDER_REGISTRY.yaml"
+    status: PLANNED
+    evidence:
+      - "全域83个治理文件中只有这3个被代码/工具实际强制执行(其余~80个是纯文档)"
+      - "已发现活跃漂移：FPAI_PROVIDER_REGISTRY.yaml(3供应商) vs 其生成物provider-registry.generated.ts(2供应商,缺deepseek-chat)——基线commit上就是失败态"
+    note: "这正是 R14 的核心论据：策略写成YAML不代表被执行，必须配套架构测试"
+
+  - capability: assessment
+    disposition: MIGRATE
+    source:
+      - "50_开发_dev/backend/domains/assessment (family-ai 分支 feat/python-assessment-domain-p0-001 @ 9018bae，本条目登记时尚未合并 family-ai main，disposition 仍按 MIGRATE 批准——理由同 product_intelligence_v2 先例：该分支代码已通过 92 项真实测试，不是未验证草稿)"
+    target: [backend/domains/assessment]
+    status: PLANNED
+    evidence:
+      - "92 passed / 9 skipped(family-ai分支实测)，是已知 Python 域里除 product_intelligence 外唯一有实质测试覆盖的域"
+      - "domain/interpretation_boundary.py 的三层校验(字段黑名单 total_score/ranking/diagnosis、边界字面量 signal_not_diagnosis/hypothesis_not_fact/recommendation_not_decision、construct 白名单)与本仓库 R9 语义高度对应，可作为 R9 的一份可参照的既有实现范式"
+      - "governance/CONSTRUCT_ADMISSION_REGISTRY.yaml(family-ai)记录了 8 个 construct 的人工审核过程，含一次真实自查纠错(危机类 safety_boundary 题目即使所属 construct 已 admit 仍被排除)，方法论值得参考，但本次不随代码迁移，见下"
+    correction_to_plan: >
+      docs/11_delivery/migration/MIGRATION_PLAN_V2.md 称 Assessment 的 Python 侧需
+      "从零开始写"，实测 family-ai 已有真实、测试完备的实现，本条纠正为 MIGRATE
+      而非 REIMPLEMENT —— 但仅限 domain/application/大部分 infrastructure 层；
+      AI 解读适配器单独拆出为 BLOCKED 子条目(见 assessment_ai_interpretation_adapter)。
+    known_gaps:
+      - "claude_interpretation.py(直连 Anthropic SDK，`import anthropic` + `anthropic.AsyncAnthropic()`)违反 R7，排除出本次迁移，见 assessment_ai_interpretation_adapter 子条目；迁入后仅 DeterministicInterpretationAdapter 规则回退路径可用，AI 解读能力不具备"
+      - "不含数据库迁移(源仓库 database/migrations/0040+0046-0048)；本仓库当前无 Alembic baseline，迁移后代码可编译/测试通过但不可端到端对接真实 Postgres(与 product_intelligence 同一缺口模式，SQLAlchemy 仓储测试保持 PY_ASSESSMENT_TEST_DATABASE_URL 环境变量门控默认 skip)"
+      - "api/routes.py 未挂载进 backend/apps/family_api(与 product_intelligence 同一缺口模式)"
+      - "20_知识_knowledge 证据库(43张卡片，byresearch 治理工具)与 governance/CONSTRUCT_ADMISSION_REGISTRY.yaml 均不在本次范围，是独立的、更大的能力，需要单独的 MIGRATION_MANIFEST 条目和 disposition 决策"
+
+  - capability: assessment_ai_interpretation_adapter
+    disposition: REIMPLEMENT
+    source:
+      - "50_开发_dev/backend/domains/assessment/infrastructure/claude_interpretation.py (family-ai 分支 feat/python-assessment-domain-p0-001)"
+    target: []
+    status: BLOCKED
+    blocking_action: >
+      backend/intelligence/model_gateway(R10)必须先存在。届时参照
+      reference_implementations 重写，不得原样搬迁——源文件直连 anthropic SDK
+      (`import anthropic`)，会被 tests/architecture/test_no_direct_provider_calls.py
+      (R7)直接拦下。
+    reference_implementations:
+      - "50_开发_dev/backend/domains/assessment/infrastructure/claude_interpretation.py"
+    evidence:
+      - "该文件的 structured output schema 设计(JSON schema 强制 construct_ref 枚举)、边界重校验(不信任 schema 本身，收到输出后再跑一次 assert_interpretation_boundary)、知识库 grounding 注入(system prompt 动态拼接已核验理论依据)、grounding_source 净化(模型自报的引用 id 经白名单核对，编造的一律清空不透传)等具体手法值得重写时参照，但调用方式必须换成走 model_gateway，不能保留 `anthropic.AsyncAnthropic()` 直连"
+
+# ============ 待人工裁决清单（disposition = REVIEW_REQUIRED 的完整索引） ============
+review_required_index:
+  - docs_current_baseline_CONTRADICTION   # 最高优先级——与源仓库既有Python迁移计划的关系
+  - membership                             # 最大零测试Python域
+  - model_provider_assessment
+  - orchestration_llm_gateway_violation
+  - frontend_web
+  - "50_开发_dev/packages/program-runtime"  # 未找到消费者，可能是孤儿
+  - "50_开发_dev/packages/harness"          # 同上
+  - "50_开发_dev/products/famili-principal" # 纯文档树，无代码
+  - "50_开发_dev/factory/"                  # 内部脚本引用已损坏(run-development-factory.mjs指向不存在的script)

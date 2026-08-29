@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+
+# Environment — never commit real secrets. .env.example is the only tracked env file.
+.env
+.env.*
+!.env.example
+
+# Node (frontend arrives in a later wave)
+node_modules/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local scratch
+*.log
+tmp/
+scratch/
+_scratch_*
+tmp_verify/
+_wip_quarantine/
+
+# Research fetch artifacts.
+# The compliance deep-research (see docs/12_governance/COMPLIANCE_HARD_CONSTRAINTS.md)
+# pulled primary legal sources (PIPL, 未成年人网络保护条例, 儿童个人信息网络保护规定)
+# to verify them verbatim. The findings are recorded in the doc with citations;
+# the raw scraped HTML/PDF is evidence-of-fetch, not a repository asset — it
+# would rot and would misrepresent itself as a canonical reference.
+*.htm
+*.html
+pipl_en.pdf
+child.txt
+gov.txt
+cited.html

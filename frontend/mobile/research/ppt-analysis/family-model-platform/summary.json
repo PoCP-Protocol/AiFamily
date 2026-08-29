@@ -1,0 +1,99 @@
+{
+  "input": "/home/ubuntu/family-ai/30_素材_materials/榜样教育/家庭教育大模型平台科技公司项目合作方案.pptx",
+  "slide_count": 10,
+  "slide_size": {
+    "width_emu": 12191365,
+    "height_emu": 6858000,
+    "width_inches": 13.332638888888889,
+    "height_inches": 7.5
+  },
+  "colors": {
+    "fill": [
+      {
+        "hex": "0A1628",
+        "share": 0.656
+      },
+      {
+        "hex": "14283C",
+        "share": 0.237
+      },
+      {
+        "hex": "0F2337",
+        "share": 0.058
+      },
+      {
+        "hex": "00A8E8",
+        "share": 0.022
+      },
+      {
+        "hex": "142D41",
+        "share": 0.013
+      }
+    ],
+    "text": [
+      {
+        "hex": "000000",
+        "share": 1
+      }
+    ],
+    "theme": {
+      "accent1": "4F81BD",
+      "accent2": "C0504D",
+      "accent3": "9BBB59",
+      "accent4": "8064A2",
+      "accent5": "4BACC6",
+      "accent6": "F79646",
+      "dk1": "000000",
+      "dk2": "1F497D",
+      "folHlink": "800080",
+      "hlink": "0000FF",
+      "lt1": "FFFFFF",
+      "lt2": "EEECE1"
+    }
+  },
+  "fonts": {
+    "title": "Calibri",
+    "body": "Calibri",
+    "usage": [
+      {
+        "name": "Calibri",
+        "share": 0.903
+      },
+      {
+        "name": "微软雅黑",
+        "share": 0.091
+      }
+    ],
+    "theme_major": "Calibri",
+    "theme_minor": "Calibri"
+  },
+  "pages_rendered": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "overview_sheet": "/home/ubuntu/family-ai-mobile/research/ppt-analysis/family-model-platform/sheets/overview.webp",
+  "overview_pages": [
+    1,
+    2,
+    3,
+    4,
+    7,
+    8,
+    9,
+    10
+  ],
+  "sheets": [
+    "/home/ubuntu/family-ai-mobile/research/ppt-analysis/family-model-platform/sheets/sheet-1.webp",
+    "/home/ubuntu/family-ai-mobile/research/ppt-analysis/family-model-platform/sheets/sheet-2.webp"
+  ],
+  "content_path": "/home/ubuntu/family-ai-mobile/research/ppt-analysis/family-model-platform/content/deck.md",
+  "content_dir": "/home/ubuntu/family-ai-mobile/research/ppt-analysis/family-model-platform/content"
+}
