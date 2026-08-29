@@ -271,28 +271,207 @@ Strategy → Business Capability → Product Capability → Domain
 
 ---
 
-## T-13 ｜ P1 ｜ 收拾 `backend/domains/service/` 与 `tests/domains/loyalty_points/` 半成品
+## T-16 ｜ P0 ｜ 补 `ModelDraft` 的四处封印泄漏
 
-**背景**：T-11（audit 持久化）收尾时发现，仓库里有另一份未完成的 WIP 使全量测试无法变绿。它**不属于 T-11 范围**，故只记录不修改：
+**归属**：T-06 执行者。规格见 **ADR-0014 §2**（本卡由总架构师下发）。
 
-1. **R3 违规**（`tests/architecture/test_migration_manifest.py::test_backend_code_dirs_are_all_manifested` 失败）：
-   未跟踪文件 `backend/domains/service/domain/policies.py`、`backend/domains/service/domain/value_objects.py`
-   建立了 `backend/domains/service/` 目录，但 `governance/MIGRATION_MANIFEST.yaml` 中没有任何
-   `target` 覆盖它（也没有 `service` 相关条目）。按 R3，加代码前必须先登记 capability
-   （disposition 为 `MIGRATE` 或 `REIMPLEMENT`）。
+`contracts.py:20-25` 的 docstring 记录了作者朝「让 R9 成为类型层属性」努力的推理，
+推理是对的，**但只覆盖了一个字段**。对当前落盘代码实测（`uv run python`，2026-08-29）：
 
-2. **pytest 收集中断**（比第 1 条更严重，它让**整个**测试套件跑不起来）：
-   未跟踪目录 `tests/domains/loyalty_points/` 是 `tests/domains/membership/` 的副本，
-   文件基名完全相同（`conftest.py` / `helpers.py` / `test_acceptance_chain.py`）。
-   测试目录没有 `__init__.py`，pytest 以 rootdir 相对的模块名导入，于是
-   `test_acceptance_chain` 这个模块名被两个文件争用，报
-   `import file mismatch`，收集阶段直接 `Interrupted`。清 `__pycache__` 无效——
-   这是基名冲突本身，不是缓存陈旧。
-   两种修法：给 `tests/domains/*/` 加 `__init__.py`，或把新测试文件改成唯一基名
-   （例如 `test_loyalty_points_acceptance_chain.py`）。
+```text
+LEAK-1  ModelDraft(output={}, provenance=p, status="APPROVED").status → "APPROVED"
+        Literal 是 typing-only，且 ModelDraft 整个类没有 __post_init__
+LEAK-2  dataclasses.replace(d, status="CONFIRMED").status → "CONFIRMED"
+        作者为 may_mutate 点名防住的危险，原样落在 status 上
+LEAK-3  d.output["injected"] = "fact" → 成功（frozen 不深冻结 payload，dict 是可变别名）
+LEAK-4  class Evil(ModelDraft) 覆盖 property → True（slots 不阻止继承）
+```
 
-**验收**：`uv run pytest -q` 能完成收集且无 FAILED。参考：把这两处 WIP 临时移出仓库后，
-全量为 `260 passed, 9 skipped`，即除这两处外仓库是绿的。
+**修法**：LEAK-1/2 → 加 `__post_init__` 校验 `status == "DRAFT"`（`replace` 也走它，一处修两个）；
+LEAK-3 → `output` 存 `MappingProxyType(deepcopy(raw))`，注解改 `Mapping`；
+LEAK-4 → `__init_subclass__` 抛 `TypeError`。
+**并修 docstring**：`:53-57` 的「no gateway-side transition out of it」对 gateway 成立、
+对类型不成立，两件事要分开写，否则读者以为类型已封死。
+
+`test_ai_runtime_isolation.py::test_model_gateway_output_type_cannot_mutate_business_state`
+已断言 `may_mutate_business_state` 不是 dataclass 字段——**LEAK-4 说明该断言不足以证明封印**，
+补 `__init_subclass__` 后应追加子类化抛错的断言。
+
+**验收**：四处各有测试；**必须验证会咬人**（逐条植入→失败→移除），提交说明贴过程。
+
+---
+
+## T-17 ｜ P1 ｜ assessment 域接 `ActorContext` + `PolicyEngine`
+
+**归属**：T-05 执行者。**等 T-01 格式化落地后再动**，否则语义变更会混进格式 diff，review 时分不清。
+规格见 **ADR-0014 §Context 2 / §6**。
+
+**这是当前唯一一处正在生效的 R9 漏洞**：
+`service.py` 全域收 `actor_id: str` 而**不用 `ActorContext`**——而 `context.py:66-75` 的
+`ActorContext.is_ai` 是 R9 唯一密封缝（该文件 docstring `:11-17` 自述它是「每个上层必须使用的 seam」）。
+该域也**不用 `PolicyEngine`**；`api.py:53-59` 的 `actor()` 只校验 Bearer token 与 family 匹配，
+**不问 actor 类型**。于是 `decide()` 能把 hypothesis 置为 `CONFIRMED`，
+而**没有任何东西阻止一个 AI actor 确认一个假设**。
+它还骗过了护栏：`test_compliance_constraints.py` 那条「晋升函数须有人类 actor 形状参数」
+的判据是**参数名形状**，被一个叫 `actor_id` 的 `str` 骗过。
+
+**范围**：① `actor_id: str` → `ActorContext`；② CONFIRM 过 `PolicyEngine.check()`，
+规则注册 `human_only=True`（`policy.py:100-105` 在任何 allow 之前无条件拒 AI）；
+③ **照 `membership/api/routes.py:85-107` 的 `_authorize` 抄**，不要发明第二种接入模式（R10 伤疤）；
+④ `generate_hypothesis()` 现返回硬编码中文句「家庭可以从一次可观察的沟通实验开始。」，
+属 `AI_NATIVE_PRINCIPLES.md` §4 反面清单第 1/3 条且**已挂生产路由**——改为经 `model_gateway`，
+**未配置时 fail-closed，不返回罐头文案**。
+
+**已知会破**：`tests/domains/assessment/test_acceptance_chain.py`（位置实参 + 事件计数断言）、
+`tests/apps/family_api/test_assessment_routes.py`（hypothesis 端点 200 → 503）。同步更新，别删。
+
+**验收**：AI actor 尝试 CONFIRM 被拒且产生 `AuditEvent`。
+
+---
+
+## T-18 ｜ P1 ｜ `Value Architecture` + `StateObservation` 领域模型（PR-003）
+
+**归属**：PR-003 执行者。**动手前必读 ADR-0015 全文**（规格在 §1 / §2 / §4 / §5）。
+
+project-owner 定调 Family Growth Intelligence OS，四层价值要真进代码。链条变为
+`Problem → Hypothesis → Contradiction → Value Architecture → Strategy`，
+`Value Architecture` 是 `Strategy` 的**必填输入**（先回答该获得什么价值，再选干预，不得反过来）。
+
+**三条硬边界（违反即撞 R9 或 ADR-0006）**：
+1. **家庭侧永不出现分数。** 三层只表达方向（`Emotional: from→to`、`Action: next_action_ref`、
+   `Growth: changed_dimension_ref`），**只有 Economic 可量化**，且量化对象是时间/金钱/试错次数**而非家庭**。
+   六个 Value Score 只在 Product Intelligence 侧作为**队列级**指标存在，永不写回家庭对象。
+2. **State 是「带来源与有效期的观察」，不是主体上的列。** `StateObservation` 必填
+   `evidence_refs` / `provenance` / `expires_at` / `retention_policy`——`expires_at` 是
+   「非永久人格标签」（R9 FELS 表 `legacy_tag.*`）的执行机制。
+   `observed_value` **不得**注解 `float`/`int`/`Decimal`（序数标签可以，数值分数不行）。
+3. **`risk` 维度观察不得触发任何自动动作**（R9：`legacy_alert.risk_score` → 非阈值、非自动动作），
+   只产出 Human Gate 待办。
+
+**同批必须落的断言**（否则三条退化为意图，R14）：四必填字段反射断言；
+`observed_value` 类型注解检查；`Strategy` 构造器的 `value_architecture` 参数**无默认值**
+（照 `backend/packages/contracts/evidence.py:50` 的 `Provenance.level` 手法）。
+
+`tests/architecture/test_r9_value_layer_boundary.py`（已落地）会在你写出
+`class FamilyValueScore` 或 `FamilyProfile.emotional_value_score` 时咬你。
+
+---
+
+## T-19 ｜ P2 ｜ 执行三份边界 ADR 的 registry / manifest 同步
+
+> **编号说明**：本卡与 T-16/T-17/T-18 原取号 T-11~T-14，与并发会话在 commit 消息中
+> 已使用的 T-11（audit 持久化）/ T-12（PolicyEngine R9 绕过修复）撞号，故重编为 T-16~T-19。
+> T-15 由项目经理预留给 Batch 2 SERVICE。**编号严格顺序分配、永不复用**（沿用
+> `governance/ADR/README.md` 的编号规则）；下一个可用编号 = T-21。
+
+---
+
+## T-20 ｜ P1 ｜ 补 membership V2 生命周期对象的 Alembic revision
+
+**背景**：`backend/domains/membership` 的 `domain/entities.py` 与
+`infrastructure/sqlalchemy_models.py` 已经定义了四个 V2 对象——
+`MembershipTierDefinition`、`MembershipPeriod`、`MembershipTierTransition`、
+`BenefitReservation`——但从源仓库延续至今**从未有过 DDL**。`database/baseline/
+0036_family_membership_entitlement_objects.sql`（legacy 0033 的线性化重命名）
+只覆盖 `plans` / `benefit_definitions` / `subscriptions` / `benefit_grants` /
+`benefit_ledger` 五张表，四个 V2 表在源仓库里就不存在，不是遗漏搬运。
+
+这正是 `governance/DOMAIN_REGISTRY.yaml` → `membership` 条目 `known_gaps` 第 (3)
+条："数据库迁移未落地——AiFamily 选定 Alembic，但…ORM 模型当前只靠测试里的
+`metadata.create_all` 建表"。T-02 的 guardrail 测试落地后（`MIGRATED_TESTED`，
+18 passed）这是 membership 剩下三个已知缺口里**唯一纯 schema 性质、不涉业务逻辑
+判断**的一条，适合独立领取。
+
+**范围**：
+1. 新增 Alembic revision `database/migrations/versions/000X_membership_lifecycle_v2.py`
+   （`down_revision` 接当前 head；建 revision 前先 `alembic heads` 确认，别假设还是
+   `0002_platform_audit_events_worm`——治理并发环境里 head 可能已被其他任务推进）。
+2. 用 `op.create_table`（照抄 `0002_platform_audit_events_worm.py` 的写法，不是
+   `op.execute` 整段手写 SQL；baseline 之后的规则是"新 schema 用 SQLAlchemy 操作
+   表达"，见 `docs/07_data/DATA_ARCHITECTURE.md` §1.3 第4条）建四张表，字段与
+   `infrastructure/sqlalchemy_models.py` 的 `MembershipTierDefinitionRow` /
+   `MembershipPeriodRow` / `MembershipTierTransitionRow` / `BenefitReservationRow`
+   **逐列对齐**（表名分别是 `family_membership_tier_definitions` /
+   `family_membership_periods` / `family_membership_tier_transitions` /
+   `family_membership_benefit_reservations`，ORM 里已经写死，不要另起名字）。
+3. 需要新建 4 个 Postgres enum 类型（`tier_code`=M0_FREE/M1_GROWTH/M2_ANNUAL、
+   `transition_direction`=UPGRADE/DOWNGRADE/LATERAL/INITIAL、
+   `period_status`=ACTIVE/CLOSED、`reservation_status`=HELD/RELEASED/CONSUMED/EXPIRED）；
+   `scope_type`/`status`（tier_definitions 上的）复用 baseline 已建的
+   `family_membership_scope` / `family_membership_plan_status`，不要新建重复枚举。
+4. **`activation_source_type` 必须是数据库层 CHECK 白名单**（不是应用层校验一处、
+   DB 层放行的双重标准）：允许值取 `domain/value_objects.py` 的
+   `ACTIVATION_SOURCE_TYPES` 七个（`FAMILY_ACCOUNT_CREATED` /
+   `GROWTH_PRODUCT_ACTIVATED` / `ANNUAL_MEMBERSHIP_ACTIVATED` /
+   `ANNUAL_MEMBERSHIP_RENEWED` / `ADMIN_MANUAL_GRANT` /
+   `MEMBERSHIP_PERIOD_EXPIRED` / `SUBSCRIPTION_CANCELLED`）。同模块的
+   `FORBIDDEN_ACTIVATION_SOURCE_TYPES`（积分/AI/社群角色/裂变草稿/家庭分数排名）
+   不需要单独 CHECK 排除它们——白名单本身已经排除了一切不在名单上的值，这是
+   T-02 guardrail 测试覆盖不到的部分（那条测试反射字段名，不反射 CHECK 约束的值域）。
+5. `fixture_only`/`external_effect` 两列在其余 membership 表都是 DB 级 CHECK 锁定
+   为 `true`/`false`（0033/0036 原文），V2 四张表如果保留这两列（`periods` /
+   `tier_transitions` / `benefit_reservations` 的 ORM 模型里确实有），同样要锁。
+   `tier_definitions` 没有 `external_effect`（它是目录主数据，不是家庭事实）。
+
+**不在范围**：不写这四张表的 SQLAlchemy 仓储/应用层代码（那部分 ORM 模型层已经
+存在，仓储层是否需要新方法属 T-02 之外的 membership 后续任务，不与本卡混）；
+不解决 `known_gaps` 剩下两条（真实 Postgres 集成测试覆盖 CHECK 约束、HTTP 路由挂载）。
+
+**验收**：
+- `alembic upgrade head` 在空 Postgres 上成功建出四张表；`alembic downgrade -1`
+  可回退到上一个 revision（本卡的 `downgrade()` 只需 drop 自己建的对象，不做
+  legacy baseline 那种"扫描 catalog"的通用回滚）。
+- 至少一个真实 Postgres 集成测试对着这四张表插入一行合法数据成功、插入一行
+  `activation_source_type='AI_RECOMMENDATION'` 的数据被 CHECK 拒绝（验证约束真的
+  在数据库层生效，不只是 ORM/domain 层）。
+- 完成后更新 `governance/DOMAIN_REGISTRY.yaml` → `membership.known_gaps`，删除
+  已解决的第 (3) 条，保留另外两条。
+
+三项互不依赖，可拆三个 PR。**`MIGRATION_MANIFEST.yaml` 与 `ADR/README.md` 正被并发会话修改，
+动手前先 `git status` 并按 §0.1 的并发写作纪律留 `registration_note`。**
+
+1. **ADR-0012（`growth_plan` → RETIRE 并入 `journey`）**：在 `journey` 域开工的同一个 PR 内做，
+   不要单独开 PR 造一个空 journey 目录。5 个异常类迁入 `journey/domain/errors.py`，
+   类名 `GrowthPlan*` → `Journey*`，**`code` 字面量不变**（API 可观测行为）。
+   **⚠ 删目录需 project-owner 二次确认**——见 ADR-0012 §Decision 2 与本文件 §0.1 偏离 #3
+   （同类删除刚发生过一次并被回滚）。未取得确认时只降级 registry、**保留目录**。
+   执行前先读源仓库 `journey-plan.service.ts` 确认它管一件事；若确为两个能力，回来推翻 ADR。
+2. **ADR-0011（identity/tenancy 边界）**：`auth_identity` 的 `canonical_path` 改
+   `backend/domains/identity`；manifest 中**删除不存在的 `backend/platform/tenant`** target；
+   租户聚合归 `backend/domains/tenancy`。**趁 `auth_identity` 还是 `NOT_STARTED`，
+   这是零成本改登记的最后时刻。**
+3. **ADR-0013（`frontend_web`）**：disposition → `ARCHIVE`、status → `NOT_MIGRATING`、
+   从 `review_required_index` 移除；新增 `test_oracle_web_route_contracts` 把那 24 个 spec
+   收割为 **T-04 的第二契约来源**（两来源不一致处即契约真实歧义点）。
+   **不得把 spec 本体复制进仓**（R3）。
+
+---
+
+## 已由总架构师完成（列出以免重复劳动）
+
+- **ADR-0010 ~ ADR-0015 六份**：裁决了 `TARGET_ARCHITECTURE.md` §6 全部 5 项开放项
+  + 采纳 Family Growth Intelligence OS 与价值层三条边界。
+- **`tests/architecture/test_r9_value_layer_boundary.py`**：闭合一个**实测漏洞**——
+  原判据（`test_compliance_constraints.py:140-146`）要求**字段名同时命中主体词与打分词**，
+  因此 `emotional_value_score` 与 `class FamilyValueScore{emotional: float}` **都能完全通过**。
+  新增两条判据（类名自身、类名×字段名）+ 一条防词表漂移断言。已验证会咬人（5 用例：2 植入咬、
+  2 对照绿、1 豁免绿）。
+- **CI**：删掉 Wave 0 遗留的 `find backend ... | grep -q .` 条件块，改为无条件 `uv run pytest -v`
+  + 单独一步跑 `backend/domains/product_intelligence/tests`。此前 `tests/platform`(464 行)、
+  `tests/domains`、`tests/apps`、`tests/intelligence` **从未在 CI 中运行过**。
+  **R14 仍未满足**：远端仓库未创建（计划 `PoCP-Protocol/AiFamily`），需 project-owner 批准。
+- **`docs/05_ai/AI_PLATFORM_FORWARD_ARCHITECTURE.md`**：前瞻架构目标态，
+  `status: draft` / `canonical: false`，六项成熟度全部如实记为 `ABSENT`/`PARTIAL`。
+
+## 总架构师发现但未修（属他人范围，按 AGENTS.md 报告不擅改）
+
+| 问题 | 位置 | 归属 |
+|---|---|---|
+| `mark_primary()` 引用 `'APPROVED'` 但签名无人类 actor，**R9 晋升检查当前为红** | `product_intelligence/domain/entities.py:309` | T-06 / PR-003 |
+| `test_capability_registry` 的两条路径存在性检查**当前为红**（registry 与磁盘漂移） | `governance/CAPABILITY_REGISTRY.yaml` | 施工中会话 |
+| `design_copilot/__pycache__/*.pyc` **已入仓**，R11 明文禁止 | — | 可顺手清 + 补 `.gitignore` |
+| `CLAUDE.md:32` 与 `AGENTS.md:38` 称 `CAPABILITY_REGISTRY.yaml` 尚未建立，**它已存在且 318 行** | 两份入口文档 | 文档漂移 |
+| `DOCUMENTATION_MAP.md` 称 `00_system/` 有 4 个文件，**磁盘上 8 个** | `docs/00_system/` | T-10 |
 
 ---
 
