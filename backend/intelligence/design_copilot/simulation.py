@@ -16,6 +16,7 @@ It exists to fix the guardrail's shape in code before any simulation content
 is built, per the project-owner-approved compromise (structure first,
 guessed parameters never).
 """
+
 from __future__ import annotations
 
 from backend.domains.product_intelligence.domain.entities import ProductDefinition
@@ -63,4 +64,6 @@ class SimulationLab:
         authorize moving to a real family pilot.
         """
         if real_evidence.level in NON_ESTABLISHING_LEVELS:
-            raise ProductIntelligenceValidationError("pilot_promotion_requires_establishing_evidence")
+            raise ProductIntelligenceValidationError(
+                "pilot_promotion_requires_establishing_evidence"
+            )

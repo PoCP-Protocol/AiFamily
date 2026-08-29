@@ -3,6 +3,7 @@
 it depends on these Protocols instead, per the four-layer rule in
 `architecture/FAMILY_AI_PYTHON_ONLY_MIGRATION_PLAN_V1.md` section 3.
 """
+
 from __future__ import annotations
 
 from typing import Protocol
@@ -19,9 +20,13 @@ class AssessmentRepositoryPort(Protocol):
     here corresponds 1:1 to a query/mutation block in those two files.
     """
 
-    async def assert_tenant_family_scope(self, tenant_id: str, family_id: str, actor_id: str) -> None: ...
+    async def assert_tenant_family_scope(
+        self, tenant_id: str, family_id: str, actor_id: str
+    ) -> None: ...
 
-    async def assert_subject_consent(self, family_id: str, subject_person_id: str, purpose: str) -> None: ...
+    async def assert_subject_consent(
+        self, family_id: str, subject_person_id: str, purpose: str
+    ) -> None: ...
 
     async def load_active_tool(self, tool_ref: str) -> AssessmentTool | None: ...
 
@@ -29,33 +34,58 @@ class AssessmentRepositoryPort(Protocol):
 
     async def load_assessable_subjects(self, family_id: str) -> list[dict]: ...
 
-    async def load_recent_sessions(self, tenant_id: str, family_id: str, limit: int = 10) -> list[AssessmentSession]: ...
+    async def load_recent_sessions(
+        self, tenant_id: str, family_id: str, limit: int = 10
+    ) -> list[AssessmentSession]: ...
 
     async def load_session(self, family_id: str, session_id: str) -> AssessmentSession: ...
 
-    async def load_session_for_update(self, family_id: str, tenant_id: str, session_id: str) -> AssessmentSession: ...
+    async def load_session_for_update(
+        self, family_id: str, tenant_id: str, session_id: str
+    ) -> AssessmentSession: ...
 
     async def find_in_progress_session(
-        self, tenant_id: str, family_id: str, subject_person_id: str, tool_ref: str, tool_version: int
+        self,
+        tenant_id: str,
+        family_id: str,
+        subject_person_id: str,
+        tool_ref: str,
+        tool_version: int,
     ) -> str | None: ...
 
     async def insert_session(
-        self, tenant_id: str, family_id: str, subject_person_id: str, tool_ref: str, tool_version: int, started_by: str
+        self,
+        tenant_id: str,
+        family_id: str,
+        subject_person_id: str,
+        tool_ref: str,
+        tool_version: int,
+        started_by: str,
     ) -> str: ...
 
     async def upsert_response(
-        self, session_id: str, item_ref: str, response_type: str, response_value: str | bool, actor_id: str
+        self,
+        session_id: str,
+        item_ref: str,
+        response_type: str,
+        response_value: str | bool,
+        actor_id: str,
     ) -> None: ...
 
     async def mark_session_submitted(self, session_id: str) -> None: ...
 
-    async def insert_assessment_evidence(self, family_id: str, session_id: str, payload: dict) -> str: ...
+    async def insert_assessment_evidence(
+        self, family_id: str, session_id: str, payload: dict
+    ) -> str: ...
 
     async def tenant_allows_page(self, tenant_id: str, page_id: str) -> bool: ...
 
-    # --- idempotency / audit / outbox, ported from lockOperation/loadOperationReplay/persistOperation/auditAndEmit ---
+    # --- idempotency / audit / outbox, ported from lockOperation /
+    # loadOperationReplay / persistOperation / auditAndEmit ---
 
-    async def lock_operation(self, tenant_id: str, family_id: str, action: str, idempotency_key: str) -> None: ...
+    async def lock_operation(
+        self, tenant_id: str, family_id: str, action: str, idempotency_key: str
+    ) -> None: ...
 
     async def load_operation_replay(
         self, tenant_id: str, family_id: str, action: str, idempotency_key: str, request_hash: str
@@ -105,7 +135,9 @@ class AssessmentRepositoryPort(Protocol):
         evidence_refs: list[str],
     ) -> dict: ...
 
-    async def lock_hypothesis_decision(self, tenant_id: str, family_id: str, hypothesis_ref: str) -> None: ...
+    async def lock_hypothesis_decision(
+        self, tenant_id: str, family_id: str, hypothesis_ref: str
+    ) -> None: ...
 
     async def load_hypothesis_decision_replay(
         self, tenant_id: str, family_id: str, decision_type: str, idempotency_key: str
@@ -136,7 +168,10 @@ class AssessmentInterpretationPort(Protocol):
     """
 
     async def interpret(
-        self, family_id: str, evidence: GrowthHypothesisEvidence, service_depth: str = "DEEP_AI_INTERPRETATION"
+        self,
+        family_id: str,
+        evidence: GrowthHypothesisEvidence,
+        service_depth: str = "DEEP_AI_INTERPRETATION",
     ) -> dict: ...
 
 

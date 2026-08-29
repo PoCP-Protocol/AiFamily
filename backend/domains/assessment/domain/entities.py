@@ -5,6 +5,7 @@ Ported from `AssessmentSessionDto` / `AssessmentResponseDto`
 `GrowthHypothesisService.loadHypothesisRow`
 (`apps/api/src/modules/family/growth-hypothesis.service.ts`).
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -65,4 +66,6 @@ class GrowthHypothesisEvidence(BaseModel):
     title: str
     description: str
     required_capability_keys: list[str]
-    response_set: list[dict]  # [{item_ref, response_type, response_value}, ...] — same shape fed to family-model
+    response_set: list[
+        dict
+    ]  # [{item_ref, response_type, response_value}, ...] — same shape fed to family-model

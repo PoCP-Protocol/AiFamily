@@ -4,17 +4,16 @@
 advisory-lock / evidence-record / audit / outbox step from the NestJS
 implementation is preserved; this is a translation, not a redesign.
 """
+
 from __future__ import annotations
 
 import hashlib
 import json
 import re
-import uuid
 from dataclasses import dataclass
 
 from ..domain.errors import (
     AssessmentConflictError,
-    AssessmentForbiddenError,
     AssessmentNotFoundError,
     AssessmentValidationError,
 )
@@ -94,26 +93,40 @@ class AssessmentCommandHandler:
         if not _is_uuid(command.subject_person_id):
             raise AssessmentValidationError("valid_subject_person_id_required")
         tool_ref = (command.tool_ref or "").strip() or "FAMILY_SUPPORT_NEEDS"
-        request_hash = _hash_request({"subject_person_id": command.subject_person_id, "tool_ref": tool_ref})
+        request_hash = _hash_request(
+            {"subject_person_id": command.subject_person_id, "tool_ref": tool_ref}
+        )
 
         await self._repository.lock_operation(
             command.tenant_id, command.family_id, "START_ASSESSMENT", command.meta.idempotency_key
         )
         replay = await self._repository.load_operation_replay(
-            command.tenant_id, command.family_id, "START_ASSESSMENT", command.meta.idempotency_key, request_hash
+            command.tenant_id,
+            command.family_id,
+            "START_ASSESSMENT",
+            command.meta.idempotency_key,
+            request_hash,
         )
         if replay is not None:
             return {**replay, "replayed": True}
 
-        await self._repository.assert_tenant_family_scope(command.tenant_id, command.family_id, command.actor_id)
-        await self._repository.assert_subject_consent(command.family_id, command.subject_person_id, "ASSESSMENT")
+        await self._repository.assert_tenant_family_scope(
+            command.tenant_id, command.family_id, command.actor_id
+        )
+        await self._repository.assert_subject_consent(
+            command.family_id, command.subject_person_id, "ASSESSMENT"
+        )
 
         tool = await self._repository.load_active_tool(tool_ref)
         if tool is None:
             raise AssessmentNotFoundError("active_assessment_tool_not_found")
 
         existing_session_id = await self._repository.find_in_progress_session(
-            command.tenant_id, command.family_id, command.subject_person_id, tool.tool_ref, tool.version_no
+            command.tenant_id,
+            command.family_id,
+            command.subject_person_id,
+            tool.tool_ref,
+            tool.version_no,
         )
         session_id = existing_session_id or await self._repository.insert_session(
             command.tenant_id,
@@ -173,7 +186,10 @@ class AssessmentCommandHandler:
         )
 
         await self._repository.lock_operation(
-            command.tenant_id, command.family_id, "SAVE_ASSESSMENT_RESPONSE", command.meta.idempotency_key
+            command.tenant_id,
+            command.family_id,
+            "SAVE_ASSESSMENT_RESPONSE",
+            command.meta.idempotency_key,
         )
         replay = await self._repository.load_operation_replay(
             command.tenant_id,
@@ -185,13 +201,17 @@ class AssessmentCommandHandler:
         if replay is not None:
             return {**replay, "replayed": True}
 
-        await self._repository.assert_tenant_family_scope(command.tenant_id, command.family_id, command.actor_id)
+        await self._repository.assert_tenant_family_scope(
+            command.tenant_id, command.family_id, command.actor_id
+        )
         session = await self._repository.load_session_for_update(
             command.family_id, command.tenant_id, command.session_id
         )
         if not session.is_editable():
             raise AssessmentConflictError("submitted_assessment_is_immutable")
-        await self._repository.assert_subject_consent(command.family_id, session.subject_person_id, "ASSESSMENT")
+        await self._repository.assert_subject_consent(
+            command.family_id, session.subject_person_id, "ASSESSMENT"
+        )
 
         tool = await self._repository.load_tool_version(session.tool_ref, session.tool_version)
         item = tool.find_item(item_ref)
@@ -200,7 +220,11 @@ class AssessmentCommandHandler:
         assert_response_value(item.response_type, item.options, command.response_value)
 
         await self._repository.upsert_response(
-            command.session_id, item_ref, command.response_type, command.response_value, command.actor_id
+            command.session_id,
+            item_ref,
+            command.response_type,
+            command.response_value,
+            command.actor_id,
         )
 
         session = await self._repository.load_session(command.family_id, command.session_id)
@@ -244,24 +268,36 @@ class AssessmentCommandHandler:
             command.tenant_id, command.family_id, "SUBMIT_ASSESSMENT", command.meta.idempotency_key
         )
         replay = await self._repository.load_operation_replay(
-            command.tenant_id, command.family_id, "SUBMIT_ASSESSMENT", command.meta.idempotency_key, request_hash
+            command.tenant_id,
+            command.family_id,
+            "SUBMIT_ASSESSMENT",
+            command.meta.idempotency_key,
+            request_hash,
         )
         if replay is not None:
             return {**replay, "replayed": True}
 
-        await self._repository.assert_tenant_family_scope(command.tenant_id, command.family_id, command.actor_id)
+        await self._repository.assert_tenant_family_scope(
+            command.tenant_id, command.family_id, command.actor_id
+        )
         session = await self._repository.load_session_for_update(
             command.family_id, command.tenant_id, command.session_id
         )
         if not session.is_editable():
             raise AssessmentConflictError("assessment_session_not_editable")
-        await self._repository.assert_subject_consent(command.family_id, session.subject_person_id, "ASSESSMENT")
+        await self._repository.assert_subject_consent(
+            command.family_id, session.subject_person_id, "ASSESSMENT"
+        )
 
         tool = await self._repository.load_tool_version(session.tool_ref, session.tool_version)
         answered = session.answered_item_refs()
-        missing = [item.item_ref for item in tool.items if item.required and item.item_ref not in answered]
+        missing = [
+            item.item_ref for item in tool.items if item.required and item.item_ref not in answered
+        ]
         if missing:
-            raise AssessmentValidationError(f"required_assessment_responses_missing:{','.join(missing)}")
+            raise AssessmentValidationError(
+                f"required_assessment_responses_missing:{','.join(missing)}"
+            )
 
         await self._repository.mark_session_submitted(command.session_id)
 

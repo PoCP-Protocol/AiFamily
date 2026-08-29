@@ -6,6 +6,7 @@ boundary the migration plan (section 6/10) requires: AI Runtime output
 (the hypothesis draft) never writes canonical state directly; only this
 human-confirmed decision does.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -14,7 +15,11 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-from ..domain.errors import AssessmentConflictError, AssessmentNotFoundError, AssessmentValidationError
+from ..domain.errors import (
+    AssessmentConflictError,
+    AssessmentNotFoundError,
+    AssessmentValidationError,
+)
 from ..domain.value_objects import GROWTH_INTENT_BOUNDARY, GrowthHypothesisDecisionType
 from .ports import AssessmentInterpretationPort, AssessmentRepositoryPort
 from .queries import _map_hypothesis
@@ -45,18 +50,26 @@ class DecideGrowthHypothesisCommand:
 
 
 class GrowthHypothesisCommandHandler:
-    def __init__(self, repository: AssessmentRepositoryPort, interpretation: AssessmentInterpretationPort):
+    def __init__(
+        self, repository: AssessmentRepositoryPort, interpretation: AssessmentInterpretationPort
+    ):
         self._repository = repository
         self._interpretation = interpretation
 
     async def decide(self, command: DecideGrowthHypothesisCommand) -> dict:
         if not command.idempotency_key or not command.idempotency_key.strip():
             raise AssessmentValidationError("idempotency_key_required")
-        if not _is_uuid(command.assessment_session_id) or not command.hypothesis_ref.strip() or command.decision_type not in ("CONFIRM", "DISMISS"):
+        if (
+            not _is_uuid(command.assessment_session_id)
+            or not command.hypothesis_ref.strip()
+            or command.decision_type not in ("CONFIRM", "DISMISS")
+        ):
             raise AssessmentValidationError("valid_hypothesis_decision_required")
 
         action: Literal["CONFIRM_GROWTH_HYPOTHESIS", "DISMISS_GROWTH_HYPOTHESIS"] = (
-            "CONFIRM_GROWTH_HYPOTHESIS" if command.decision_type == "CONFIRM" else "DISMISS_GROWTH_HYPOTHESIS"
+            "CONFIRM_GROWTH_HYPOTHESIS"
+            if command.decision_type == "CONFIRM"
+            else "DISMISS_GROWTH_HYPOTHESIS"
         )
         request_hash = _hash_request(
             {
@@ -66,7 +79,9 @@ class GrowthHypothesisCommandHandler:
             }
         )
 
-        await self._repository.lock_hypothesis_decision(command.tenant_id, command.family_id, command.hypothesis_ref)
+        await self._repository.lock_hypothesis_decision(
+            command.tenant_id, command.family_id, command.hypothesis_ref
+        )
         replay = await self._repository.load_hypothesis_decision_replay(
             command.tenant_id, command.family_id, command.decision_type, command.idempotency_key
         )
@@ -75,19 +90,25 @@ class GrowthHypothesisCommandHandler:
                 raise AssessmentConflictError("idempotency_key_payload_mismatch")
             return {**replay["response_body"], "replayed": True}
 
-        await self._repository.assert_tenant_family_scope(command.tenant_id, command.family_id, command.actor_id)
+        await self._repository.assert_tenant_family_scope(
+            command.tenant_id, command.family_id, command.actor_id
+        )
         evidence = await self._repository.load_hypothesis_evidence(
             command.family_id, command.tenant_id, command.assessment_session_id
         )
         if evidence is None:
             raise AssessmentNotFoundError("growth_hypothesis_not_found")
 
-        interpretation = await self._interpretation.interpret(command.family_id, evidence, "DEEP_AI_INTERPRETATION")
+        interpretation = await self._interpretation.interpret(
+            command.family_id, evidence, "DEEP_AI_INTERPRETATION"
+        )
         hypothesis = _map_hypothesis(evidence, interpretation)
         if hypothesis["hypothesis_ref"] != command.hypothesis_ref:
             raise AssessmentConflictError("growth_hypothesis_reference_mismatch")
 
-        await self._repository.assert_subject_consent(command.family_id, evidence.subject_person_id, "ASSESSMENT")
+        await self._repository.assert_subject_consent(
+            command.family_id, evidence.subject_person_id, "ASSESSMENT"
+        )
 
         intent: dict | None = None
         if command.decision_type == "CONFIRM":

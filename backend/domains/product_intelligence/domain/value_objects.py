@@ -9,6 +9,7 @@ review on PR #27, items 4/5): actor identity/type must come from a trusted
 request fields, and hypothesis validation must be a real state-machine
 transition, not a string-prefix check.
 """
+
 from __future__ import annotations
 
 from typing import Literal

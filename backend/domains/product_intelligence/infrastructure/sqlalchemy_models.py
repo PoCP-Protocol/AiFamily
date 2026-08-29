@@ -8,6 +8,7 @@ are used for list fields so the same models work against both real
 Postgres and the SQLite engine used by this PR's tests (Override #6 item 4
 — no real-PG integration test in this PR yet).
 """
+
 from __future__ import annotations
 
 from sqlalchemy import Column, Float, Integer, String, Text

@@ -154,9 +154,7 @@ class SqlAlchemyProductIntelligenceRepository:
     async def save_value_architecture(self, entity: ValueArchitecture) -> None:
         await self._merge(m.ValueArchitectureRow(**entity.model_dump()))
 
-    async def load_value_architecture(
-        self, entity_id: str, tenant_scope: str
-    ) -> ValueArchitecture:
+    async def load_value_architecture(self, entity_id: str, tenant_scope: str) -> ValueArchitecture:
         row = await self._get_scoped(
             m.ValueArchitectureRow, entity_id, tenant_scope, "value_architecture_not_found"
         )

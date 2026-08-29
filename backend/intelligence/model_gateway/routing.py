@@ -58,6 +58,8 @@ class RoutingModelGateway:
         # Unreachable: the loop either returns, raises, or exhausts with the final
         # iteration re-raising. Kept as a typed guard rather than an assert so a
         # future edit to the loop cannot silently return None.
-        raise last_error if last_error is not None else ModelGatewayError(
-            "POLICY_REJECTED", "no provider was attempted"
+        raise (
+            last_error
+            if last_error is not None
+            else ModelGatewayError("POLICY_REJECTED", "no provider was attempted")
         )

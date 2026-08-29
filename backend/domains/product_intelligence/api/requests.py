@@ -10,6 +10,7 @@ human-submitted request or vice versa. `ValidateGrowthHypothesisRequest`'s
 `human_actor` field is replaced by `reason` — actor identity/type come from
 `ActorContext`, not a client-supplied field.
 """
+
 from __future__ import annotations
 
 from pydantic import BaseModel

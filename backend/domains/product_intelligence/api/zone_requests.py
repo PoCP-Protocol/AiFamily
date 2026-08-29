@@ -3,6 +3,7 @@ governance endpoints. Same convention as `api/requests.py`: actor identity/
 `tenant_scope` never appear in a request body — they come exclusively from
 `ActorContext` (see `api/dependencies.py::get_actor_context`).
 """
+
 from __future__ import annotations
 
 from datetime import datetime

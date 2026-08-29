@@ -279,7 +279,11 @@ class ContradictionModel(_CommonFields, _AiProvenanceFields):
                 "contradiction_submit_for_review_illegal_source_state"
             )
         return self.model_copy(
-            update={"status": "UNDER_REVIEW", "updated_at": datetime.now(UTC), "version": self.version + 1}
+            update={
+                "status": "UNDER_REVIEW",
+                "updated_at": datetime.now(UTC),
+                "version": self.version + 1,
+            }
         )
 
     def decide_review(
@@ -327,7 +331,9 @@ class ContradictionModel(_CommonFields, _AiProvenanceFields):
         contradictions, which a single entity method cannot see).
         """
         if self.status != "APPROVED":
-            raise ProductIntelligenceValidationError("contradiction_mark_primary_requires_approved_status")
+            raise ProductIntelligenceValidationError(
+                "contradiction_mark_primary_requires_approved_status"
+            )
         return self.model_copy(
             update={
                 "primary_rank": rank,

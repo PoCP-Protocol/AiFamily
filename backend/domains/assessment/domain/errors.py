@@ -5,6 +5,7 @@ codes (400/403/404/409), mirroring the Nest exception types used in
 Keeping the same error-code strings (`assessment_*`, `growth_hypothesis_*`)
 preserves API-observable behavior across the port.
 """
+
 from __future__ import annotations
 
 

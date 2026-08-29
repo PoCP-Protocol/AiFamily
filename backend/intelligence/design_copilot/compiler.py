@@ -14,6 +14,7 @@ that domain is the sole canonical source for this business entity (see
 `packages_contracts_provenance` entry's note about `product_factory.py`
 being retired as a duplicate canonical source).
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

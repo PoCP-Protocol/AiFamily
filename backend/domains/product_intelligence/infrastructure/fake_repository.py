@@ -139,9 +139,7 @@ class FakeProductIntelligenceRepository:
     async def save_value_architecture(self, entity: ValueArchitecture) -> None:
         self._value_architectures[entity.id] = entity
 
-    async def load_value_architecture(
-        self, entity_id: str, tenant_scope: str
-    ) -> ValueArchitecture:
+    async def load_value_architecture(self, entity_id: str, tenant_scope: str) -> ValueArchitecture:
         return self._get_scoped(
             self._value_architectures, entity_id, tenant_scope, "value_architecture_not_found"
         )

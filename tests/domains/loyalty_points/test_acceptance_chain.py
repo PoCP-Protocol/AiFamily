@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from backend.domains.loyalty_points.application import commands, queries
 from backend.domains.loyalty_points.domain.policies import compute_balance
-
 from tests.domains.loyalty_points.helpers import (
     FAMILY,
     ITEM_CONSULTATION,

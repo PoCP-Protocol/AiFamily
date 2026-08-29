@@ -11,19 +11,28 @@ Alembic ownership of this schema only begins at cutover (`NEST_ACTIVE →
 PYTHON_READY → CUTOVER`), not before — this repository is the "PYTHON_READY"
 stage: correct against the existing schema, not yet the sole writer.
 """
+
 from __future__ import annotations
 
 import json
-from datetime import datetime
 
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..application.ports import AssessmentRepositoryPort
 from ..domain.entities import AssessmentResponse, AssessmentSession, GrowthHypothesisEvidence
-from ..domain.errors import AssessmentConflictError, AssessmentForbiddenError, AssessmentNotFoundError
+from ..domain.errors import (
+    AssessmentConflictError,
+    AssessmentForbiddenError,
+    AssessmentNotFoundError,
+)
 from ..domain.permission_policy import CREATE_FAMILY_ACTION, FAMILY_MANAGE_ROLES
-from ..domain.value_objects import AssessmentSessionStatus, AssessmentTool, AssessmentToolBoundary, AssessmentToolItem
+from ..domain.value_objects import (
+    AssessmentSessionStatus,
+    AssessmentTool,
+    AssessmentToolBoundary,
+    AssessmentToolItem,
+)
 
 
 def _decode_jsonb(raw):
@@ -81,7 +90,9 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
     def __init__(self, connection: AsyncConnection):
         self._connection = connection
 
-    async def assert_tenant_family_scope(self, tenant_id: str, family_id: str, actor_id: str) -> None:
+    async def assert_tenant_family_scope(
+        self, tenant_id: str, family_id: str, actor_id: str
+    ) -> None:
         # Port of AssessmentService.assertScope: the tenant_family_bindings
         # check, followed by assertFamilyManagePermission (family-permission.ts).
         result = await self._connection.execute(
@@ -108,7 +119,8 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
             text(
                 """
                 select 1 from audit_logs
-                where family_id=:family_id and actor_id=:actor_id and action_name=:action and result='SUCCESS'
+                where family_id=:family_id and actor_id=:actor_id and action_name=:action and
+                result='SUCCESS'
                 limit 1
                 """
             ),
@@ -138,7 +150,9 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
 
         raise AssessmentForbiddenError("actor_has_family_manage_permission")
 
-    async def assert_subject_consent(self, family_id: str, subject_person_id: str, purpose: str) -> None:
+    async def assert_subject_consent(
+        self, family_id: str, subject_person_id: str, purpose: str
+    ) -> None:
         result = await self._connection.execute(
             text(
                 """
@@ -161,7 +175,8 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
         result = await self._connection.execute(
             text(
                 """
-                select tool_ref,version_no,title,purpose,evidence_level,schema_ref,item_schema,boundary
+                select
+                tool_ref,version_no,title,purpose,evidence_level,schema_ref,item_schema,boundary
                 from family_assessment_tools
                 where tool_ref=:tool_ref and status='ACTIVE' and admission_status='ADMITTED'
                   and effective_from<=now() and (effective_to is null or effective_to>now())
@@ -176,7 +191,8 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
     async def load_tool_version(self, tool_ref: str, version_no: int) -> AssessmentTool:
         result = await self._connection.execute(
             text(
-                "select tool_ref,version_no,title,purpose,evidence_level,schema_ref,item_schema,boundary "
+                "select "
+                "tool_ref,version_no,title,purpose,evidence_level,schema_ref,item_schema,boundary "
                 "from family_assessment_tools where tool_ref=:tool_ref and version_no=:version_no"
             ),
             {"tool_ref": tool_ref, "version_no": version_no},
@@ -193,7 +209,8 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
                 select p.person_id, p.display_name,
                        exists(
                          select 1 from consents c where c.family_id=p.family_id
-                           and c.subject_person_id=p.person_id and c.purpose='ASSESSMENT' and c.status='GRANTED'
+                           and c.subject_person_id=p.person_id and c.purpose='ASSESSMENT' and
+                           c.status='GRANTED'
                        ) consent_granted
                 from persons p
                 where p.family_id=:family_id and p.person_type='CHILD'
@@ -203,11 +220,17 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
             {"family_id": family_id},
         )
         return [
-            {"person_id": str(row.person_id), "display_name": row.display_name, "consent_granted": row.consent_granted}
+            {
+                "person_id": str(row.person_id),
+                "display_name": row.display_name,
+                "consent_granted": row.consent_granted,
+            }
             for row in result
         ]
 
-    async def load_recent_sessions(self, tenant_id: str, family_id: str, limit: int = 10) -> list[AssessmentSession]:
+    async def load_recent_sessions(
+        self, tenant_id: str, family_id: str, limit: int = 10
+    ) -> list[AssessmentSession]:
         result = await self._connection.execute(
             text(
                 """
@@ -218,15 +241,19 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
             ),
             {"tenant_id": tenant_id, "family_id": family_id, "limit": limit},
         )
-        return [await self.load_session(family_id, str(row.assessment_session_id)) for row in result]
+        return [
+            await self.load_session(family_id, str(row.assessment_session_id)) for row in result
+        ]
 
     async def load_session(self, family_id: str, session_id: str) -> AssessmentSession:
         result = await self._connection.execute(
             text(
                 """
-                select assessment_session_id,family_id,subject_person_id,tool_ref,tool_version,status,
+                select
+                assessment_session_id,family_id,subject_person_id,tool_ref,tool_version,status,
                        started_at,submitted_at,row_version
-                from family_assessment_sessions where assessment_session_id=:session_id and family_id=:family_id
+                from family_assessment_sessions where assessment_session_id=:session_id and
+                family_id=:family_id
                 """
             ),
             {"session_id": session_id, "family_id": family_id},
@@ -247,7 +274,9 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
             responses=await self._load_responses(session_id),
         )
 
-    async def load_session_for_update(self, family_id: str, tenant_id: str, session_id: str) -> AssessmentSession:
+    async def load_session_for_update(
+        self, family_id: str, tenant_id: str, session_id: str
+    ) -> AssessmentSession:
         # Port of loadSessionRowForUpdate — `for update` row lock; caller's
         # transaction must remain open for the lock to hold, same as the
         # NestJS withTransaction block.
@@ -256,7 +285,8 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
                 """
                 select status,subject_person_id,tool_ref,tool_version
                 from family_assessment_sessions
-                where assessment_session_id=:session_id and family_id=:family_id and tenant_id=:tenant_id
+                where assessment_session_id=:session_id and family_id=:family_id and
+                tenant_id=:tenant_id
                 for update
                 """
             ),
@@ -266,12 +296,15 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
             raise AssessmentNotFoundError("assessment_session_not_found")
         return await self.load_session(family_id, session_id)
 
-    async def find_in_progress_session(self, tenant_id, family_id, subject_person_id, tool_ref, tool_version) -> str | None:
+    async def find_in_progress_session(
+        self, tenant_id, family_id, subject_person_id, tool_ref, tool_version
+    ) -> str | None:
         result = await self._connection.execute(
             text(
                 """
                 select assessment_session_id from family_assessment_sessions
-                where tenant_id=:tenant_id and family_id=:family_id and subject_person_id=:subject_id
+                where tenant_id=:tenant_id and family_id=:family_id and
+                subject_person_id=:subject_id
                   and tool_ref=:tool_ref and tool_version=:tool_version and status='IN_PROGRESS'
                 order by updated_at desc limit 1 for update
                 """
@@ -287,11 +320,14 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
         row = result.first()
         return str(row.assessment_session_id) if row else None
 
-    async def insert_session(self, tenant_id, family_id, subject_person_id, tool_ref, tool_version, started_by) -> str:
+    async def insert_session(
+        self, tenant_id, family_id, subject_person_id, tool_ref, tool_version, started_by
+    ) -> str:
         result = await self._connection.execute(
             text(
                 """
-                insert into family_assessment_sessions(tenant_id,family_id,subject_person_id,tool_ref,tool_version,started_by_person_id)
+                insert into family_assessment_sessions(tenant_id,family_id,subject_person_id,
+                tool_ref,tool_version,started_by_person_id)
                 values (:tenant_id,:family_id,:subject_id,:tool_ref,:tool_version,:started_by)
                 returning assessment_session_id
                 """
@@ -307,11 +343,15 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
         )
         return str(result.first().assessment_session_id)
 
-    async def upsert_response(self, session_id, item_ref, response_type, response_value, actor_id) -> None:
+    async def upsert_response(
+        self, session_id, item_ref, response_type, response_value, actor_id
+    ) -> None:
         previous = await self._connection.execute(
             text(
                 "select revision from family_assessment_responses "
-                "where assessment_session_id=:session_id and item_ref=:item_ref and is_current=true for update"
+                "where assessment_session_id=:session_id and item_ref=:item_ref "
+                "and is_current=true "
+                "for update"
             ),
             {"session_id": session_id, "item_ref": item_ref},
         )
@@ -326,8 +366,10 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
         await self._connection.execute(
             text(
                 """
-                insert into family_assessment_responses(assessment_session_id,item_ref,response_type,response_value,author_person_id,revision)
-                values (:session_id,:item_ref,:response_type,cast(:response_value as jsonb),:actor_id,:revision)
+                insert into family_assessment_responses(assessment_session_id,item_ref,
+                response_type,response_value,author_person_id,revision)
+                values (:session_id,:item_ref,:response_type,cast(:response_value as
+                jsonb),:actor_id,:revision)
                 """
             ),
             {
@@ -340,7 +382,10 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
             },
         )
         await self._connection.execute(
-            text("update family_assessment_sessions set row_version=row_version+1,updated_at=now() where assessment_session_id=:session_id"),
+            text(
+                "update family_assessment_sessions set row_version=row_version+1,updated_at=now() "
+                "where assessment_session_id=:session_id"
+            ),
             {"session_id": session_id},
         )
 
@@ -353,12 +398,16 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
             {"session_id": session_id},
         )
 
-    async def insert_assessment_evidence(self, family_id: str, session_id: str, payload: dict) -> str:
+    async def insert_assessment_evidence(
+        self, family_id: str, session_id: str, payload: dict
+    ) -> str:
         result = await self._connection.execute(
             text(
                 """
-                insert into evidence_records(family_id,evidence_type,source_ref,payload,observed_at,source,evidence_level)
-                values (:family_id,'ASSESSMENT_RESPONSE_SET',:session_id,cast(:payload as jsonb),now(),'PARENT','E1')
+                insert into evidence_records(family_id,evidence_type,source_ref,payload,observed_at,
+                source,evidence_level)
+                values (:family_id,'ASSESSMENT_RESPONSE_SET',:session_id,cast(:payload as
+                jsonb),now(),'PARENT','E1')
                 returning evidence_id
                 """
             ),
@@ -369,7 +418,8 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
     async def tenant_allows_page(self, tenant_id: str, page_id: str) -> bool:
         result = await self._connection.execute(
             text(
-                "select allowed_pages from tenant_policy_profiles where tenant_id=:tenant_id and status='ACTIVE' "
+                "select allowed_pages from tenant_policy_profiles where tenant_id=:tenant_id and "
+                "status='ACTIVE' "
                 "order by created_at desc limit 1"
             ),
             {"tenant_id": tenant_id},
@@ -378,19 +428,29 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
         allowed_pages = row.allowed_pages if row else None
         return page_id in (allowed_pages or [])
 
-    async def lock_operation(self, tenant_id: str, family_id: str, action: str, idempotency_key: str) -> None:
+    async def lock_operation(
+        self, tenant_id: str, family_id: str, action: str, idempotency_key: str
+    ) -> None:
         await self._connection.execute(
             text("select pg_advisory_xact_lock(hashtextextended(:lock_key,0))"),
             {"lock_key": f"{tenant_id}:{family_id}:{action}:{idempotency_key}"},
         )
 
-    async def load_operation_replay(self, tenant_id, family_id, action, idempotency_key, request_hash) -> dict | None:
+    async def load_operation_replay(
+        self, tenant_id, family_id, action, idempotency_key, request_hash
+    ) -> dict | None:
         result = await self._connection.execute(
             text(
                 "select request_hash,response_body from family_assessment_operations "
-                "where tenant_id=:tenant_id and family_id=:family_id and action_name=:action and idempotency_key=:key"
+                "where tenant_id=:tenant_id and family_id=:family_id and action_name=:action and "
+                "idempotency_key=:key"
             ),
-            {"tenant_id": tenant_id, "family_id": family_id, "action": action, "key": idempotency_key},
+            {
+                "tenant_id": tenant_id,
+                "family_id": family_id,
+                "action": action,
+                "key": idempotency_key,
+            },
         )
         row = result.first()
         if row is None:
@@ -400,12 +460,26 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
         body = _decode_jsonb(row.response_body)
         return body
 
-    async def persist_operation(self, tenant_id, family_id, session_id, actor_id, action, request_hash, receipt, correlation_id, idempotency_key) -> None:
+    async def persist_operation(
+        self,
+        tenant_id,
+        family_id,
+        session_id,
+        actor_id,
+        action,
+        request_hash,
+        receipt,
+        correlation_id,
+        idempotency_key,
+    ) -> None:
         await self._connection.execute(
             text(
                 """
-                insert into family_assessment_operations(tenant_id,family_id,assessment_session_id,action_name,actor_person_id,idempotency_key,request_hash,response_body,correlation_id)
-                values (:tenant_id,:family_id,:session_id,:action,:actor_id,:idempotency_key,:request_hash,cast(:receipt as jsonb),:correlation_id)
+                insert into family_assessment_operations(tenant_id,family_id,assessment_session_id,
+                action_name,actor_person_id,idempotency_key,request_hash,response_body,
+                correlation_id)
+                values (:tenant_id,:family_id,:session_id,:action,:actor_id,:idempotency_key,
+                :request_hash,cast(:receipt as jsonb),:correlation_id)
                 """
             ),
             {
@@ -421,12 +495,25 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
             },
         )
 
-    async def write_audit_and_outbox(self, family_id, actor_id, session_id, action, event_name, receipt, correlation_id, idempotency_key, source) -> None:
+    async def write_audit_and_outbox(
+        self,
+        family_id,
+        actor_id,
+        session_id,
+        action,
+        event_name,
+        receipt,
+        correlation_id,
+        idempotency_key,
+        source,
+    ) -> None:
         await self._connection.execute(
             text(
                 """
-                insert into audit_logs(family_id,actor_type,actor_id,action_name,resource_type,resource_id,correlation_id,idempotency_key,result,metadata)
-                values (:family_id,'PERSON',:actor_id,:action,'ASSESSMENT_SESSION',:session_id,:correlation_id,:idempotency_key,'SUCCESS',cast(:metadata as jsonb))
+                insert into audit_logs(family_id,actor_type,actor_id,action_name,resource_type,
+                resource_id,correlation_id,idempotency_key,result,metadata)
+                values (:family_id,'PERSON',:actor_id,:action,'ASSESSMENT_SESSION',:session_id,
+                :correlation_id,:idempotency_key,'SUCCESS',cast(:metadata as jsonb))
                 """
             ),
             {
@@ -449,8 +536,10 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
         await self._connection.execute(
             text(
                 """
-                insert into outbox_events(aggregate_type,aggregate_id,event_name,event_version,event_id,correlation_id,payload,occurred_at)
-                values ('ASSESSMENT_SESSION',:session_id,:event_name,1,gen_random_uuid(),:correlation_id,cast(:payload as jsonb),now())
+                insert into outbox_events(aggregate_type,aggregate_id,event_name,event_version,
+                event_id,correlation_id,payload,occurred_at)
+                values ('ASSESSMENT_SESSION',:session_id,:event_name,1,gen_random_uuid(),
+                :correlation_id,cast(:payload as jsonb),now())
                 """
             ),
             {
@@ -471,25 +560,41 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
             },
         )
 
-    async def load_hypothesis_evidence(self, family_id, tenant_id, session_id=None) -> GrowthHypothesisEvidence | None:
+    async def load_hypothesis_evidence(
+        self, family_id, tenant_id, session_id=None
+    ) -> GrowthHypothesisEvidence | None:
         result = await self._connection.execute(
             text(
                 """
-                select s.assessment_session_id,s.subject_person_id,p.display_name subject_display_name,s.submitted_at,
+                select s.assessment_session_id,s.subject_person_id,p.display_name
+                subject_display_name,s.submitted_at,
                        s.tool_ref,s.tool_version,
-                       r.assessment_response_id,r.response_value #>> '{}' focus_ref,e.evidence_id assessment_evidence_id,
-                       nt.need_type_ref,nt.version_no need_type_version,nt.title,nt.description,nt.required_capability_keys,
-                       jsonb_agg(jsonb_build_object('item_ref',ar.item_ref,'response_type',ar.response_type,'response_value',ar.response_value) order by ar.item_ref) response_set
+                       r.assessment_response_id,r.response_value #>> '{}' focus_ref,e.evidence_id
+                       assessment_evidence_id,
+                       nt.need_type_ref,nt.version_no
+                       need_type_version,nt.title,nt.description,nt.required_capability_keys,
+                       jsonb_agg(jsonb_build_object('item_ref',ar.item_ref,'response_type',
+                       ar.response_type,'response_value',ar.response_value) order by ar.item_ref)
+                       response_set
                 from family_assessment_sessions s
                 join persons p on p.person_id=s.subject_person_id and p.family_id=s.family_id
-                join family_assessment_responses r on r.assessment_session_id=s.assessment_session_id and r.item_ref='FOCUS' and r.is_current=true
-                join family_assessment_responses ar on ar.assessment_session_id=s.assessment_session_id and ar.is_current=true
-                join evidence_records e on e.family_id=s.family_id and e.source_ref=s.assessment_session_id::text and e.evidence_type='ASSESSMENT_RESPONSE_SET'
-                join family_need_types nt on nt.source_focus_ref=(r.response_value #>> '{}') and nt.status='ACTIVE' and nt.admission_status='ADMITTED'
-                     and nt.effective_from<=now() and (nt.effective_to is null or nt.effective_to>now())
+                join family_assessment_responses r on
+                r.assessment_session_id=s.assessment_session_id and r.item_ref='FOCUS' and
+                r.is_current=true
+                join family_assessment_responses ar on
+                ar.assessment_session_id=s.assessment_session_id and ar.is_current=true
+                join evidence_records e on e.family_id=s.family_id and
+                e.source_ref=s.assessment_session_id::text and
+                e.evidence_type='ASSESSMENT_RESPONSE_SET'
+                join family_need_types nt on nt.source_focus_ref=(r.response_value #>> '{}') and
+                nt.status='ACTIVE' and nt.admission_status='ADMITTED'
+                     and nt.effective_from<=now() and (nt.effective_to is null or
+                     nt.effective_to>now())
                 where s.family_id=:family_id and s.tenant_id=:tenant_id and s.status='SUBMITTED'
-                  and (cast(:session_id as uuid) is null or s.assessment_session_id=cast(:session_id as uuid))
-                group by s.assessment_session_id,s.subject_person_id,p.display_name,s.submitted_at,s.tool_ref,s.tool_version,
+                  and (cast(:session_id as uuid) is null or s.assessment_session_id=cast(:session_id
+                  as uuid))
+                group by s.assessment_session_id,s.subject_person_id,p.display_name,s.submitted_at,
+                s.tool_ref,s.tool_version,
                          r.assessment_response_id,r.response_value,e.evidence_id,nt.need_type_ref,nt.version_no,nt.title,nt.description,nt.required_capability_keys
                 order by s.submitted_at desc,nt.version_no desc,e.created_at desc limit 1
                 """
@@ -519,12 +624,22 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
         )
 
     async def load_or_create_growth_intent(
-        self, *, family_id, subject_person_id, need_type, goal_text, required_capability_keys, confirmed_by, source_ref, evidence_refs
+        self,
+        *,
+        family_id,
+        subject_person_id,
+        need_type,
+        goal_text,
+        required_capability_keys,
+        confirmed_by,
+        source_ref,
+        evidence_refs,
     ) -> dict:
         existing = await self._connection.execute(
             text(
                 "select intent_id,need_type,status,required_capability_keys,evidence_refs,boundary "
-                "from growth_intents where family_id=:family_id and source_type='ASSESSMENT_HYPOTHESIS' and source_ref=:source_ref limit 1 for update"
+                "from growth_intents where family_id=:family_id and "
+                "source_type='ASSESSMENT_HYPOTHESIS' and source_ref=:source_ref limit 1 for update"
             ),
             {"family_id": family_id, "source_ref": source_ref},
         )
@@ -535,8 +650,12 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
         inserted = await self._connection.execute(
             text(
                 """
-                insert into growth_intents(family_id,subject_person_id,signal_ref,need_type,goal_text,required_capability_keys,status,confirmed_by,source_type,source_ref,evidence_refs,boundary)
-                values (:family_id,:subject_id,null,:need_type,:goal_text,:capability_keys,'OPEN',:confirmed_by,'ASSESSMENT_HYPOTHESIS',:source_ref,:evidence_refs,'HUMAN_CONFIRMED_INTENT_NOT_OUTCOME')
+                insert into growth_intents(family_id,subject_person_id,signal_ref,need_type,
+                goal_text,required_capability_keys,status,confirmed_by,source_type,source_ref,
+                evidence_refs,boundary)
+                values (:family_id,:subject_id,null,:need_type,:goal_text,:capability_keys,'OPEN',
+                :confirmed_by,'ASSESSMENT_HYPOTHESIS',:source_ref,:evidence_refs,
+                'HUMAN_CONFIRMED_INTENT_NOT_OUTCOME')
                 returning intent_id,need_type,status,required_capability_keys,evidence_refs,boundary
                 """
             ),
@@ -553,19 +672,29 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
         )
         return _map_intent_row(inserted.first())
 
-    async def lock_hypothesis_decision(self, tenant_id: str, family_id: str, hypothesis_ref: str) -> None:
+    async def lock_hypothesis_decision(
+        self, tenant_id: str, family_id: str, hypothesis_ref: str
+    ) -> None:
         await self._connection.execute(
             text("select pg_advisory_xact_lock(hashtextextended(:lock_key,0))"),
             {"lock_key": f"{tenant_id}:{family_id}:{hypothesis_ref}"},
         )
 
-    async def load_hypothesis_decision_replay(self, tenant_id, family_id, decision_type, idempotency_key) -> dict | None:
+    async def load_hypothesis_decision_replay(
+        self, tenant_id, family_id, decision_type, idempotency_key
+    ) -> dict | None:
         result = await self._connection.execute(
             text(
                 "select request_hash,response_body from family_growth_hypothesis_decisions "
-                "where tenant_id=:tenant_id and family_id=:family_id and decision_type=:decision_type and idempotency_key=:key"
+                "where tenant_id=:tenant_id and family_id=:family_id and "
+                "decision_type=:decision_type and idempotency_key=:key"
             ),
-            {"tenant_id": tenant_id, "family_id": family_id, "decision_type": decision_type, "key": idempotency_key},
+            {
+                "tenant_id": tenant_id,
+                "family_id": family_id,
+                "decision_type": decision_type,
+                "key": idempotency_key,
+            },
         )
         row = result.first()
         if row is None:
@@ -574,13 +703,28 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
         return {"request_hash": row.request_hash, "response_body": body}
 
     async def persist_hypothesis_decision(
-        self, *, tenant_id, family_id, session_id, hypothesis_ref, decision_type, actor_id, intent_id, idempotency_key, request_hash, receipt, correlation_id
+        self,
+        *,
+        tenant_id,
+        family_id,
+        session_id,
+        hypothesis_ref,
+        decision_type,
+        actor_id,
+        intent_id,
+        idempotency_key,
+        request_hash,
+        receipt,
+        correlation_id,
     ) -> None:
         await self._connection.execute(
             text(
                 """
-                insert into family_growth_hypothesis_decisions(tenant_id,family_id,assessment_session_id,hypothesis_ref,decision_type,actor_person_id,intent_id,idempotency_key,request_hash,response_body,correlation_id)
-                values (:tenant_id,:family_id,:session_id,:hypothesis_ref,:decision_type,:actor_id,:intent_id,:idempotency_key,:request_hash,cast(:receipt as jsonb),:correlation_id)
+                insert into family_growth_hypothesis_decisions(tenant_id,family_id,
+                assessment_session_id,hypothesis_ref,decision_type,actor_person_id,intent_id,
+                idempotency_key,request_hash,response_body,correlation_id)
+                values (:tenant_id,:family_id,:session_id,:hypothesis_ref,:decision_type,:actor_id,
+                :intent_id,:idempotency_key,:request_hash,cast(:receipt as jsonb),:correlation_id)
                 """
             ),
             {
@@ -601,8 +745,10 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
     async def _load_responses(self, session_id: str) -> list[AssessmentResponse]:
         result = await self._connection.execute(
             text(
-                "select assessment_response_id,item_ref,response_type,response_value,revision,captured_at,visibility "
-                "from family_assessment_responses where assessment_session_id=:session_id and is_current=true "
+                "select assessment_response_id,item_ref,response_type,response_value,"
+                "revision,captured_at,visibility "
+                "from family_assessment_responses where assessment_session_id=:session_id and "
+                "is_current=true "
                 "order by captured_at,assessment_response_id"
             ),
             {"session_id": session_id},

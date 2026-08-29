@@ -24,6 +24,7 @@ Four checks, all must pass or this raises:
    this function only enforces the count is small enough that "primary"
    still means something.
 """
+
 from __future__ import annotations
 
 import re
@@ -58,7 +59,9 @@ def assert_interpretation_boundary(draft: dict, legal_construct_refs: set[str]) 
         if signal.get("boundary") != "signal_not_diagnosis":
             raise AssessmentValidationError("construct_signal_missing_boundary")
         if signal.get("construct_ref") not in legal_construct_refs:
-            raise AssessmentValidationError(f"construct_ref_not_in_reviewed_registry:{signal.get('construct_ref')}")
+            raise AssessmentValidationError(
+                f"construct_ref_not_in_reviewed_registry:{signal.get('construct_ref')}"
+            )
 
     primary_contradiction_count = 0
     for hypothesis in draft.get("hypotheses", []):
@@ -66,7 +69,9 @@ def assert_interpretation_boundary(draft: dict, legal_construct_refs: set[str]) 
             raise AssessmentValidationError("hypothesis_missing_boundary")
         for construct_ref in hypothesis.get("construct_refs", []):
             if construct_ref not in legal_construct_refs:
-                raise AssessmentValidationError(f"construct_ref_not_in_reviewed_registry:{construct_ref}")
+                raise AssessmentValidationError(
+                    f"construct_ref_not_in_reviewed_registry:{construct_ref}"
+                )
         if hypothesis.get("is_primary_contradiction"):
             primary_contradiction_count += 1
 
@@ -78,7 +83,9 @@ def assert_interpretation_boundary(draft: dict, legal_construct_refs: set[str]) 
     # both adapters pass through, is cheaper and harder to bypass than expecting
     # every future caller to re-derive and check this count itself.
     if primary_contradiction_count > 3:
-        raise AssessmentValidationError(f"too_many_primary_contradictions:{primary_contradiction_count}")
+        raise AssessmentValidationError(
+            f"too_many_primary_contradictions:{primary_contradiction_count}"
+        )
 
     for action_candidate in draft.get("action_candidates", []):
         if action_candidate.get("boundary") != "recommendation_not_decision":

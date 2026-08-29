@@ -11,6 +11,7 @@ test double), same as every other repository-port method in this domain.
 This module only holds the policy's fixed vocabulary, so both
 implementations reference the same literals instead of re-typing them.
 """
+
 from __future__ import annotations
 
 # Port of `CREATE_FAMILY_ACTION` in family-permission.ts — the legacy

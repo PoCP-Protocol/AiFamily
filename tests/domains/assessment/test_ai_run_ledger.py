@@ -12,10 +12,13 @@ See `governance/MIGRATION_MANIFEST.yaml` → `assessment_ai_interpretation_adapt
 (status: BLOCKED) — those tests should be re-added once that adapter is
 rewritten against the Model Gateway.
 """
+
 from __future__ import annotations
 
 from backend.domains.assessment.domain.entities import GrowthHypothesisEvidence
-from backend.domains.assessment.infrastructure.deterministic_interpretation import DeterministicInterpretationAdapter
+from backend.domains.assessment.infrastructure.deterministic_interpretation import (
+    DeterministicInterpretationAdapter,
+)
 from backend.domains.assessment.infrastructure.fake_ai_run_ledger import FakeAiRunLedger
 
 
@@ -35,7 +38,13 @@ def _evidence() -> GrowthHypothesisEvidence:
         title="亲子沟通支持",
         description="先从倾听开始",
         required_capability_keys=["CAP_PARENT_COACHING"],
-        response_set=[{"item_ref": "FOCUS", "response_type": "SINGLE_CHOICE", "response_value": "COMMUNICATION"}],
+        response_set=[
+            {
+                "item_ref": "FOCUS",
+                "response_type": "SINGLE_CHOICE",
+                "response_value": "COMMUNICATION",
+            }
+        ],
     )
 
 
@@ -62,4 +71,6 @@ class TestDeterministicAdapterLedger:
         """Existing call sites that construct with no ledger must keep working."""
         adapter = DeterministicInterpretationAdapter()
         result = await adapter.interpret("family-1", _evidence())
-        assert result["interpretation"]["generator"] == "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC"
+        assert (
+            result["interpretation"]["generator"] == "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC"
+        )

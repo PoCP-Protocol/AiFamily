@@ -26,6 +26,22 @@ jobs:
       - name: Lint (ruff)
         run: uv run ruff check .
 
+      # 格式化门（ADR-0009）。**警告级，不失败** —— 这是 ADR 明写的过渡状态：
+      # 全量 sweep 尚未完成（并发 agent 正在写 backend/platform、backend/apps、
+      # backend/domains/{service,membership} 与 tests/platform，重排会覆盖他们
+      # 未提交的工作），此时设成失败级会立刻制造一个新的长期红灯 —— 正是本次
+      # 任务要消灭的东西。
+      #
+      # `|| true` 让这一步永不阻断，但差异会打进日志，于是"还差多少文件"这件事
+      # 从不可见变成每次 run 都能看到。sweep 收尾的那次任务负责删掉 `|| true`。
+      # 删除它之前请先确认 `ruff format --check .` 本地为零差异。
+      - name: Format check (ruff format) — warning only until sweep completes
+        run: |
+          uv run ruff format --check . || {
+            echo "::warning title=Unformatted files::ruff format --check 报告差异。ADR-0009 的全量 sweep 未完成，此步为警告级，不阻断 CI。"
+            true
+          }
+
       # 架构护栏单独先跑一步：它最快，且失败信息最有诊断价值——
       # 结构性违规应当在业务测试的噪声之前被看到。下一步会再次覆盖它们，
       # 这个重复是有意的（R14：护栏必须在 CI 中运行）。

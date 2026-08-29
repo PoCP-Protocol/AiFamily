@@ -10,6 +10,7 @@ throwaway instance). Skipped entirely if that env var is not set, so this
 suite never silently runs against — or fails to run against — the wrong
 database.
 """
+
 from __future__ import annotations
 
 import os
@@ -30,14 +31,23 @@ from backend.domains.assessment.application.growth_hypothesis_commands import (
     DecideGrowthHypothesisCommand,
     GrowthHypothesisCommandHandler,
 )
-from backend.domains.assessment.application.queries import AssessmentQueryHandler, GetUi02ProjectionQuery, GetUi03ProjectionQuery
-from backend.domains.assessment.infrastructure.deterministic_interpretation import DeterministicInterpretationAdapter
-from backend.domains.assessment.infrastructure.sqlalchemy_repository import SqlAlchemyAssessmentRepository
+from backend.domains.assessment.application.queries import (
+    AssessmentQueryHandler,
+    GetUi02ProjectionQuery,
+    GetUi03ProjectionQuery,
+)
+from backend.domains.assessment.infrastructure.deterministic_interpretation import (
+    DeterministicInterpretationAdapter,
+)
+from backend.domains.assessment.infrastructure.sqlalchemy_repository import (
+    SqlAlchemyAssessmentRepository,
+)
 
 DATABASE_URL = os.environ.get("PY_ASSESSMENT_TEST_DATABASE_URL")
 
 pytestmark = pytest.mark.skipif(
-    not DATABASE_URL, reason="PY_ASSESSMENT_TEST_DATABASE_URL not set — skipping real-Postgres integration tests"
+    not DATABASE_URL,
+    reason="PY_ASSESSMENT_TEST_DATABASE_URL not set — skipping real-Postgres integration tests",
 )
 
 
@@ -72,7 +82,10 @@ async def _seed_family(conn) -> tuple[str, str, str, str]:
         {"id": tenant_id, "ref": f"pyverify-{tenant_id[:8]}"},
     )
     await conn.execute(
-        text("insert into families(family_id, display_name, status) values (:id, '测试家庭', 'ACTIVE')"),
+        text(
+            "insert into families(family_id, display_name, status) "
+            "values (:id, '测试家庭', 'ACTIVE')"
+        ),
         {"id": family_id},
     )
     await conn.execute(
@@ -98,8 +111,10 @@ async def _seed_family(conn) -> tuple[str, str, str, str]:
     )
     await conn.execute(
         text(
-            "insert into consents(family_id, subject_person_id, guardian_person_id, purpose, status, policy_version, granted_at) "
-            "values (:family_id, :subject_id, :guardian_id, 'ASSESSMENT', 'GRANTED', 'PYVERIFY_V1', now())"
+            "insert into consents(family_id, subject_person_id, guardian_person_id, purpose, "
+            "status, policy_version, granted_at) "
+            "values (:family_id, :subject_id, :guardian_id, 'ASSESSMENT', 'GRANTED', "
+            "'PYVERIFY_V1', now())"
         ),
         {"family_id": family_id, "subject_id": child_id, "guardian_id": guardian_id},
     )
@@ -134,18 +149,29 @@ class TestSqlAlchemyRepositoryRealPostgres:
         repo = SqlAlchemyAssessmentRepository(connection)
         commands = AssessmentCommandHandler(repo)
 
-        start = await commands.start(StartAssessmentCommand(family_id, tenant_id, guardian_id, child_id, None, _meta("i1")))
+        start = await commands.start(
+            StartAssessmentCommand(family_id, tenant_id, guardian_id, child_id, None, _meta("i1"))
+        )
         assert start["session"]["status"] == "IN_PROGRESS"
         session_id = start["session"]["assessment_session_id"]
 
         save = await commands.save_response(
             SaveAssessmentResponseCommand(
-                family_id, tenant_id, guardian_id, session_id, "FOCUS", "SINGLE_CHOICE", "PARENT_CHILD_COMMUNICATION", _meta("i2")
+                family_id,
+                tenant_id,
+                guardian_id,
+                session_id,
+                "FOCUS",
+                "SINGLE_CHOICE",
+                "PARENT_CHILD_COMMUNICATION",
+                _meta("i2"),
             )
         )
         assert save["session"]["responses"][0]["response_value"] == "PARENT_CHILD_COMMUNICATION"
 
-        submit = await commands.submit(SubmitAssessmentCommand(family_id, tenant_id, guardian_id, session_id, _meta("i3")))
+        submit = await commands.submit(
+            SubmitAssessmentCommand(family_id, tenant_id, guardian_id, session_id, _meta("i3"))
+        )
         assert submit["session"]["status"] == "SUBMITTED"
         assert submit["evidence_id"] is not None
 
@@ -155,17 +181,25 @@ class TestSqlAlchemyRepositoryRealPostgres:
         commands = AssessmentCommandHandler(repo)
         meta = _meta("idem-real-1")
 
-        first = await commands.start(StartAssessmentCommand(family_id, tenant_id, guardian_id, child_id, None, meta))
-        second = await commands.start(StartAssessmentCommand(family_id, tenant_id, guardian_id, child_id, None, meta))
+        first = await commands.start(
+            StartAssessmentCommand(family_id, tenant_id, guardian_id, child_id, None, meta)
+        )
+        second = await commands.start(
+            StartAssessmentCommand(family_id, tenant_id, guardian_id, child_id, None, meta)
+        )
         assert second["replayed"] is True
-        assert second["session"]["assessment_session_id"] == first["session"]["assessment_session_id"]
+        assert (
+            second["session"]["assessment_session_id"] == first["session"]["assessment_session_id"]
+        )
 
     async def test_ui02_projection_against_real_db(self, connection):
         tenant_id, family_id, child_id, guardian_id = await _seed_family(connection)
         repo = SqlAlchemyAssessmentRepository(connection)
         queries = AssessmentQueryHandler(repo, DeterministicInterpretationAdapter())
 
-        projection = await queries.get_ui02_projection(GetUi02ProjectionQuery(family_id, tenant_id, guardian_id))
+        projection = await queries.get_ui02_projection(
+            GetUi02ProjectionQuery(family_id, tenant_id, guardian_id)
+        )
         assert projection["availability"] == "AVAILABLE"
         assert projection["tool"]["tool_ref"] == "FAMILY_SUPPORT_NEEDS"
 
@@ -176,22 +210,42 @@ class TestSqlAlchemyRepositoryRealPostgres:
         queries = AssessmentQueryHandler(repo, DeterministicInterpretationAdapter())
         growth_commands = GrowthHypothesisCommandHandler(repo, DeterministicInterpretationAdapter())
 
-        start = await commands.start(StartAssessmentCommand(family_id, tenant_id, guardian_id, child_id, None, _meta("g1")))
+        start = await commands.start(
+            StartAssessmentCommand(family_id, tenant_id, guardian_id, child_id, None, _meta("g1"))
+        )
         session_id = start["session"]["assessment_session_id"]
         await commands.save_response(
             SaveAssessmentResponseCommand(
-                family_id, tenant_id, guardian_id, session_id, "FOCUS", "SINGLE_CHOICE", "PARENT_CHILD_COMMUNICATION", _meta("g2")
+                family_id,
+                tenant_id,
+                guardian_id,
+                session_id,
+                "FOCUS",
+                "SINGLE_CHOICE",
+                "PARENT_CHILD_COMMUNICATION",
+                _meta("g2"),
             )
         )
-        await commands.submit(SubmitAssessmentCommand(family_id, tenant_id, guardian_id, session_id, _meta("g3")))
+        await commands.submit(
+            SubmitAssessmentCommand(family_id, tenant_id, guardian_id, session_id, _meta("g3"))
+        )
 
-        projection = await queries.get_ui03_projection(GetUi03ProjectionQuery(family_id, tenant_id, guardian_id))
+        projection = await queries.get_ui03_projection(
+            GetUi03ProjectionQuery(family_id, tenant_id, guardian_id)
+        )
         assert projection["availability"] == "READY"
         hypothesis_ref = projection["hypothesis"]["hypothesis_ref"]
 
         receipt = await growth_commands.decide(
             DecideGrowthHypothesisCommand(
-                family_id, tenant_id, guardian_id, session_id, hypothesis_ref, "CONFIRM", "corr-int-2", "decide-real-1"
+                family_id,
+                tenant_id,
+                guardian_id,
+                session_id,
+                hypothesis_ref,
+                "CONFIRM",
+                "corr-int-2",
+                "decide-real-1",
             )
         )
         assert receipt["outcome"] == "INTENT_CREATED"

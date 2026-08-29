@@ -6,13 +6,16 @@ adapter is behind the port"), including the `is_primary_contradiction` /
 `contradiction_rank` fields added for the primary-contradiction method
 (architecture/FAMILY_COMMERCIAL_VALUE_STRATEGY_V2.md section 8.3/8.4).
 """
+
 from __future__ import annotations
 
 import pytest
 
 from backend.domains.assessment.domain.entities import GrowthHypothesisEvidence
 from backend.domains.assessment.domain.interpretation_boundary import assert_interpretation_boundary
-from backend.domains.assessment.infrastructure.deterministic_interpretation import DeterministicInterpretationAdapter
+from backend.domains.assessment.infrastructure.deterministic_interpretation import (
+    DeterministicInterpretationAdapter,
+)
 
 _LEGAL_CONSTRUCT_REFS = {
     "PARENT_CHILD_COMMUNICATION",
@@ -37,7 +40,9 @@ def _evidence(focus_ref: str = "COMMUNICATION") -> GrowthHypothesisEvidence:
         title="亲子沟通支持",
         description="先从倾听开始",
         required_capability_keys=["CAP_PARENT_COACHING"],
-        response_set=[{"item_ref": "FOCUS", "response_type": "SINGLE_CHOICE", "response_value": focus_ref}],
+        response_set=[
+            {"item_ref": "FOCUS", "response_type": "SINGLE_CHOICE", "response_value": focus_ref}
+        ],
     )
 
 
@@ -87,7 +92,9 @@ class TestDeterministicInterpretationAdapter:
         draft = result["interpretation"]["draft"]
         assert_interpretation_boundary(draft, _LEGAL_CONSTRUCT_REFS)  # does not raise
 
-    @pytest.mark.parametrize("focus_ref", ["COMMUNICATION", "HOMEWORK", "SCREEN_TIME", "UNKNOWN_FOCUS"])
+    @pytest.mark.parametrize(
+        "focus_ref", ["COMMUNICATION", "HOMEWORK", "SCREEN_TIME", "UNKNOWN_FOCUS"]
+    )
     async def test_deterministic_draft_passes_boundary_regardless_of_focus(self, focus_ref):
         adapter = DeterministicInterpretationAdapter()
 

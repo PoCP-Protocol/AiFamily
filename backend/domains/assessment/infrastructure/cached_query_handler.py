@@ -17,10 +17,15 @@ bounded staleness window. A short TTL (default 30s) bounds the staleness to
 a window well under what a family would notice as "my answer didn't save",
 while keeping the mutation handlers cache-agnostic.
 """
+
 from __future__ import annotations
 
 from ..application.ports import AssessmentInterpretationPort, AssessmentRepositoryPort
-from ..application.queries import AssessmentQueryHandler, GetUi02ProjectionQuery, GetUi03ProjectionQuery
+from ..application.queries import (
+    AssessmentQueryHandler,
+    GetUi02ProjectionQuery,
+    GetUi03ProjectionQuery,
+)
 from ..application.query_cache_port import QueryCachePort
 
 DEFAULT_TTL_SECONDS = 30

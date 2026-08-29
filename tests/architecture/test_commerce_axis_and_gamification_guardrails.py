@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import ast
+import contextlib
 import inspect
 from pathlib import Path
 
@@ -111,9 +112,9 @@ CROSS_FAMILY_NAME_TOKENS = (
 # 目录主数据不属于任何家庭(会籍档位定义、积分规则、兑换目录),所以它们的读方法
 # 天然没有 family 作用域。豁免必须逐个列名并说明理由,不许模糊放过。
 CATALOGUE_METHOD_EXEMPTIONS = {
-    "list_tier_definitions",   # PLATFORM/TENANT 档位定义
-    "list_earn_rules",         # 积分发放规则
-    "list_redemption_items",   # 兑换目录
+    "list_tier_definitions",  # PLATFORM/TENANT 档位定义
+    "list_earn_rules",  # 积分发放规则
+    "list_redemption_items",  # 兑换目录
 }
 
 
@@ -191,7 +192,6 @@ async def _membership_screens():
     from backend.domains.membership.infrastructure.fake_repository import (
         FakeMembershipRepository,
     )
-
     from tests.domains.membership.helpers import FAMILY, TENANT, seed_catalogue
 
     repo = FakeMembershipRepository()
@@ -237,7 +237,6 @@ async def _points_screens():
     from backend.domains.loyalty_points.infrastructure.fake_repository import (
         FakeLoyaltyPointsRepository,
     )
-
     from tests.domains.loyalty_points.helpers import (
         FAMILY,
         RULE_CHECKIN,
@@ -261,10 +260,8 @@ async def _points_screens():
 
 async def _all_screens():
     screens = await _membership_screens()
-    try:
+    with contextlib.suppress(ModuleNotFoundError):  # pragma: no cover
         screens += await _points_screens()
-    except ModuleNotFoundError:  # pragma: no cover
-        pass
     return screens
 
 

@@ -23,6 +23,7 @@ constraint), these models are exposed to routes only via `responses=` /
 `openapi_extra` in `routes.py`, which FastAPI merges into the schema without
 touching the actual runtime response.
 """
+
 from __future__ import annotations
 
 from typing import Literal
@@ -168,9 +169,16 @@ class Ui03GrowthHypothesisModel(BaseModel):
     required_capability_keys: list[str]
     source_refs: Ui03SourceRefsModel
     limitations: list[str]
-    generator: Literal["DETERMINISTIC_CATALOG_POLICY_NOT_MODEL", "FAMILY_EDUCATION_ASSESSMENT_MODEL_V0_1"]
+    generator: Literal[
+        "DETERMINISTIC_CATALOG_POLICY_NOT_MODEL", "FAMILY_EDUCATION_ASSESSMENT_MODEL_V0_1"
+    ]
     model_draft_ref: str | None = None
-    model_generator: Literal["FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC", "FAMILY_EDUCATION_MODEL_RUNTIME_GATEWAY"] | None = None
+    model_generator: (
+        Literal[
+            "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC", "FAMILY_EDUCATION_MODEL_RUNTIME_GATEWAY"
+        ]
+        | None
+    ) = None
     model_component_ref: str | None = None
     model_boundary_labels: list[str] | None = None
     need_refs: list[str] | None = None

@@ -6,10 +6,10 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
+from backend.domains.assessment.service import AssessmentService
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from backend.domains.assessment.service import AssessmentService
 from backend.platform.audit import AuditEvent
 
 

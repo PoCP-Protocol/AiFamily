@@ -8,6 +8,7 @@ Exercises both pass conditions from the NestJS source, independently:
   2. an ACTIVE `OWNER_GUARDIAN`/`GUARDIAN` family_membership for actor_id
 and the reject path when neither holds.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -33,7 +34,9 @@ def repo(family_id: str) -> FakeAssessmentRepository:
 
 
 class TestAssertFamilyManagePermission:
-    async def test_owner_guardian_membership_passes(self, repo: FakeAssessmentRepository, family_id: str):
+    async def test_owner_guardian_membership_passes(
+        self, repo: FakeAssessmentRepository, family_id: str
+    ):
         actor_id = str(uuid.uuid4())
         repo.grant_family_manage_permission(family_id, actor_id, role="OWNER_GUARDIAN")
 
@@ -53,7 +56,9 @@ class TestAssertFamilyManagePermission:
 
         await repo.assert_tenant_family_scope(TENANT_ID, family_id, actor_id)
 
-    async def test_non_manage_role_membership_is_forbidden(self, repo: FakeAssessmentRepository, family_id: str):
+    async def test_non_manage_role_membership_is_forbidden(
+        self, repo: FakeAssessmentRepository, family_id: str
+    ):
         actor_id = str(uuid.uuid4())
         # ADULT_MEMBER / CHILD_SUBJECT are valid family_memberships roles but
         # not in the manage-permission allow-list (`role in ('OWNER_GUARDIAN',
@@ -97,7 +102,9 @@ class TestAssertFamilyManagePermission:
             await repo.assert_tenant_family_scope(TENANT_ID, unbound_family_id, actor_id)
         assert exc_info.value.code == "tenant_family_scope_denied"
 
-    async def test_default_seeded_test_actor_still_passes(self, repo: FakeAssessmentRepository, family_id: str):
+    async def test_default_seeded_test_actor_still_passes(
+        self, repo: FakeAssessmentRepository, family_id: str
+    ):
         # Guards the backward-compatibility seam every other test in this
         # suite relies on: `seed_family` pre-grants "actor-1" OWNER_GUARDIAN.
         await repo.assert_tenant_family_scope(TENANT_ID, family_id, "actor-1")

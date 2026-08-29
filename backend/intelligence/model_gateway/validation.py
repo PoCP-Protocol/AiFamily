@@ -57,8 +57,7 @@ class SchemaValidator:
             # returning it anyway would break `ModelDraft.output`'s type.
             raise ModelGatewayError(
                 "SCHEMA_INVALID",
-                f"model output must be a JSON object at the top level, got "
-                f"{type(value).__name__}",
+                f"model output must be a JSON object at the top level, got {type(value).__name__}",
                 provider_id=provider_id,
             )
         return value

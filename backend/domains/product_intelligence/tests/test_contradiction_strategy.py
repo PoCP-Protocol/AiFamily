@@ -127,7 +127,11 @@ async def test_contradiction_lifecycle_and_permission_gate(fake_repo):
         )
 
     approved = await contradiction_commands.decide_contradiction_review(
-        fake_repo, context, contradiction_id=contradiction.id, approved=True, reason="matches evidence"
+        fake_repo,
+        context,
+        contradiction_id=contradiction.id,
+        approved=True,
+        reason="matches evidence",
     )
     assert approved.status == "APPROVED"
     assert approved.reviewed_by == context.actor_id
@@ -267,7 +271,11 @@ async def test_growth_strategy_links_approved_contradiction_and_value_architectu
         evidence_refs=["evidence:1"],
     )
     approved = await contradiction_commands.decide_contradiction_review(
-        fake_repo, context, contradiction_id=contradiction.id, approved=True, reason="matches evidence"
+        fake_repo,
+        context,
+        contradiction_id=contradiction.id,
+        approved=True,
+        reason="matches evidence",
     )
     value_architecture = await contradiction_commands.create_value_architecture(
         fake_repo,
@@ -333,7 +341,9 @@ async def test_full_chain_via_sqlalchemy_repo(sqlalchemy_repo):
         value_architecture_id=value_architecture.id,
     )
 
-    reloaded_strategy = await sqlalchemy_repo.load_growth_strategy(strategy.id, context.tenant_scope)
+    reloaded_strategy = await sqlalchemy_repo.load_growth_strategy(
+        strategy.id, context.tenant_scope
+    )
     assert reloaded_strategy.contradiction_id == marked.id
     assert reloaded_strategy.value_architecture_id == value_architecture.id
 

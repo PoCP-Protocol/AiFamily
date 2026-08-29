@@ -166,9 +166,7 @@ class AiProvenance:
     )
 
     def __post_init__(self) -> None:
-        missing = [
-            name for name in self.REQUIRED_IDENTITY_FIELDS if not getattr(self, name, None)
-        ]
+        missing = [name for name in self.REQUIRED_IDENTITY_FIELDS if not getattr(self, name, None)]
         if missing:
             raise ValueError(
                 "AiProvenance is incomplete, missing "

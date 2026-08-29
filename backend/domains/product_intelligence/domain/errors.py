@@ -1,5 +1,6 @@
 """Domain errors — same convention as `domains/assessment/domain/errors.py`
 and `domains/product_strategy/domain/errors.py`."""
+
 from __future__ import annotations
 
 
