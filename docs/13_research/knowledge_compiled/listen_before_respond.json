@@ -1,0 +1,138 @@
+{
+  "schema_version": "KNOWLEDGE_CHAIN_V2",
+  "intervention_id": "LISTEN_BEFORE_RESPOND",
+  "compiled_by": "byresearch/compile_principal_bundle.py",
+  "source_ssot": "20_知识_knowledge/library + byresearch/evidence.py",
+  "theories": [
+    {
+      "id": "TH-001",
+      "title": "情绪社会化与\"先连接再纠正\"",
+      "summary": "关系通道未打开时纠正易触发防御;先接住情绪、建立\"被听见\"再进入规则更有效。",
+      "evidence_grade": "E4",
+      "external_evidence_count": 2,
+      "family_decision_non_decisive": true,
+      "source_refs": [],
+      "open_questions": [
+        "Gottman & DeClaire (1997) Raising an Emotionally Intelligent Child 仅作 BACKGROUND_REFERENCE,不入 decisive 证据集。"
+      ],
+      "core_claim": "家长的情绪教练式回应(承接情绪→命名→再引导)优于急于评价/纠正。",
+      "mechanism": "Gottman提出\"元情绪哲学(meta-emotion philosophy)\"分两类家长:情绪教练型(emotion-coaching,视孩子的负面情绪为连接/教导机会) vs 情绪抹除型(emotion-dismissing,视负面情绪为需尽快消除的麻烦)。情绪教练型家长的具体行为可拆解为五步: (1)察觉孩子的情绪(尤其低强度阶段,不等爆发才处理); (2)把情绪表达视为连接机会而非麻烦(不因为\"闹情绪\"而不耐烦或转移话题); (3)带着共情倾听并确认孩子的情绪合理(不否定\"这有什么好难过的\"); (4)帮孩子用语言给情绪命名(把模糊的难受具体化成\"沮丧\"\"被冷落\"等词); (5)在孩子情绪平复后,再共同设定行为边界/解决问题(纠正/立规矩发生在连接之后,不是替代连接)。 核心机制假设:情绪未被承接时,孩子处于防御/唤起状态,认知资源被情绪占用,此时讲道理/纠正效率低且容易被体验为\"不被理解\"; 先降低唤起水平(承接情绪)才能让孩子的认知资源回到\"能听道理\"的状态。\n",
+      "boundary": "涉即时人身危险/暴力升级不适用,须直接进入 Human Gate;不主张\"复述一句必然改善关系\"。",
+      "china_fit": "情绪教练思路跨文化较稳,但表达方式需本土化;高学业压力下家长执行难度更高,存疑。"
+    }
+  ],
+  "constructs": [
+    {
+      "id": "CN-001",
+      "title": "被听见感(felt-listening)",
+      "summary": "说话者感到对方真的听懂其在意的点,而非急于评价或纠正。",
+      "evidence_grade": "E0",
+      "external_evidence_count": 0,
+      "family_decision_non_decisive": true,
+      "source_refs": [],
+      "open_questions": [
+        "该构念当前直接实证有限,不得过度赋级(DO NOT OVERGRADE)。"
+      ],
+      "definition": "亲子沟通中,子女主观感到父母接住了其情绪与关切的程度。",
+      "direction": "越高越好",
+      "proxy_risk": "用\"家长自评\"测会高估;应尽量取子女视角或第三方观察编码。"
+    },
+    {
+      "id": "CN-002",
+      "title": "防御/强制互动循环(coercive loop)",
+      "summary": "一方开口另一方即防御/顶嘴/退出,双方都更难继续对话,冲突自我强化。",
+      "evidence_grade": "E6",
+      "external_evidence_count": 1,
+      "family_decision_non_decisive": true,
+      "source_refs": [
+        "doi:10.1017/S0954579414000169"
+      ],
+      "open_questions": [
+        "早期儿童样本的强制循环证据外推到 12-15 岁青少年 = LIMITED。"
+      ],
+      "definition": "家庭互动中可观察的强制/防御性往复模式(coercive family process)。",
+      "direction": "越低越好",
+      "proxy_risk": "单靠家长回忆易漏报;宜用互动观察编码。"
+    }
+  ],
+  "methods": [
+    {
+      "id": "MD-001",
+      "title": "先连接再纠正(情绪教练式回应)",
+      "summary": "先让对话能继续(承接情绪/复述/低防御提问),再进入规则或纠正。",
+      "evidence_grade": "E7",
+      "external_evidence_count": 2,
+      "family_decision_non_decisive": true,
+      "source_refs": [
+        "doi:10.1016/j.adolescence.2015.04.005",
+        "doi:10.1037/dev0000875"
+      ],
+      "open_questions": [
+        "微动作(今晚复述一句)本身的直接效果证据仍有限;方法效果主要来自情绪教练式家长干预的整体证据。"
+      ],
+      "steps": [
+        "孩子开口时先不打断,听完整段;",
+        "承接并命名情绪(\"听起来你觉得…\"),复述你听到的要点,问\"我理解对吗\";",
+        "得到确认后再表达看法或进入规则。"
+      ],
+      "dose": "每日 1 次晚间对话,连续 2 周",
+      "age_range": "12-15",
+      "observable_signal": "孩子主动开口次数增加;被打断后的沉默变短;顶撞升级频次下降。",
+      "contraindication": "涉即时人身危险/暴力升级/自伤等不适用,须直接进入 Human Gate 转人工/专业支持。",
+      "failure_mode": "把\"复述\"做成\"审问\";复述后立刻接\"但是\";用倾听换取顺从。",
+      "risk_level": "low",
+      "human_requirement": "none"
+    }
+  ],
+  "modalities": [
+    {
+      "id": "MM-001",
+      "title": "亲子互动观察编码 / 家长情绪社会化自评",
+      "summary": "通过结构化互动观察编码与家长自评,估计被听见感与强制/防御循环的变化。",
+      "evidence_grade": "E4",
+      "external_evidence_count": 1,
+      "family_decision_non_decisive": true,
+      "source_refs": [],
+      "open_questions": [
+        "家长自评的社会赞许性偏差如何在青少年样本中校正。",
+        "尚未选定可直接测量“被听见感”的授权量表；不得把SDQ作为亲子倾听或情绪社会化的直接测量工具。",
+        "亲子互动观察编码需要先建立编码手册、训练双编码者并报告一致性，当前不能宣称已有验证完成。"
+      ],
+      "channel": "视频 + 量表",
+      "instrument": "情绪教练/强制互动编码体系 + 家长情绪社会化自评量表(具体版本待选定并核验信效度)",
+      "reliability": "观察编码需双编码者信度;自评存在社会赞许性偏差,须交叉校正。",
+      "cost": "观察编码人工成本高;家长自评低成本但偏差大。",
+      "home_feasible": "家长自评可家庭内完成;视频编码须显式 consent 且受限微数据不出本地。",
+      "privacy_risk": "高 —— 视频含未成年人原始影像。默认不采原始音视频;仅结构化编码分数入库,须脱敏; \"同意成长追踪\" ≠ \"同意视频通道采集\",粒度必须单独授权。\n",
+      "minors_handling": "涉未成年人:监护人显式 consent + 未成年人知情;原始影像不出本地、不入 canonical; 仅派生的结构化信号可用,且经 Human Gate。\n"
+    }
+  ],
+  "evidence_summary": {
+    "external_verified_count": 6,
+    "highest_grade": "E7",
+    "has_third_party_real": true,
+    "source_registry_gate": "PASS",
+    "python_evidence_gate": "PASS",
+    "gate_checks": {
+      "library_validate_errors": 0,
+      "external_verified_count": 6,
+      "adolescent_direct_evidence": 2,
+      "method_evidence_max_grade": "E7",
+      "construct_external_evidence": 1,
+      "unverified_decisive_evidence": 0,
+      "fake_or_missing_source": 0,
+      "unregistered_external_source": 0
+    }
+  },
+  "limitations": [
+    "ResearchEvidence 恒 family_decision_non_decisive:不直接决定任何家庭必须做什么。",
+    "[MD-001] 微动作(今晚复述一句)本身的直接效果证据仍有限;方法效果主要来自情绪教练式家长干预的整体证据。",
+    "[TH-001] Gottman & DeClaire (1997) Raising an Emotionally Intelligent Child 仅作 BACKGROUND_REFERENCE,不入 decisive 证据集。",
+    "[CN-001] 该构念当前直接实证有限,不得过度赋级(DO NOT OVERGRADE)。",
+    "[CN-002] 早期儿童样本的强制循环证据外推到 12-15 岁青少年 = LIMITED。",
+    "[MM-001] 家长自评的社会赞许性偏差如何在青少年样本中校正。",
+    "[MM-001] 尚未选定可直接测量“被听见感”的授权量表；不得把SDQ作为亲子倾听或情绪社会化的直接测量工具。",
+    "[MM-001] 亲子互动观察编码需要先建立编码手册、训练双编码者并报告一致性，当前不能宣称已有验证完成。"
+  ],
+  "bundle_version": "sha256:1e8ff3b5114e5b05"
+}

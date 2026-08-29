@@ -519,9 +519,17 @@ entries:
   - capability: contracts_ui_boundary
     disposition: CONTRACT_ONLY
     source: ["50_开发_dev/contracts/frontend/UI-0*.md", "50_开发_dev/contracts/authorization", "50_开发_dev/contracts/subject"]
-    target: [docs/20_product]
-    status: PLANNED
+    target: [contracts/frontend]
+    status: MIGRATED
     evidence: ["全部 Markdown-only，无 OpenAPI/JSON-Schema 落地，自身状态字段即为 CONTRACT_ONLY_PROPOSED_FOR_REVIEW"]
+
+  - capability: knowledge_compiled_evidence
+    disposition: MIGRATE
+    source: ["50_开发_dev/knowledge/compiled/*.json"]
+    target: [docs/13_research/knowledge_compiled]
+    status: MIGRATED
+    evidence: ["9 个编译知识卡片，含来源、证据等级、开放问题与隐私边界；作为研究证据资产保存，不直接驱动家庭事实或 AI 决策"]
+    known_gaps: ["尚未接入 Model Gateway/Context Runtime；python_evidence_gate 仍需单独修复"]
 
   - capability: packages_contracts_ts
     disposition: REIMPLEMENT

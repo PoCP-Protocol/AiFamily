@@ -37,6 +37,102 @@ status: current  指的是"这份目标态描述本身是当前正式的目标�
 
 ---
 
+## 0.1 平台八层组织架构（**先读本节，再读 §1**）
+
+> 本节 2026-08-29 新增。此前本文件只有 §1 的**进程拓扑**（代码住在哪个进程、哪个域），
+> 缺一张回答「为什么建这个、它为家庭创造什么」的组织视图，于是整个架构无法被一眼读懂。
+> 采纳依据：project-owner 定调 **Family Growth Intelligence OS**，裁决记录见 **ADR-0015**。
+> **本节不新增任何目标元素**，只是把已有元素按价值链重新组织；§1 的进程拓扑完全不变。
+
+### 八层
+
+```text
+┌──────────────────────────────────────────────────────────────────┐
+│ 1  FAMILY EXPERIENCE      家长 │ 孩子 │ 家庭 │ 教师 │ 专家 │ 机构   │
+├──────────────────────────────────────────────────────────────────┤
+│ 2  VALUE EXPERIENCE       Emotional → Action → Growth → Economic  │
+│                           → Trust                                 │
+├──────────────────────────────────────────────────────────────────┤
+│ 3  FAMILY GROWTH INTELLIGENCE          ★ 护城河在这一层            │
+│    Context │ State │ Problem │ Contradiction │ Value Architecture │
+│    │ Strategy │ Intervention │ Evidence                           │
+├──────────────────────────────────────────────────────────────────┤
+│ 4  PRODUCT INTELLIGENCE   Signal │ Insight │ Opportunity │ 三区    │
+│                           │ Pattern │ FPDL │ Compiler             │
+├──────────────────────────────────────────────────────────────────┤
+│ 5  SERVICE INTELLIGENCE   Blueprint │ Case │ Workflow │ FGCN       │
+│                           │ AI + Human 三级协作                    │
+├──────────────────────────────────────────────────────────────────┤
+│ 6  AI RUNTIME             ← AI 只在这一层                          │
+│    L1 能力声明 │ L2 编排推理 │ L3 网关 │ L4 供应商适配              │
+├──────────────────────────────────────────────────────────────────┤
+│ 7  DATA PLATFORM          PostgreSQL │ Redis │ Object │ Vector     │
+│                           │ Event/Outbox │ Trace                   │
+├──────────────────────────────────────────────────────────────────┤
+│ 8  MODEL LAYER            GPT │ Claude │ Gemini │ DeepSeek │ 本地   │
+│                           │ 多模态                                 │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 这张图的三个承重判断
+
+**① `Model` 在最底层，不在最上层。**
+模型是可替换件。因此供应商更替是**路由问题**（第 6 层 L4），不是架构问题。
+这直接缓解 ADR-0005「需要接受的风险」记录的两条：不得转委托约束可能限制供应商选型、
+判据 1 使可用性风险集中于模型供应链。
+
+**② Agent 不是平台中心。**
+核心资产是第 3 层的 Context / State / Problem / Contradiction / Strategy / Evidence /
+Long-Term Memory；**Agent 是执行这些资产的智能劳动者**。
+推论：`backend/intelligence/` 当前几乎全空**不构成致命缺口**，而是正常的建设顺序——
+因为护城河本就不在第 6 层。这一句同时消解了 `CURRENT_AI_MAP.md` §7 记录的张力
+（平台自称 AI 原生，而 AI 层是全系统最空的一层）。
+
+**③ 第 3~5 层是业务智能，不是 AI Runtime 的一部分。**
+它们的**权威状态归业务域**，只有「推理与检索」归第 6 层。
+这不是额外规则，是 R9 在分层上的投影（详见 `docs/04_domains/DOMAIN_ARCHITECTURE.md` §3 逐行映射）。
+
+### 两张图怎么一起读
+
+```text
+本节（八层）    回答「为什么建这个、它为家庭创造什么」   —— 组织视图
+§1（进程拓扑）  回答「代码住在哪个进程、哪个域」          —— 实现视图
+两张图都要在。任何一张单独存在都会导致误读：
+  只有八层 → 不知道东西写在哪，价值链变成 PPT
+  只有拓扑 → 不知道为什么要建，AI 变成目的本身
+```
+
+### 每层的 canonical 文档（避免在本文件重复维护）
+
+| 层 | 详细规格在 |
+|---|---|
+| 2 价值层四层价值的落地形态 | ADR-0015 §1（**家庭侧永不出现分数**，三层只表达方向，唯 Economic 可量化） |
+| 3 领域边界与跨域契约 | `docs/04_domains/DOMAIN_ARCHITECTURE.md` |
+| 3 只读投影与 Evidence | ADR-0010（`graph_projection.*`，投影 role 只授 `SELECT`） |
+| 6 AI Runtime 四层与两道横切门 | `docs/05_ai/AI_ARCHITECTURE.md` §6–§10 |
+| 6 目标态前瞻能力 | `docs/05_ai/AI_PLATFORM_FORWARD_ARCHITECTURE.md`（`canonical: false`） |
+| 7 分域 schema 与派生数据删除 | `docs/07_data/DATA_ARCHITECTURE.md` |
+| 平台内核实际契约 | `docs/06_platform/*`（6 项，从代码反向记录） |
+
+### 诚实的成熟度（八层里五层没有代码）
+
+```text
+1 Family Experience    34 屏已迁入，可工作数 = 0（无后端）
+2 Value Experience     ABSENT   Value Architecture 属 T-18，未开工
+3 Growth Intelligence  ABSENT   仅 hypotheses/action_candidates 雏形，缺 primary_contradiction
+4 Product Intelligence ★ 唯一有真代码 + 测试的智能层
+5 Service Intelligence ABSENT   Batch 2 六个端点全部 MISSING
+6 AI Runtime           L3 网关 + L4 适配器存在；L1/L2 ABSENT
+7 Data Platform        Postgres + Alembic baseline + outbox 表已落地；
+                       relay / projection ABSENT（见 T-20）
+8 Model Layer          经 L4 接入
+```
+
+**八层中只有第 4 层与第 6 层的下半截是实的。** 这不是本节的缺陷，是本节要如实记录的事——
+按 R4，「设计过」不等于「已实现」，一张完整的分层图最容易被误读为「平台已具备这些层」。
+
+---
+
 ## 1. 目标系统全景图
 
 ```text

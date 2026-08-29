@@ -32,11 +32,8 @@ export default function FamilyNoteDetailScreen() {
   }, [session.selectedFamily, session.status, session.token]);
 
   const entry = selectLearningExchangeEntry(projection, params.exchangeRef);
-  const exchangeRef = entry?.exchange_ref ?? params.exchangeRef ?? "EXCHANGE_DIALOGUE_PAUSE";
+  const exchangeRef = entry?.exchange_ref ?? params.exchangeRef ?? "";
   const interaction = communityInteractionDrafts[exchangeRef];
-  const title = entry?.title ?? "给一次对话留一点停顿";
-  const summary = entry?.summary ?? "有家长会在情绪上来时先停一停，等彼此都愿意再继续说。";
-  const topic = entry?.topic ?? "亲子沟通";
   const relatedEntries = useMemo(() => selectLearningExchangeFeed(projection)?.entries.filter((item) => item.exchange_ref !== exchangeRef) ?? [], [exchangeRef, projection]);
   const loadMoreRelated = () => setRelatedVisible((count) => Math.min(count + 2, relatedEntries.length));
 
@@ -55,13 +52,19 @@ export default function FamilyNoteDetailScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" refreshControl={<FamilyRefreshControl />} onScroll={({ nativeEvent }) => { if (nativeEvent.layoutMeasurement.height + nativeEvent.contentOffset.y >= nativeEvent.contentSize.height - 140) loadMoreRelated(); }} scrollEventThrottle={250}>
         <View style={styles.topBar}><Pressable onPress={() => router.back()} style={styles.topBack}><IconSymbol name="chevron.left" size={26} color="#22272D" /></Pressable><Text style={styles.topTitle}>动态详情</Text><Text style={styles.topMore}>•••</Text></View>
-        <View style={styles.authorRow}><View style={styles.avatar}><IconSymbol name="person.crop.circle.fill" size={43} color="#F28C45" /></View><View style={styles.authorCopy}><View style={styles.authorNameLine}><Text style={[styles.authorName, { color: colors.text }]}>一位成长中的家长</Text><Text style={styles.reviewedTag}>经审核摘要</Text></View><Text style={[styles.authorMeta, { color: colors.muted }]}>家庭经验 · #{topic}</Text></View><Pressable onPress={() => toggleCommunityFollow(exchangeRef)} style={({ pressed }) => [styles.followButton, { borderColor: colors.tint, backgroundColor: interaction?.following ? colors.tint : colors.background }, pressed && styles.pressed]}><Text style={[styles.followText, { color: interaction?.following ? "#FFFFFF" : colors.tint }]}>{interaction?.following ? "已关注" : "关注"}</Text></Pressable></View>
+        {!entry ? (
+          <View style={[styles.emptyComments, { backgroundColor: colors.surface, borderColor: colors.border }]}><IconSymbol name="message.fill" size={27} color={colors.muted} /><View style={styles.emptyCopy}><Text style={[styles.emptyTitle, { color: colors.text }]}>这条内容暂时无法读取</Text><Text style={[styles.emptyText, { color: colors.muted }]}>可能已被移除，或还没有同步到本机；可以先返回社区看看其他内容。</Text></View></View>
+        ) : (
+          <>
+            <View style={styles.authorRow}><View style={styles.avatar}><IconSymbol name="person.crop.circle.fill" size={43} color="#F28C45" /></View><View style={styles.authorCopy}><View style={styles.authorNameLine}><Text style={[styles.authorName, { color: colors.text }]}>一位成长中的家长</Text><Text style={styles.reviewedTag}>经审核摘要</Text></View><Text style={[styles.authorMeta, { color: colors.muted }]}>家庭经验 · #{entry.topic}</Text></View><Pressable onPress={() => toggleCommunityFollow(exchangeRef)} style={({ pressed }) => [styles.followButton, { borderColor: colors.tint, backgroundColor: interaction?.following ? colors.tint : colors.background }, pressed && styles.pressed]}><Text style={[styles.followText, { color: interaction?.following ? "#FFFFFF" : colors.tint }]}>{interaction?.following ? "已关注" : "关注"}</Text></Pressable></View>
 
-        <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
-        <Text style={[styles.summary, { color: colors.text }]}>{summary}</Text>
-        <View style={styles.mediaPanel}><IconSymbol name={topic === "家庭阅读" ? "book.fill" : "message.fill"} size={46} color="#2563EB" /><View style={styles.mediaCopy}><Text style={styles.mediaTitle}>{topic}</Text><Text style={styles.mediaText}>来自一个家庭日常的经验片段</Text></View></View>
+            <Text style={[styles.title, { color: colors.text }]}>{entry.title}</Text>
+            <Text style={[styles.summary, { color: colors.text }]}>{entry.summary}</Text>
+            <View style={styles.mediaPanel}><IconSymbol name={entry.topic === "家庭阅读" ? "book.fill" : "message.fill"} size={46} color="#2563EB" /><View style={styles.mediaCopy}><Text style={styles.mediaTitle}>{entry.topic}</Text><Text style={styles.mediaText}>来自一个家庭日常的经验片段</Text></View></View>
 
-        <View style={[styles.sourceCard, { backgroundColor: colors.surface, borderColor: colors.border }]}><View style={[styles.sourceIcon, { backgroundColor: "#16866D16" }]}><IconSymbol name="shield.fill" size={24} color={colors.success} /></View><View style={styles.sourceCopy}><Text style={[styles.sourceTitle, { color: colors.text }]}>内容怎么理解</Text><Text style={[styles.sourceText, { color: colors.muted }]}>这是作者对自己家庭经历的描述，属于个人视角；它不是对其他家庭的结论，也不证明教育效果。</Text></View></View>
+            <View style={[styles.sourceCard, { backgroundColor: colors.surface, borderColor: colors.border }]}><View style={[styles.sourceIcon, { backgroundColor: "#16866D16" }]}><IconSymbol name="shield.fill" size={24} color={colors.success} /></View><View style={styles.sourceCopy}><Text style={[styles.sourceTitle, { color: colors.text }]}>内容怎么理解</Text><Text style={[styles.sourceText, { color: colors.muted }]}>这是作者对自己家庭经历的描述，属于个人视角；它不是对其他家庭的结论，也不证明教育效果。</Text></View></View>
+          </>
+        )}
 
         <View style={[styles.actionBar, { borderColor: colors.border }]}><Pressable onPress={() => toggleCommunityBookmark(exchangeRef)} style={({ pressed }) => [styles.actionItem, pressed && styles.pressed]}><IconSymbol name="bookmark.fill" size={22} color={interaction?.bookmarked ? colors.tint : colors.muted} /><Text style={[styles.actionText, { color: interaction?.bookmarked ? colors.tint : colors.muted }]}>{interaction?.bookmarked ? "已收藏" : "收藏"}</Text></Pressable><View style={[styles.actionDivider, { backgroundColor: colors.border }]} /><View style={styles.actionItem}><IconSymbol name="message.fill" size={22} color={colors.muted} /><Text style={[styles.actionText, { color: colors.muted }]}>写下我的想法</Text></View><View style={[styles.actionDivider, { backgroundColor: colors.border }]} /><Pressable onPress={() => router.push("/ui/UI-25" as Href)} style={({ pressed }) => [styles.actionItem, pressed && styles.pressed]}><IconSymbol name="person.2.fill" size={22} color={colors.muted} /><Text style={[styles.actionText, { color: colors.muted }]}>返回社区</Text></Pressable></View>
 

@@ -1,0 +1,121 @@
+{
+  "schema_version": "KNOWLEDGE_CHAIN_V2",
+  "intervention_id": "SENSITIVE_RESPONSIVENESS_PRACTICE",
+  "compiled_by": "byresearch/compile_principal_bundle.py",
+  "source_ssot": "20_知识_knowledge/library + byresearch/evidence.py",
+  "theories": [
+    {
+      "id": "TH-003",
+      "title": "依恋理论(Attachment Theory)",
+      "summary": "早期照养者-婴儿互动的敏感回应质量,塑造婴儿的依恋安全性,进而形成影响终身关系模式的\"内部工作模型\"。",
+      "evidence_grade": "E6",
+      "external_evidence_count": 2,
+      "family_decision_non_decisive": true,
+      "source_refs": [
+        "De Wolff MS, van IJzendoorn MH. (1997). Sensitivity and attachment: a meta-analysis on parental antecedents of infant attachment. Child Development, 68(4), 571-91. PMID: 9306636",
+        "van IJzendoorn MH. (1995). Adult attachment representations, parental responsiveness, and infant attachment: A meta-analysis on the predictive validity of the Adult Attachment Interview. Psychological Bulletin, 117(3), 387-403. doi:10.1037/0033-2909.117.3.387"
+      ],
+      "open_questions": [
+        "Bowlby (1969) Attachment and Loss Vol.1 原著为书籍无DOI,本卡以Ainsworth 1969期刊论文+De Wolff & van IJzendoorn 1997 meta分析作为可机器核验的证据锚点。",
+        "中国本土依恋测量常模/跨文化适配研究尚未核验,列为待查。",
+        "依恋代际传递的具体作用机制(是否可通过家长自我反思类干预改变)本卡未核验对应干预研究,只确认\"预测关联\"本身。"
+      ],
+      "core_claim": "照养者对婴儿信号的敏感、及时回应程度,与婴儿依恋安全性呈正相关(meta分析级证据);依恋安全性被认为是后续社会情绪发展的重要基础。",
+      "mechanism": "核心机制是\"敏感回应(sensitive responsiveness)\"这一具体照养者行为束,通常拆解为四要素: (1)察觉(能注意到婴儿发出的信号,不管信号是哭闹还是细微的表情/姿态变化); (2)正确解读(能大致判断信号背后的需求,如\"饿了\"vs\"要抱\"vs\"过度刺激想休息\",不强加自己的解释); (3)及时回应(在婴儿能建立\"信号-回应\"关联的时间窗内做出反应,不是完全不回应也不是过度包办替代婴儿自己调节); (4)恰当性(回应的方式匹配婴儿当下真正的需求强度,不过度也不不足)。 经典分类(Ainsworth陌生情境范式)把依恋模式分为:安全型(照养者离开会不安、回来能被安慰并恢复探索)、 回避型(表面不在意照养者离开/回来,内在生理应激仍升高)、焦虑/矛盾型(过度苦恼且回来后难被安慰)、 混乱型(缺乏一致应对策略,常见于照养环境本身不稳定/有创伤)。 平台生成建议时的核心可操作抓手是\"敏感回应\"这四要素本身,而不是急于给某个家庭的婴儿贴\"哪种依恋类型\"的标签—— 分类需要标准化范式和专业评估,家庭日常场景更适合评估和提升\"敏感回应\"这个照养行为本身。 \"家长第二次成长\"维度延伸:家长自身的依恋表征(通过成人依恋访谈AAI测量)对其婴儿的依恋安全性有跨代预测力(meta分析证据), 提示\"教好孩子\"与\"家长自己有没有被安全地依恋过/是否处理好自己的依恋经历\"部分绑定—— 这是本平台把\"家长自身成长\"纳入家庭教育范畴的直接理论支撑,而非仅仅关注家长的教养技巧。\n",
+      "boundary": "核心证据链是\"敏感性→依恋安全性\"这一段(meta分析支持),不等于\"依恋安全性→某个具体成年结果\"全链条都是同等证据强度; \"内部工作模型影响终身关系\"这一延伸主张更多是理论推演,非本卡直接证据覆盖范围。\n",
+      "china_fit": "依恋理论核心机制(敏感回应-安全感)跨文化研究支持较稳,但\"陌生情境\"分类比例在集体主义/多照养者文化中的分布 与西方常模存在差异,本平台尚未核验中国本土依恋测量常模研究,不得直接套用西方分类比例宣称中国婴幼儿依恋分布。\n"
+    }
+  ],
+  "constructs": [
+    {
+      "id": "CN-004",
+      "title": "依恋安全性(attachment security)",
+      "summary": "婴幼儿在照养者敏感回应下形成的\"能安心探索、遇险能有效寻求安慰\"的关系品质。",
+      "evidence_grade": "E0",
+      "external_evidence_count": 0,
+      "family_decision_non_decisive": true,
+      "source_refs": [],
+      "open_questions": [
+        "本平台尚无自己核验过的中文依恋测量工具/常模,当前只能复用MM-001泛用观察编码/自评渠道,精确度不足以支撑个体诊断结论。"
+      ],
+      "definition": "婴儿/儿童在陌生情境等标准化范式下表现出的探索-寻求安慰平衡程度,反映其与照养者关系的安全程度。",
+      "direction": "越安全(高)越好;回避型/焦虑型/混乱型依恋模式风险更高。",
+      "proxy_risk": "标准化\"陌生情境\"范式在中国家庭(多照养者、非母亲主要照养常见)中的直接适用性未经本平台核验; 家长自评量表存在社会赞许性偏差,不能替代观察编码。\n"
+    }
+  ],
+  "methods": [
+    {
+      "id": "MD-003",
+      "title": "敏感回应练习(察觉-解读-回应-调节)",
+      "summary": "照养者按\"察觉信号→正确解读→及时回应→回应强度匹配需求\"四步骤练习对婴幼儿信号的敏感回应,不追求完美只追求\"大部分时候在场\"。",
+      "evidence_grade": "E0",
+      "external_evidence_count": 0,
+      "family_decision_non_decisive": true,
+      "source_refs": [],
+      "open_questions": [
+        "本方法卡步骤是从TH-003\"敏感回应\"构念直接操作化,尚无独立干预研究验证这套具体练习流程本身的效果量。"
+      ],
+      "steps": [
+        "婴幼儿发出信号(哭闹/表情/姿态变化)时先停下手上的事,专注察觉,不急着猜测或忽略;",
+        "尝试判断信号背后的需求(饿/累/要抱/过度刺激想独处),不确定时用排除法逐一尝试而非固定套用一种解释;",
+        "在信号出现后的合理时间窗内做出回应,不要求\"立刻\"但避免长时间放任不管;",
+        "回应强度匹配需求本身(轻微不适给安抚,强烈痛苦给更强支持),避免\"一刻不停地包办\"或\"完全不回应等孩子自己平静\"两种极端。"
+      ],
+      "dose": "日常持续练习,建议每周回顾1次\"这周有没有哪次信号我没接住/接住了但用错方式\"",
+      "age_range": "0-3",
+      "observable_signal": "婴幼儿在照养者回应后能相对更快平复;照养者对信号的\"猜错-调整\"能力(察觉猜错后能及时换一种回应方式)提升。",
+      "contraindication": "若信号伴随发热/外伤/异常持续哭闹等健康风险迹象,不适用本方法的\"猜测-尝试\"框架,须直接就医,不得用敏感回应练习替代医疗判断。",
+      "failure_mode": "把\"及时回应\"做成\"一刻不能等的立即响应\"造成照养者过度耗竭;把\"恰当性\"理解成物质满足(玩具/零食)而非情感需求匹配。",
+      "risk_level": "low",
+      "human_requirement": "none"
+    }
+  ],
+  "modalities": [
+    {
+      "id": "MM-003",
+      "title": "依恋安全性观察与关系行为测量设计",
+      "summary": "以照养者敏感回应和儿童探索/寻求安慰行为为观察对象,不以家长自评替代标准化依恋评估。",
+      "evidence_grade": "E0",
+      "external_evidence_count": 0,
+      "family_decision_non_decisive": true,
+      "source_refs": [],
+      "open_questions": [
+        "尚未核验中国本土常模、年龄范围、授权条件和观察者培训要求,当前不得宣称测量完成。"
+      ],
+      "channel": "结构化观察 + 专业评估转介",
+      "instrument": "陌生情境或替代性关系观察范式候选;具体年龄适配、中文常模和授权状态待核验",
+      "reliability": "观察者训练、编码手册、编码者一致性、年龄适配和跨文化效度均待核验。",
+      "cost": "专业观察与编码成本高;不适合作为家庭日常自测工具。",
+      "home_feasible": "不作为家庭自测;如出现发展或安全风险信号,仅生成转介提示并进入 Human Gate。",
+      "privacy_risk": "高 —— 未成年人关系观察涉及敏感发展信息;不得采集不必要的原始视频, 不得将依恋类型作为可搜索或可比较的家庭标签。\n",
+      "minors_handling": "涉未成年人:监护人显式 consent + 未成年人知情;仅由受训专业人员在授权范围内实施; 结构化结果不得替代临床诊断,高风险情形必须 Human Gate。\n"
+    }
+  ],
+  "evidence_summary": {
+    "external_verified_count": 2,
+    "highest_grade": "E6",
+    "has_third_party_real": true,
+    "source_registry_gate": "PASS",
+    "python_evidence_gate": "FAIL",
+    "gate_checks": {
+      "library_validate_errors": 0,
+      "external_verified_count": 2,
+      "adolescent_direct_evidence": 0,
+      "method_evidence_max_grade": "E0",
+      "construct_external_evidence": 0,
+      "unverified_decisive_evidence": 0,
+      "fake_or_missing_source": 1,
+      "unregistered_external_source": 0
+    }
+  },
+  "limitations": [
+    "ResearchEvidence 恒 family_decision_non_decisive:不直接决定任何家庭必须做什么。",
+    "[MD-003] 本方法卡步骤是从TH-003\"敏感回应\"构念直接操作化,尚无独立干预研究验证这套具体练习流程本身的效果量。",
+    "[TH-003] Bowlby (1969) Attachment and Loss Vol.1 原著为书籍无DOI,本卡以Ainsworth 1969期刊论文+De Wolff & van IJzendoorn 1997 meta分析作为可机器核验的证据锚点。",
+    "[TH-003] 中国本土依恋测量常模/跨文化适配研究尚未核验,列为待查。",
+    "[TH-003] 依恋代际传递的具体作用机制(是否可通过家长自我反思类干预改变)本卡未核验对应干预研究,只确认\"预测关联\"本身。",
+    "[CN-004] 本平台尚无自己核验过的中文依恋测量工具/常模,当前只能复用MM-001泛用观察编码/自评渠道,精确度不足以支撑个体诊断结论。",
+    "[MM-003] 尚未核验中国本土常模、年龄范围、授权条件和观察者培训要求,当前不得宣称测量完成。"
+  ],
+  "bundle_version": "sha256:58ec02a9f955bd43"
+}

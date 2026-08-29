@@ -26,13 +26,25 @@ jobs:
       - name: Lint (ruff)
         run: uv run ruff check .
 
-      - name: Architecture tests
+      # 架构护栏单独先跑一步：它最快，且失败信息最有诊断价值——
+      # 结构性违规应当在业务测试的噪声之前被看到。下一步会再次覆盖它们，
+      # 这个重复是有意的（R14：护栏必须在 CI 中运行）。
+      - name: Architecture tests (fail fast)
         run: uv run pytest tests/architecture -v
 
-      - name: Backend tests (if any exist yet)
-        run: |
-          if [ -d backend ] && find backend -name "test_*.py" -o -name "*_test.py" | grep -q .; then
-            uv run pytest backend -v
-          else
-            echo "No backend tests yet (Wave 0) — skipping."
-          fi
+      # 无条件跑全量。pyproject.toml 的 testpaths = ["tests"] 覆盖
+      # tests/{architecture,platform,domains,apps,intelligence,database}。
+      #
+      # 此前这里是一个 `find backend -name "test_*.py" | grep -q .` 条件块（Wave 0 遗留），
+      # 它只跑 backend/ 下的测试，于是 tests/platform(464 行)、tests/domains、
+      # tests/apps、tests/intelligence **从未在 CI 中运行过**——它唯一的实际作用
+      # 是让人以为测试跑了。这正是 R14 伤疤的形状：源仓库全域只有一个真正生效的
+      # workflow 且被 path filter 限定在三处，导致一个正在失败的不变量被提交进了主线。
+      - name: Full test suite
+        run: uv run pytest -v
+
+      # product_intelligence 的测试住在 backend/domains/product_intelligence/tests/，
+      # 不在 testpaths 覆盖范围内，所以必须显式跑。
+      # 若将来它们迁到 tests/ 下，删掉这一步。
+      - name: Domain-local tests outside testpaths (product_intelligence)
+        run: uv run pytest backend/domains/product_intelligence/tests -v

@@ -1,0 +1,116 @@
+{
+  "schema_version": "KNOWLEDGE_CHAIN_V2",
+  "intervention_id": "AUTHORITATIVE_PARENTING_PRACTICE",
+  "compiled_by": "byresearch/compile_principal_bundle.py",
+  "source_ssot": "20_知识_knowledge/library + byresearch/evidence.py",
+  "theories": [
+    {
+      "id": "TH-002",
+      "title": "教养方式分类(权威型/专制型/放纵型/忽视型)",
+      "summary": "家长教养行为可沿\"要求性(demandingness)×回应性(responsiveness)\"两维度区分,权威型(高要求高回应)长期发展结果最好。",
+      "evidence_grade": "E6",
+      "external_evidence_count": 2,
+      "family_decision_non_decisive": true,
+      "source_refs": [
+        "Baumrind, D. (1966). Effects of Authoritative Parental Control on Child Behavior. Child Development, 37(4), 887-907. doi:10.2307/1126611",
+        "Chao, R. K. (1994). Beyond Parental Control and Authoritarian Parenting Style: Understanding Chinese Parenting Through the Cultural Notion of Training. Child Development, 65(4), 1111-1119. doi:10.2307/1131308"
+      ],
+      "open_questions": [
+        "体罚相关的争议结论(Baumrind vs Gershoff)不纳入本平台任何生成式建议,仅记录学理背景。"
+      ],
+      "core_claim": "相比专制型(高要求低回应)与放纵型(低要求高回应),权威型教养与儿童社会能力/学业/情绪调节等结果更优;Maccoby & Martin 在此基础上增补\"忽视型(低要求低回应)\"为第四类。",
+      "mechanism": "两个正交维度构成四象限判断框架: 要求性(demandingness,家长是否设定清晰规则/督促执行/一致性)× 回应性(responsiveness,家长是否敏感回应孩子的情感需求/给自主空间)。 - 权威型(高要求+高回应):立规矩但会解释理由,允许协商,情感上温暖且尊重孩子观点——四类中长期结果最优; - 专制型(高要求+低回应):要求绝对服从,较少解释/较少情感回应,倾向控制而非引导; - 放纵型(低要求+高回应):情感温暖但少立规矩/少一致执行,孩子自我控制发展可能不足; - 忽视型(低要求+低回应,Maccoby & Martin补充):既不管教也不参与,风险最高。 判断一个家庭落在哪个象限,不能只看\"严不严\"，要同时评估\"孩子的情感需求有没有被看见/回应\"—— 这正是本平台不能直接照搬西方问卷给中国家庭贴标签的原因:中国家长常见的\"高要求\"背后可能伴随高投入/高关注(仍有回应性), 不应被简化判定为\"专制型\"，需要结合具体互动样本(是否解释理由、是否倾听孩子的异议)综合判断。\n",
+      "boundary": "分类基于横断面/纵向观察研究,非RCT;不构成\"某一分类必然导致某结果\"的因果证据。 Baumrind本人关于体罚在权威支持型背景下\"轻度打屁股影响不显著\"的观点存在学界争议(Gershoff 2002等提出反驳), 本平台不采用该争议结论,仅采用四分类框架本身。\n",
+      "china_fit": "跨文化适用性存争议:西方量表常把东亚家长的高要求(如督促学业)误判为\"专制型\", 但东亚家长的高要求可能伴随高情感投入,不完全对应西方\"专制型\"的低回应特征(Chao 1994 的\"training\"概念讨论此争议)。 本平台在生成建议时不得直接套用西方四分类给中国家庭贴\"专制型\"标签,须结合具体行为观察。\n"
+    }
+  ],
+  "constructs": [
+    {
+      "id": "CN-003",
+      "title": "教养要求性-回应性平衡(authoritative balance)",
+      "summary": "家长在\"设定规则/要求\"与\"情感回应/尊重孩子需求\"两个维度上是否同时保持在较高水平。",
+      "evidence_grade": "E0",
+      "external_evidence_count": 0,
+      "family_decision_non_decisive": true,
+      "source_refs": [],
+      "open_questions": [
+        "该构念目前复用MM-001(家长自评为主)测量,尚无本平台自己核验过的中文本土化量表条目,自评偏差风险高于CN-001/CN-002。"
+      ],
+      "definition": "可观察的家长教养行为中,要求性(设规则/督促/一致执行)与回应性(情感支持/倾听/尊重自主)两个维度的联合水平。",
+      "direction": "两维度同时较高(权威型区域)为佳,单维度极端(专制/放纵/忽视)风险更高。",
+      "proxy_risk": "家长自评容易高估自己的回应性;且西方量表条目直译到中文情境可能把\"高要求\"系统性误判为\"专制\", 须结合中国家庭常见的高要求+高情感投入模式做本土化校正,不能直接套用西方量表分数分类。\n"
+    }
+  ],
+  "methods": [
+    {
+      "id": "MD-002",
+      "title": "立规则先解释理由,执行再保持一致(权威型教养践行法)",
+      "summary": "设定行为规则时先说明理由并留出协商空间,一旦确定就一致执行;同时保证每天有一段不谈规则、只谈孩子感兴趣的事的相处时间。",
+      "evidence_grade": "E0",
+      "external_evidence_count": 0,
+      "family_decision_non_decisive": true,
+      "source_refs": [],
+      "open_questions": [
+        "本方法卡的具体步骤(15分钟陪伴/解释理由话术)是本平台从TH-002理论机制推导出的操作化设计,尚无独立RCT验证这套具体流程本身的效果,效果假设建立在Baumrind理论关联证据基础上,非直接效应证据。"
+      ],
+      "steps": [
+        "提出新规则或纠正行为前,先用一句话说明理由(\"这样做是因为…\"),给孩子机会提问或提出困难;",
+        "规则确定后一致执行,不因当下心情/场合随意放宽或收紧(避免让孩子觉得规则可以靠情绪拗动家长);",
+        "每天留出至少15分钟,只做孩子选的、跟\"规矩/学习\"无关的活动,专注陪伴不夹带说教。"
+      ],
+      "dose": "规则解释与协商随事件发生;高质量陪伴时间每日1次、每次15分钟,连续2周观察变化",
+      "age_range": "3-15",
+      "observable_signal": "孩子主动提出异议/协商的次数增加而非直接顶撞或沉默服从;规则执行时的对抗强度下降。",
+      "contraindication": "涉及安全底线(如人身安全、法律红线)的规则不适用\"协商\"步骤,须清晰不可谈判并说明原因,不进入Human Gate但不可弱化为纯粹协商姿态。",
+      "failure_mode": "把\"解释理由\"做成冗长说教;\"一致执行\"变成完全不容许例外的僵化;高质量陪伴时间里忍不住夹带教育/纠正。",
+      "risk_level": "low",
+      "human_requirement": "none"
+    }
+  ],
+  "modalities": [
+    {
+      "id": "MM-002",
+      "title": "教养要求性-回应性双维度测量设计",
+      "summary": "分别记录家长设定要求与情感回应的行为信号,不把四分类标签直接当作家庭诊断结论。",
+      "evidence_grade": "E0",
+      "external_evidence_count": 0,
+      "family_decision_non_decisive": true,
+      "source_refs": [],
+      "open_questions": [
+        "尚未选定可合法使用且完成中文情境效度核验的具体工具,不得生成四分类标签或分数阈值。"
+      ],
+      "channel": "家长报告 + 亲子互动观察",
+      "instrument": "待核验的要求性/回应性量表候选 + 结构化互动观察编码;当前仅为测量设计卡",
+      "reliability": "具体工具的内部一致性、重测信度、观察者一致性和跨文化测量等值性均待核验。",
+      "cost": "家长报告低成本;互动观察需要训练编码者,成本较高。",
+      "home_feasible": "家长报告可家庭内完成;观察编码仅在取得单独授权并完成隐私评估后考虑。",
+      "privacy_risk": "中高 —— 互动视频可能包含未成年人原始影像;默认不采集或上传原始音视频, 如确需采集必须单独 consent、限定本地处理并只保存结构化编码。\n",
+      "minors_handling": "涉未成年人:监护人显式 consent + 未成年人知情;不输出教养类型诊断或家庭排名; 仅保存最小化的结构化信号,高风险解释须经 Human Gate。\n"
+    }
+  ],
+  "evidence_summary": {
+    "external_verified_count": 2,
+    "highest_grade": "E6",
+    "has_third_party_real": true,
+    "source_registry_gate": "PASS",
+    "python_evidence_gate": "FAIL",
+    "gate_checks": {
+      "library_validate_errors": 0,
+      "external_verified_count": 2,
+      "adolescent_direct_evidence": 0,
+      "method_evidence_max_grade": "E0",
+      "construct_external_evidence": 0,
+      "unverified_decisive_evidence": 0,
+      "fake_or_missing_source": 1,
+      "unregistered_external_source": 0
+    }
+  },
+  "limitations": [
+    "ResearchEvidence 恒 family_decision_non_decisive:不直接决定任何家庭必须做什么。",
+    "[MD-002] 本方法卡的具体步骤(15分钟陪伴/解释理由话术)是本平台从TH-002理论机制推导出的操作化设计,尚无独立RCT验证这套具体流程本身的效果,效果假设建立在Baumrind理论关联证据基础上,非直接效应证据。",
+    "[TH-002] 体罚相关的争议结论(Baumrind vs Gershoff)不纳入本平台任何生成式建议,仅记录学理背景。",
+    "[CN-003] 该构念目前复用MM-001(家长自评为主)测量,尚无本平台自己核验过的中文本土化量表条目,自评偏差风险高于CN-001/CN-002。",
+    "[MM-002] 尚未选定可合法使用且完成中文情境效度核验的具体工具,不得生成四分类标签或分数阈值。"
+  ],
+  "bundle_version": "sha256:c970a5a7bbe27458"
+}

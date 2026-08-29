@@ -81,7 +81,10 @@ export default function ParentCommunityScreen() {
             <View style={[styles.actionRow, { borderTopColor: colors.border }]}><View style={styles.readAction}><IconSymbol name="message.fill" size={18} color={colors.muted} /><Text style={[styles.actionText, { color: colors.muted }]}>阅读详情</Text></View><Pressable onPress={(event) => { event.stopPropagation(); toggleCommunityBookmark(item.exchangeRef); }} style={({ pressed }) => [styles.bookmarkAction, pressed && styles.pressed]}><IconSymbol name="bookmark.fill" size={19} color={bookmarked ? colors.tint : colors.muted} /><Text style={[styles.actionText, { color: bookmarked ? colors.tint : colors.muted }]}>{bookmarked ? "已收藏" : "收藏"}</Text></Pressable></View>
           </Pressable>;
         }}
-        ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: colors.text }]}>暂时没有匹配的内容</Text><Text style={[styles.emptyText, { color: colors.muted }]}>换一个频道或关键词再看看。</Text></View>}
+        ListEmptyComponent={<View style={styles.empty}>{entries.length === 0
+          ? <><Text style={[styles.emptyTitle, { color: colors.text }]}>还没有可回看的家庭分享</Text><Text style={[styles.emptyText, { color: colors.muted }]}>可以先写一份家庭小记，之后会在这里出现真实的家庭分享。</Text></>
+          : <><Text style={[styles.emptyTitle, { color: colors.text }]}>暂时没有匹配的内容</Text><Text style={[styles.emptyText, { color: colors.muted }]}>换一个频道或关键词再看看。</Text></>}
+        </View>}
         onEndReached={loadMore}
         onEndReachedThreshold={0.45}
         ListFooterComponent={<View style={styles.footer}><View style={[styles.boundary, { borderColor: colors.border }]}><IconSymbol name="shield.fill" size={20} color={colors.success} /><Text style={[styles.boundaryText, { color: colors.muted }]}>这里展示的是家长经验与个人视角，不是对孩子或家庭的诊断，也不证明教育效果。</Text></View>{loadingMore ? <View style={styles.moreLoading}><Text style={[styles.moreText, { color: colors.muted }]}>正在加载更多经验</Text></View> : visibleCount < entries.length ? <Pressable onPress={loadMore} style={({ pressed }) => [styles.moreButton, { borderColor: colors.tint }, pressed && styles.pressed]}><Text style={[styles.moreText, { color: colors.tint }]}>继续浏览更多经验</Text></Pressable> : null}</View>}

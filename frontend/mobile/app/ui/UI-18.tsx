@@ -49,7 +49,7 @@ export default function MembershipCenterScreen() {
   const availableBenefits = membership?.benefits.filter((item) => item.status === "AVAILABLE") ?? [];
   const activeEntitlements = commerce?.entitlements.filter((item) => item.status === "AVAILABLE") ?? [];
   const annualPlan = plans?.plans[0];
-  const points = membership?.dev_points?.balance ?? 1280;
+  const points = membership?.dev_points?.balance ?? null;
 
   return (
     <ScreenContainer edges={["left", "right", "bottom"]}>
@@ -78,7 +78,7 @@ export default function MembershipCenterScreen() {
               <View style={styles.statsRow}>
                 <Stat label="已邀请家庭" value={state.invitationDraft ? "1" : "0"} />
                 <Stat label="同行计划" value={state.studyGroupDraft?.state === "PRIVATE_DRAFT" ? "1" : "0"} />
-                <Stat label="成长积分" value={String(points)} />
+                <Stat label="成长积分" value={points === null ? "--" : String(points)} />
                 <Stat label="可用权益" value={String(availableBenefits.length + activeEntitlements.length)} />
               </View>
             </View>

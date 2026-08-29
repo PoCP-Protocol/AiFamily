@@ -45,7 +45,7 @@ export default function GrowthPointsScreen() {
     return () => { active = false; };
   }, [session.selectedFamily, session.status, session.token]);
 
-  const pointsBalance = membership?.dev_points?.balance ?? 1280;
+  const pointsBalance = membership?.dev_points?.balance ?? null;
   const markReadOnly = (label: string) => {
     const policy = getUiActionPolicy("UI-17");
     if (policy) state.recordUiAction(policy, label);
@@ -74,7 +74,7 @@ export default function GrowthPointsScreen() {
             <View style={styles.pointsCard}>
               <View style={styles.pointsCopy}>
                 <Text style={styles.pointsLabel}>我的成长积分</Text>
-                <Text style={styles.pointsValue}>{pointsBalance}</Text>
+                <Text style={styles.pointsValue}>{pointsBalance ?? "--"}</Text>
                 <Pressable onPress={() => markReadOnly("签到") } style={styles.signButton}><Text style={styles.signText}>去签到 +10</Text></Pressable>
               </View>
               <View style={styles.coin}>

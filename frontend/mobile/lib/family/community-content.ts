@@ -41,7 +41,7 @@ export interface CommunityEntryPresentation {
   topic: string;
   authorLabel: string;
   timeLabel: string;
-  source: "FAMILY_API" | "LOCAL_REFERENCE";
+  source: "FAMILY_API" | "SYNTHETIC_TEST_PROJECTION";
 }
 
 export const COMMUNITY_POST_KIND_OPTIONS: readonly { id: CommunityPostKind; label: string; accent: string }[] = [
@@ -68,18 +68,14 @@ export function postKindLabel(kind: CommunityPostKind) {
 }
 
 export function communityEntriesForDisplay(entries?: readonly { exchange_ref: string; title: string; summary: string; topic: string }[]): CommunityEntryPresentation[] {
-  const source = entries?.length ? "FAMILY_API" as const : "LOCAL_REFERENCE" as const;
-  const values = entries?.length ? entries : [
-    { exchange_ref: "EXCHANGE_DIALOGUE_PAUSE", title: "给一次对话留一点停顿", summary: "有家长会在情绪上来时先停一停，等彼此都愿意再继续说。", topic: "亲子沟通" },
-    { exchange_ref: "EXCHANGE_READING_ROUTINE", title: "把共读放进睡前的十分钟", summary: "有家庭从一小段喜欢的故事开始，不追求读完多少，只留一点相处时间。", topic: "家庭阅读" },
-  ];
-  return values.map((entry, index) => ({
+  if (!entries?.length) return [];
+  return entries.map((entry, index) => ({
     exchangeRef: entry.exchange_ref,
     title: entry.title,
     summary: entry.summary,
     topic: entry.topic,
     authorLabel: index % 2 === 0 ? "一位成长中的家长" : "一个正在练习的家庭",
     timeLabel: "家庭经验摘要",
-    source,
+    source: "FAMILY_API" as const,
   }));
 }

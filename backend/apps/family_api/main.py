@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
+from backend.apps.family_api.dev_wiring import install_dev_wiring, is_dev_environment
 from backend.apps.family_api.routes import router
 from backend.domains.assessment.api import (
     register_exception_handlers as register_assessment_exception_handlers,
@@ -57,6 +58,21 @@ def create_app() -> FastAPI:
     # dependency rather than a booking made on behalf of an invented family.
     # See governance/DOMAIN_REGISTRY.yaml → service_booking.known_gaps.
     application.include_router(service_router)
+    # In a dev environment, supply the four service dependencies that raise by
+    # design, so the six mounted SERVICE endpoints are actually callable instead
+    # of returning 500 to every caller. The domain code is untouched and still
+    # fails closed — the overrides live on the app object, which is the mechanism
+    # `service/api/dependencies.py` names as intended.
+    #
+    # Outside dev this block does nothing, so a production app keeps exactly the
+    # fail-closed behaviour described above. `install_dev_wiring` additionally
+    # refuses if called directly outside dev/test: the app decides based on
+    # environment, and the function defends itself against being forced.
+    #
+    # See backend/apps/family_api/dev_wiring.py — it synthesises consent grants
+    # and uses an in-memory repository (R5: must never be reachable in production).
+    if is_dev_environment():
+        install_dev_wiring(application)
     return application
 
 

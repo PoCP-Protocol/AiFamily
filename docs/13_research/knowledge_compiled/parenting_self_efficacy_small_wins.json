@@ -1,0 +1,118 @@
+{
+  "schema_version": "KNOWLEDGE_CHAIN_V2",
+  "intervention_id": "PARENTING_SELF_EFFICACY_SMALL_WINS",
+  "compiled_by": "byresearch/compile_principal_bundle.py",
+  "source_ssot": "20_知识_knowledge/library + byresearch/evidence.py",
+  "theories": [
+    {
+      "id": "TH-004",
+      "title": "家长教养自我效能感(Parenting Self-Efficacy)",
+      "summary": "家长对\"自己能不能胜任教养任务、有效影响孩子\"的自我信念,是\"家长第二次成长\"维度的核心理论根——教养行为改变的中介变量之一往往是家长自身效能感的提升,而非仅靠外部知识灌输。",
+      "evidence_grade": "E4",
+      "external_evidence_count": 2,
+      "family_decision_non_decisive": true,
+      "source_refs": [],
+      "open_questions": [
+        "Jones & Prinz (2005) 是叙述性综述非meta分析,效应量强度未在本平台逐条核验，不得引用具体相关系数。",
+        "中文本土化教养效能感量表尚未核验，列为待查。"
+      ],
+      "core_claim": "家长的教养自我效能感(相信自己能有效应对教养挑战)与更积极的教养行为、更低的教养压力、更好的儿童适应结果相关;效能感本身可通过掌握经验(mastery experience)、观摩示范、他人反馈等途径提升,不是固定不变的人格特质。",
+      "mechanism": "Bandura自我效能理论提出四条效能感的信息来源(适用于任何领域,包括教养): (1)掌握经验(mastery experience)——自己实际成功应对过某个教养场景,是效能感最强的来源; (2)替代性经验(vicarious experience)——观摩其他家长/榜样成功处理类似场景,能部分提升\"我也能做到\"的信念; (3)言语说服(verbal persuasion)——他人(专家/伴侣/朋友)给予肯定和具体反馈,效果弱于前两者且容易随挫折消退; (4)生理/情绪状态(physiological/emotional state)——家长自身焦虑/疲惫水平会直接压低对自己教养能力的判断,即使实际能力没变。 应用到\"家长第二次成长\": 单纯给家长灌输\"应该怎么做\"的知识(纯言语说服)提升效能感效果有限且不持久; 更有效的路径是让家长在真实/接近真实的场景中获得\"掌握经验\"(哪怕是小范围的成功尝试),并配合看到其他家长的真实(非完美化)应对示范。 这对应本平台\"AI生成建议\"的一个设计含义:建议应该是\"具体到今晚能试、能看到小成功\"的颗粒度,而不是抽象的育儿理念灌输。\n",
+      "boundary": "Bandura的自我效能理论是跨领域通用框架,本卡引用的是其在教养领域的应用综述(Jones & Prinz 2005), 该综述本身是叙述性综述(narrative review)而非meta分析,效应量证据强度弱于TH-003的meta分析级证据, 不构成\"提升效能感必然改善儿童结果\"的因果证明,只支持\"两者相关且理论上可解释\"。\n",
+      "china_fit": "教养自我效能感的测量多为西方自评量表,本平台未核验中文本土化版本的信效度; 中国家长的效能感来源可能更多与\"外部评价(如学业成绩)\"绑定,与西方研究默认的\"内在胜任感\"构念内涵是否完全一致,存疑,列为待查。\n"
+    }
+  ],
+  "constructs": [
+    {
+      "id": "CN-005",
+      "title": "教养自我效能感(parenting self-efficacy)",
+      "summary": "家长对\"自己能否有效应对具体教养挑战\"的主观信念强度,是\"家长第二次成长\"维度的核心可测量中间变量。",
+      "evidence_grade": "E0",
+      "external_evidence_count": 0,
+      "family_decision_non_decisive": true,
+      "source_refs": [],
+      "open_questions": [
+        "尚未选定/核验中文本土化教养效能感量表(如PSOC等西方量表的中文版效度),当前无法给出可信的个体分数。"
+      ],
+      "definition": "家长在具体教养场景(如应对孩子情绪爆发、坚持规则执行)中对自身胜任程度的主观评估。",
+      "direction": "越高越好,但需警惕\"虚高自评\"(未经真实场景检验的过度自信)与\"低估\"(有实际能力但缺乏信心)两种偏差方向。",
+      "proxy_risk": "自评量表容易受近期单次成功/失败经历过度影响,产生状态性波动而非稳定特质测量; 社会赞许性偏差可能导致家长在自评中呈现比实际更高的效能感。\n"
+    }
+  ],
+  "methods": [
+    {
+      "id": "MD-004",
+      "title": "家长自我效能感\"小成功\"练习法",
+      "summary": "家长从一个具体、可控、大概率能成功的教养场景开始practice,刻意积累\"掌握经验\",而不是从最难的场景(如青春期激烈冲突)开始尝试新方法。",
+      "evidence_grade": "E0",
+      "external_evidence_count": 0,
+      "family_decision_non_decisive": true,
+      "source_refs": [],
+      "open_questions": [
+        "本方法卡直接操作化Bandura四来源理论中的\"掌握经验\"路径,是本平台基于理论机制的设计,尚无独立效果验证。"
+      ],
+      "steps": [
+        "从近期教养困扰里,挑一个\"频率较高但强度较低\"的场景(如晚饭后收拾书包磨蹭),而非最激烈的冲突场景;",
+        "只在这一个场景里尝试一种新的应对方式,连续尝试3-5次,不同时改变多个场景/多种方法;",
+        "每次尝试后简单记录\"这次有没有比上次顺利一点\",不要求完美,只要求\"看到一点点变化的证据\";",
+        "有条件时,找一位处境相似的家长交流具体做法(替代性经验),优先看\"真实但不完美\"的示范而非理想化案例。"
+      ],
+      "dose": "每次聚焦1个场景,连续尝试3-5次为一个周期,周期结束后再决定是否换场景",
+      "age_range": "不针对孩子年龄,适用于任何有教养困扰的家长",
+      "observable_signal": "家长对该具体场景的主观信心提升(哪怕行为结果只有小幅改善);家长开始主动谈论\"我上次做到了\"而非只谈\"孩子还是不听\"。",
+      "contraindication": "若家长当下处于严重情绪耗竭/抑郁焦虑症状,不适用\"自我挑战\"类练习,应优先转介专业心理支持,不得把效能感练习当作替代治疗手段。",
+      "failure_mode": "一次性挑战多个高难度场景导致挫败反而降低效能感;把\"记录变化\"做成自我批评清单。",
+      "risk_level": "low",
+      "human_requirement": "none"
+    }
+  ],
+  "modalities": [
+    {
+      "id": "MM-004",
+      "title": "教养自我效能感自评设计",
+      "summary": "通过家长在具体场景下的自评来估计教养自我效能感,不作为家长能力的诊断性评级。",
+      "evidence_grade": "E0",
+      "external_evidence_count": 0,
+      "family_decision_non_decisive": true,
+      "source_refs": [],
+      "open_questions": [
+        "尚未选定合法可用且完成中文效度核验的具体量表工具,不得输出效能感分数或\"合格家长\"类判定。",
+        "单次自评与真实教养行为改变之间的关系强度未经本平台验证,不得据此宣称\"自评提升=行为改善\"。"
+      ],
+      "channel": "量表 + 具体场景情境化提问",
+      "instrument": "待核验的教养效能感量表候选(如西方PSOC量表的中文本土化版本);当前仅为测量设计卡,未选定可合法使用的具体工具",
+      "reliability": "内部一致性、重测信度、中文情境效度均待核验;单题自评的状态性波动风险高。",
+      "cost": "低成本,可嵌入日常产品交互中,但需避免过度频繁采集造成家长疲劳/负担。",
+      "home_feasible": "家长可在家庭内自行完成,不需要专业观察者介入。",
+      "privacy_risk": "中 —— 涉及家长本人的心理自评数据,不直接涉及未成年人原始影像, 但若与具体教养场景描述关联存储,可能间接暴露家庭互动细节,需脱敏处理。\n",
+      "minors_handling": "本卡测量对象是家长本人而非未成年人,但场景描述可能间接涉及孩子信息, 涉及具体孩子行为描述时仍需遵循未成年人数据最小化原则。\n"
+    }
+  ],
+  "evidence_summary": {
+    "external_verified_count": 2,
+    "highest_grade": "E4",
+    "has_third_party_real": true,
+    "source_registry_gate": "PASS",
+    "python_evidence_gate": "FAIL",
+    "gate_checks": {
+      "library_validate_errors": 0,
+      "external_verified_count": 2,
+      "adolescent_direct_evidence": 0,
+      "method_evidence_max_grade": "E0",
+      "construct_external_evidence": 0,
+      "unverified_decisive_evidence": 0,
+      "fake_or_missing_source": 0,
+      "unregistered_external_source": 0
+    }
+  },
+  "limitations": [
+    "ResearchEvidence 恒 family_decision_non_decisive:不直接决定任何家庭必须做什么。",
+    "[MD-004] 本方法卡直接操作化Bandura四来源理论中的\"掌握经验\"路径,是本平台基于理论机制的设计,尚无独立效果验证。",
+    "[TH-004] Jones & Prinz (2005) 是叙述性综述非meta分析,效应量强度未在本平台逐条核验，不得引用具体相关系数。",
+    "[TH-004] 中文本土化教养效能感量表尚未核验，列为待查。",
+    "[CN-005] 尚未选定/核验中文本土化教养效能感量表(如PSOC等西方量表的中文版效度),当前无法给出可信的个体分数。",
+    "[MM-004] 尚未选定合法可用且完成中文效度核验的具体量表工具,不得输出效能感分数或\"合格家长\"类判定。",
+    "[MM-004] 单次自评与真实教养行为改变之间的关系强度未经本平台验证,不得据此宣称\"自评提升=行为改善\"。"
+  ],
+  "bundle_version": "sha256:b39efe8c3cc312b2"
+}

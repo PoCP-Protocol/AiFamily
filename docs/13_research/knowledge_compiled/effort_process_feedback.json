@@ -1,0 +1,121 @@
+{
+  "schema_version": "KNOWLEDGE_CHAIN_V2",
+  "intervention_id": "EFFORT_PROCESS_FEEDBACK",
+  "compiled_by": "byresearch/compile_principal_bundle.py",
+  "source_ssot": "20_知识_knowledge/library + byresearch/evidence.py",
+  "theories": [
+    {
+      "id": "TH-006",
+      "title": "目标定向理论/\"成长型思维\"(Dweck Goal Orientation / Growth Mindset)",
+      "summary": "个体对自身能力\"是否可以通过努力改变\"的内隐信念(成长型 vs 固定型思维),影响其面对学业挑战时的目标选择与挫折应对方式;但该理论近年最强证据(多项大规模meta分析)显示其对学业成绩的实际效应量远小于流行说法宣称的程度。",
+      "evidence_grade": "E7",
+      "external_evidence_count": 3,
+      "family_decision_non_decisive": true,
+      "source_refs": [
+        "Sisk VF, Burgoyne AP, Sun J, Butler JL, Macnamara BN. (2018). To What Extent and Under Which Circumstances Are Growth Mind-Sets Important to Academic Achievement? Two Meta-Analyses. Psychological Science, 29(4), 549-571. doi:10.1177/0956797617739704",
+        "Macnamara BN, et al. (2023). Do growth mindset interventions impact students' academic achievement? A systematic review and meta-analysis with recommendations for best practices. Psychological Bulletin, 149(3), 133-173. doi:10.1037/bul0000352"
+      ],
+      "open_questions": [
+        "中国学生样本中成长型思维相关研究尚未核验,列为待查。",
+        "具体哪类\"成长型思维干预设计\"(如反馈话术vs整套课程)效应量差异尚未逐条核验，本卡不确定推荐哪种具体干预形式。"
+      ],
+      "core_claim": "持有\"能力可通过努力发展\"信念(成长型思维)的学生更倾向选择\"学习目标\"而非单纯\"表现目标\",面对失败时更可能归因于努力不足而非能力不够,从而更能坚持;但\"培养成长型思维就能显著提升学业成绩\"这一流行主张,在大规模meta分析中被证明效应量很小且存在很多null结果。",
+      "mechanism": "核心区分两种内隐信念: (1)固定型思维(fixed mindset)——认为智力/能力是相对固定的特质,失败会被解读为\"我不够聪明\"这种能力归因,容易导致回避挑战、放弃; (2)成长型思维(growth mindset)——认为能力可通过努力/策略/反馈发展,失败被解读为\"这个方法还不够/还需要练习\"这种努力/策略归因,更容易坚持并调整策略。 这套信念进一步影响目标定向:固定型思维者更倾向\"表现目标\"(证明自己聪明/避免看起来笨),成长型思维者更倾向\"学习目标\"(把重点放在掌握技能本身)。 理论本身的机制链条(信念→归因→目标定向→坚持性)有扎实的实证支持链,但从\"改变学生的信念\"到\"实际提升学业成绩\"这一段, 是应用层最薄弱的环节——多项大规模meta分析显示,单纯的\"成长型思维讲座/工作坊\"式干预,对多数学生群体的成绩提升效应很小, 仅在特定高风险/低资源学生子群体中观察到更明显效应,且结果在不同研究间不一致。 对本平台的含义:如果要用这套理论生成建议,重点应放在\"具体场景下如何做努力归因/策略反馈\"(如MD类方法可以设计的具体话术), 而不是抽象宣传\"要有成长型思维\"这种没有操作抓手的说教。\n",
+      "boundary": "本理论的\"信念-归因-坚持性\"机制本身证据基础较扎实(理论奠基论文+后续大量实证); 但\"成长型思维干预项目能提升学业成绩\"这一应用层主张,在2018年与2023年两项独立meta分析中效应量都很小(部分子群体接近零), 本平台明确不采用\"教孩子成长型思维就能提分\"这类被流行心理学夸大的简化叙事。\n",
+      "china_fit": "中国教育环境的\"努力归因\"文化本身就很强(常被认为比西方更强调努力而非天赋), \"成长型思维\"这套源自美国文化情境的干预话术直接翻译过来是否有增量价值存疑, 本平台未核验中国学生样本中的相关研究,列为待查。\n"
+    }
+  ],
+  "constructs": [
+    {
+      "id": "CN-007",
+      "title": "内隐能力信念与努力归因(implicit ability belief / effort attribution)",
+      "summary": "儿童/青少年对\"能力能否通过努力改变\"的信念,以及面对失败时倾向归因于努力/策略不足还是能力不够。",
+      "evidence_grade": "E0",
+      "external_evidence_count": 0,
+      "family_decision_non_decisive": true,
+      "source_refs": [],
+      "open_questions": [
+        "本构念与实际学业成绩改善之间的因果链条证据薄弱(见TH-006的anti-overclaim证据),生成建议时不得暗示\"改变信念=提分\"。"
+      ],
+      "definition": "个体在具体学业挑战场景中,对自身能力可塑性的信念强度,及其对失败原因的归因倾向。",
+      "direction": "越倾向\"能力可通过努力改变+失败归因于努力/策略\"越有利于坚持性,但本构念与\"实际学业成绩\"的关联效应量小,不得作为成绩预测指标使用。",
+      "proxy_risk": "自评量表容易受\"社会期望回答\"影响(学生知道\"说努力比说天赋政治正确\"); 单次测量的信念表述可能与真实挑战情境下的实际归因行为不一致。\n"
+    }
+  ],
+  "methods": [
+    {
+      "id": "MD-006",
+      "title": "过程/策略聚焦反馈法(努力归因练习)",
+      "summary": "家长在孩子完成任务或遇到挫折时,把反馈重点放在具体的方法/努力过程上,而不是笼统评价孩子聪明/笨,帮助孩子形成\"结果不好是方法还需调整\"而非\"我能力不够\"的归因习惯。",
+      "evidence_grade": "E0",
+      "external_evidence_count": 0,
+      "family_decision_non_decisive": true,
+      "source_refs": [],
+      "open_questions": [
+        "本方法卡是从TH-006理论机制推导的具体反馈话术操作化设计,鉴于TH-006本身的anti-overclaim证据(meta分析显示信念类干预对成绩效应很小), 本方法不得被宣传为\"能显著提升学业成绩\"，只能定位为\"有理论支持的反馈方式，效果需具体观察\"。"
+      ],
+      "steps": [
+        "孩子完成任务后,先具体描述你观察到的做法(\"我看到你先把大题目分成了几小步\"),不用\"聪明/真棒\"这类笼统评价性词语;",
+        "孩子遇到挫折/失败时,先共同回顾具体过程(\"这次卡在哪一步了\"),避免直接给\"你是不是没努力/是不是能力不够\"这类归因判断;",
+        "引导孩子自己说出\"下次可以换个方法试试\"，家长补充1-2个具体可尝试的策略,而不是空泛鼓励\"你可以的\";",
+        "避免过度使用\"过程反馈\"来掩盖真实的困难程度——如果孩子确实遇到超出当前能力的任务,应如实调整任务难度而非只归因于努力。"
+      ],
+      "dose": "融入日常反馈习惯,建议先在1-2类重复出现的场景(如作业/日常小任务)中刻意练习2-4周",
+      "age_range": "6-15",
+      "observable_signal": "孩子在遇到困难时更多描述\"具体哪里卡住了\"而非只说\"我不会/我很笨\";愿意重新尝试的比例提高。",
+      "contraindication": "若孩子的困难实际来自能力发展阶段限制、学习障碍或超出当前发展水平的任务要求,不适用\"纯归因调整\"框架, 须先评估任务难度是否匹配,避免把发展性/能力性限制误判为\"努力不够\"造成孩子额外压力,必要时转介专业评估。\n",
+      "failure_mode": "把\"过程反馈\"说成空洞的\"你已经很努力了\"而不具体;用\"努力归因\"掩盖孩子真实遇到的困难, 导致孩子反复挫败却被告知\"只是不够努力\"，这正是TH-006里meta分析揭示的\"信念调整不能替代真实的技能/资源支持\"这一风险。\n",
+      "risk_level": "low",
+      "human_requirement": "none"
+    }
+  ],
+  "modalities": [
+    {
+      "id": "MM-006",
+      "title": "学业动机与归因自评设计",
+      "summary": "通过儿童/青少年在具体学业挑战场景下的自评,估计内隐能力信念/归因倾向与基本心理需求满足度,不作为学业能力诊断。",
+      "evidence_grade": "E0",
+      "external_evidence_count": 0,
+      "family_decision_non_decisive": true,
+      "source_refs": [],
+      "open_questions": [
+        "尚未选定合法可用且完成中文效度核验的具体量表工具。",
+        "鉴于TH-006已有的anti-overclaim证据,本测量设计不得被用于宣称\"提升成长型思维分数=提升学业成绩\"。"
+      ],
+      "channel": "量表 + 情境化提问(如\"上次考砸时你觉得是因为什么\")",
+      "instrument": "待核验的内隐信念量表(如Dweck Mindset量表)与SDT需求满足量表的中文本土化候选版本;当前仅为测量设计卡",
+      "reliability": "中文本土化信效度、跨文化构念等值性、社会期望效应校正均待核验。",
+      "cost": "低成本,量表形式,可嵌入学习类产品但需避免采集频率过高。",
+      "home_feasible": "儿童可在家长引导下完成,青少年可自行完成;年幼儿童需简化题目表述并谨慎解读。",
+      "privacy_risk": "中高 —— 涉及未成年人心理/学业相关自评数据,需遵循未成年人数据最小化与谨慎解读原则。",
+      "minors_handling": "监护人显式consent + 未成年人知情;不得据此生成\"学习能力评级\"或\"是否聪明\"类判定, 仅用于生成具体场景的归因反馈建议,高风险解读需Human Gate。\n"
+    }
+  ],
+  "evidence_summary": {
+    "external_verified_count": 3,
+    "highest_grade": "E7",
+    "has_third_party_real": true,
+    "source_registry_gate": "PASS",
+    "python_evidence_gate": "FAIL",
+    "gate_checks": {
+      "library_validate_errors": 0,
+      "external_verified_count": 3,
+      "adolescent_direct_evidence": 0,
+      "method_evidence_max_grade": "E0",
+      "construct_external_evidence": 0,
+      "unverified_decisive_evidence": 0,
+      "fake_or_missing_source": 0,
+      "unregistered_external_source": 0
+    }
+  },
+  "limitations": [
+    "ResearchEvidence 恒 family_decision_non_decisive:不直接决定任何家庭必须做什么。",
+    "[MD-006] 本方法卡是从TH-006理论机制推导的具体反馈话术操作化设计,鉴于TH-006本身的anti-overclaim证据(meta分析显示信念类干预对成绩效应很小), 本方法不得被宣传为\"能显著提升学业成绩\"，只能定位为\"有理论支持的反馈方式，效果需具体观察\"。",
+    "[TH-006] 中国学生样本中成长型思维相关研究尚未核验,列为待查。",
+    "[TH-006] 具体哪类\"成长型思维干预设计\"(如反馈话术vs整套课程)效应量差异尚未逐条核验，本卡不确定推荐哪种具体干预形式。",
+    "[CN-007] 本构念与实际学业成绩改善之间的因果链条证据薄弱(见TH-006的anti-overclaim证据),生成建议时不得暗示\"改变信念=提分\"。",
+    "[MM-006] 尚未选定合法可用且完成中文效度核验的具体量表工具。",
+    "[MM-006] 鉴于TH-006已有的anti-overclaim证据,本测量设计不得被用于宣称\"提升成长型思维分数=提升学业成绩\"。"
+  ],
+  "bundle_version": "sha256:9eb30f9875053921"
+}

@@ -1,0 +1,121 @@
+{
+  "schema_version": "KNOWLEDGE_CHAIN_V2",
+  "intervention_id": "CONVERSATIONAL_LANGUAGE_ENRICHMENT",
+  "compiled_by": "byresearch/compile_principal_bundle.py",
+  "source_ssot": "20_知识_knowledge/library + byresearch/evidence.py",
+  "theories": [
+    {
+      "id": "TH-008",
+      "title": "照养者语言输入与词汇发展(Caregiver Language Input)",
+      "summary": "幼儿早期从照养者那里接收到的语言输入的数量与质量,预测其后续词汇量与语言能力发展,且这种影响独立于家庭社经地位本身的直接效应(即社经地位通过语言输入这条路径起作用,不是社经地位本身直接决定词汇量)。",
+      "evidence_grade": "E6",
+      "external_evidence_count": 2,
+      "family_decision_non_decisive": true,
+      "source_refs": [
+        "Hoff E. (2003). The Specificity of Environmental Influence: Socioeconomic Status Affects Early Vocabulary Development Via Maternal Speech. Child Development, 74(5), 1368-1378. doi:10.1111/1467-8624.00612",
+        "Rowe ML. (2012). A Longitudinal Investigation of the Role of Quantity and Quality of Child-Directed Speech in Vocabulary Development. Child Development, 83(5), 1762-1774. doi:10.1111/j.1467-8624.2012.01805.x"
+      ],
+      "open_questions": [
+        "语言输入类具体干预项目(如系统化的亲子共读方案)的RCT效果证据本平台尚未核验，不得宣称\"改善语言输入=RCT验证提升词汇量\"。",
+        "中文语境/多语言家庭的适配研究尚未核验。"
+      ],
+      "core_claim": "照养者对幼儿说话的词汇丰富度、句法复杂度、对话式互动(而非单向指令)的比例越高,幼儿后续词汇发展越好;这条机制部分解释了家庭社经背景差异如何转化为儿童早期语言能力差异。",
+      "mechanism": "\"语言输入质量\"通常拆解为几个可观察维度: (1)词汇多样性(照养者使用的独特词汇数量,而非只是说话总量); (2)句法复杂度(是否使用完整句、从句等更复杂的语言结构,而非只是简单指令); (3)对话式互动比例(照养者是否跟进孩子发起的话题、提开放式问题,而非只是单向的指令/命名); (4)去情境化语言(谈论当下不在场的事物/过去将来,而非只描述眼前发生的事)。 Hoff (2003)的核心发现是:社经地位对早期词汇发展的影响,很大程度上是通过\"母亲言语的词汇多样性\"这条路径起作用的—— 也就是说,社经地位本身不是直接原因,真正起作用的是社经地位关联的照养者语言输入模式,这意味着\"改变语言输入模式\" 理论上比\"改变社经地位\"更具可干预性,这是本卡对家庭教育实践的核心含义。\n",
+      "boundary": "证据基础是纵向观察研究(非RCT),证明的是\"语言输入质量与词汇发展的关联及部分中介机制\", 不是\"某个具体语言干预项目对词汇量有因果提升效应\"的RCT级证据;本平台未核验语言输入类干预项目(如亲子共读项目)的RCT效果证据。\n",
+      "china_fit": "本平台未核验中文语境下\"照养者语言输入质量\"的测量工具与关联研究; 中文的语法结构、多语言/方言家庭环境(常见于中国家庭,如祖辈用方言照养)可能改变输入-发展关系的具体表现形式,列为待查。\n"
+    }
+  ],
+  "constructs": [
+    {
+      "id": "CN-009",
+      "title": "照养者语言输入质量(caregiver language input quality)",
+      "summary": "照养者对幼儿说话时的词汇多样性、句法复杂度、对话式互动比例的综合水平。",
+      "evidence_grade": "E0",
+      "external_evidence_count": 0,
+      "family_decision_non_decisive": true,
+      "source_refs": [],
+      "open_questions": [
+        "本构念的测量高度依赖录音转写分析,家庭日常场景的低成本替代测量方式尚未核验。"
+      ],
+      "definition": "可观察的照养者言语行为中,词汇丰富度/句法复杂度/对话式跟进/去情境化语言四个维度的综合表现。",
+      "direction": "越高越好;单向指令式/低词汇多样性的语言输入模式风险更高。",
+      "proxy_risk": "家长自评倾向高估自己的语言互动质量;真实测量通常需要录音转写分析,家庭场景成本高; 不同方言/多语言环境下的\"词汇多样性\"计算方式未经本平台核验统一标准。\n"
+    }
+  ],
+  "methods": [
+    {
+      "id": "MD-008",
+      "title": "对话式语言互动练习(词汇丰富化)",
+      "summary": "照养者在日常互动中刻意增加词汇多样性、使用完整句而非简单指令,并把单向指令转为跟进孩子话题的对话式交流。",
+      "evidence_grade": "E0",
+      "external_evidence_count": 0,
+      "family_decision_non_decisive": true,
+      "source_refs": [],
+      "open_questions": [
+        "本方法卡是从TH-008理论机制推导的操作化设计,尚无独立干预研究验证这套具体练习流程本身对词汇发展的因果效应。"
+      ],
+      "steps": [
+        "日常给孩子指令/描述事物时,刻意使用更丰富的词汇替代重复的简单词(\"这个杯子是透明的/圆圆的\",而不是反复说\"这个\"\"那个\");",
+        "孩子发起一个话题时,尽量跟进提问(\"你说的那只小狗后来怎么样了?\"),而不是简单回应后转移话题或用\"嗯嗯\"敷衍;",
+        "每天找1-2个时机,谈论不在眼前发生的事(昨天做了什么/明天要去哪),练习去情境化语言;",
+        "不要求\"教学式\"地刻意纠正孩子的语法错误,重点是照养者自己的语言输入丰富度,而非直接矫正孩子的表达。"
+      ],
+      "dose": "融入日常互动,建议每天至少2-3次刻意的对话式跟进,持续观察",
+      "age_range": "0-6",
+      "observable_signal": "孩子主动发起话题的频次;孩子使用的词汇/句式复杂度随时间的变化(需长期观察,非短期可见)。",
+      "contraindication": "若儿童存在语言发育明显迟缓的迹象(如同龄儿童常见词汇量远低于预期),不适用\"自助式练习替代评估\",须转介专业语言发育评估,不得用本方法延误专业干预时机。",
+      "failure_mode": "把\"词汇丰富化\"做成刻意的词汇轰炸/教学式纠错,失去自然对话的互动感;只顾自己说,不跟进孩子发起的话题。",
+      "risk_level": "low",
+      "human_requirement": "none"
+    }
+  ],
+  "modalities": [
+    {
+      "id": "MM-007",
+      "title": "语言互动录音分析与同伴情境故事访谈设计",
+      "summary": "通过照养者-儿童互动录音转写分析语言输入质量,通过情境故事访谈估计儿童社会信息加工偏差;两者均非家庭可自行完成的日常测量。",
+      "evidence_grade": "E0",
+      "external_evidence_count": 0,
+      "family_decision_non_decisive": true,
+      "source_refs": [],
+      "open_questions": [
+        "两类测量均未选定合法可用且完成中文效度核验的具体工具,当前不能宣称测量完成。",
+        "家庭日常场景下的低成本替代测量方式(如简化版家长观察清单)尚未设计和核验,效度可能显著低于专业工具。"
+      ],
+      "channel": "录音转写分析 + 结构化情境故事访谈",
+      "instrument": "待核验的语言输入编码体系(如LENA类系统的中文适配)与社会信息加工情境故事访谈工具;当前仅为测量设计卡",
+      "reliability": "录音转写的编码者信度、情境故事访谈的访谈者培训标准化程度均待核验;中文本土化版本均未核验。",
+      "cost": "录音转写人工成本高;情境故事访谈需专业培训的访谈者,成本高于家长自评类工具。",
+      "home_feasible": "均不适合作为家庭自测工具;录音采集需明确consent,访谈需专业人员主持。",
+      "privacy_risk": "高 —— 录音涉及未成年人原始语音数据,情境访谈涉及儿童社交行为敏感信息; 默认不采集或长期保存原始录音,仅保留结构化编码结果,访谈记录需脱敏。\n",
+      "minors_handling": "监护人显式consent + 未成年人知情;原始录音/访谈记录不出本地、不入canonical; 不得据此生成\"语言能力评级\"或\"攻击性人格\"类标签,高风险发现须转介专业评估并进入Human Gate。\n"
+    }
+  ],
+  "evidence_summary": {
+    "external_verified_count": 2,
+    "highest_grade": "E6",
+    "has_third_party_real": true,
+    "source_registry_gate": "PASS",
+    "python_evidence_gate": "FAIL",
+    "gate_checks": {
+      "library_validate_errors": 0,
+      "external_verified_count": 2,
+      "adolescent_direct_evidence": 0,
+      "method_evidence_max_grade": "E0",
+      "construct_external_evidence": 0,
+      "unverified_decisive_evidence": 0,
+      "fake_or_missing_source": 0,
+      "unregistered_external_source": 0
+    }
+  },
+  "limitations": [
+    "ResearchEvidence 恒 family_decision_non_decisive:不直接决定任何家庭必须做什么。",
+    "[MD-008] 本方法卡是从TH-008理论机制推导的操作化设计,尚无独立干预研究验证这套具体练习流程本身对词汇发展的因果效应。",
+    "[TH-008] 语言输入类具体干预项目(如系统化的亲子共读方案)的RCT效果证据本平台尚未核验，不得宣称\"改善语言输入=RCT验证提升词汇量\"。",
+    "[TH-008] 中文语境/多语言家庭的适配研究尚未核验。",
+    "[CN-009] 本构念的测量高度依赖录音转写分析,家庭日常场景的低成本替代测量方式尚未核验。",
+    "[MM-007] 两类测量均未选定合法可用且完成中文效度核验的具体工具,当前不能宣称测量完成。",
+    "[MM-007] 家庭日常场景下的低成本替代测量方式(如简化版家长观察清单)尚未设计和核验,效度可能显著低于专业工具。"
+  ],
+  "bundle_version": "sha256:77a85d6225f3d7f4"
+}
