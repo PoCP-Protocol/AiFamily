@@ -48,8 +48,9 @@ Enforced at two levels, with an honest gap:
   :func:`read_all_events`). There is no update or delete function, and
   `AuditEventRow` instances are never returned to callers as live ORM objects —
   queries return frozen :class:`AuditEvent` values, so a caller cannot mutate a
-  row and have a session flush the change back. A test
-  (`test_audit_row_update_is_rejected`) asserts a direct `UPDATE` is refused.
+  row and have a session flush the change back. Asserted by
+  `test_store_exposes_no_update_or_delete_function` and
+  `test_audit_event_row_has_no_mutation_bookkeeping_columns`.
 * **DB layer (Postgres only).** Migration
   `0002_platform_audit_events_worm` installs a `BEFORE UPDATE OR DELETE`
   trigger that raises. That is the only enforcement that survives a caller with
@@ -103,6 +104,21 @@ AUDIT_EVENTS_TABLE = "platform_audit_events"
 #: by SQLite but rejected by Postgres on the first insert. Same reasoning as
 #: `backend/domains/product_intelligence/infrastructure/sqlalchemy_models.py`.
 _TZ_DATETIME = DateTime(timezone=True)
+
+#: `none_as_null=True` is load-bearing, not a style choice.
+#:
+#: SQLAlchemy's `JSON` defaults to `none_as_null=False`, which renders a Python
+#: `None` as the JSON **literal** `null` — a non-NULL value as far as SQL is
+#: concerned. Every kind-shape CHECK in this table and in migration 0002 is
+#: written in terms of `before IS NULL` / `accessed_fields IS NULL`, so with the
+#: default a perfectly well-formed MUTATION (no `accessed_fields`) or READ (no
+#: `before`/`after`) is rejected by the constraint that exists to protect it.
+#: `JSON.NULL` would be the opposite mistake for the same reason.
+#:
+#: Postgres shows the same behaviour, so this is not a SQLite artefact: the
+#: default would fail identically against the migrated table in production.
+#: Anything mapping a nullable JSON column in this table must use this type.
+_NULLABLE_JSON = JSON(none_as_null=True)
 
 
 class AuditBase(DeclarativeBase):
@@ -195,8 +211,8 @@ class AuditEventRow(AuditBase):
     # Postgres maps SQLAlchemy `JSON` to `json`; the queries this table
     # supports filter on scalar columns only and never index into the payload,
     # so `jsonb`'s operator support buys nothing here.
-    before: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    after: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    before: Mapped[dict | None] = mapped_column(_NULLABLE_JSON, nullable=True)
+    after: Mapped[dict | None] = mapped_column(_NULLABLE_JSON, nullable=True)
 
     # --- READ-only (《未成年人网络保护条例》第36条) -----------------------
     subject_person_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
@@ -206,7 +222,7 @@ class AuditEventRow(AuditBase):
     # element-wise, so a JSON array beats both a Postgres ARRAY (no SQLite
     # equivalent) and a delimiter-joined string (which breaks on field names
     # containing the delimiter).
-    accessed_fields: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    accessed_fields: Mapped[list | None] = mapped_column(_NULLABLE_JSON, nullable=True)
     access_purpose: Mapped[str | None] = mapped_column(String(64), nullable=True)
     approval_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
@@ -286,9 +302,9 @@ async def persist_events(session: AsyncSession, events: Iterable[AuditEvent]) ->
     return len(rows)
 
 
-async def read_all_events(session: AsyncSession, *, tenant_id: str | None = None) -> Sequence[
-    AuditEvent
-]:
+async def read_all_events(
+    session: AsyncSession, *, tenant_id: str | None = None
+) -> Sequence[AuditEvent]:
     """Every persisted event, oldest first. Optionally scoped to one tenant."""
     stmt = select(AuditEventRow).order_by(AuditEventRow.id)
     if tenant_id is not None:

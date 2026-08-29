@@ -271,6 +271,31 @@ Strategy → Business Capability → Product Capability → Domain
 
 ---
 
+## T-13 ｜ P1 ｜ 收拾 `backend/domains/service/` 与 `tests/domains/loyalty_points/` 半成品
+
+**背景**：T-11（audit 持久化）收尾时发现，仓库里有另一份未完成的 WIP 使全量测试无法变绿。它**不属于 T-11 范围**，故只记录不修改：
+
+1. **R3 违规**（`tests/architecture/test_migration_manifest.py::test_backend_code_dirs_are_all_manifested` 失败）：
+   未跟踪文件 `backend/domains/service/domain/policies.py`、`backend/domains/service/domain/value_objects.py`
+   建立了 `backend/domains/service/` 目录，但 `governance/MIGRATION_MANIFEST.yaml` 中没有任何
+   `target` 覆盖它（也没有 `service` 相关条目）。按 R3，加代码前必须先登记 capability
+   （disposition 为 `MIGRATE` 或 `REIMPLEMENT`）。
+
+2. **pytest 收集中断**（比第 1 条更严重，它让**整个**测试套件跑不起来）：
+   未跟踪目录 `tests/domains/loyalty_points/` 是 `tests/domains/membership/` 的副本，
+   文件基名完全相同（`conftest.py` / `helpers.py` / `test_acceptance_chain.py`）。
+   测试目录没有 `__init__.py`，pytest 以 rootdir 相对的模块名导入，于是
+   `test_acceptance_chain` 这个模块名被两个文件争用，报
+   `import file mismatch`，收集阶段直接 `Interrupted`。清 `__pycache__` 无效——
+   这是基名冲突本身，不是缓存陈旧。
+   两种修法：给 `tests/domains/*/` 加 `__init__.py`，或把新测试文件改成唯一基名
+   （例如 `test_loyalty_points_acceptance_chain.py`）。
+
+**验收**：`uv run pytest -q` 能完成收集且无 FAILED。参考：把这两处 WIP 临时移出仓库后，
+全量为 `260 passed, 9 skipped`，即除这两处外仓库是绿的。
+
+---
+
 ## 2. 任务依赖关系
 
 ```text

@@ -89,6 +89,32 @@ _READ_SHAPE_CHECK = """
 # 第36条: staff access to a minor's information must be approved beforehand.
 _MINOR_APPROVAL_CHECK = "NOT (subject_is_minor AND approval_ref IS NULL)"
 
+#: The Postgres-only append-only enforcement, as a module constant rather than
+#: inline `op.execute` calls. `tests/platform/audit/test_store.py` imports this
+#: tuple and applies it to a throwaway schema in a real Postgres, so the trigger
+#: the test exercises is by construction the one this migration installs — a
+#: hand-copied duplicate in the test could pass while the migration shipped
+#: something else.
+WORM_DDL: tuple[str, ...] = (
+    f"""
+    CREATE OR REPLACE FUNCTION {WORM_FUNCTION}() RETURNS trigger AS $$
+    BEGIN
+        RAISE EXCEPTION
+            '{TABLE_NAME} is append-only (WORM): % is not permitted', TG_OP
+            USING ERRCODE = 'restrict_violation';
+    END;
+    $$ LANGUAGE plpgsql;
+    """,
+    f"CREATE TRIGGER {TABLE_NAME}_no_update_delete "
+    f"BEFORE UPDATE OR DELETE ON {TABLE_NAME} "
+    f"FOR EACH ROW EXECUTE FUNCTION {WORM_FUNCTION}()",
+    # A BEFORE DELETE row trigger does not fire for TRUNCATE; without this,
+    # one command erases the entire trail.
+    f"CREATE TRIGGER {TABLE_NAME}_no_truncate "
+    f"BEFORE TRUNCATE ON {TABLE_NAME} "
+    f"FOR EACH STATEMENT EXECUTE FUNCTION {WORM_FUNCTION}()",
+)
+
 
 def upgrade() -> None:
     op.create_table(
@@ -105,12 +131,18 @@ def upgrade() -> None:
         sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("action_kind", sa.String(16), nullable=False),
         # --- MUTATION-only ---
-        sa.Column("before", sa.JSON(), nullable=True),
-        sa.Column("after", sa.JSON(), nullable=True),
+        # `none_as_null=True` mirrors `_NULLABLE_JSON` in
+        # `backend/platform/audit/store.py`. Without it SQLAlchemy renders a
+        # Python `None` as the JSON literal `null`, which is NOT NULL in SQL and
+        # therefore violates `_READ_SHAPE_CHECK` below for well-formed rows. The
+        # DDL this emits is the same either way; keeping the flag here means a
+        # future `op.bulk_insert` (a backfill, say) cannot reintroduce the bug.
+        sa.Column("before", sa.JSON(none_as_null=True), nullable=True),
+        sa.Column("after", sa.JSON(none_as_null=True), nullable=True),
         # --- READ-only (第36条) ---
         sa.Column("subject_person_id", sa.String(128), nullable=True),
         sa.Column("subject_is_minor", sa.Boolean(), nullable=False, server_default=sa.false()),
-        sa.Column("accessed_fields", sa.JSON(), nullable=True),
+        sa.Column("accessed_fields", sa.JSON(none_as_null=True), nullable=True),
         sa.Column("access_purpose", sa.String(64), nullable=True),
         sa.Column("approval_ref", sa.String(128), nullable=True),
         sa.CheckConstraint(
@@ -134,29 +166,8 @@ def upgrade() -> None:
         postgresql_where=sa.text("action_kind = 'read'"),
     )
 
-    op.execute(
-        f"""
-        CREATE OR REPLACE FUNCTION {WORM_FUNCTION}() RETURNS trigger AS $$
-        BEGIN
-            RAISE EXCEPTION
-                '{TABLE_NAME} is append-only (WORM): % is not permitted', TG_OP
-                USING ERRCODE = 'restrict_violation';
-        END;
-        $$ LANGUAGE plpgsql;
-        """
-    )
-    op.execute(
-        f"CREATE TRIGGER {TABLE_NAME}_no_update_delete "
-        f"BEFORE UPDATE OR DELETE ON {TABLE_NAME} "
-        f"FOR EACH ROW EXECUTE FUNCTION {WORM_FUNCTION}()"
-    )
-    # A BEFORE DELETE row trigger does not fire for TRUNCATE; without this,
-    # one command erases the entire trail.
-    op.execute(
-        f"CREATE TRIGGER {TABLE_NAME}_no_truncate "
-        f"BEFORE TRUNCATE ON {TABLE_NAME} "
-        f"FOR EACH STATEMENT EXECUTE FUNCTION {WORM_FUNCTION}()"
-    )
+    for statement in WORM_DDL:
+        op.execute(statement)
 
 
 def downgrade() -> None:
