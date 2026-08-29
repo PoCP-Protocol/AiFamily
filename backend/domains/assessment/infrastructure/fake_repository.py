@@ -34,9 +34,10 @@ def default_tool() -> AssessmentTool:
             AssessmentToolItem(
                 item_ref="FOCUS",
                 response_type="SINGLE_CHOICE",
-                required=True,
+                required=False,
                 options=["COMMUNICATION", "HOMEWORK", "SCREEN_TIME"],
             ),
+            AssessmentToolItem(item_ref="item-1", response_type="TEXT", required=False),
             AssessmentToolItem(item_ref="NOTE", response_type="TEXT", required=False),
         ],
     )

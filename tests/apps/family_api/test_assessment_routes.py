@@ -13,6 +13,18 @@ previous version of this file:
    assertion below used to pass for the wrong reason: the request was rejected
    for a malformed person id before the idempotency check was ever reached. Each
    assertion here now fails only for the reason it names.
+
+A fourth mismatch, fixed here: the chain's third leg was written against an
+endpoint and a receipt shape that do not exist. There is no
+`POST .../assessments/{id}/growth-hypothesis` — the hypothesis is *read* from
+`GET /ui/03/growth-hypothesis` (`routes.get_ui03_projection`), which is the
+point: a hypothesis is a projection over submitted evidence, not something a
+caller mints by POSTing. And the decision receipt from
+`GrowthHypothesisCommandHandler.decide` carries `action` / `outcome` /
+`hypothesis_ref` / `intent`, not `hypothesis` / `growth_intent`. The R9
+assertions below therefore check R9 where it is actually expressed: the
+projection's `fact_boundary` (the hypothesis stays non-canonical) and the
+intent's `boundary` (a confirmation yields an intent, not an outcome).
 """
 
 from __future__ import annotations
@@ -70,8 +82,29 @@ def _grant_assessment_consent(family_id: str, subject_person_id: str) -> None:
     """
     from backend.apps.family_api import dev_wiring
 
-    dev_wiring._assessment_repository.consents.add(
-        (family_id, subject_person_id, "ASSESSMENT")
+    dev_wiring._assessment_repository.consents.add((family_id, subject_person_id, "ASSESSMENT"))
+
+
+def _seed_need_type_catalog() -> None:
+    """Seed the FOCUS -> need-type row the hypothesis projection reads.
+
+    `load_hypothesis_evidence` returns `None` unless the answered `FOCUS` option
+    maps to a need type, so without this the UI-03 projection reports
+    `NO_SUBMITTED_ASSESSMENT` even though a session was submitted. This is
+    catalog reference data, not a permission: seeding it grants no access that
+    the consent and family-scope checks would otherwise refuse.
+
+    `COMMUNICATION` is one of the three options `fake_repository.default_tool()`
+    offers for the `FOCUS` item, which is why the response below answers it.
+    """
+    from backend.apps.family_api import dev_wiring
+
+    dev_wiring._assessment_repository.seed_need_type(
+        "COMMUNICATION",
+        "NEED_PARENT_CHILD_COMMUNICATION",
+        "亲子沟通支持",
+        "先从倾听开始",
+        ["LISTENING_COACH"],
     )
 
 
@@ -79,6 +112,7 @@ def test_http_chain_is_idempotent_end_to_end(client: TestClient) -> None:
     auth = _auth(client)
     subject = str(uuid.uuid4())
     _grant_assessment_consent(FAMILY, subject)
+    _seed_need_type_catalog()
 
     start = client.post(
         f"/families/{FAMILY}/assessments/sessions",
@@ -108,47 +142,59 @@ def test_http_chain_is_idempotent_end_to_end(client: TestClient) -> None:
 
     session_id = start.json()["session"]["assessment_session_id"]
 
-    assert (
-        client.post(
-            f"/families/{FAMILY}/assessments/sessions/{session_id}/responses",
-            json={"item_ref": "item-1", "response_type": "TEXT", "response_value": "沟通"},
-            headers={**auth, "idempotency-key": "response-1"},
-        ).status_code
-        == 200
+    # `FOCUS`, answered with one of the options `default_tool()` declares for it.
+    # `save_response` validates the item against the session's tool version
+    # (`commands.save_response` -> `tool.find_item` -> `assert_response_value`),
+    # so an invented item_ref or a free-text answer to a SINGLE_CHOICE item is
+    # rejected — and `FOCUS` is also the one item the hypothesis is derived from.
+    response = client.post(
+        f"/families/{FAMILY}/assessments/sessions/{session_id}/responses",
+        json={
+            "item_ref": "FOCUS",
+            "response_type": "SINGLE_CHOICE",
+            "response_value": "COMMUNICATION",
+        },
+        headers={**auth, "idempotency-key": "response-1"},
     )
-    assert (
-        client.post(
-            f"/families/{FAMILY}/assessments/sessions/{session_id}/submit",
-            json={},
-            headers={**auth, "idempotency-key": "submit-1"},
-        ).status_code
-        == 200
-    )
+    assert response.status_code == 200, response.text
 
-    hypothesis = client.post(
-        f"/families/{FAMILY}/assessments/{session_id}/growth-hypothesis",
+    submit = client.post(
+        f"/families/{FAMILY}/assessments/sessions/{session_id}/submit",
         json={},
-        headers={**auth, "idempotency-key": "hypothesis-1"},
+        headers={**auth, "idempotency-key": "submit-1"},
     )
-    assert hypothesis.status_code == 200, hypothesis.text
+    assert submit.status_code == 200, submit.text
+
+    # The hypothesis is read, not posted. There is no endpoint that creates one:
+    # it is a projection over the submitted assessment, so the caller cannot
+    # bring a hypothesis of its own into the decision step.
+    projection = client.get(f"/families/{FAMILY}/ui/03/growth-hypothesis", headers=auth)
+    assert projection.status_code == 200, projection.text
+    assert projection.json()["availability"] == "READY"
+
+    hypothesis = projection.json()["hypothesis"]
+    # R9, first half: the model's product is a hypothesis and says so about
+    # itself. A projection that presented this as established fact is the exact
+    # failure R9 exists to prevent.
+    assert hypothesis["fact_boundary"] == "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS"
 
     decision = client.post(
         f"/families/{FAMILY}/growth-hypotheses/decisions",
         json={
             "assessment_session_id": session_id,
-            "hypothesis_ref": hypothesis.json()["hypothesis_ref"],
+            "hypothesis_ref": hypothesis["hypothesis_ref"],
             "decision_type": "CONFIRM",
         },
         headers={**auth, "idempotency-key": "decision-1"},
     )
     assert decision.status_code == 200, decision.text
 
-    # R9: confirming a hypothesis produces a GrowthIntent, and the hypothesis
-    # itself stays non-canonical. A confirmed hypothesis becoming a fact is the
-    # exact failure R9 exists to prevent.
+    # R9, second half: only the human CONFIRM crosses into canonical state, and
+    # what it creates is an intent to act — not a recorded outcome.
     body = decision.json()
-    assert body["hypothesis"]["canonical_fact"] is False
-    assert body["growth_intent"]["kind"] == "GrowthIntent"
+    assert body["action"] == "CONFIRM_GROWTH_HYPOTHESIS"
+    assert body["outcome"] == "INTENT_CREATED"
+    assert body["intent"]["boundary"] == "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME"
 
 
 def test_missing_credential_is_401_not_403(client: TestClient) -> None:
