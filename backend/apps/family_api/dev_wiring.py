@@ -268,10 +268,33 @@ async def _dev_family_context(
     token into an identity, so both domains agree on who the caller is.
     """
     identity = _identity(authorization)
+    tenant_id = identity["family_id"]
+    family_id = identity["family_id"]
+    person_id = identity["account_id"]
+
+    # Seed the family on first sight of a session.
+    #
+    # `assert_tenant_family_scope` refuses a family with no tenant binding, and
+    # in production that binding comes from the Account -> TenantMembership ->
+    # Family chain (auth_identity, status: NOT_STARTED). With no such chain, a
+    # dev session names a family the repository has never heard of and every
+    # request answers `tenant_family_scope_denied` — indistinguishable from a
+    # genuine authorization failure.
+    #
+    # Seeding here, keyed off an already-authenticated session, is narrower than
+    # loosening the scope check: the check keeps working, including for the
+    # cross-family case (a token for family-a still cannot reach family-b,
+    # because the route compares the path against the token before this runs).
+    if (tenant_id, family_id) not in _assessment_repository.tenant_family_bindings:
+        _assessment_repository.seed_family(tenant_id, family_id)
+    _assessment_repository.grant_family_manage_permission(
+        family_id, person_id, role="OWNER_GUARDIAN"
+    )
+
     return assessment_deps.FamilyContext(
-        tenant_id=identity["family_id"],
-        family_id=identity["family_id"],
-        person_id=identity["account_id"],
+        tenant_id=tenant_id,
+        family_id=family_id,
+        person_id=person_id,
     )
 
 

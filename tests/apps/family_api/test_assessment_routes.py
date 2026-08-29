@@ -60,9 +60,25 @@ def _auth(client: TestClient, family: str = FAMILY, key: str = "auth-1") -> dict
     return {"Authorization": f"Bearer {response.json()['token']}"}
 
 
+def _grant_assessment_consent(family_id: str, subject_person_id: str) -> None:
+    """Grant the ASSESSMENT-purpose consent the domain now requires.
+
+    Seeded from the test rather than from `dev_wiring`, deliberately: wiring a
+    blanket "every subject has consented" into the dev app would be a consent
+    bypass, and consent is exactly what this domain was missing before the
+    refactor. A test that wants the happy path has to say which subject consented.
+    """
+    from backend.apps.family_api import dev_wiring
+
+    dev_wiring._assessment_repository.consents.add(
+        (family_id, subject_person_id, "ASSESSMENT")
+    )
+
+
 def test_http_chain_is_idempotent_end_to_end(client: TestClient) -> None:
     auth = _auth(client)
     subject = str(uuid.uuid4())
+    _grant_assessment_consent(FAMILY, subject)
 
     start = client.post(
         f"/families/{FAMILY}/assessments/sessions",
@@ -72,17 +88,25 @@ def test_http_chain_is_idempotent_end_to_end(client: TestClient) -> None:
     assert start.status_code == 200, start.text
 
     # Same key, same payload: a replay must return the original receipt rather
-    # than opening a second session. Comparing the whole body, not just the
-    # status, is the point — a second session would also answer 200.
+    # than opening a second session. Comparing identity, not just the status — a
+    # second session would also answer 200.
     replay = client.post(
         f"/families/{FAMILY}/assessments/sessions",
         json={"subject_person_id": subject},
         headers={**auth, "idempotency-key": "start-1"},
     )
     assert replay.status_code == 200
-    assert start.json() == replay.json()
+    # `replayed` is expected to differ: the receipt tells the caller this was a
+    # replay rather than silently looking like a fresh write. Asserting the two
+    # bodies were byte-identical would have forbidden that honesty.
+    assert replay.json()["replayed"] is True
+    assert start.json()["replayed"] is False
+    assert (
+        start.json()["session"]["assessment_session_id"]
+        == replay.json()["session"]["assessment_session_id"]
+    )
 
-    session_id = start.json()["session_id"]
+    session_id = start.json()["session"]["assessment_session_id"]
 
     assert (
         client.post(

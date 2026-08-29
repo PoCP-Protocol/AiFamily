@@ -75,14 +75,30 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(status_code=status_code, content={"detail": error.code})
 
 
+def _assert_path_family(context: FamilyContext, family_id: str) -> None:
+    """403, not 401, when a valid session names a different family.
+
+    The distinction is behavioural, not cosmetic: 401 tells a client its
+    credential is unusable and it should re-authenticate, so a client that hit
+    the wrong family would loop through login and still fail. 403 says the
+    credential is fine and this family is not yours.
+
+    This mirrors `dev_auth.resolve_actor`, which already separated the two. The
+    four-layer refactor re-checked scope inside each route and hardcoded 401 in
+    all six, losing that distinction — the session is already proven valid by the
+    time a route runs, so a scope mismatch can only ever be authorization.
+    """
+    if context.family_id != family_id:
+        raise HTTPException(status_code=403, detail="family_access_denied")
+
+
 @router.get("/{family_id}/ui/02/assessment", responses={200: {"model": Ui02AssessmentProjectionResponse}})
 async def get_ui02_projection(
     family_id: str,
     context: FamilyContext = Depends(get_family_context),
     handler: AssessmentQueryHandler = Depends(get_query_handler),
 ) -> dict:
-    if context.family_id != family_id:
-        raise HTTPException(status_code=401, detail="real_family_session_required")
+    _assert_path_family(context, family_id)
     return await handler.get_ui02_projection(GetUi02ProjectionQuery(family_id, context.tenant_id, context.person_id))
 
 
@@ -96,8 +112,7 @@ async def start_assessment(
     idempotency_key: str | None = Header(default=None),
     x_source: str | None = Header(default=None),
 ) -> dict:
-    if context.family_id != family_id:
-        raise HTTPException(status_code=401, detail="real_family_session_required")
+    _assert_path_family(context, family_id)
     meta = MutationMeta(x_correlation_id or "", idempotency_key or "", x_source or "")
     return await handler.start(
         StartAssessmentCommand(family_id, context.tenant_id, context.person_id, body.subject_person_id, body.tool_ref, meta)
@@ -118,8 +133,7 @@ async def save_assessment_response(
     idempotency_key: str | None = Header(default=None),
     x_source: str | None = Header(default=None),
 ) -> dict:
-    if context.family_id != family_id:
-        raise HTTPException(status_code=401, detail="real_family_session_required")
+    _assert_path_family(context, family_id)
     meta = MutationMeta(x_correlation_id or "", idempotency_key or "", x_source or "")
     return await handler.save_response(
         SaveAssessmentResponseCommand(
@@ -148,8 +162,7 @@ async def submit_assessment(
     idempotency_key: str | None = Header(default=None),
     x_source: str | None = Header(default=None),
 ) -> dict:
-    if context.family_id != family_id:
-        raise HTTPException(status_code=401, detail="real_family_session_required")
+    _assert_path_family(context, family_id)
     meta = MutationMeta(x_correlation_id or "", idempotency_key or "", x_source or "")
     return await handler.submit(SubmitAssessmentCommand(family_id, context.tenant_id, context.person_id, session_id, meta))
 
@@ -160,8 +173,7 @@ async def get_ui03_projection(
     context: FamilyContext = Depends(get_family_context),
     handler: AssessmentQueryHandler = Depends(get_query_handler),
 ) -> dict:
-    if context.family_id != family_id:
-        raise HTTPException(status_code=401, detail="real_family_session_required")
+    _assert_path_family(context, family_id)
     return await handler.get_ui03_projection(GetUi03ProjectionQuery(family_id, context.tenant_id, context.person_id))
 
 
@@ -177,8 +189,7 @@ async def decide_growth_hypothesis(
     x_correlation_id: str | None = Header(default=None),
     idempotency_key: str | None = Header(default=None),
 ) -> dict:
-    if context.family_id != family_id:
-        raise HTTPException(status_code=401, detail="real_family_session_required")
+    _assert_path_family(context, family_id)
     return await handler.decide(
         DecideGrowthHypothesisCommand(
             family_id,
