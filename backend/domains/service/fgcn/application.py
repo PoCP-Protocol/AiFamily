@@ -478,15 +478,16 @@ async def execute_task_assignment_named_action(
         raise ServiceConflictError("fgcn_case_is_terminal")
     if task.status is not TaskStatus.PENDING:
         raise ServiceConflictError("fgcn_task_already_has_responsible_person")
-    await require_provider_admitted_async(
+    accepted_at = _now(accepted_at)
+    admission = await require_provider_admitted_async(
         provider_admission,
         provider_ref=assignee_ref,
         assignee_kind=assignee_kind,
         required_capability_keys=task.required_capability_keys,
         scope=case.scope,
+        effective_at=accepted_at,
     )
 
-    accepted_at = _now(accepted_at)
     assignment = TaskAssignment(
         assignment_id=assignment_id,
         case_id=case.case_id,
@@ -517,7 +518,13 @@ async def execute_task_assignment_named_action(
             resource_id=assignment.assignment_id,
             reason="human-confirmed assignment request",
             correlation_id=case.scope.correlation_id,
-            after={"status": assignment.status.value, "task_id": task.task_id},
+            after={
+                "status": assignment.status.value,
+                "task_id": task.task_id,
+                "provider_credential_ref": admission.credential_ref,
+                "provider_slot_ref": admission.slot_ref,
+                "provider_capacity_available": admission.capacity_available,
+            },
         )
     )
     recorder.record(

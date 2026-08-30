@@ -273,12 +273,14 @@ class FGCNEngine:
             return self.assignments[previous_assignment_id]
         if task.status is not TaskStatus.PENDING:
             raise ServiceConflictError("fgcn_task_already_has_responsible_person")
-        require_provider_admitted(
+        accepted_at = _now(None)
+        admission = require_provider_admitted(
             self.provider_admission,
             provider_ref=assignee_ref,
             assignee_kind=assignee_kind,
             required_capability_keys=task.required_capability_keys,
             scope=case.scope,
+            effective_at=accepted_at,
         )
         if any(
             assignment.task_id == task_id and assignment.status is TaskAssignmentStatus.ACCEPTED
@@ -288,7 +290,6 @@ class FGCNEngine:
         assignment_id = str(args.get("assignment_id") or f"assignment:{task_id}:{assignee_ref}")
         if assignment_id in self.assignments:
             raise ServiceConflictError("fgcn_assignment_id_already_exists")
-        accepted_at = _now(None)
         assignment = TaskAssignment(
             assignment_id=assignment_id,
             case_id=case.case_id,
@@ -317,7 +318,13 @@ class FGCNEngine:
             resource_id=assignment_id,
             reason="human-confirmed assignment request",
             before=None,
-            after={"status": assignment.status.value, "task_id": task.task_id},
+            after={
+                "status": assignment.status.value,
+                "task_id": task.task_id,
+                "provider_credential_ref": admission.credential_ref,
+                "provider_slot_ref": admission.slot_ref,
+                "provider_capacity_available": admission.capacity_available,
+            },
         )
         self._audit(
             actor_id=actor,

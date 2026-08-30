@@ -84,7 +84,11 @@ ASSIGNMENT = "00000000-0000-4000-8000-000000000008"
 CONTRIBUTION = "00000000-0000-4000-8000-000000000009"
 ALLOCATION_RUN = "00000000-0000-4000-8000-000000000010"
 _ADMITTED_PROVIDER = AsyncProviderAdmissionStub(
-    admitted_snapshot(capability_keys=("family_guidance",))
+    admitted_snapshot(
+        tenant_id=TENANT,
+        family_id=FAMILY,
+        capability_keys=("family_guidance",),
+    )
 )
 
 
@@ -1212,7 +1216,12 @@ async def test_named_action_refuses_provider_resource_gap_without_writes(session
                 _named_action_request(),
                 recorder=AuditRecorder(),
                 provider_admission=AsyncProviderAdmissionStub(
-                    admitted_snapshot(capability_keys=("family_guidance",), capacity_available=0)
+                    admitted_snapshot(
+                        tenant_id=TENANT,
+                        family_id=FAMILY,
+                        capability_keys=("family_guidance",),
+                        capacity_available=0,
+                    )
                 ),
                 accepted_at=NOW,
             )

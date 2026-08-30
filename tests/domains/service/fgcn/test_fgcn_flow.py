@@ -207,6 +207,10 @@ async def test_ai_gateway_human_gate_and_fgcn_assignment_form_one_audited_path()
         "ACCEPT_SERVICE_TASK",
         "ASSIGN_SERVICE_CASE",
     ]
+    assignment_event = engine.audit.all_events()[2]
+    assert assignment_event.after["provider_credential_ref"] == "credential:expert-1:v1"
+    assert assignment_event.after["provider_slot_ref"] == "slot:expert-1:default"
+    assert assignment_event.after["provider_capacity_available"] == 1
 
 
 @pytest.mark.asyncio
@@ -270,10 +274,129 @@ def test_provider_admission_snapshot_rejects_missing_or_malformed_capacity(capac
             provider_ref="expert-1",
             assignee_kind="EXPERT",
             admission_status="ACTIVE",
+            tenant_id="tenant-1",
+            family_id="family-1",
+            credential_ref="credential:expert-1:v1",
+            credential_valid_from=NOW,
+            credential_valid_until=NOW + timedelta(days=1),
+            slot_ref="slot:expert-1:1",
+            slot_start_at=NOW,
+            slot_end_at=NOW + timedelta(hours=1),
             capability_keys=("family_guidance",),
             allowed_purposes=("service_collaboration",),
             capacity_available=capacity,
         )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "error_code"),
+    (
+        ("tenant_id", "", "fgcn_provider_admission_tenant_id_required"),
+        ("family_id", "", "fgcn_provider_admission_family_id_required"),
+        ("credential_ref", "", "fgcn_provider_admission_credential_ref_required"),
+        ("slot_ref", "", "fgcn_provider_admission_slot_ref_required"),
+    ),
+)
+def test_provider_admission_snapshot_requires_scope_and_provenance_fields(field, value, error_code):
+    from backend.domains.service.fgcn.admission import ProviderAdmissionSnapshot
+
+    kwargs = {
+        "provider_ref": "expert-1",
+        "assignee_kind": "EXPERT",
+        "admission_status": "ACTIVE",
+        "tenant_id": "tenant-1",
+        "family_id": "family-1",
+        "credential_ref": "credential:expert-1:v1",
+        "credential_valid_from": NOW,
+        "credential_valid_until": NOW + timedelta(days=1),
+        "slot_ref": "slot:expert-1:1",
+        "slot_start_at": NOW,
+        "slot_end_at": NOW + timedelta(hours=1),
+        "capability_keys": ("family_guidance",),
+        "allowed_purposes": ("service_collaboration",),
+        "capacity_available": 1,
+    }
+    kwargs[field] = value
+    with pytest.raises(ServiceValidationError, match=error_code):
+        ProviderAdmissionSnapshot(**kwargs)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "error_code"),
+    (
+        (
+            {
+                "credential_valid_from": NOW,
+                "credential_valid_until": NOW,
+            },
+            "fgcn_provider_admission_credential_window_invalid",
+        ),
+        (
+            {
+                "slot_start_at": NOW,
+                "slot_end_at": NOW,
+            },
+            "fgcn_provider_admission_slot_window_invalid",
+        ),
+    ),
+)
+def test_provider_admission_snapshot_rejects_invalid_windows(kwargs, error_code):
+    from backend.domains.service.fgcn.admission import ProviderAdmissionSnapshot
+
+    base = {
+        "provider_ref": "expert-1",
+        "assignee_kind": "EXPERT",
+        "admission_status": "ACTIVE",
+        "tenant_id": "tenant-1",
+        "family_id": "family-1",
+        "credential_ref": "credential:expert-1:v1",
+        "credential_valid_from": NOW,
+        "credential_valid_until": NOW + timedelta(days=1),
+        "slot_ref": "slot:expert-1:1",
+        "slot_start_at": NOW,
+        "slot_end_at": NOW + timedelta(hours=1),
+        "capability_keys": ("family_guidance",),
+        "allowed_purposes": ("service_collaboration",),
+        "capacity_available": 1,
+    }
+    base.update(kwargs)
+    with pytest.raises(ServiceValidationError, match=error_code):
+        ProviderAdmissionSnapshot(**base)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kwargs", "error_code"),
+    (
+        ({"tenant_id": "tenant-other"}, "fgcn_provider_tenant_scope_violation"),
+        ({"family_id": "family-other"}, "fgcn_provider_family_scope_violation"),
+        (
+            {"credential_valid_from": NOW + timedelta(days=1)},
+            "fgcn_provider_credential_not_yet_valid",
+        ),
+        (
+            {"credential_valid_until": NOW - timedelta(days=1)},
+            "fgcn_provider_credential_expired",
+        ),
+        (
+            {"slot_end_at": NOW - timedelta(days=1)},
+            "fgcn_provider_slot_unavailable",
+        ),
+    ),
+)
+async def test_assignment_refuses_non_matching_or_stale_provider_snapshot_without_writes(
+    kwargs, error_code
+):
+    engine = _engine()
+    engine.provider_admission = SyncProviderAdmissionStub(admitted_snapshot(**kwargs))
+    request = await _assignment_request()()
+
+    with pytest.raises((ServiceForbiddenError, ServiceConflictError), match=error_code):
+        engine.execute_named_action(request)
+
+    assert engine.tasks["task-1"].status is TaskStatus.PENDING
+    assert engine.cases["case-1"].status is CaseStatus.OPEN
+    assert engine.assignments == {}
 
 
 @pytest.mark.parametrize(

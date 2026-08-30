@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Protocol
 
 from backend.domains.service.domain.errors import (
@@ -37,6 +38,12 @@ def _text_tuple(values: object, field_name: str) -> tuple[str, ...]:
     return normalized
 
 
+def _required_utc(value: object, field_name: str) -> datetime:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ServiceValidationError(f"fgcn_provider_admission_{field_name}_invalid")
+    return value.astimezone(UTC)
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderAdmissionSnapshot:
     """Read-only provider capability/admission data supplied by another port."""
@@ -44,6 +51,14 @@ class ProviderAdmissionSnapshot:
     provider_ref: str
     assignee_kind: str
     admission_status: str
+    tenant_id: str
+    family_id: str
+    credential_ref: str
+    credential_valid_from: datetime
+    credential_valid_until: datetime
+    slot_ref: str
+    slot_start_at: datetime
+    slot_end_at: datetime
     capability_keys: tuple[str, ...]
     allowed_purposes: tuple[str, ...]
     capacity_available: int | None = None
@@ -60,6 +75,26 @@ class ProviderAdmissionSnapshot:
             "admission_status",
             _required_text(self.admission_status, "admission_status").upper(),
         )
+        for field_name in ("tenant_id", "family_id", "credential_ref", "slot_ref"):
+            object.__setattr__(
+                self,
+                field_name,
+                _required_text(getattr(self, field_name), field_name),
+            )
+        credential_valid_from = _required_utc(self.credential_valid_from, "credential_valid_from")
+        credential_valid_until = _required_utc(
+            self.credential_valid_until, "credential_valid_until"
+        )
+        if credential_valid_until <= credential_valid_from:
+            raise ServiceValidationError("fgcn_provider_admission_credential_window_invalid")
+        slot_start_at = _required_utc(self.slot_start_at, "slot_start_at")
+        slot_end_at = _required_utc(self.slot_end_at, "slot_end_at")
+        if slot_end_at <= slot_start_at:
+            raise ServiceValidationError("fgcn_provider_admission_slot_window_invalid")
+        object.__setattr__(self, "credential_valid_from", credential_valid_from)
+        object.__setattr__(self, "credential_valid_until", credential_valid_until)
+        object.__setattr__(self, "slot_start_at", slot_start_at)
+        object.__setattr__(self, "slot_end_at", slot_end_at)
         object.__setattr__(
             self,
             "capability_keys",
@@ -139,6 +174,7 @@ def assert_provider_admitted(
     assignee_kind: str,
     required_capability_keys: tuple[str, ...],
     scope: GateServiceScope,
+    effective_at: datetime | None = None,
 ) -> ProviderAdmissionSnapshot:
     """Enforce the final provider admission relation before a state write."""
 
@@ -148,8 +184,21 @@ def assert_provider_admitted(
         raise ServiceForbiddenError("fgcn_provider_not_admitted")
     if snapshot.provider_ref != provider_ref or snapshot.assignee_kind != assignee_kind:
         raise ServiceForbiddenError("fgcn_provider_admission_identity_mismatch")
+    if snapshot.tenant_id != scope.tenant_id:
+        raise ServiceForbiddenError("fgcn_provider_tenant_scope_violation")
+    if snapshot.family_id != scope.family_id:
+        raise ServiceForbiddenError("fgcn_provider_family_scope_violation")
     if snapshot.admission_status != "ACTIVE":
         raise ServiceForbiddenError("fgcn_provider_not_admitted")
+    if effective_at is None:
+        effective_at = datetime.now(UTC)
+    effective_at = _required_utc(effective_at, "effective_at")
+    if effective_at < snapshot.credential_valid_from:
+        raise ServiceForbiddenError("fgcn_provider_credential_not_yet_valid")
+    if effective_at > snapshot.credential_valid_until:
+        raise ServiceForbiddenError("fgcn_provider_credential_expired")
+    if effective_at > snapshot.slot_end_at:
+        raise ServiceConflictError("fgcn_provider_slot_unavailable")
     if snapshot.capacity_available == 0:
         raise ServiceConflictError("RESOURCE_GAP")
     if type(snapshot.capacity_available) is not int or snapshot.capacity_available < 0:
@@ -169,6 +218,7 @@ def require_provider_admitted(
     assignee_kind: str,
     required_capability_keys: tuple[str, ...],
     scope: GateServiceScope,
+    effective_at: datetime | None = None,
 ) -> ProviderAdmissionSnapshot:
     """Resolve and validate a provider snapshot for the sync engine."""
 
@@ -189,6 +239,7 @@ def require_provider_admitted(
         assignee_kind=assignee_kind,
         required_capability_keys=required_capability_keys,
         scope=scope,
+        effective_at=effective_at,
     )
 
 
@@ -199,6 +250,7 @@ async def require_provider_admitted_async(
     assignee_kind: str,
     required_capability_keys: tuple[str, ...],
     scope: GateServiceScope,
+    effective_at: datetime | None = None,
 ) -> ProviderAdmissionSnapshot:
     """Resolve and validate a provider snapshot for the durable command."""
 
@@ -219,6 +271,7 @@ async def require_provider_admitted_async(
         assignee_kind=assignee_kind,
         required_capability_keys=required_capability_keys,
         scope=scope,
+        effective_at=effective_at,
     )
 
 
