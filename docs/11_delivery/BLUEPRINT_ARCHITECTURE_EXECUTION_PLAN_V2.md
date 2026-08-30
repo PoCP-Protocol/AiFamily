@@ -35,8 +35,8 @@ superseded_by: null
 - Architecture：`uv run pytest tests/architecture -q` = 109 passed、1 skipped、1 failed；Ruff debt ratchet 失败。
 - Ruff：`uv run ruff check . --output-format concise` = 3 errors（1 E501、2 I001）。
 - Alembic：`uv run alembic heads` = `0023_ai_growth_graph_projection`；Fresh Postgres baseline gate = 8 passed、1 skipped、1 failed（未知 head）。
-- FGCN：配置 Fresh Postgres 后 `uv run pytest tests/domains/service/fgcn -q` = 113 passed；仍缺真实 production composition/worker/outbox/audit。
-- Journey/growth：含 Postgres 证据 44 passed；仍缺稳定 HTTP、常驻 worker、真实 identity/consent sink。
+- FGCN：`31c95cb` 补质量重做 replay 契约；既有 Fresh Postgres `uv run pytest tests/domains/service/fgcn -q` = 113 passed 证据仍不能替代真实 production composition/worker/outbox/audit。
+- Journey/growth：`VS-GROWTH-01` HTTP/PG seam（`78fff77`、`520e2ed`、`e5f7c41`、`c60729b`）独占测试 11 passed/1 warning；全 journey 74 passed/15 skipped（未设 PG URL）。路由未挂载 `family_api`，`production_ready=False`，Hypothesis/Intent/Action/Review 仍未 durable；仍缺真实 HTTP/PG composition、常驻 worker、identity/consent sink。
 - Web：候选 `5cfccee` 的 Web 26 tests/typecheck 0；lint 未配置，后端 401/403/tenant/consent smoke 未闭合。
 - AI experience/evaluation/agent：定向契约测试通过，但 Model Gateway/Principal/Memory/Deletion/Release Gate 尚非生产接线。
 
@@ -105,7 +105,7 @@ AI 只允许产生 `Perspective`、`Draft`、`Recommendation`、`ActionProposal`
 - **Current Truth**：assessment 有测评/证据纵切片；journey/growth 有状态机、Outcome/Annual/Renewal 契约；FGCN admission 已增加 entry evidence/provenance。
 - **Specification**：`assessment → AI evidence interpretation → family confirmation → GrowthIntent → 21-day action → 90-day outcome → annual/renewal → NextNeed`；S01-S09 属 B1，X0/Principal 嵌入。
 - **Planned**：唯一业务主线先收敛为 `VS-GROWTH-01`（横跨 canonical S01+S04+S05+S07，对应 `UI-03→UI-05→UI-09`）：assessment signal→Perspective/Hypothesis draft→人类确认/驳回→GrowthIntent/ActionTask→canonical outcome loop；随后再接 S06/S08/S09。
-- **Evidence**：`b37b1b6` 的物理文件仍为 `s01_vertical_slice.py`，但业务交付标识统一为 `VS-GROWTH-01`；其独占测试含 9 narrow tests、journey 64 passed/15 PG skipped。当前仅内存适配器、无 HTTP/PG/outbox/durable deletion/replay，状态 `CONTRACTED/PARTIAL`。该 SHA 已进入 `origin/codex/cleanup-superseded` 历史，但未通过真实 PG/HTTP/构建/主线合入闸门，不能写成生产完成。Journey 含 PG 44 passed 仍不能替代真实 composition。
+- **Evidence**：`b37b1b6` 的物理文件仍为 `s01_vertical_slice.py`，但业务交付标识统一为 `VS-GROWTH-01`；随后 `78fff77` 新增独立 HTTP/PG seam，`520e2ed` 修 replay hash，`e5f7c41` 补事务 rollback，`c60729b` 强化 consent subject-family binding。独占测试 11 passed/1 warning，全 journey 74 passed/15 skipped（PG URL 未设）；路由未挂 `family_api`，`production_ready=False`，Hypothesis/Intent/Action/Review 仍未 durable，且 legacy `audit_logs/outbox_events` 尚未统一 canonical platform ledger。状态仍 `CONTRACTED/PARTIAL`，所有提交虽在分支历史，未通过真实 PG/HTTP/构建/主线合入闸门，不能写成生产完成。
 
 ### 3.2 L0-L5 流程
 
