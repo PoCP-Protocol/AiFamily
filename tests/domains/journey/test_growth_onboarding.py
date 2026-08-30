@@ -26,6 +26,7 @@ from backend.domains.journey.infrastructure.growth_onboarding_fake import (
     FakeGrowthOnboardingRepository,
     FakeGrowthOnboardingTransaction,
 )
+from backend.platform.consent import ConsentPurpose, ConsentStatus
 
 NOW = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)
 SCOPE = GrowthOnboardingScope("tenant-a", "family-a", "parent-a")
@@ -238,6 +239,115 @@ async def test_fake_consent_requires_the_active_tenant_family_binding_window() -
     assert repository.onboardings == {}
     assert transaction.audit_log == []
     assert application is not None
+
+
+@pytest.mark.asyncio
+async def test_fake_consent_matches_canonical_scope_and_effective_window() -> None:
+    current = [NOW]
+    consent = FakeGrowthOnboardingConsent(now=lambda: current[0])
+    record = consent.grant(
+        SCOPE,
+        "child-a",
+        ConsentPurpose.GROWTH_TRACKING,
+        consent_id="consent-a",
+        granted_at=NOW,
+        effective_from=NOW,
+        expires_at=NOW + timedelta(hours=1),
+    )
+
+    assert record.tenant_id == SCOPE.tenant_id
+    assert record.family_id == SCOPE.family_id
+    assert record.effective_from == NOW
+    assert record.effective_to is None
+    assert record.expires_at == NOW + timedelta(hours=1)
+    assert consent.query(SCOPE, "child-a", "GROWTH_TRACKING") == [record]
+    assert consent.query(
+        tenant_id=SCOPE.tenant_id,
+        family_id=SCOPE.family_id,
+        subject_person_id="child-a",
+        purpose=ConsentPurpose.GROWTH_TRACKING,
+        active_only=True,
+    ) == [record]
+
+    await consent.assert_granted(SCOPE, "child-a", "GROWTH_TRACKING")
+    assert consent.revoke(SCOPE, "child-a", "GROWTH_TRACKING") == 1
+    assert record.status is ConsentStatus.GRANTED
+    assert consent.query(SCOPE, "child-a", "GROWTH_TRACKING", active_only=True) == []
+    with pytest.raises(GrowthOnboardingForbiddenError, match="missing_consent"):
+        await consent.assert_granted(SCOPE, "child-a", "GROWTH_TRACKING")
+
+
+@pytest.mark.asyncio
+async def test_fake_consent_future_expired_and_withdrawn_grants_fail_closed() -> None:
+    current = [NOW]
+    consent = FakeGrowthOnboardingConsent(now=lambda: current[0])
+    future = consent.grant(
+        SCOPE,
+        "child-a",
+        "GROWTH_TRACKING",
+        consent_id="consent-future",
+        effective_from=NOW + timedelta(hours=1),
+        effective_to=NOW + timedelta(hours=2),
+    )
+    assert future.status_at(NOW) is ConsentStatus.GRANTED
+    assert future.is_active_at(NOW) is False
+    assert consent.query(SCOPE, "child-a", "GROWTH_TRACKING", active_only=True) == []
+    with pytest.raises(GrowthOnboardingForbiddenError, match="missing_consent"):
+        await consent.assert_granted(SCOPE, "child-a", "GROWTH_TRACKING")
+
+    current[0] = NOW + timedelta(hours=1)
+    await consent.assert_granted(SCOPE, "child-a", "GROWTH_TRACKING")
+
+    current[0] = NOW + timedelta(hours=2)
+    assert future.status_at(current[0]) is ConsentStatus.EXPIRED
+    assert future.is_active_at(current[0]) is False
+    with pytest.raises(GrowthOnboardingForbiddenError, match="missing_consent"):
+        await consent.assert_granted(SCOPE, "child-a", "GROWTH_TRACKING")
+
+    withdrawn = consent.grant(
+        SCOPE,
+        "child-a",
+        "GROWTH_TRACKING",
+        consent_id="consent-withdrawn",
+        granted_at=NOW,
+        withdrawn_at=NOW,
+    )
+    assert withdrawn.status is ConsentStatus.GRANTED
+    assert withdrawn.status_at(NOW) is ConsentStatus.WITHDRAWN
+    assert withdrawn.is_active_at(NOW) is False
+    assert consent.query(SCOPE, "child-a", "GROWTH_TRACKING", active_only=True) == []
+
+
+@pytest.mark.asyncio
+async def test_fake_consent_revoke_and_query_do_not_cross_tenant_or_family() -> None:
+    tenant_peer = GrowthOnboardingScope("tenant-b", SCOPE.family_id, "parent-b")
+    family_peer = GrowthOnboardingScope(SCOPE.tenant_id, "family-b", "parent-c")
+    consent = FakeGrowthOnboardingConsent(now=lambda: NOW)
+    consent.grant(SCOPE, "child-a", "GROWTH_TRACKING", consent_id="consent-a")
+    consent.grant(
+        tenant_peer,
+        "child-a",
+        "GROWTH_TRACKING",
+        consent_id="consent-b",
+    )
+    consent.grant(
+        family_peer,
+        "child-a",
+        "GROWTH_TRACKING",
+        consent_id="consent-c",
+    )
+
+    assert consent.query(tenant_peer, "child-a", "GROWTH_TRACKING")
+    assert consent.query(family_peer, "child-a", "GROWTH_TRACKING")
+    assert consent.revoke(SCOPE, "child-a", "GROWTH_TRACKING") == 1
+    assert consent.query(SCOPE, "child-a", "GROWTH_TRACKING", active_only=True) == []
+    assert consent.query(tenant_peer, "child-a", "GROWTH_TRACKING", active_only=True)
+    assert consent.query(family_peer, "child-a", "GROWTH_TRACKING", active_only=True)
+
+    with pytest.raises(GrowthOnboardingForbiddenError, match="missing_consent"):
+        await consent.assert_granted(SCOPE, "child-a", "GROWTH_TRACKING")
+    await consent.assert_granted(tenant_peer, "child-a", "GROWTH_TRACKING")
+    await consent.assert_granted(family_peer, "child-a", "GROWTH_TRACKING")
 
 
 @pytest.mark.asyncio
