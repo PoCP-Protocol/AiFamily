@@ -93,6 +93,7 @@ except ModuleNotFoundError as error:
 else:
     _JOURNEY_IMPORT_ERROR = None
 
+from backend.domains.journey.api.today_routes import build_today_router
 from backend.domains.membership.api.routes import router as membership_router
 from backend.domains.service.api.routes import router as service_router
 
@@ -370,6 +371,7 @@ def create_app(
     # and uses an in-memory repository (R5: must never be reachable in production).
     if is_dev_environment():
         install_dev_wiring(application)
+        application.include_router(build_today_router())
     # An explicitly supplied resolver is the composition root's authority.
     # Install it after dev wiring so a caller cannot accidentally have its
     # durable/production resolver replaced by the synthetic test override.
