@@ -10,17 +10,20 @@ describe("UI-03 family assessment result contract", () => {
     expect(source).toContain('projection_version: "ASSESSMENT_RESULT_V1"');
     expect(source).toContain("family_id: string");
     expect(source).toContain("result: AssessmentResult | null");
-    expect(source).toContain("家庭范围 · 可回读结果");
+    expect(source).toContain("家庭成长解读 · 家庭范围 · 可回看");
   });
 
   it("shows a clear explanation and provenance without score, ranking, or diagnosis", () => {
     expect(source).toContain("我们听到的家庭关注");
-    expect(source).toContain("可能的方向");
+    expect(source).toContain("为什么会卡在这里");
+    expect(source).toContain("家庭观察画像");
+    expect(source).toContain("知识参考");
+    expect(source).toContain("家庭成长方案");
     expect(source).toContain("本次结果依据");
     expect(source).toContain("FAMILY_PERSPECTIVE_NOT_SCORE_OR_DIAGNOSIS");
     expect(source).toContain("may_mutate_business_state");
     expect(source).toContain("NOT_INVOKED");
-    expect(source).not.toMatch(/overall_score|peer_reference|scorecard|radar/);
+    expect(source).not.toMatch(/overall_score|peer_reference|scorecard|ranking/);
   });
 
   it("has loading, empty, consent, and read-error states", () => {

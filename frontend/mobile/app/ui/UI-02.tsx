@@ -18,7 +18,7 @@ import { useColors } from "@/hooks/use-colors";
 import type { AssessmentAnswer, GrowthFocusId } from "@/lib/family/core-growth";
 import {
   UI02_ASSESSMENT_ANSWER_OPTIONS,
-  getUi02DeepAssessmentQuestions,
+  buildUi02AssessmentQuestionPlan,
   type Ui02AssessmentAnswer,
 } from "@/lib/family/ui02-assessment-design";
 import { UI02_ORIGINAL_FOCUS_LAYOUT } from "@/lib/family/ui02-assessment-layout";
@@ -94,7 +94,7 @@ const STEP_LABELS: Record<FlowStep, string> = {
   story: "说说来意",
   consent: "说明用途",
   focus: "确认理解",
-  questions: "少量问题",
+  questions: "看见日常",
 };
 
 const STARTER_SCENES = [
@@ -174,8 +174,8 @@ export default function FamilyAssessmentScreen() {
 
   const flowStep = (assessmentFlowStep ?? "story") as FlowStep;
   const selectedFocusId = selectedGrowthFocus as GrowthFocusId | null;
-  const selectedQuestions = getUi02DeepAssessmentQuestions(selectedFocusId);
-  const currentQuestion = selectedQuestions[questionIndex];
+  const assessmentQuestions = buildUi02AssessmentQuestionPlan(selectedFocusId);
+  const currentQuestion = assessmentQuestions[questionIndex];
   const currentAnswer = currentQuestion
     ? assessmentAnswers[currentQuestion.itemRef]
     : undefined;
@@ -186,7 +186,7 @@ export default function FamilyAssessmentScreen() {
   const remoteCanStart = !connected || projection?.availability === "AVAILABLE";
   const displayNeed = (assessmentNeedText ?? "").trim();
   const reflectedNeed = displayNeed
-    ? `我听到你想先把“${displayNeed.length > 46 ? `${displayNeed.slice(0, 46)}…` : displayNeed}”这件小事理清，不急着给孩子下结论。`
+    ? `我听到你想先把“${displayNeed.length > 46 ? `${displayNeed.slice(0, 46)}…` : displayNeed}”这个家庭处境看清，不急着给孩子下结论。`
     : "我听到你想先找到一个少一点冲突、可以从今天开始的家庭小办法。";
 
   const keyFor = (fingerprint: string) => {
@@ -265,14 +265,19 @@ export default function FamilyAssessmentScreen() {
   }, [answerAssessment, projection, selectGrowthFocus, subjectId]);
 
   useEffect(() => {
-    if (flowStep === "questions" && selectedQuestions.length === 0)
+    if (flowStep === "questions" && assessmentQuestions.length === 0)
       setAssessmentStep("focus");
     if (
-      questionIndex >= selectedQuestions.length &&
-      selectedQuestions.length > 0
+      questionIndex >= assessmentQuestions.length &&
+      assessmentQuestions.length > 0
     )
       setQuestionIndex(0);
-  }, [flowStep, questionIndex, selectedQuestions.length, setAssessmentStep]);
+  }, [
+    assessmentQuestions.length,
+    flowStep,
+    questionIndex,
+    setAssessmentStep,
+  ]);
 
   const saveFocus = async () => {
     // A restored draft is already past the plain-language consent step. The
@@ -329,7 +334,7 @@ export default function FamilyAssessmentScreen() {
             },
             keyFor(`ui02-focus:${sessionId}:${selectedFocusId}`),
           );
-        for (const question of selectedQuestions) {
+        for (const question of assessmentQuestions) {
           const answer = assessmentAnswers[question.itemRef];
           if (answer) {
             await familyApi.saveFamilyAssessmentResponse<AssessmentReceipt>(
@@ -434,14 +439,14 @@ export default function FamilyAssessmentScreen() {
       return;
     }
     setSubmissionError(null);
-    if (questionIndex < selectedQuestions.length - 1)
+    if (questionIndex < assessmentQuestions.length - 1)
       setQuestionIndex((value) => value + 1);
     else void saveFocus();
   };
 
   const skipQuestion = () => {
     setSubmissionError(null);
-    if (questionIndex < selectedQuestions.length - 1)
+    if (questionIndex < assessmentQuestions.length - 1)
       setQuestionIndex((value) => value + 1);
     else void saveFocus();
   };
@@ -464,7 +469,7 @@ export default function FamilyAssessmentScreen() {
             <Text style={[styles.backArrow, { color: colors.text }]}>‹</Text>
           </Pressable>
           <Text style={[styles.screenTitle, { color: colors.text }]}>
-            家庭小事整理
+            家庭成长测评
           </Text>
           <Text style={[styles.saveTop, { color: colors.muted }]}>可保存</Text>
         </View>
@@ -518,6 +523,8 @@ export default function FamilyAssessmentScreen() {
           <ReflectionStep
             colors={colors}
             needText={reflectedNeed}
+            selectedFocusId={selectedFocusId}
+            onSelectFocus={selectGrowthFocus}
             onBack={() => setAssessmentStep("consent")}
             onContinue={() => {
               setAssessmentStep("questions");
@@ -531,7 +538,9 @@ export default function FamilyAssessmentScreen() {
           <QuestionStep
             colors={colors}
             index={questionIndex}
-            total={selectedQuestions.length}
+            total={assessmentQuestions.length}
+            dimensionTitle={currentQuestion.focusTitle}
+            depth={currentQuestion.depth}
             question={currentQuestion.text}
             selectedAnswer={currentAnswer as Ui02AssessmentAnswer | undefined}
             onBack={() =>
@@ -587,20 +596,20 @@ function StoryStep({
     <View style={styles.stepContent}>
       <View style={[styles.eyebrow, { backgroundColor: "#EEF6FF" }]}>
         <IconSymbol name="heart.fill" size={16} color="#1B7CF2" />
-        <Text style={styles.eyebrowText}>从一件家庭小事开始</Text>
+        <Text style={styles.eyebrowText}>从真实家庭处境开始</Text>
       </View>
       <Text style={[styles.title, { color: colors.text }]}>
-        你现在最想解决什么？
+        你希望家庭先看清什么？
       </Text>
       <Text style={[styles.subtitle, { color: colors.muted }]}>
-        先用你自己的话说。不用选标签，也不用把事情讲完整。
+        用你自己的话说出最近反复出现的场景。不用先判断谁对谁错，也不用把事情讲完整。
       </Text>
       <View style={styles.storyPromise}>
         <Text style={styles.storyPromiseTitle}>3 分钟后，你会带走</Text>
         <View style={styles.storyPromiseRow}>
-          <Text style={styles.storyPromiseItem}>一张听懂你的支持卡</Text>
+          <Text style={styles.storyPromiseItem}>一张五维家庭画像</Text>
           <Text style={styles.storyPromiseDot}>·</Text>
-          <Text style={styles.storyPromiseItem}>今晚能试的一小步</Text>
+          <Text style={styles.storyPromiseItem}>一份可继续修订的成长方案</Text>
         </View>
       </View>
       <View style={styles.sceneStarterBlock}>
@@ -647,7 +656,7 @@ function StoryStep({
         maxLength={240}
       />
       <Text style={[styles.inputHint, { color: colors.muted }]}>
-        这句话只用于这次家庭自查的理解和回看。
+        这句话会成为本次测评的起点，后续所有理解都以你确认的内容为准。
       </Text>
       <Pressable
         testID="assessment-voice-sandbox"
@@ -685,7 +694,7 @@ function StoryStep({
             pressed && styles.pressed,
           ]}
         >
-          <Text style={styles.primaryButtonText}>继续，把这件事理清</Text>
+          <Text style={styles.primaryButtonText}>继续，开始看见家庭</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -829,6 +838,8 @@ function ConsentStep({
 function ReflectionStep({
   colors,
   needText,
+  selectedFocusId,
+  onSelectFocus,
   onBack,
   onCorrect,
   onContinue,
@@ -836,6 +847,8 @@ function ReflectionStep({
 }: {
   colors: ReturnType<typeof useColors>;
   needText: string;
+  selectedFocusId: GrowthFocusId | null;
+  onSelectFocus: (focusId: GrowthFocusId) => void;
   onBack: () => void;
   onCorrect: () => void;
   onContinue: () => void;
@@ -854,15 +867,47 @@ function ReflectionStep({
           {needText}
         </Text>
         <Text style={[styles.heardHint, { color: colors.muted }]}>
-          这只是一次可修改的理解，不会变成对孩子的结论。
+          这是一份可修改的家庭理解，不会变成对孩子的结论。
         </Text>
       </View>
       <Text style={[styles.title, { color: colors.text }]}>
-        这句话像你们家吗？
+        这份理解像你们家吗？
       </Text>
       <Text style={[styles.subtitle, { color: colors.muted }]}>
-        先确认我有没有听对。确认后，我们只问三件和这件事有关的小事。
+        先确认我有没有听对。接下来会看五个方向，再把你最关心的方向问深一点。
       </Text>
+      <View style={styles.dimensionIntroCard}>
+        <Text style={styles.dimensionIntroTitle}>五个观察方向</Text>
+        <Text style={styles.dimensionIntroText}>
+          请选择这次最想先了解的方向。它会得到两道追问，其他四个方向也会各留下一条观察线索。
+        </Text>
+        <View style={styles.focusList}>
+          {UI02_ORIGINAL_FOCUS_LAYOUT.map((focus) => {
+            const selected = focus.id === selectedFocusId;
+            return (
+              <Pressable
+                key={focus.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                onPress={() => onSelectFocus(focus.id)}
+                style={({ pressed }) => [
+                  styles.focusCard,
+                  selected && styles.focusCardSelected,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View style={styles.focusCopy}>
+                  <Text style={styles.focusTitle}>{focus.title}</Text>
+                  <Text style={styles.focusSubtitle}>{focus.subtitle}</Text>
+                </View>
+                <Text style={[styles.focusAction, selected && styles.focusActionSelected]}>
+                  {selected ? "先看这个" : "选择"}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
       <View style={styles.actionStack}>
         <Pressable
           testID="assessment-reflection-confirm"
@@ -874,7 +919,7 @@ function ReflectionStep({
             pressed && styles.pressed,
           ]}
         >
-          <Text style={styles.primaryButtonText}>像我们家，继续</Text>
+          <Text style={styles.primaryButtonText}>像我们家，继续深入</Text>
         </Pressable>
         <Pressable
           testID="assessment-reflection-correct"
@@ -935,6 +980,8 @@ function QuestionStep({
   colors,
   index,
   total,
+  dimensionTitle,
+  depth,
   question,
   selectedAnswer,
   onBack,
@@ -946,6 +993,8 @@ function QuestionStep({
   colors: ReturnType<typeof useColors>;
   index: number;
   total: number;
+  dimensionTitle: string;
+  depth: "OVERVIEW" | "DEEP_DIVE";
   question: string;
   selectedAnswer?: Ui02AssessmentAnswer;
   onBack: () => void;
@@ -957,13 +1006,14 @@ function QuestionStep({
   return (
     <View style={styles.stepContent}>
       <Text style={[styles.kicker, { color: colors.muted }]}>
-        只问三件小事 · 第 {index + 1} 题 / {total}
+        {depth === "DEEP_DIVE" ? "重点方向 · 深入了解" : "五个方向 · 先看一眼"} · 第 {index + 1} 题 / {total}
       </Text>
+      <Text style={styles.questionDimension}>{dimensionTitle}</Text>
       <Text style={[styles.title, { color: colors.text }]}>
-        最近的家庭日常里，哪种情况更接近？
+        从最近的家庭日常看一眼
       </Text>
       <Text style={[styles.subtitle, { color: colors.muted }]}>
-        没有对错。你的选择只帮助我们找到今天可以试的一小步。
+        没有对错。你的回答只帮助我们看见这个方向，选择多少都由你决定。
       </Text>
       <View
         style={[
@@ -1231,6 +1281,21 @@ const styles = StyleSheet.create({
     marginTop: 7,
   },
   explainText: { flex: 1, color: "#334155", fontSize: 14, lineHeight: 21 },
+  dimensionIntroCard: {
+    borderRadius: 18,
+    backgroundColor: "#F7FBFF",
+    borderWidth: 1,
+    borderColor: "#D7E8FA",
+    padding: 14,
+    gap: 7,
+  },
+  dimensionIntroTitle: {
+    color: "#173D69",
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: "900",
+  },
+  dimensionIntroText: { color: "#5B7091", fontSize: 12, lineHeight: 18 },
   blockedCard: {
     backgroundColor: "#FFF8E7",
     borderWidth: 1,
@@ -1279,6 +1344,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 11,
   },
+  focusCardSelected: {
+    backgroundColor: "#EEF6FF",
+    borderColor: "#75AEF3",
+  },
   focusIcon: {
     width: 38,
     height: 38,
@@ -1289,6 +1358,9 @@ const styles = StyleSheet.create({
   focusCopy: { flex: 1, gap: 1 },
   focusTitle: { fontSize: 15, lineHeight: 20, fontWeight: "900" },
   focusSubtitle: { fontSize: 12, lineHeight: 17 },
+  focusAction: { color: "#6F8498", fontSize: 11, lineHeight: 16, fontWeight: "900" },
+  focusActionSelected: { color: "#1B65C9" },
+  questionDimension: { color: "#1B65C9", fontSize: 18, lineHeight: 25, fontWeight: "900" },
   questionCard: {
     borderWidth: 1,
     borderRadius: 18,

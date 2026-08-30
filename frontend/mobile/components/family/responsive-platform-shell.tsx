@@ -80,19 +80,19 @@ export function ResponsivePlatformShell({ children }: { children: ReactNode }) {
         <ScrollView contentContainerStyle={styles.rightRailInner} showsVerticalScrollIndicator={false}>
           <View style={[styles.contextCard, { borderColor: colors.border, backgroundColor: colors.surface }]}>
             <View style={styles.contextHeader}><View style={[styles.familyAvatar, { backgroundColor: `${colors.tint}18` }]}><IconSymbol name="person.2.fill" size={22} color={colors.tint} /></View><View><Text style={[styles.contextEyebrow, { color: colors.muted }]}>当前家庭</Text><Text style={[styles.contextTitle, { color: colors.text }]}>我们的成长空间</Text></View></View>
-            <Text style={[styles.contextBody, { color: colors.muted }]}>App 与 Web 使用同一 Family Account、同一成长旅程和同一服务回执。</Text>
+            <Text style={[styles.contextBody, { color: colors.muted }]}>无论用手机还是电脑，你的家庭记录都在同一个空间里。</Text>
           </View>
 
           <View style={[styles.contextCard, { borderColor: colors.border, backgroundColor: colors.surface }]}>
-            <Text style={[styles.contextEyebrow, { color: colors.tint }]}>今晚一件事</Text>
-            <Text style={[styles.contextTitle, { color: colors.text }]}>先听完，再回应</Text>
-            <Text style={[styles.contextBody, { color: colors.muted }]}>不用一次解决所有问题，先完成一次可记录的小行动。</Text>
-            <Pressable accessibilityRole="link" onPress={() => navigate("/ui/UI-09")} style={styles.contextLink}><Text style={[styles.contextLinkText, { color: colors.tint }]}>打开今日行动</Text><IconSymbol name="chevron.right" size={16} color={colors.tint} /></Pressable>
+            <Text style={[styles.contextEyebrow, { color: colors.tint }]}>今天的陪伴方向</Text>
+            <Text style={[styles.contextTitle, { color: colors.text }]}>先听见，再回应</Text>
+            <Text style={[styles.contextBody, { color: colors.muted }]}>先把一个真实时刻看完整，再决定怎么回应。</Text>
+            <Pressable accessibilityRole="link" onPress={() => navigate("/ui/UI-09")} style={styles.contextLink}><Text style={[styles.contextLinkText, { color: colors.tint }]}>打开今天的陪伴</Text><IconSymbol name="chevron.right" size={16} color={colors.tint} /></Pressable>
           </View>
 
           <View style={[styles.trustNote, { backgroundColor: `${colors.tint}0B` }]}>
             <IconSymbol name="shield.fill" size={18} color={colors.tint} />
-            <Text style={[styles.trustText, { color: colors.muted }]}>家庭记录默认私密。AI 建议不等于事实、决定或行动。</Text>
+            <Text style={[styles.trustText, { color: colors.muted }]}>家庭记录只供你们回看；每个建议都由你确认后再采用。</Text>
           </View>
         </ScrollView>
       </aside> : null}

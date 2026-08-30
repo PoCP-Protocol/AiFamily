@@ -11,8 +11,14 @@ import {
   View,
 } from "react-native";
 
+import { AssessmentDimensionList, AssessmentDimensionRadar } from "@/components/family/assessment-dimension-radar";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
+import type { GrowthFocusId } from "@/lib/family/core-growth";
+import {
+  buildAssessmentDimensionProfiles,
+  getAssessmentKnowledgeBrief,
+} from "@/lib/family/assessment-dimension-profile";
 import {
   createMobileRequestId,
   FamilyApiError,
@@ -37,7 +43,44 @@ type AssessmentResult = {
       kind: string;
     }[];
     hypothesis: string;
+    mechanism: string | null;
+    hypotheses?: {
+      hypothesis_ref: string;
+      text: string;
+      basis: string;
+      status: "DRAFT";
+    }[];
     recommendations: { text: string; source: string; status: "DRAFT" }[];
+  };
+  dimensions?: {
+    focus_ref: string;
+    title: string;
+    observation_status: "OBSERVED" | "NOT_YET_OBSERVED";
+    observed_item_refs: string[];
+  }[];
+  knowledge_grounding?: {
+    status: "GROUNDED" | "UNAVAILABLE";
+    construct_ref: string | null;
+    card_refs: string[];
+    primary_card_ref?: string;
+    title?: string | null;
+    evidence_grade: string | null;
+    core_claim: string | null;
+    mechanism: string | null;
+    boundary: string;
+  };
+  growth_plan?: {
+    plan_ref: string;
+    status: "DRAFT";
+    goal: string;
+    phases: {
+      phase_ref: string;
+      title: string;
+      duration_days: number;
+      prompt: string;
+    }[];
+    source_refs: string[];
+    boundary: string;
   };
   evidence_lineage: {
     source_refs: string[];
@@ -135,6 +178,55 @@ export default function GrowthExplanationScreen() {
   const result = remote?.result;
   const assessmentSessionId =
     supportRemote?.assessment_session_id ?? result?.assessment_session_id ?? null;
+  const assessmentFocus = result?.focus_ref as GrowthFocusId | null;
+  const dimensionProfiles = result
+    ? buildAssessmentDimensionProfiles(
+        result.explanation.observations,
+        assessmentFocus,
+      )
+    : [];
+  const knowledgeBrief = getAssessmentKnowledgeBrief(assessmentFocus);
+  const firstRecommendation =
+    result?.explanation.recommendations[0]?.text ??
+    "先把一个反复发生的时刻写进家庭方案，和孩子一起决定从哪里改变。";
+  const groundedKnowledge = result?.knowledge_grounding;
+  const displayedKnowledge = groundedKnowledge?.status === "GROUNDED"
+    ? {
+        title: groundedKnowledge.title ?? knowledgeBrief?.title ?? "家庭互动",
+        familyLens: groundedKnowledge.core_claim ?? knowledgeBrief?.familyLens ?? "先看家庭互动与环境，再决定是否需要更多支持。",
+        evidence: `${groundedKnowledge.primary_card_ref ?? "已审核知识参考"} · 证据等级 ${groundedKnowledge.evidence_grade ?? "待补充"}`,
+        practiceThemes: knowledgeBrief?.practiceThemes ?? ["从家庭日常继续观察"],
+      }
+    : knowledgeBrief;
+  const interpretationHypotheses = result?.explanation.hypotheses?.length
+    ? result.explanation.hypotheses
+    : [{
+        hypothesis_ref: `${result?.assessment_session_id ?? "assessment"}:H1`,
+        text: result?.explanation.hypothesis ?? "这是一份等待家庭继续确认的理解。",
+        basis: "本次家庭回答",
+        status: "DRAFT" as const,
+      }];
+  const planPhases = result?.growth_plan?.phases ?? [
+    {
+      phase_ref: "OBSERVE_7D",
+      title: "看见循环",
+      duration_days: 7,
+      prompt: firstRecommendation,
+    },
+    {
+      phase_ref: "PRACTICE_21D",
+      title: "共同练习",
+      duration_days: 21,
+      prompt: "把有效的回应和家庭约定固定下来，让孩子也参与调整。",
+    },
+    {
+      phase_ref: "REVIEW_90D",
+      title: "形成节奏",
+      duration_days: 90,
+      prompt: "每周回看一次：什么让关系更顺，什么需要换一种方法。",
+    },
+  ];
+  const planGoal = result?.growth_plan?.goal ?? `让「${displayedKnowledge?.title ?? result?.title ?? "家庭互动"}」回到家庭可以共同参与、共同调整的日常里。`;
 
   const keyFor = (fingerprint: string) => {
     operationKeys.current[fingerprint] ??= createMobileRequestId(
@@ -334,14 +426,14 @@ export default function GrowthExplanationScreen() {
         <Stack.Screen
           options={{
             headerShown: true,
-            title: "家庭支持整理",
+            title: "家庭成长解读",
             headerBackTitle: "退出",
           }}
         />
         <View style={styles.emptyPage}>
           <ActivityIndicator color={colors.tint} />
           <Text style={[styles.emptyTitle, { color: colors.text }]}>
-            正在把这件小事整理清楚
+            正在整理这次家庭测评
           </Text>
           <Text style={[styles.emptyText, { color: colors.muted }]}>
             只根据本次已提交的少量回答整理支持参考。
@@ -356,16 +448,12 @@ export default function GrowthExplanationScreen() {
       : remote?.status === "POLICY_BLOCKED"
         ? "这项家庭整理暂时还不能查看。"
         : "还没有已提交的家庭测评。";
-  const firstRecommendation =
-    result?.explanation.recommendations[0]?.text ??
-    "今天先留出十分钟，和孩子一起说清楚这件小事。";
-
   return (
     <ScreenContainer edges={["left", "right", "bottom"]}>
       <Stack.Screen
         options={{
           headerShown: true,
-          title: "家庭支持整理",
+          title: "家庭成长解读",
           headerBackTitle: "退出",
         }}
       />
@@ -394,7 +482,7 @@ export default function GrowthExplanationScreen() {
               {unavailableText}
             </Text>
             <Text style={[styles.emptyText, { color: colors.muted }]}>
-              先从一件正在发生的家庭小事开始，完成后你会得到一张支持卡，帮助你和孩子把这件小事说清楚。
+              先从一个真实家庭场景开始，完成后你会得到一张五维家庭观察画像和一份可继续修订的成长方案。
             </Text>
             <Pressable
               testID="assessment-empty-start"
@@ -406,7 +494,7 @@ export default function GrowthExplanationScreen() {
                 pressed && styles.pressed,
               ]}
             >
-              <Text style={styles.primaryButtonText}>先整理一件家庭小事</Text>
+              <Text style={styles.primaryButtonText}>开始一次家庭成长测评</Text>
             </Pressable>
           </View>
         ) : (
@@ -416,13 +504,13 @@ export default function GrowthExplanationScreen() {
                 <Text style={styles.heroIconText}>✓</Text>
               </View>
               <View style={styles.heroCopy}>
-                <Text style={styles.badge}>家庭支持卡 · 家庭范围 · 可回读结果</Text>
-                <Text style={styles.heroTitle}>
-                  今晚，先让这件事轻一点
-                </Text>
-                <Text style={styles.heroText}>
-                  {result.subject.display_name} · 围绕这件家庭小事，先试一小步，再看有没有变化
-                </Text>
+              <Text style={styles.badge}>家庭成长解读 · 家庭范围 · 可回看</Text>
+              <Text style={styles.heroTitle}>
+                  先看懂这一件事，再决定怎么改变
+              </Text>
+              <Text style={styles.heroText}>
+                  {result.subject.display_name} · 从你刚才描述的真实场景出发，理解关系、习惯与环境如何彼此影响
+              </Text>
               </View>
             </View>
 
@@ -445,11 +533,27 @@ export default function GrowthExplanationScreen() {
               </Text>
             </View>
 
+            <View testID="assessment-result-profile" style={styles.profileSection}>
+              <View style={styles.sectionHeadingRow}>
+                <View style={styles.sectionHeadingCopy}>
+                  <Text style={styles.sectionLabel}>家庭观察画像</Text>
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>五个方向，组成一张家庭地图</Text>
+                </View>
+                <Text style={styles.sectionMeta}>本次回答</Text>
+              </View>
+              <AssessmentDimensionRadar profiles={dimensionProfiles} />
+              <AssessmentDimensionList
+                profiles={dimensionProfiles}
+                activeFocus={assessmentFocus}
+              />
+            </View>
+
             <View
               testID="assessment-result-directions"
               style={styles.directionCard}
             >
-              <Text style={styles.sectionLabel}>可能的方向</Text>
+              <Text style={styles.sectionLabel}>关键机制 · 可探索方向</Text>
+              <Text style={[styles.directionTitle, { color: colors.text }]}>为什么会卡在这里</Text>
               <Text style={styles.directionIntro}>
                 {result.explanation.hypothesis}
               </Text>
@@ -463,6 +567,54 @@ export default function GrowthExplanationScreen() {
             </View>
 
             <View
+              testID="assessment-result-knowledge"
+              style={styles.knowledgeCard}
+            >
+              <Text style={styles.sectionLabel}>知识参考</Text>
+              <Text style={[styles.knowledgeTitle, { color: colors.text }]}>为什么先看「{displayedKnowledge?.title ?? "家庭互动"}」</Text>
+              <Text style={styles.knowledgeText}>
+                {displayedKnowledge?.familyLens ?? "先看家庭互动与环境，再决定是否需要更多支持。"}
+              </Text>
+              <View style={styles.knowledgeDivider} />
+              <Text style={styles.knowledgeSource}>
+                参考家庭教育与发展研究：{displayedKnowledge?.evidence ?? "这是一条家庭教育实践参考，不是对孩子的结论。"}
+              </Text>
+              <View style={styles.themeRow}>
+                {(displayedKnowledge?.practiceThemes ?? ["从家庭日常继续观察"]).map((theme) => (
+                  <View key={theme} style={styles.themeChip}>
+                    <Text style={styles.themeChipText}>{theme}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            <View
+              testID="assessment-result-interpretation"
+              style={styles.interpretationCard}
+            >
+              <Text style={styles.sectionLabel}>家庭成长解读</Text>
+              <Text style={[styles.interpretationTitle, { color: colors.text }]}>先提出几种可能，再由你来判断</Text>
+              <Text style={[styles.cardText, { color: colors.muted }]}>
+                {result.ai.model_gateway_status === "DRAFT"
+                  ? "AI 已根据本次回答和知识参考整理出一份初稿。"
+                  : "这份解读先根据你的回答和知识参考整理出来，哪些贴近你们家，由你来判断。"}
+              </Text>
+              {interpretationHypotheses.map((hypothesis, index) => (
+                <View key={hypothesis.hypothesis_ref} style={styles.interpretationQuote}>
+                  <Text style={styles.interpretationQuoteLabel}>{index === 0 ? "当前理解" : "另一种可能"}</Text>
+                  <Text style={[styles.interpretationQuoteText, { color: colors.text }]}>
+                    {hypothesis.text}
+                  </Text>
+                  <Text style={styles.hypothesisBasis}>依据：{hypothesis.basis}</Text>
+                </View>
+              ))}
+              {result.explanation.mechanism ? (
+                <Text style={[styles.cardText, { color: colors.muted }]}>可能的关系机制：{result.explanation.mechanism}</Text>
+              ) : null}
+              <Text style={[styles.boundaryText, { color: colors.muted }]}>你可以确认、补充或否定这份理解；不贴近你们家的部分，就停在这里。</Text>
+            </View>
+
+            <View
               testID="assessment-result-uncertain"
               style={[
                 styles.card,
@@ -471,28 +623,40 @@ export default function GrowthExplanationScreen() {
             >
               <Text style={styles.sectionLabel}>还不确定的地方</Text>
               <Text style={[styles.cardText, { color: colors.text }]}>
-                这次只整理了你主动提供的少量信息；它不能代表家庭的全部情况。
+                一次测评只能照见此刻的一个切面；真正重要的，是把它带回几次真实的家庭时刻里继续看。
               </Text>
               <Text style={[styles.cardText, { color: colors.muted }]}>
-                如果上面的理解不准确，可以返回修改，或先退出，不会自动触发任何行动。
+                如果上面的理解不准确，可以返回修改；你也可以先停在这里，不必急着做决定。
               </Text>
             </View>
 
-            <View
-              testID="assessment-result-next-step"
-              style={styles.nextStepCard}
-            >
-              <Text style={styles.sectionLabel}>今天可以尝试的一小步</Text>
-              <Text style={styles.nextStepTitle}>{firstRecommendation}</Text>
-              <Text style={styles.nextStepText}>
-                先做这一步，由你确认后再继续。
-              </Text>
+            <View testID="assessment-result-next-step" style={styles.planCard}>
+              <View style={styles.sectionHeadingRow}>
+                <View style={styles.sectionHeadingCopy}>
+                  <Text style={styles.sectionLabel}>家庭成长方案</Text>
+                  <Text style={[styles.planTitle, { color: colors.text }]}>从理解走向持续改变</Text>
+                </View>
+                <Text style={styles.planBadge}>可修订</Text>
+              </View>
+              <Text style={[styles.planGoal, { color: colors.text }]}>目标：{planGoal}</Text>
+              <View style={styles.planTimeline}>
+                {planPhases.map((phase, index) => (
+                  <View key={phase.phase_ref} style={styles.planPhase}>
+                    <Text style={styles.planPhaseDay}>{index === 0 ? "前" : "第"} {phase.duration_days === 7 ? "7" : phase.duration_days === 21 ? "8–21" : "22–90"} 天</Text>
+                    <Text style={styles.planPhaseTitle}>{phase.title}</Text>
+                    <Text style={styles.planPhaseText}>{phase.prompt}</Text>
+                  </View>
+                ))}
+              </View>
+              <Text style={styles.nextStepText}>先确认目标，再按你们家的节奏走过三个阶段；每一阶段都可以调整。</Text>
             </View>
 
             <View testID="assessment-result-feedback" style={styles.feedbackCard}>
-              <Text style={styles.sectionLabel}>这句话像你们家吗？</Text>
-              <Text style={[styles.feedbackIntro, { color: colors.text }]}>
-                你的反馈会帮助我们把下一次整理说得更贴近，不会改写家庭事实。
+              <Text style={styles.sectionLabel}>由你来定，这份理解对不对</Text>
+              <Text
+                style={[styles.feedbackIntro, { color: colors.text }]}
+              >
+                你最了解自己的家庭。确认、修订或补充，会让下一阶段真正贴近你们的生活。
               </Text>
               <View style={styles.feedbackRow}>
                 <Pressable
@@ -570,19 +734,20 @@ export default function GrowthExplanationScreen() {
                 >
                   {feedbackState === "saving"
                     ? connected
-                      ? "正在保存这张支持卡的反馈…"
-                      : "这次反馈只在当前页面暂存，还没有同步。"
+                      ? "正在记下你的反馈…"
+                      : "这次反馈还没有放入家庭空间，登录后可以继续校准。"
                     : feedbackState === "retry"
                       ? "暂时无法保存反馈，请稍后重试；当前没有写入服务端。"
                       : connected
-                        ? "已保存到这张家庭支持卡；它只用于修正理解，不会改写家庭事实。"
-                        : "这次反馈已在当前页面暂存；你也可以返回修改刚才那句话。"}
+                        ? "已保存你的校准；它只用于修正理解，不会改写家庭事实。"
+                        : "这次反馈已记在本次整理里；你也可以返回修改刚才那句话。"}
                 </Text>
               ) : null}
             </View>
 
             <View testID="assessment-result-action" style={styles.actionCard}>
-              <Text style={styles.sectionLabel}>今晚先做一个选择</Text>
+              <Text style={styles.sectionLabel}>把理解带回生活</Text>
+              <Text style={[styles.actionTitle, { color: colors.text }]}>先执行第一阶段，再根据家庭反馈调整</Text>
               <Pressable
                 testID="assessment-start-small-step"
                 accessibilityRole="button"
@@ -597,24 +762,24 @@ export default function GrowthExplanationScreen() {
                 <Text style={styles.primaryButtonText}>
                   {smallStepState === "saving"
                     ? connected
-                      ? "正在记下今晚这一步…"
-                      : "正在暂存今晚这一步"
+                      ? "正在展开方案的第一阶段…"
+                      : "正在为你展开第一阶段"
                     : smallStepState === "saved"
                       ? connected
-                        ? "今晚就试这一步"
-                        : "今晚这一步已在当前页面暂存"
-                      : "开始尝试这一步"}
+                        ? "开始方案的第一阶段"
+                        : "第一阶段已为你展开"
+                      : "开始方案的第一阶段"}
                 </Text>
               </Pressable>
               {smallStepState === "saved" ? (
                 <Text style={[styles.actionStatus, { color: colors.muted }]}>
                   {connected
-                    ? "明天回来告诉我们有没有变化；这不是结果证明。"
-                    : "明天可以重新打开这张家庭理解卡；本次标记还没有同步。"}
+                    ? "把今天的实践带回生活，回来告诉我们发生了什么；反馈会帮助你调整方案。"
+                    : "第一阶段已经展开，回来告诉我们真实生活里发生了什么。"}
                 </Text>
               ) : smallStepState === "retry" ? (
                 <Text style={styles.actionError}>
-                  暂时没记下，请稍后重试；不会自动触发其他行动。
+                  暂时没保存，请稍后重试；不会自动触发其他行动。
                 </Text>
               ) : null}
               <Pressable
@@ -631,25 +796,25 @@ export default function GrowthExplanationScreen() {
 
             {supportState === "error" ? (
               <View testID="assessment-support-loop-error" style={styles.notice}>
-                <Text style={styles.noticeTitle}>支持卡暂时没有同步</Text>
+                <Text style={styles.noticeTitle}>成长方案暂时没有更新</Text>
                 <Text style={styles.noticeText}>
-                  你仍可以查看本次整理；重试不会重复创建反馈或今晚这一步。
+                  你仍可以查看本次解读；重新更新不会重复创建校准或方案阶段。
                 </Text>
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => setSupportRetryNonce((value) => value + 1)}
                   style={styles.retryButton}
                 >
-                  <Text style={styles.retryText}>重试同步</Text>
+                  <Text style={styles.retryText}>重新更新</Text>
                 </Pressable>
               </View>
             ) : null}
 
             {supportRemote?.small_step ? (
               <View testID="assessment-next-day-checkin" style={styles.checkinCard}>
-                <Text style={styles.sectionLabel}>明天回来，告诉我们发生了什么</Text>
+                <Text style={styles.sectionLabel}>阶段复盘</Text>
                 <Text style={[styles.checkinIntro, { color: colors.text }]}>
-                  只记录你的感受，不把一次反馈当成对孩子或家庭的结论。
+                  回到真实生活里，看见发生了什么，再决定方案是否需要调整。
                 </Text>
                 {supportRemote.latest_checkin ? (
                   <Text style={[styles.actionStatus, { color: colors.muted }]}>
@@ -659,16 +824,16 @@ export default function GrowthExplanationScreen() {
                       : supportRemote.latest_checkin.outcome === "NO_CHANGE"
                         ? "暂时没变化"
                         : "还没试"}
-                    。这只是家庭反馈，不是结果证明。
+                    。这是家庭复盘，不是结果证明。
                   </Text>
                 ) : (
                   <>
                     <View style={styles.feedbackRow}>
                       {(
                         [
-                          ["HELPED", "有一点帮助"],
-                          ["NO_CHANGE", "暂时没变化"],
-                          ["NOT_TRIED", "还没试"],
+                          ["HELPED", "更顺了一点"],
+                          ["NO_CHANGE", "还没有变化"],
+                          ["NOT_TRIED", "还没开始"],
                         ] as const
                       ).map(([outcome, label]) => (
                         <Pressable
@@ -706,11 +871,11 @@ export default function GrowthExplanationScreen() {
                         ]}
                       >
                         {checkinState === "saving"
-                          ? "正在保存你的回访…"
+                          ? "正在保存阶段复盘…"
                           : checkinState === "too_soon"
                             ? "这一步还没到回访时间，明天再回来；刚才没有写入。"
                             : checkinState === "retry"
-                              ? "暂时无法保存回访，请稍后重试。"
+                              ? "暂时无法保存复盘，请稍后重试。"
                               : "已保存；这只是家庭反馈，不是结果证明。"}
                       </Text>
                     ) : null}
@@ -738,7 +903,7 @@ export default function GrowthExplanationScreen() {
                   你刚才提供的内容：本次已提交的少量回答
                 </Text>
                 <Text style={styles.provenanceText}>
-                  本次整理的范围：只围绕你刚才说的这件家庭小事
+                  本次整理的范围：只围绕你刚才描述的家庭处境
                 </Text>
                 <Text style={styles.provenanceText}>
                   仍需你确认：这是一张支持参考，是否贴近你们家由你决定
@@ -873,6 +1038,16 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: "700",
   },
+  profileSection: { gap: 10 },
+  sectionHeadingRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  sectionHeadingCopy: { flex: 1, gap: 3 },
+  sectionTitle: { fontSize: 18, lineHeight: 25, fontWeight: "900" },
+  sectionMeta: { color: "#7B8FA4", fontSize: 11, lineHeight: 17, fontWeight: "800" },
   card: { borderRadius: 17, borderWidth: 1, padding: 16, gap: 8 },
   sectionLabel: {
     color: "#5B7091",
@@ -891,6 +1066,7 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 9,
   },
+  directionTitle: { fontSize: 18, lineHeight: 25, fontWeight: "900" },
   directionIntro: {
     color: "#214B3D",
     fontSize: 15,
@@ -903,6 +1079,57 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: "700",
   },
+  knowledgeCard: {
+    borderRadius: 18,
+    backgroundColor: "#FFFDF8",
+    borderWidth: 1,
+    borderColor: "#F0E2C4",
+    padding: 16,
+    gap: 9,
+  },
+  knowledgeTitle: { fontSize: 17, lineHeight: 24, fontWeight: "900" },
+  knowledgeText: { color: "#624B22", fontSize: 14, lineHeight: 22, fontWeight: "700" },
+  knowledgeDivider: { height: 1, backgroundColor: "#F1E7D2" },
+  knowledgeSource: { color: "#8A7043", fontSize: 12, lineHeight: 18 },
+  themeRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  themeChip: { borderRadius: 10, backgroundColor: "#FFF2D6", paddingHorizontal: 9, paddingVertical: 5 },
+  themeChipText: { color: "#76551C", fontSize: 11, lineHeight: 16, fontWeight: "900" },
+  interpretationCard: {
+    borderRadius: 18,
+    backgroundColor: "#F7F5FF",
+    borderWidth: 1,
+    borderColor: "#DED9F7",
+    padding: 16,
+    gap: 9,
+  },
+  interpretationTitle: { fontSize: 18, lineHeight: 25, fontWeight: "900" },
+  interpretationQuote: {
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    borderLeftWidth: 3,
+    borderLeftColor: "#7665D8",
+    padding: 12,
+    gap: 5,
+  },
+  interpretationQuoteLabel: { color: "#7665D8", fontSize: 11, lineHeight: 16, fontWeight: "900" },
+  interpretationQuoteText: { fontSize: 15, lineHeight: 23, fontWeight: "800" },
+  hypothesisBasis: { color: "#7D769F", fontSize: 11, lineHeight: 17 },
+  planCard: {
+    borderRadius: 19,
+    backgroundColor: "#F4FBF7",
+    borderWidth: 1,
+    borderColor: "#CFE7D8",
+    padding: 16,
+    gap: 10,
+  },
+  planTitle: { fontSize: 19, lineHeight: 26, fontWeight: "900" },
+  planBadge: { color: "#2C7B5D", backgroundColor: "#DDF3E6", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4, fontSize: 11, lineHeight: 16, fontWeight: "900" },
+  planGoal: { fontSize: 14, lineHeight: 22, fontWeight: "800" },
+  planTimeline: { gap: 8 },
+  planPhase: { borderRadius: 14, backgroundColor: "#FFFFFF", padding: 12, gap: 3 },
+  planPhaseDay: { color: "#2C7B5D", fontSize: 11, lineHeight: 16, fontWeight: "900" },
+  planPhaseTitle: { color: "#173D2E", fontSize: 15, lineHeight: 21, fontWeight: "900" },
+  planPhaseText: { color: "#4E6A5A", fontSize: 13, lineHeight: 20 },
   nextStepCard: {
     borderRadius: 17,
     backgroundColor: "#FFF8ED",
@@ -971,6 +1198,7 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 9,
   },
+  actionTitle: { fontSize: 16, lineHeight: 23, fontWeight: "900" },
   actionStatus: { fontSize: 12, lineHeight: 18 },
   actionError: { color: "#B42318", fontSize: 12, lineHeight: 18 },
   checkinCard: {

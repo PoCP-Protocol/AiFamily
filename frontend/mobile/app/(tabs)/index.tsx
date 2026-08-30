@@ -242,7 +242,7 @@ export default function TodayScreen() {
             {homeLoading ? <View style={styles.statusPanel}><ActivityIndicator color={colors.tint} /><Text style={[styles.statusText, { color: colors.muted }]}>正在同步家庭首页</Text></View> : null}
             {homeError ? <Pressable accessibilityRole="button" accessibilityLabel="重试同步首页" onPress={() => void loadHome()} style={[styles.statusPanel, { borderColor: colors.border }]}><Text style={[styles.statusText, { color: colors.error }]}>{homeError}</Text><Text style={[styles.retryText, { color: colors.tint }]}>点击重试</Text></Pressable> : null}
 
-            <Pressable disabled={home?.assessment_campaign.state === "POLICY_BLOCKED"} accessibilityRole="button" accessibilityLabel="免费家庭小事整理" onPress={() => open(`/ui/${UI01_HOME_TARGETS.freeAssessment}` as Href)} style={({ pressed }) => [home?.assessment_campaign.state === "POLICY_BLOCKED" && styles.disabled, pressed && styles.pressed]}>
+            <Pressable disabled={home?.assessment_campaign.state === "POLICY_BLOCKED"} accessibilityRole="button" accessibilityLabel="免费家庭成长测评" onPress={() => open(`/ui/${UI01_HOME_TARGETS.freeAssessment}` as Href)} style={({ pressed }) => [home?.assessment_campaign.state === "POLICY_BLOCKED" && styles.disabled, pressed && styles.pressed]}>
               <AssessmentBannerArt />
             </Pressable>
 

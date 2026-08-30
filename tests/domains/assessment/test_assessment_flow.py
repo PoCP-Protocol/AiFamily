@@ -370,6 +370,12 @@ class TestGrowthHypothesisFlow:
         assert projection["result"]["family_need_ref"] == "NEED_PARENT_CHILD_COMMUNICATION"
         assert projection["result"]["ai"]["may_mutate_business_state"] is False
         assert projection["result"]["ai"]["model_gateway_status"] == "NOT_INVOKED"
+        assert len(projection["result"]["dimensions"]) == 5
+        assert projection["result"]["knowledge_grounding"]["status"] == "GROUNDED"
+        assert projection["result"]["knowledge_grounding"]["card_refs"]
+        assert len(projection["result"]["explanation"]["hypotheses"]) == 2
+        assert len(projection["result"]["growth_plan"]["phases"]) == 3
+        assert projection["result"]["growth_plan"]["status"] == "DRAFT"
         result_keys = {key.lower() for key in _nested_keys(projection["result"])}
         assert "score" not in result_keys
         assert "ranking" not in result_keys

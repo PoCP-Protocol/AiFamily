@@ -67,6 +67,18 @@ CONSTRUCT_KNOWLEDGE_MAP: dict[str, list[str]] = {
     "SELF_REGULATION_SUPPORT": ["TH-007", "CN-008"],
 }
 
+# The assessment tool speaks in family-facing dimensions while the compiled
+# knowledge snapshot speaks in admitted construct refs. Keeping this mapping
+# here makes the seam explicit and testable; the result projection never asks
+# the mobile client to infer a theory from a focus label.
+FOCUS_TO_CONSTRUCT: dict[str, str] = {
+    "LEARNING_HABITS": "HOMEWORK_PROCESS",
+    "EMOTION_REGULATION": "EMOTION_REGULATION_SUPPORT",
+    "PARENT_CHILD_COMMUNICATION": "PARENT_CHILD_COMMUNICATION",
+    "DEVICE_USE_CONTEXT": "DEVICE_USE_CONTEXT",
+    "SELF_REGULATION": "SELF_REGULATION_SUPPORT",
+}
+
 _GROUNDING_FILE = Path(__file__).with_name("assessment_construct_grounding.json")
 
 
@@ -107,3 +119,59 @@ def grounded_card_ids(construct_ref: str) -> list[str]:
     """
     data = _load_grounding_data()
     return list((data.get(construct_ref) or {}).keys())
+
+
+def family_facing_grounding(focus_ref: str) -> dict:
+    """Return a bounded knowledge reference for the family result projection.
+
+    The compiled JSON is a reviewed snapshot, not a live retrieval service.
+    This function therefore returns only stable card metadata that a parent
+    can understand: the construct seam, card references, evidence grade, a
+    concise claim, and the mechanism/boundary. Missing or malformed data is an
+    honest unavailable state; it never creates a made-up citation.
+    """
+    construct_ref = FOCUS_TO_CONSTRUCT.get(focus_ref)
+    if construct_ref is None:
+        return {
+            "status": "UNAVAILABLE",
+            "construct_ref": None,
+            "card_refs": [],
+            "evidence_grade": None,
+            "core_claim": None,
+            "mechanism": None,
+            "boundary": "KNOWLEDGE_REFERENCE_NOT_FAMILY_FACT",
+        }
+
+    data = _load_grounding_data()
+    cards = data.get(construct_ref) or {}
+    valid_cards = [
+        (card_ref, card)
+        for card_ref in CONSTRUCT_KNOWLEDGE_MAP.get(construct_ref, [])
+        if isinstance((card := cards.get(card_ref)), dict)
+        and (card.get("core_claim") or card.get("summary"))
+    ]
+    if not valid_cards:
+        return {
+            "status": "UNAVAILABLE",
+            "construct_ref": construct_ref,
+            "card_refs": [],
+            "evidence_grade": None,
+            "core_claim": None,
+            "mechanism": None,
+            "boundary": "KNOWLEDGE_REFERENCE_NOT_FAMILY_FACT",
+        }
+
+    primary_ref, primary = valid_cards[0]
+    return {
+        "status": "GROUNDED",
+        "construct_ref": construct_ref,
+        "card_refs": [card_ref for card_ref, _ in valid_cards],
+        "primary_card_ref": primary_ref,
+        "title": primary.get("title"),
+        "evidence_grade": primary.get("evidence_grade", "E0"),
+        "core_claim": primary.get("core_claim") or primary.get("summary"),
+        "mechanism": primary.get("mechanism"),
+        "boundary": primary.get(
+            "boundary", "KNOWLEDGE_REFERENCE_NOT_FAMILY_FACT"
+        ),
+    }

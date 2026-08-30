@@ -38,7 +38,7 @@ describe("UI-02 family conversation assessment contract", () => {
   });
 
   it("starts from the adult's own words and offers a voice entry", () => {
-    expect(source).toContain("你现在最想解决什么？");
+    expect(source).toContain("你希望家庭先看清什么？");
     expect(source).toContain("assessment-need-input");
     expect(source).toContain("assessment-voice-sandbox");
     expect(source).toContain("结果仍需你确认");
@@ -80,10 +80,11 @@ describe("UI-02 family conversation assessment contract", () => {
         (dimension) => dimension.questions.length === 3,
       ),
     ).toBe(true);
-    expect(source).toContain("getUi02DeepAssessmentQuestions");
+    expect(source).toContain("buildUi02AssessmentQuestionPlan");
     expect(source).toContain("UI02_ASSESSMENT_ANSWER_OPTIONS");
     expect(source).toContain("question.itemRef");
-    expect(source).toContain("只问三件小事");
+    expect(source).toContain("五个方向 · 先看一眼");
+    expect(source).toContain("重点方向 · 深入了解");
     expect(source).toContain("跳过这一题");
     expect(source).toContain("assessment-question-continue");
   });
@@ -220,21 +221,25 @@ describe("UI-02 family conversation assessment contract", () => {
       "utf8",
     );
     expect(resultSource).toContain("我们听到的家庭关注");
-    expect(resultSource).toContain("可能的方向");
-    expect(resultSource).toContain("还不确定的地方");
-    expect(resultSource).toContain("今天可以尝试的一小步");
-    expect(resultSource).toContain("当前页面暂存");
-    expect(resultSource).toContain("还没有同步");
+    expect(resultSource).toContain("为什么先从这里开始");
+    expect(resultSource).toContain("下一次我们还要看什么");
+    expect(resultSource).toContain("成长方案 · 从今天开始");
+    expect(resultSource).toContain("本次测评 · 家庭视角");
+    expect(resultSource).toContain("还没有放入家庭空间");
     expect(resultSource).toContain('assessmentSyncState === "synced"');
     expect(resultSource).toContain('router.replace("/ui/UI-03" as Href)');
     expect(resultSource).toContain("assessment-local-boundary");
-    expect(resultSource).toContain("可回看的家庭支持卡");
+    expect(resultSource).toContain("成为可以持续修订的成长记录");
+    expect(resultSource).toContain("assessment-result-profile");
+    expect(resultSource).toContain("assessment-result-knowledge");
     expect(resultSource).toContain("assessment-result-feedback");
     expect(resultSource).toContain("assessment-feedback-input");
     expect(resultSource).toContain("assessment-feedback-submit");
+    expect(resultSource).toContain("feedbackSubmitted");
+    expect(resultSource).toContain("补充一句，让这份理解更贴近你们家。");
     expect(resultSource).toContain("assessment-start-small-step");
     expect(resultSource).toContain("重新开始测评");
-    expect(resultSource).toContain("是否贴近你们家由你决定");
+    expect(resultSource).toContain("你最了解自己的家庭");
     expect(resultSource).not.toContain("FAMILY_ASSESSMENT_AI_CAPABILITY");
     expect(resultSource).not.toContain("模型来源");
     expect(resultSource).not.toContain("UI02_ASSESSMENT_METHOD_SOURCE");
@@ -243,12 +248,14 @@ describe("UI-02 family conversation assessment contract", () => {
       resolve(process.cwd(), "app/ui/UI-03.tsx"),
       "utf8",
     );
-    expect(explanationSource).toContain("家庭范围 · 可回读结果");
+    expect(explanationSource).toContain("家庭成长解读 · 家庭范围 · 可回看");
     expect(explanationSource).toContain("查看本次依据");
     expect(explanationSource).toContain("assessment-result-feedback");
     expect(explanationSource).toContain("assessment-start-small-step");
     expect(explanationSource).toContain("重新开始测评");
     expect(explanationSource).toContain("退出");
-    expect(explanationSource).toContain("帮助你和孩子把这件小事说清楚");
+    expect(explanationSource).toContain("五个方向，组成一张家庭地图");
+    expect(explanationSource).toContain("家庭成长方案");
+    expect(explanationSource).toContain("为什么会卡在这里");
   });
 });
