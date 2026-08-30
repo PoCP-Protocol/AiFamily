@@ -50,6 +50,34 @@ const responseBody = {
 };
 
 describe("HttpExperienceApiClient", () => {
+  it("injects bearer/session/locale context without trusting tenant fields", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(responseBody), { status: 200 }));
+    const client = new HttpExperienceApiClient({
+      baseUrl: "https://api.example.test",
+      accessToken: "session-token",
+      sessionId: "session-1",
+      locale: "en-US",
+      fetchImpl,
+    });
+
+    await client.createDraft(input, "idem-context");
+
+    const [, init] = fetchImpl.mock.calls[0];
+    const headers = init?.headers as Record<string, string>;
+    const body = JSON.parse(String(init?.body));
+    expect(headers).toMatchObject({
+      Authorization: "Bearer session-token",
+      "X-Session-Id": "session-1",
+      "X-User-Locale": "en-US",
+    });
+    expect(headers).not.toHaveProperty("X-Tenant-Id");
+    expect(headers).not.toHaveProperty("X-Family-Id");
+    expect(body).toMatchObject({ session_id: "session-1" });
+    expect(body).not.toHaveProperty("tenant_id");
+    expect(body).not.toHaveProperty("family_id");
+    expect(body).not.toHaveProperty("scope");
+  });
+
   it("sends only the backend generation body and maps a DRAFT response", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(responseBody), { status: 200 }));
     const client = new HttpExperienceApiClient({ baseUrl: "https://api.example.test", fetchImpl });

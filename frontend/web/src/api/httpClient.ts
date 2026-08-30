@@ -15,7 +15,21 @@ import {
 } from "./client";
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-type ClientOptions = { baseUrl?: string; familyId?: string; fetchImpl?: FetchLike };
+export type ClientOptions = {
+  baseUrl?: string;
+  /**
+   * Route hint only. The API must bind the family/tenant to this bearer token;
+   * the browser never sends a tenant header and this value is not authority.
+   */
+  familyId?: string;
+  /** Raw access token; a `Bearer ` prefix is accepted for convenience. */
+  accessToken?: string;
+  /** Optional session context propagated to every request. */
+  sessionId?: string;
+  /** User locale context; the server remains responsible for validation. */
+  locale?: string;
+  fetchImpl?: FetchLike;
+};
 
 type DraftResponse = {
   run_id: string;
@@ -76,11 +90,17 @@ export class HttpExperienceApiClient implements ExperienceApiClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: FetchLike;
   private readonly defaultFamilyId?: string;
+  private readonly accessToken?: string;
+  private readonly sessionId?: string;
+  private readonly locale?: string;
   private readonly familyByRun = new Map<string, string>();
 
   constructor(options: ClientOptions = {}) {
     this.baseUrl = options.baseUrl ?? "";
     this.defaultFamilyId = options.familyId;
+    this.accessToken = options.accessToken?.trim() || undefined;
+    this.sessionId = options.sessionId?.trim() || undefined;
+    this.locale = options.locale?.trim() || undefined;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
   }
 
@@ -98,7 +118,9 @@ export class HttpExperienceApiClient implements ExperienceApiClient {
       ...(input.limits?.max_cost_microusd === undefined ? {} : { max_cost_microusd: input.limits.max_cost_microusd }),
       input_refs: input.input_refs,
       media_inputs: input.media_inputs,
-      ...(input.session_id ? { session_id: input.session_id } : {}),
+      ...(input.session_id || this.sessionId
+        ? { session_id: input.session_id ?? this.sessionId }
+        : {}),
     };
     const response = await this.request(
       `/families/${encodeURIComponent(input.scope.family_id)}/experience/multimodal/drafts`,
@@ -107,6 +129,7 @@ export class HttpExperienceApiClient implements ExperienceApiClient {
         headers: { "content-type": "application/json", "Idempotency-Key": idempotencyKey },
         body: JSON.stringify(body),
       },
+      { sessionId: input.session_id, locale: input.scope.locale },
     );
     this.familyByRun.set(input.run_id, input.scope.family_id);
     return mapDraftResponse((await response.json()) as DraftResponse, input.media_inputs);
@@ -198,10 +221,35 @@ export class HttpExperienceApiClient implements ExperienceApiClient {
     return (await response.json()) as T;
   }
 
-  private async request(path: string, init: RequestInit): Promise<Response> {
+  private contextHeaders(sessionId?: string, locale?: string): Record<string, string> {
+    const headers: Record<string, string> = {};
+    if (this.accessToken) {
+      headers.Authorization = this.accessToken.toLowerCase().startsWith("bearer ")
+        ? this.accessToken
+        : `Bearer ${this.accessToken}`;
+    }
+    const resolvedSessionId = sessionId?.trim() || this.sessionId;
+    if (resolvedSessionId) headers["X-Session-Id"] = resolvedSessionId;
+    const resolvedLocale = this.locale || locale?.trim();
+    if (resolvedLocale) headers["X-User-Locale"] = resolvedLocale;
+    return headers;
+  }
+
+  private async request(
+    path: string,
+    init: RequestInit,
+    context: { sessionId?: string; locale?: string } = {},
+  ): Promise<Response> {
     let response: Response;
     try {
-      response = await this.fetchImpl(`${this.baseUrl}${path}`, init);
+      const requestHeaders = {
+        ...((init.headers ?? {}) as Record<string, string>),
+        ...this.contextHeaders(context.sessionId, context.locale),
+      };
+      response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+        ...init,
+        headers: requestHeaders,
+      });
     } catch {
       throw new ExperienceApiError("TIMEOUT", "timeout", "Experience API 暂时不可达，请稍后重试。");
     }
