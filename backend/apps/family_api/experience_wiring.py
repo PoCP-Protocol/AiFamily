@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from backend.intelligence.experience.api import (
+    MultimodalDraftRuntimeResolver,
     get_multimodal_draft_runtime_resolver,
 )
 from backend.intelligence.experience.api import router as experience_router
@@ -20,6 +21,30 @@ def mount_experience_router(application: FastAPI) -> None:
     """Mount the production-shaped experience API exactly once at the root."""
 
     application.include_router(experience_router)
+
+
+def install_experience_runtime_resolver(
+    application: FastAPI,
+    resolver: MultimodalDraftRuntimeResolver,
+) -> None:
+    """Install an explicit non-synthetic resolver at the composition root.
+
+    Production identity, consent and provider policy are deployment concerns;
+    this helper only installs their already-composed resolver.  Keeping the
+    dependency override here makes ``create_app`` injectable without adding
+    credentials or request-body scope to the experience router.  Synthetic
+    test wiring remains behind :func:`install_synthetic_experience_runtime`.
+    """
+
+    if isinstance(resolver, SyntheticRuntimeResolver):
+        raise ValueError(
+            "synthetic experience resolver must use install_synthetic_experience_runtime"
+        )
+    if not callable(getattr(resolver, "resolve", None)):
+        raise TypeError("experience runtime resolver must implement resolve(family_id)")
+    application.dependency_overrides[get_multimodal_draft_runtime_resolver] = (
+        lambda resolver=resolver: resolver
+    )
 
 
 def install_synthetic_experience_runtime(
@@ -48,4 +73,8 @@ def install_synthetic_experience_runtime(
     )
 
 
-__all__ = ["install_synthetic_experience_runtime", "mount_experience_router"]
+__all__ = [
+    "install_experience_runtime_resolver",
+    "install_synthetic_experience_runtime",
+    "mount_experience_router",
+]

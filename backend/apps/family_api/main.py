@@ -13,7 +13,10 @@ import os
 from fastapi import FastAPI
 
 from backend.apps.family_api.dev_wiring import install_dev_wiring, is_dev_environment
-from backend.apps.family_api.experience_wiring import mount_experience_router
+from backend.apps.family_api.experience_wiring import (
+    install_experience_runtime_resolver,
+    mount_experience_router,
+)
 from backend.apps.family_api.routes import router
 from backend.domains.assessment.api import (
     register_exception_handlers as register_assessment_exception_handlers,
@@ -41,6 +44,7 @@ from backend.domains.service.fgcn.api.routes import (
     register_exception_handlers as register_fgcn_exception_handlers,
 )
 from backend.domains.service.fgcn.api.routes import router as fgcn_router
+from backend.intelligence.experience.api import MultimodalDraftRuntimeResolver
 from backend.platform.persistence.session import (
     DATABASE_URL_ENV_VAR,
     get_sessionmaker,
@@ -79,7 +83,9 @@ def _configure_fgcn_persistence() -> None:
     configure_fgcn_session_factory(get_sessionmaker(database_url))
 
 
-def create_app() -> FastAPI:
+def create_app(
+    *, experience_runtime_resolver: MultimodalDraftRuntimeResolver | None = None
+) -> FastAPI:
     _configure_fgcn_persistence()
     application = FastAPI(title="AiFamily family_api", version="0.1.0")
     mount_experience_router(application)
@@ -161,6 +167,11 @@ def create_app() -> FastAPI:
     # and uses an in-memory repository (R5: must never be reachable in production).
     if is_dev_environment():
         install_dev_wiring(application)
+    # An explicitly supplied resolver is the composition root's authority.
+    # Install it after dev wiring so a caller cannot accidentally have its
+    # durable/production resolver replaced by the synthetic test override.
+    if experience_runtime_resolver is not None:
+        install_experience_runtime_resolver(application, experience_runtime_resolver)
     return application
 
 
