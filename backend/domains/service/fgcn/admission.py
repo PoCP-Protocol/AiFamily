@@ -142,6 +142,8 @@ def assert_provider_admitted(
 ) -> ProviderAdmissionSnapshot:
     """Enforce the final provider admission relation before a state write."""
 
+    if assignee_kind == "AI":
+        raise ServiceForbiddenError("fgcn_service_provider_must_be_human")
     if not isinstance(snapshot, ProviderAdmissionSnapshot):
         raise ServiceForbiddenError("fgcn_provider_not_admitted")
     if snapshot.provider_ref != provider_ref or snapshot.assignee_kind != assignee_kind:
