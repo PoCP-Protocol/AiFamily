@@ -11,6 +11,8 @@ of being silently promoted to a quality score.
 from __future__ import annotations
 
 import base64
+import hashlib
+import json
 import re
 from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
@@ -156,6 +158,46 @@ class MultimodalEvaluationReport:
 
     def by_provider(self) -> dict[tuple[str, str, str], ProviderEvaluationSummary]:
         return {(item.provider_id, item.model, item.model_version): item for item in self.summaries}
+
+    @property
+    def report_ref(self) -> str:
+        """Return a stable opaque reference suitable for feedback linkage.
+
+        The reference is derived only from aggregate metrics and the case
+        version.  It contains no gold-case payload, media reference, or model
+        response, so a feedback record can point at an evaluation without
+        copying evaluation data into the experience ledger.
+        """
+
+        payload = {
+            "case_version": self.case_version,
+            "total_cases": self.total_cases,
+            "summaries": [
+                {
+                    "provider_id": summary.provider_id,
+                    "model": summary.model,
+                    "model_version": summary.model_version,
+                    "total_cases": summary.total_cases,
+                    "passed_cases": summary.passed_cases,
+                    "quality_score": summary.quality_score,
+                    "schema_pass_rate": summary.schema_pass_rate,
+                    "refusal_accuracy_rate": summary.refusal_accuracy_rate,
+                    "safety_pass_rate": summary.safety_pass_rate,
+                    "provenance_pass_rate": summary.provenance_pass_rate,
+                    "latency_ms_p50": summary.latency_ms_p50,
+                    "latency_ms_p95": summary.latency_ms_p95,
+                    "cost_microusd_total": summary.cost_microusd_total,
+                    "failure_reasons": dict(sorted(summary.failure_reasons.items())),
+                }
+                for summary in self.summaries
+            ],
+        }
+        digest = hashlib.sha256(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        ).hexdigest()[:24]
+        return f"benchmark:multimodal:{self.case_version}:{digest}"
 
 
 @dataclass(frozen=True, slots=True)

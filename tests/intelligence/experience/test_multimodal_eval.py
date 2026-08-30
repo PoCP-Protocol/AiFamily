@@ -95,6 +95,9 @@ def test_runner_aggregates_provider_model_version_without_media() -> None:
     assert summary.latency_ms_p50 == 100
     assert summary.latency_ms_p95 == 200
     assert summary.cost_microusd_total == 20
+    assert report.report_ref.startswith("benchmark:multimodal:gold.v1:")
+    duplicate = MultimodalEvalRunner().run(cases, {"qwen": adapter})
+    assert duplicate.report_ref == report.report_ref
 
 
 def test_runner_fails_closed_for_schema_safety_and_provenance() -> None:
