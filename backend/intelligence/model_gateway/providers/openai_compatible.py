@@ -27,7 +27,7 @@ from typing import Any
 
 import httpx
 
-from backend.intelligence.model_gateway.contracts import StructuredRequest, TokenUsage
+from backend.intelligence.model_gateway.contracts import MediaInput, StructuredRequest, TokenUsage
 from backend.intelligence.model_gateway.errors import ModelGatewayError
 from backend.intelligence.model_gateway.providers.base import ProviderResponse
 
@@ -88,6 +88,14 @@ class OpenAICompatibleProvider:
     async def invoke(
         self, request: StructuredRequest, *, timeout_seconds: float
     ) -> ProviderResponse:
+        user_content: list[dict[str, object]] = [
+            {
+                "type": "text",
+                "text": json.dumps(request.payload, ensure_ascii=False),
+            }
+        ]
+        for media in request.media_inputs:
+            user_content.append(self._media_part(media))
         body = {
             "model": self._model,
             "response_format": {"type": "json_object"},
@@ -95,7 +103,7 @@ class OpenAICompatibleProvider:
                 {"role": "system", "content": _system_prompt(request)},
                 {
                     "role": "user",
-                    "content": json.dumps(request.payload, ensure_ascii=False),
+                    "content": user_content if request.media_inputs else user_content[0]["text"],
                 },
             ],
         }
@@ -169,6 +177,22 @@ class OpenAICompatibleProvider:
             # alias shows up in provenance instead of being papered over.
             model_version=str(envelope.get("model") or self._model),
             token_usage=self._extract_usage(envelope),
+        )
+
+    def _media_part(self, media: MediaInput) -> dict[str, object]:
+        """Translate the provider-neutral media reference to Chat Completions.
+
+        Image input is the first multimodal capability because it is supported
+        consistently by mature vision models. Audio/video remain explicit
+        unsupported capabilities until a provider contract is approved; they
+        must not be silently downgraded to text and presented as multimodal.
+        """
+        if media.media_type == "IMAGE":
+            return {"type": "image_url", "image_url": {"url": media.uri}}
+        raise ModelGatewayError(
+            "UNSUPPORTED_MODALITY",
+            f"provider adapter does not support {media.media_type} input",
+            provider_id=self.provider_id,
         )
 
     def _extract_message_content(self, envelope: dict[str, Any]) -> str:

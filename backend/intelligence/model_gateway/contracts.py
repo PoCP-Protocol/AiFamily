@@ -57,6 +57,28 @@ a human actor (R8/R9), never here.
 """
 
 
+MediaType = Literal["IMAGE", "AUDIO", "VIDEO", "DOCUMENT"]
+
+
+@dataclass(frozen=True, slots=True)
+class MediaInput:
+    """A governed media reference passed to a multimodal model.
+
+    The URI is a short-lived object-store URL or provider-approved data URL;
+    raw media bytes never enter the request ledger. ``sha256`` lets an audit
+    replay identify the exact asset without copying personal media into logs.
+    """
+
+    media_type: MediaType
+    uri: str
+    mime_type: str
+    sha256: str
+
+    def __post_init__(self) -> None:
+        if not all((self.uri, self.mime_type, self.sha256)):
+            raise ValueError("MediaInput uri, mime_type and sha256 are required")
+
+
 @dataclass(frozen=True, slots=True)
 class PolicyContext:
     """The caller's acknowledgement of the R9 contract, carried with the request.
@@ -90,6 +112,7 @@ class StructuredRequest:
     output_schema: dict[str, Any]
     context_snapshot_ref: str
     input_refs: tuple[str, ...] = ()
+    media_inputs: tuple[MediaInput, ...] = ()
     request_id: str | None = None
     session_id: str | None = None
     policy_context: PolicyContext = field(default_factory=PolicyContext)

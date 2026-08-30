@@ -30,6 +30,11 @@ Demand / Market Insight
 
 产品只做 Web UI；生成和渲染由 AI Runtime/worker 执行，家庭、服务和商业事实仍由各自域拥有。
 
+模型策略明确为“成熟多模态 LLM 优先”：平台先通过 `backend/intelligence/model_gateway`
+接入经合规准入、能力声明和评估的成熟模型，不自研基础模型。我们的研发重点是家庭教育
+需求理解、组件组合、产品蓝图、质量/版权/安全、试点反馈和生命周期数据。模型供应商可替换，
+产品契约、资产版本和治理记录不能随供应商变化而漂移。
+
 ## 2. 为什么不能一开始做短剧和商品
 
 多模态越往后，成本、版权、质量、合规和履约复杂度越高：
@@ -55,6 +60,7 @@ PPT/图片  <  视频  <  短剧  <  实体商品
 - `MediaType`：TEXT、PPT、IMAGE、VIDEO、DRAMA、MERCHANDISE；
 - 素材、字体、音乐、声音、人物形象和模型输出的权利/许可引用；
 - Model/Prompt/Knowledge/Context/Tool provenance；
+- 多模态请求契约（图片先行，音频/视频必须等 provider capability 获批后启用）；
 - 生成任务、渲染任务、质量检查、人工评审、发布、暂停、回滚和删除；
 - 成本、耗时、失败率、复用率和质量指标；
 - Web UI 的 Asset Library、Template Library、Rights Review、Quality Review。

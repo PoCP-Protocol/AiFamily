@@ -19,6 +19,7 @@ import json
 import httpx
 import pytest
 
+from backend.intelligence.model_gateway.contracts import MediaInput
 from backend.intelligence.model_gateway.errors import ModelGatewayError
 from backend.intelligence.model_gateway.providers.openai_compatible import (
     OpenAICompatibleProvider,
@@ -74,6 +75,33 @@ class TestRequestConstruction:
         assert "schema_version=s1" in system
         assert "use_case=assessment_interpretation" in system
         assert body["response_format"] == {"type": "json_object"}
+
+    async def test_image_media_is_forwarded_as_multimodal_part(self) -> None:
+        seen: dict[str, object] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["body"] = json.loads(request.content)
+            return httpx.Response(200, json=VALID_ENVELOPE)
+
+        request = make_request(
+            media_inputs=(
+                MediaInput(
+                    media_type="IMAGE",
+                    uri="https://media.example.invalid/asset.jpg",
+                    mime_type="image/jpeg",
+                    sha256="abc123",
+                ),
+            )
+        )
+        await provider_with(handler).invoke(request, timeout_seconds=5.0)
+        body = seen["body"]
+        assert isinstance(body, dict)
+        content = body["messages"][1]["content"]
+        assert content[0]["type"] == "text"
+        assert content[1] == {
+            "type": "image_url",
+            "image_url": {"url": "https://media.example.invalid/asset.jpg"},
+        }
 
     async def test_returns_reported_model_and_token_usage(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:

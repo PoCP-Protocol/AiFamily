@@ -24,6 +24,10 @@ canonical: false
 AI 不只是最后生成一份报告，而是每个阶段的分析、设计、验证和反馈引擎。业务事实仍由
 `family_need`、`product_intelligence`、`journey`、`service`、`commerce` 等 canonical 域拥有。
 
+模型采用成熟多模态 LLM 优先策略：所有模型访问经 `ModelGateway`，先支持图片理解/图文
+结构化输出，再按 provider capability、合规准入和评估结果逐步启用音频、视频和图像生成。
+平台不自研基础模型，也不把某一家供应商写入产品域。
+
 ## 2. 端到端能力分层
 
 ### A. 需求与市场洞察
