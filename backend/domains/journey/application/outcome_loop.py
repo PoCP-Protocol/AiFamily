@@ -711,6 +711,10 @@ class GrowthOutcomeLoop:
             self._assert_record_scope(outcome, tenant_id, family_id)
             if outcome.status is not OutcomeStatus.CONFIRMED:
                 raise JourneyConflictError("recommendation_requires_confirmed_outcomes")
+        self._assert_live_consent(
+            tuple(sorted({outcome.subject_ref for outcome in outcomes})),
+            ConsentPurpose.AI_PERSONALIZATION,
+        )
         fingerprint = (
             outcome_ids,
             candidate_refs,
@@ -882,6 +886,11 @@ class GrowthOutcomeLoop:
                 key=lambda item: item.outcome_id,
             )
         )
+        if outcomes:
+            self._assert_live_consent(
+                tuple(sorted({outcome.subject_ref for outcome in outcomes})),
+                ConsentPurpose.GROWTH_TRACKING,
+            )
         stories: list[FamilyStory] = []
         for story_id in include_story_ids:
             story = self._required(self._stories, story_id, "story_not_found")
