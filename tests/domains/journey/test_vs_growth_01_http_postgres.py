@@ -417,6 +417,13 @@ class IdempotencyConnection(FakeConnection):
         return FakeResult()
 
 
+class FailingOutboxConnection(IdempotencyConnection):
+    async def execute(self, statement, parameters: dict[str, Any] | None = None) -> FakeResult:
+        if "insert into outbox_events" in str(statement):
+            raise RuntimeError("simulated_outbox_failure")
+        return await super().execute(statement, parameters)
+
+
 @pytest.mark.asyncio
 async def test_postgres_acceptance_appends_audit_outbox_and_conflict_is_refused() -> None:
     signal = _signal()
@@ -465,3 +472,17 @@ async def test_postgres_acceptance_appends_audit_outbox_and_conflict_is_refused(
             correlation_id="corr-1",
             response=response,
         )
+
+
+@pytest.mark.asyncio
+async def test_postgres_acceptance_propagates_outbox_failure_for_transaction_rollback() -> None:
+    connection = FailingOutboxConnection()
+    with pytest.raises(RuntimeError, match="simulated_outbox_failure"):
+        await S01PostgresAssessmentRepository(connection).append_signal_acceptance(
+            signal=_signal(),
+            actor_id="123e4567-e89b-12d3-a456-426614174006",
+            idempotency_key="accept-rollback",
+            correlation_id="corr-rollback",
+            response={"capability_id": "VS-GROWTH-01", "stage": "SIGNAL_ACCEPTED"},
+        )
+    assert not any("update idempotency_keys" in sql for sql, _ in connection.calls)
