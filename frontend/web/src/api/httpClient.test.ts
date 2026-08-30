@@ -102,11 +102,14 @@ describe("HttpExperienceApiClient", () => {
   });
 
   it.each([
-    [503, "PROVIDER_NOT_ADMITTED", "refused"],
-    [403, "SCOPE_MISMATCH", "refused"],
-    [408, "TIMEOUT", "timeout"],
-  ] as const)("maps HTTP %s to governed error", async (status, code, runStatus) => {
-    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ detail: "blocked" }), { status }));
+    [401, "authentication_required", "UNAUTHENTICATED", "refused"],
+    [403, "family_access_denied", "SCOPE_MISMATCH", "refused"],
+    [403, "TENANT_SCOPE_UNAVAILABLE", "SCOPE_MISMATCH", "refused"],
+    [403, "CONSENT_REQUIRED", "CONSENT_REQUIRED", "refused"],
+    [503, "blocked", "PROVIDER_NOT_ADMITTED", "refused"],
+    [408, "blocked", "TIMEOUT", "timeout"],
+  ] as const)("maps HTTP %s %s to governed error", async (status, detail, code, runStatus) => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ detail }), { status }));
     await expect(new HttpExperienceApiClient({ fetchImpl }).createDraft(input, "idem-1"))
       .rejects.toMatchObject({ code, status: runStatus });
   });
