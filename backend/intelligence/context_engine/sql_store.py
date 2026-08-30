@@ -69,6 +69,12 @@ class ContextSnapshotRow(ContextPersistenceBase):
     consent_version: Mapped[str] = mapped_column(sa.String(128), nullable=False)
     data_class: Mapped[str] = mapped_column(sa.String(64), nullable=False)
     locale: Mapped[str] = mapped_column(sa.String(32), nullable=False)
+    content_locale: Mapped[str | None] = mapped_column(sa.String(32), nullable=True)
+    model_locale: Mapped[str | None] = mapped_column(sa.String(32), nullable=True)
+    policy_locale: Mapped[str | None] = mapped_column(sa.String(32), nullable=True)
+    consent_granted: Mapped[bool] = mapped_column(sa.Boolean(), nullable=False)
+    correlation_id: Mapped[str] = mapped_column(sa.String(256), nullable=False)
+    causation_id: Mapped[str] = mapped_column(sa.String(256), nullable=False)
     generated_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
     provenance: Mapped[str] = mapped_column(sa.String(256), nullable=False)
@@ -231,6 +237,12 @@ class AsyncSqlContextBroker(AsyncContextBrokerPort):
                     consent_version=scope.consent_version,
                     data_class=scope.data_class.value,
                     locale=scope.locale,
+                    content_locale=scope.content_locale,
+                    model_locale=scope.model_locale,
+                    policy_locale=scope.policy_locale,
+                    consent_granted=scope.consent_granted,
+                    correlation_id=scope.correlation_id,
+                    causation_id=scope.causation_id,
                     generated_at=current,
                     expires_at=snapshot.expires_at,
                     provenance=snapshot.provenance,
@@ -303,9 +315,12 @@ class AsyncSqlContextBroker(AsyncContextBrokerPort):
                 consent_granted=True,
                 data_class=DataClass(snapshot_row.data_class),
                 locale=snapshot_row.locale,
+                content_locale=snapshot_row.content_locale,
+                model_locale=snapshot_row.model_locale,
+                policy_locale=snapshot_row.policy_locale,
                 deletion_ref=snapshot_row.deletion_ref,
-                correlation_id=scope.correlation_id,
-                causation_id=scope.causation_id,
+                correlation_id=snapshot_row.correlation_id,
+                causation_id=snapshot_row.causation_id,
             )
             return ContextSnapshot(
                 snapshot_ref=snapshot_row.snapshot_ref,

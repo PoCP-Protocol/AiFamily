@@ -81,6 +81,7 @@ async def test_sql_context_survives_fresh_session_and_reconstructs_scope(broker)
 
     assert broker.durability_mode == "DURABLE"
     assert replay.snapshot_ref == snapshot.snapshot_ref
+    assert replay.scope == snapshot.scope
     assert replay.observations[0].observation_id == "observation-1"
     assert replay.source_refs == ("media:1",)
 
