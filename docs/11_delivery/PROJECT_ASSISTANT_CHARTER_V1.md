@@ -130,7 +130,7 @@ P0 发现后立即通知 Lead，不等待下一次站会；P1 必须有本 Sprin
 ## 8. 本轮审查记录（2026-08-30）
 
 截至本轮远端可见为 `d2196bc` 测试候选；本地总控另有 FGCN `41ad120`、PMA 文档
-`4e50883` 和 Web client-mode `4b9a4b4`，工作树仍有其他 Agent 的 WIP，发布判定仍为 **NO-GO**：推送只证明版本可追踪，
+`4e50883`/`eccdb1b`/`bffe2a8` 和 Web client-mode `4b9a4b4`，工作树仍有其他 Agent 的 WIP，发布判定仍为 **NO-GO**：推送只证明版本可追踪，
 不代表 production composition、身份/同意、迁移或 AI 准入红线已通过。所有未关闭 P0/P1
 仍必须按 owner、commit 和验收命令复测，不得因远端绿色或测试数量增加而自动升阶。
 
@@ -156,5 +156,13 @@ P0 发现后立即通知 Lead，不等待下一次站会；P1 必须有本 Sprin
 19. `573a86d`/`a91ad3a` 已补齐 MediaAsset/Transcript/Evidence/FamilyContentShare、Achievement 与 moderation/consent/deletion contract；当前 evaluation+experience **220 passed、1 warning**，P4 红灯关闭为测试契约层。实现仍使用 `MediaRuntime`/`InMemoryAchievementProjection`，无 durable media/achievement ORM、外部删除回执或 production composition，状态 `CONTRACTED/PARTIAL/P1`，不得升为生产能力。
 20. `0cd53fb`/`6b4a8e9` 新增 GrowthIntent→GrowthOnboarding 的 SQL/fake/HTTP 纵切片；Fresh Postgres 批量首跑出现一次 `actor_family_scope_denied`（隔离重跑通过），需稳定重复运行。0016/0017 migration 仍未形成 tracked/Manifest/ADR/ORM 审批链；状态 `CONTRACTED/PARTIAL`，测试可继续、生产 NO-GO。
 21. `cbc055e`/`736ae19` 新增 ADR-0069 与 Experience 401/403/CONSENT_REQUIRED、环境 fail-closed acceptance 合同；unset `AIFAMILY_ENV` 仍因 `current_environment()` 默认 development 而保持红灯，未改动冲突 WIP。状态 `P0 BLOCKED`，不能将 acceptance 测试本身视为安全闭环。
+22. 运营 Chat 只读回传为 **79 passed、1 skipped、1 warning**（唯一 skip 为真实 PG WORM），
+另有 Onboarding **35 passed、11 skipped**；S21/S24/O13 为 `DESIGN_ONLY`，S22/S23/O12/O14
+为 `PARTIAL`。主动欢迎、SLA/补救/回访、可信分享/组队、机构运营、发布/事故闭环均未实现，
+尚无可追踪 owner/commit；项目助理将其保持在 P2 backlog，要求真实 PG WORM、HTTP/权限/租户、
+审计/删除、通知 worker 和三环境 parity 后再复核。
+23. Web `4b9a4b4` 的 `clientFactory` 专项 **26 passed、typecheck 0**，但在 `DEV:false` 下仍
+接受 `VITE_EXPERIENCE_CLIENT=fake`，存在生产注入 synthetic client 的配置旁路；状态 `P1
+返工`，必须生产 fail-closed/强制 HTTP 并补负向测试，不能因默认生产为 HTTP 而关闭红线。
 
 这些记录是可追溯的审查输入，不是对 owner 的替代实现。返工完成后必须重新读取文件并运行新鲜命令，才能更新状态。
