@@ -6,6 +6,7 @@ import pytest
 
 from backend.intelligence.experience.multimodal_eval import (
     EvaluationGatePolicy,
+    EvaluationReleaseDecision,
     EvaluationReleaseGate,
     GoldCase,
     MultimodalAdapterResult,
@@ -131,8 +132,28 @@ def test_release_gate_blocks_failed_contracts_and_enforces_limits() -> None:
 def test_release_gate_rejects_invalid_policy_limits() -> None:
     with pytest.raises(MultimodalEvalError, match="between 0 and 1"):
         EvaluationGatePolicy(min_pass_rate=1.1)
+    with pytest.raises(MultimodalEvalError, match="between 0 and 1"):
+        EvaluationGatePolicy(min_pass_rate="strict")  # type: ignore[arg-type]
     with pytest.raises(MultimodalEvalError, match="non-negative"):
         EvaluationGatePolicy(max_latency_ms_p95=-1)
+    with pytest.raises(MultimodalEvalError, match="non-negative"):
+        EvaluationGatePolicy(max_cost_microusd_total="free")  # type: ignore[arg-type]
+
+
+def test_release_decision_rejects_unscoped_or_measured_outcomes() -> None:
+    with pytest.raises(MultimodalEvalError, match="report reference"):
+        EvaluationReleaseDecision(
+            report_ref="benchmark:model:gold.v1:abc",
+            status="ELIGIBLE",
+            reasons=(),
+        )
+    with pytest.raises(MultimodalEvalError, match="not measured"):
+        EvaluationReleaseDecision(
+            report_ref="benchmark:multimodal:gold.v1:abc",
+            status="ELIGIBLE",
+            reasons=(),
+            education_outcome_status="MEASURED",  # type: ignore[arg-type]
+        )
 
 
 @pytest.mark.asyncio

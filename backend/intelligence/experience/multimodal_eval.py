@@ -289,10 +289,19 @@ class EvaluationGatePolicy:
             self.min_refusal_accuracy_rate,
             self.min_provenance_pass_rate,
         )
-        if any(isinstance(rate, bool) or not 0.0 <= rate <= 1.0 for rate in rates):
+        if any(
+            isinstance(rate, bool)
+            or not isinstance(rate, (int, float))
+            or not 0.0 <= rate <= 1.0
+            for rate in rates
+        ):
             raise MultimodalEvalError("evaluation gate rates must be between 0 and 1")
         for value in (self.max_latency_ms_p95, self.max_cost_microusd_total):
-            if value is not None and (isinstance(value, bool) or value < 0):
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+            ):
                 raise MultimodalEvalError("evaluation gate limits must be non-negative")
 
 
@@ -304,6 +313,19 @@ class EvaluationReleaseDecision:
     status: ReleaseGateStatus
     reasons: tuple[str, ...]
     education_outcome_status: Literal["NOT_MEASURED"] = "NOT_MEASURED"
+
+    def __post_init__(self) -> None:
+        if (
+            not self.report_ref.startswith("benchmark:multimodal:")
+            or not self.report_ref.removeprefix("benchmark:multimodal:").strip(":")
+        ):
+            raise MultimodalEvalError("evaluation gate report reference is invalid")
+        if self.status not in {"ELIGIBLE", "BLOCKED"}:
+            raise MultimodalEvalError("evaluation gate status is invalid")
+        if any(not isinstance(reason, str) or not reason for reason in self.reasons):
+            raise MultimodalEvalError("evaluation gate reasons must be non-empty strings")
+        if self.education_outcome_status != "NOT_MEASURED":
+            raise MultimodalEvalError("education outcomes are not measured by technical eval")
 
 
 class EvaluationReleaseGate:
