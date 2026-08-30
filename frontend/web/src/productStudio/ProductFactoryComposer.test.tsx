@@ -64,6 +64,16 @@ describe("ProductFactoryComposer", () => {
     expect(client.createDemandFrame).not.toHaveBeenCalled();
   });
 
+  it.each(["assumptions", "unknowns"] as const)("fails fast when %s has no entries", async (field) => {
+    const client = clientWith(draft);
+    render(<ProductFactoryComposer client={client} />);
+    await fillForm();
+    fireEvent.change(screen.getByLabelText(field === "assumptions" ? "假设（逗号或换行分隔）" : "未知项（逗号或换行分隔）"), { target: { value: "" } });
+    await userEvent.setup().click(screen.getByRole("button", { name: "提交需求草案" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("INVALID_INPUT");
+    expect(client.createDemandFrame).not.toHaveBeenCalled();
+  });
+
   it("renders a 422 ProductStudioApiError code", async () => {
     const client = clientWith(new ProductStudioApiError("INVALID_INPUT", "evidence_refs_invalid", 422));
     render(<ProductFactoryComposer client={client} />);
@@ -117,4 +127,3 @@ describe("ProductFactoryComposer", () => {
     expect(client.createDemandFrame).toHaveBeenCalledWith(expect.objectContaining({ expires_at: "2099-02-03T04:05:00+08:00" }), expect.any(String));
   });
 });
-

@@ -47,6 +47,8 @@ const newIdempotencyKey = (): string =>
 
 function toDemandInput(form: ComposerForm): DemandFrameInput {
   const sourceRefs = splitRefs(form.sourceRefs);
+  const assumptions = splitRefs(form.assumptions);
+  const unknowns = splitRefs(form.unknowns);
   const required = [
     form.statement,
     form.scenario,
@@ -55,7 +57,7 @@ function toDemandInput(form: ComposerForm): DemandFrameInput {
     form.provenanceRef,
     ...sourceRefs,
   ];
-  if (required.some((item) => !item.trim())) {
+  if (required.some((item) => !item.trim()) || assumptions.length === 0 || unknowns.length === 0) {
     throw new ProductStudioApiError("INVALID_INPUT", "请完整填写需求、来源、假设验证与 provenance_ref。");
   }
   return {
@@ -66,8 +68,8 @@ function toDemandInput(form: ComposerForm): DemandFrameInput {
     locale: "zh-CN",
     purpose: "product_discovery",
     evidence_refs: sourceRefs,
-    assumptions: splitRefs(form.assumptions),
-    unknowns: splitRefs(form.unknowns),
+    assumptions,
+    unknowns,
     next_validation: form.nextValidation.trim(),
     expires_at: toIsoExpiry(form.expiresAt),
     provenance_ref: form.provenanceRef.trim(),
