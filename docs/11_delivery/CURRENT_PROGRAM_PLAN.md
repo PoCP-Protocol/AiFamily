@@ -127,8 +127,9 @@ P0 任一任务没有真实 PostgreSQL 或 HTTP 证据，Sprint 保持 `NOT_DONE
 
 **总闸门（快照）**：architecture `109 passed/1 skipped/1 failed`（Ruff ratchet）、全量 Ruff
 `1 E501`、Alembic unknown 0017、mobile `249/1/5`，因此当前测试候选只能在受控环境继续；
-生产发布明确 `NO-GO`。本地总控在 `41ad120` 之上另有 PMA 文档提交 `4e50883`，远端同步状态
-需以 `git status -sb` 为准，禁止将其它 Agent WIP 一并推送。
+生产发布明确 `NO-GO`。本地总控在 `41ad120` 之上包含 Web `4b9a4b4` 及 PMA 文档提交
+`4e50883`、`eccdb1b`、`bffe2a8`、`2f5aedc`、`b8f0eea`；远端同步状态需以
+`git status -sb` 为准，禁止将其它 Agent WIP 一并推送。
 
 ### P1-P6 的首个可实现任务
 

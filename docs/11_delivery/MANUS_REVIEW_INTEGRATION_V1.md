@@ -19,7 +19,8 @@ superseded_by: null
 Manus 报告指出的主风险仍然有效，但报告中的历史数字不能作为当前现状。当前代码已经形成若干可测试的垂直切片（包括 FGCN 迁移链、Principal/Context/Human Gate 契约、语义化移动端体验列表），但还没有形成可以安全发布的生产闭环。
 
 本轮结论：**NO-GO**。当前远端可见为 `d2196bc` 测试候选；本地总控另有待推送的
-FGCN `41ad120`、PMA 文档 `4e50883` 和 Web client-mode `4b9a4b4`，工作树仍包含其他
+FGCN `41ad120`、Web client-mode `4b9a4b4` 和 PMA 文档 `4e50883`/`eccdb1b`/`bffe2a8`/
+`2f5aedc`/`b8f0eea`，工作树仍包含其他
 Agent 的 WIP。提交可追踪不代表生产就绪。以下 P0 必须先清零：生产环境仍可暴露开发登录；
 缺少环境变量时会默认开发 wiring；身份、租户、家庭绑定和同意存储仍未持久化；测试闸门当前
 红灯。任何 synthetic adapter 通过测试都不等于生产能力。
