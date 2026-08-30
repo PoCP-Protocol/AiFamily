@@ -501,7 +501,9 @@ async def submit_booking_request(
         consent_ref=consent_ref,
         status="DRAFT",
         # Snapshot so "what did the family actually book" survives the offering
-        # being re-versioned or retired afterwards. Carries no person data.
+        # being re-versioned or retired afterwards. The subject reference is
+        # retained only to prevent feedback from being rebound to another
+        # consented subject; it is not exposed by the customer projection.
         service_snapshot={
             "service_offering_ref": offering.service_offering_ref,
             "version_no": offering.version_no,
