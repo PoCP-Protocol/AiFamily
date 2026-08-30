@@ -10,6 +10,7 @@ import { DraftResult } from "./components/DraftResult";
 import { ExpressionInput, type ExpressionForm } from "./components/ExpressionInput";
 import { RunStatus } from "./components/RunStatus";
 import { ReplayTimeline } from "./components/ReplayTimeline";
+import { LiveExperience } from "./components/LiveExperience";
 import { initialStudioState, studioReducer } from "./state/experienceStudio";
 
 type Props = { client?: ExperienceApiClient };
@@ -151,6 +152,7 @@ export default function App({ client = defaultClient }: Props) {
         <div className="brand-mark" aria-label="AiFamily">AiFamily</div>
         <span className="environment-tag">Web Experience Studio · Sandbox</span>
       </header>
+      <LiveExperience environment={import.meta.env} />
       <div className="page-grid">
         <div className="intro-column">
           <p className="eyebrow">家庭成长 · AI 原生体验</p>

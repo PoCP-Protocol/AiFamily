@@ -31,8 +31,13 @@ if (!relativeScriptPath || relativeScriptPath.startsWith("..")) {
 
 const bundle = await read(scriptPath);
 if (!bundle.includes("SYNTHETIC_TEST")) fail("synthetic test marker is absent from the bundle");
-if (!/=>\s*["']http["']/.test(bundle)) {
-  fail("production bundle does not resolve the default client to HTTP (DEV:false fail-closed)");
+if (
+  !bundle.includes('VITE_EXPERIENCE_CLIENT==="fake"&&') ||
+  !bundle.includes('.DEV===!0?"fake"') ||
+  !bundle.includes('VITE_EXPERIENCE_CLIENT==="http"?"http"') ||
+  !bundle.includes('.DEV===!0?"fake":"http"')
+) {
+  fail("production bundle does not retain the DEV:false HTTP fallback and guarded fake branch");
 }
 
 const sourceMap = JSON.parse(await read(`${scriptPath}.map`));
