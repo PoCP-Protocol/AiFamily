@@ -18,6 +18,7 @@ from backend.domains.service.fgcn.contracts import (
     CaseStatus,
     GateServiceScope,
     ServiceTask,
+    TaskAssignmentStatus,
     TaskQualityState,
     TaskStatus,
 )
@@ -403,6 +404,30 @@ async def test_assignment_rejects_cross_family_and_second_responsible_person():
     )()
     with pytest.raises(ServiceForbiddenError, match="fgcn_subject_scope_violation"):
         engine.execute_named_action(empty_subject_scope_request)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "lifecycle_status", [TaskAssignmentStatus.COMPLETED, TaskAssignmentStatus.REVOKED]
+)
+async def test_assignment_replay_survives_lifecycle_status_change(lifecycle_status):
+    engine = _engine()
+    request = await _assignment_request()()
+    first = engine.execute_named_action(request)
+    engine.assignments[first.assignment_id] = replace(first, status=lifecycle_status)
+
+    replay = await _assignment_request()()
+    replayed = engine.execute_named_action(replay)
+
+    assert replayed == engine.assignments[first.assignment_id]
+    assert replayed.status is lifecycle_status
+    assert [event.action for event in engine.audit.all_events()].count(
+        "CONFIRM_SERVICE_TASK_ASSIGNMENT"
+    ) == 1
+
+    changed = await _assignment_request(provider_id="expert-2")()
+    with pytest.raises(ServiceConflictError, match="fgcn_assignment_idempotency_replay_mismatch"):
+        engine.execute_named_action(changed)
 
 
 @pytest.mark.asyncio

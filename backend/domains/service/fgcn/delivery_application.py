@@ -147,6 +147,7 @@ async def submit_service_delivery(
         evidence_ref=evidence_ref,
         outcome_observation=outcome_observation,
         delivered_at=delivered_at or datetime.now(UTC),
+        locale=task.locale,
     )
     await repo.save_delivery(delivery)
 

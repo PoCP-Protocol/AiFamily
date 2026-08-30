@@ -149,6 +149,7 @@ async def verify_service_delivery(
         raise ServiceConflictError("fgcn_quality_case_is_terminal")
     if task.status is not TaskStatus.DELIVERED:
         raise ServiceConflictError("fgcn_quality_review_requires_delivery")
+    delivery = await repo.load_delivery(task_id)
 
     review = TaskQualityReview(
         quality_review_id=quality_review_id,
@@ -158,6 +159,7 @@ async def verify_service_delivery(
         quality_state=quality_state,
         review_note=review_note,
         reviewed_at=reviewed_at or datetime.now(UTC),
+        locale=delivery.locale,
     )
     await repo.save_quality_review(review)
     recorder.record(

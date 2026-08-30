@@ -10,6 +10,7 @@ from enum import StrEnum
 from backend.domains.service.domain.errors import ServiceValidationError
 
 from .scenario import (
+    S01OutcomeMarkers,
     ServiceScenario,
     validate_s01_outcome_observation,
     validate_s01_quality_note,
@@ -62,6 +63,15 @@ class TaskAssignmentStatus(StrEnum):
     DECLINED = "DECLINED"
     REVOKED = "REVOKED"
     COMPLETED = "COMPLETED"
+
+
+_REPLAYABLE_ASSIGNMENT_STATUSES = frozenset(
+    {
+        TaskAssignmentStatus.ACCEPTED,
+        TaskAssignmentStatus.REVOKED,
+        TaskAssignmentStatus.COMPLETED,
+    }
+)
 
 
 class TaskQualityState(StrEnum):
@@ -162,7 +172,11 @@ class BlueprintSnapshot:
             not isinstance(key, str) or not key.strip() for key in self.task_template_keys
         ):
             raise ServiceValidationError("fgcn_task_templates_required")
-        validate_s01_scenario(self.scenario)
+        validate_s01_scenario(
+            self.scenario,
+            policy_ref=self.policy_ref,
+            policy_version=self.policy_version,
+        )
         total_units = _decimal(self.total_units, "total_units")
         if total_units != Decimal("100"):
             raise ServiceValidationError("fgcn_shadow_pool_must_be_100_units")
@@ -219,6 +233,7 @@ class ServiceTask:
     deliverable_ref: str | None = None
     verified_at: datetime | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    locale: str = "en"
 
     def __post_init__(self) -> None:
         for value, name in (
@@ -235,7 +250,10 @@ class ServiceTask:
             raise ServiceValidationError("fgcn_task_configuration_invalid")
         if any(not criterion.strip() for criterion in self.acceptance_criteria):
             raise ServiceValidationError("fgcn_acceptance_criteria_invalid")
-        validate_s01_task_acceptance(self.acceptance_criteria)
+        if not isinstance(self.locale, str) or not self.locale.strip():
+            raise ServiceValidationError("fgcn_task_locale_required")
+        object.__setattr__(self, "locale", self.locale.strip().casefold())
+        validate_s01_task_acceptance(self.acceptance_criteria, locale=self.locale)
         try:
             status = TaskStatus(self.status)
         except (TypeError, ValueError) as exc:
@@ -253,13 +271,17 @@ class ServiceTask:
                 "deliverable_ref",
                 _text(self.deliverable_ref, "task_deliverable_ref"),
             )
-        if status in {
-            TaskStatus.ACCEPTED,
-            TaskStatus.IN_PROGRESS,
-            TaskStatus.DELIVERED,
-            TaskStatus.VERIFIED,
-            TaskStatus.CLOSED,
-        } and self.responsible_ref is None:
+        if (
+            status
+            in {
+                TaskStatus.ACCEPTED,
+                TaskStatus.IN_PROGRESS,
+                TaskStatus.DELIVERED,
+                TaskStatus.VERIFIED,
+                TaskStatus.CLOSED,
+            }
+            and self.responsible_ref is None
+        ):
             raise ServiceValidationError("fgcn_task_responsible_ref_required")
         if (
             status in {TaskStatus.DELIVERED, TaskStatus.VERIFIED, TaskStatus.CLOSED}
@@ -308,8 +330,8 @@ class TaskAssignment:
             (self.source_request_id, "source_request_id"),
         ):
             _text(value, name)
-        if self.status is not TaskAssignmentStatus.ACCEPTED:
-            raise ServiceValidationError("fgcn_only_accepted_assignment_is_supported")
+        if self.status not in _REPLAYABLE_ASSIGNMENT_STATUSES:
+            raise ServiceValidationError("fgcn_assignment_status_not_replayable")
         _aware(self.accepted_at, "assignment_accepted_at")
 
 
@@ -322,6 +344,8 @@ class ServiceDelivery:
     evidence_ref: str
     outcome_observation: str
     delivered_at: datetime
+    locale: str = "en"
+    outcome_markers: S01OutcomeMarkers | None = None
 
     def __post_init__(self) -> None:
         for value, name in (
@@ -332,11 +356,25 @@ class ServiceDelivery:
             (self.evidence_ref, "delivery_evidence_ref"),
         ):
             _text(value, name)
+        if not isinstance(self.locale, str) or not self.locale.strip():
+            raise ServiceValidationError("fgcn_delivery_locale_required")
+        locale = self.locale.strip().casefold()
+        object.__setattr__(self, "locale", locale)
         object.__setattr__(
             self,
             "outcome_observation",
-            validate_s01_outcome_observation(self.outcome_observation),
+            validate_s01_outcome_observation(
+                self.outcome_observation,
+                locale=locale,
+                markers=self.outcome_markers,
+            ),
         )
+        if self.outcome_markers is None:
+            object.__setattr__(
+                self,
+                "outcome_markers",
+                S01OutcomeMarkers(calm_start_completed=True, conflict_escalated=False),
+            )
         _aware(self.delivered_at, "delivery_delivered_at")
 
 
@@ -349,6 +387,7 @@ class TaskQualityReview:
     quality_state: TaskQualityState
     review_note: str
     reviewed_at: datetime
+    locale: str = "en"
 
     def __post_init__(self) -> None:
         for value, name in (
@@ -359,7 +398,15 @@ class TaskQualityReview:
             (self.review_note, "quality_review_note"),
         ):
             _text(value, name)
-        object.__setattr__(self, "review_note", validate_s01_quality_note(self.review_note))
+        if not isinstance(self.locale, str) or not self.locale.strip():
+            raise ServiceValidationError("fgcn_quality_locale_required")
+        locale = self.locale.strip().casefold()
+        object.__setattr__(self, "locale", locale)
+        object.__setattr__(
+            self,
+            "review_note",
+            validate_s01_quality_note(self.review_note, locale=locale),
+        )
         _aware(self.reviewed_at, "quality_reviewed_at")
 
 

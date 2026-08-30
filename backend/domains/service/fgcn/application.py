@@ -94,7 +94,6 @@ class FGCNAssignmentRepository(FGCNCaseRepository, Protocol):
     async def save_assignment(self, assignment: TaskAssignment) -> None: ...
 
 
-
 def _assert_case_owner(owner_id: str) -> str:
     if not isinstance(owner_id, str) or not owner_id.strip():
         raise ServiceValidationError("fgcn_actor_required")
@@ -203,6 +202,7 @@ async def open_service_case(
         owner_id=owner,
         blueprint=blueprint,
     )
+    opening_time = _now(opened_at)
     candidate = ServiceCase(
         case_id=case_id,
         scope=scope,
@@ -210,7 +210,7 @@ async def open_service_case(
         plan_ref=plan_ref,
         owner_id=owner,
         blueprint=blueprint,
-        opened_at=_now(opened_at),
+        opened_at=opening_time,
     )
 
     try:
@@ -246,6 +246,7 @@ async def open_service_case(
         entry_dependencies,
         scope=scope,
         intent_ref=intent_ref,
+        as_of=opening_time,
     )
     reservation = await repo.claim_case_opening(
         scope=scope, idempotency_key=idempotency_key.strip(), request_hash=request_hash
@@ -254,9 +255,7 @@ async def open_service_case(
         try:
             replay = await repo.load_case(reservation.case_id)
         except ServiceNotFoundError as exc:
-            raise ServiceConflictError(
-                "fgcn_case_opening_idempotency_case_missing"
-            ) from exc
+            raise ServiceConflictError("fgcn_case_opening_idempotency_case_missing") from exc
         if not _case_open_request_matches(
             replay,
             scope=scope,
@@ -283,9 +282,16 @@ async def open_service_case(
                 "status": candidate.status.value,
                 "blueprint_ref": candidate.blueprint.blueprint_ref,
                 "scenario_key": candidate.blueprint.scenario.scenario_key,
-                "family_initiated_request": entry_snapshot.family_initiated_request,
-                "family_request_ref": entry_snapshot.family_request_ref,
-                "self_help_failed_attempts": entry_snapshot.self_help_failed_attempts,
+                "family_request_ref": entry_snapshot.family_request.ref,
+                "family_request_status": entry_snapshot.family_request.status,
+                "family_request_version": entry_snapshot.family_request.version,
+                "family_request_locale": entry_snapshot.family_request.locale,
+                "self_help_action_refs": tuple(
+                    action.ref for action in entry_snapshot.self_help_actions
+                ),
+                "self_help_observation_refs": tuple(
+                    observation.ref for observation in entry_snapshot.self_help_observations
+                ),
             },
         )
     )
@@ -344,6 +350,43 @@ def _assert_scope(case: ServiceCase, scope: GateScope) -> None:
         raise ServiceForbiddenError("fgcn_correlation_scope_violation")
 
 
+def _assignment_request_hash(
+    *,
+    case_id: str,
+    task_id: str,
+    assignment_id: str,
+    assignee_ref: str,
+    assignee_kind: str,
+    accepted_by_actor_id: str,
+    source_request_id: str,
+) -> str:
+    """Hash the immutable assignment identity, excluding lifecycle state.
+
+    ``TaskAssignment.status`` is a delivery lifecycle fact. It can move from
+    ``ACCEPTED`` to ``COMPLETED`` or ``REVOKED`` after the Named Action has
+    committed, so it must never participate in the request replay identity.
+    The fields below are the canonical, durable projection of the accepted
+    request that the assignment row retains.
+    """
+
+    canonical = json.dumps(
+        {
+            "action": "CONFIRM_SERVICE_TASK_ASSIGNMENT",
+            "case_id": case_id,
+            "task_id": task_id,
+            "assignment_id": assignment_id,
+            "assignee_ref": assignee_ref,
+            "assignee_kind": assignee_kind,
+            "accepted_by_actor_id": accepted_by_actor_id,
+            "source_request_id": source_request_id,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def _assignment_matches(
     existing: TaskAssignment,
     *,
@@ -355,16 +398,25 @@ def _assignment_matches(
     assignee_kind: str,
     assignment_id: str,
 ) -> bool:
-    return (
-        existing.case_id == case.case_id
-        and existing.task_id == task.task_id
-        and existing.assignment_id == assignment_id
-        and existing.assignee_ref == assignee_ref
-        and existing.assignee_kind == assignee_kind
-        and existing.status is TaskAssignmentStatus.ACCEPTED
-        and existing.accepted_by_actor_id == actor_id
-        and existing.source_request_id == request.request_id
+    expected_hash = _assignment_request_hash(
+        case_id=case.case_id,
+        task_id=task.task_id,
+        assignment_id=assignment_id,
+        assignee_ref=assignee_ref,
+        assignee_kind=assignee_kind,
+        accepted_by_actor_id=actor_id,
+        source_request_id=request.request_id,
     )
+    existing_hash = _assignment_request_hash(
+        case_id=existing.case_id,
+        task_id=existing.task_id,
+        assignment_id=existing.assignment_id,
+        assignee_ref=existing.assignee_ref,
+        assignee_kind=existing.assignee_kind,
+        accepted_by_actor_id=existing.accepted_by_actor_id,
+        source_request_id=existing.source_request_id,
+    )
+    return expected_hash == existing_hash
 
 
 async def execute_task_assignment_named_action(

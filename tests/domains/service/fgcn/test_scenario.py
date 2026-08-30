@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -18,7 +19,12 @@ from backend.domains.service.fgcn.scenario import (
     S01_SCENARIO,
     S01_SERVICE_OUTCOME,
     S01_TASK_ACCEPTANCE_CRITERION,
+    S01OutcomeMarkers,
     ServiceScenario,
+    parse_s01_outcome_markers,
+    render_s01_scenario,
+    validate_s01_outcome_observation,
+    validate_s01_quality_note,
 )
 
 NOW = datetime(2026, 8, 30, 9, tzinfo=UTC)
@@ -148,3 +154,63 @@ def test_s01_acceptance_criterion_is_the_only_task_outcome_boundary() -> None:
         created_at=NOW,
     )
     assert task.acceptance_criteria == (S01_TASK_ACCEPTANCE_CRITERION,)
+
+
+@pytest.mark.parametrize("locale", ["en", "zh", "fr"])
+def test_s01_registered_locales_render_and_parse_structured_outcome(locale: str) -> None:
+    scenario = render_s01_scenario(locale)
+    assert scenario.scenario_key == "S-01"
+    assert scenario.scenario_version == 1
+    assert scenario.outcome_key == "CALM_START_CONFLICT_REDUCTION"
+    assert scenario.policy_ref == "shadow-policy.v1"
+    assert scenario.policy_version == 1
+    assert scenario.locale == locale
+
+    observation = {
+        "en": "S-01 calm start completed; conflict did not escalate.",
+        "zh": "S-01 平稳启动已完成；冲突未升级。",
+        "fr": "S-01 démarrage calme terminé ; le conflit ne s'est pas aggravé.",
+    }[locale]
+    markers = parse_s01_outcome_markers(observation, locale=locale)
+    assert markers.calm_start_completed is True
+    assert markers.conflict_escalated is False
+    assert (
+        validate_s01_outcome_observation(observation, locale=locale, markers=markers) == observation
+    )
+
+
+@pytest.mark.parametrize(
+    ("locale", "observation"),
+    (
+        ("zh", "S-01 平稳启动已完成；冲突未升级；总分=1。"),
+        ("fr", "S-01 démarrage calme terminé ; le conflit ne s'est pas aggravé ; classement=1."),
+    ),
+)
+def test_s01_forbids_scoring_and_ranking_terms_across_locales(
+    locale: str, observation: str
+) -> None:
+    with pytest.raises(ServiceValidationError, match="fgcn_s01_scoring_semantics_forbidden"):
+        parse_s01_outcome_markers(observation, locale=locale)
+
+
+def test_s01_rejects_unbound_policy_version_locale_and_markers() -> None:
+    with pytest.raises(ServiceValidationError, match="fgcn_s01_scenario_metadata_invalid"):
+        _blueprint(scenario=replace(S01_SCENARIO, scenario_version=2))
+    with pytest.raises(ServiceValidationError, match="fgcn_s01_blueprint_policy_invalid"):
+        _blueprint(policy_ref="other-policy.v1")
+    with pytest.raises(ServiceValidationError, match="fgcn_s01_locale_unsupported"):
+        render_s01_scenario("de")
+    with pytest.raises(ServiceValidationError, match="fgcn_s01_outcome_markers_mismatch"):
+        validate_s01_outcome_observation(
+            "S-01 calm start completed; conflict did not escalate.",
+            markers=S01OutcomeMarkers(calm_start_completed=True, conflict_escalated=True),
+        )
+
+
+@pytest.mark.parametrize("locale", ["zh", "fr"])
+def test_s01_quality_verification_uses_registered_locale(locale: str) -> None:
+    note = {
+        "zh": "S-01 结果已验收：平稳启动已完成且冲突未升级。",
+        "fr": "Résultat S-01 vérifié : démarrage calme terminé et le conflit ne s'est pas aggravé.",
+    }[locale]
+    assert validate_s01_quality_note(note, locale=locale) == note

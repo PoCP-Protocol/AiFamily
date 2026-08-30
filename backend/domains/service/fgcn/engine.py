@@ -144,10 +144,12 @@ class FGCNEngine:
         # not to FGCN.  Resolve it immediately before the first case write so
         # an unconfirmed intent, invalid consent, or foreign binding cannot
         # create a ServiceCase.
+        opening_time = _now(opened_at)
         entry_snapshot = require_case_entry_dependencies(
             self.case_entry_dependencies,
             scope=scope,
             intent_ref=intent_ref,
+            as_of=opening_time,
         )
         case = ServiceCase(
             case_id=case_id,
@@ -156,7 +158,7 @@ class FGCNEngine:
             plan_ref=plan_ref,
             owner_id=actor,
             blueprint=blueprint,
-            opened_at=_now(opened_at),
+            opened_at=opening_time,
         )
         self.cases[case_id] = case
         self._case_keys[(scope.tenant_id, scope.family_id, idempotency_key)] = case_id
@@ -172,9 +174,14 @@ class FGCNEngine:
                 "status": case.status.value,
                 "blueprint_ref": blueprint.blueprint_ref,
                 "scenario_key": blueprint.scenario.scenario_key,
-                "family_initiated_request": entry_snapshot.family_initiated_request,
-                "family_request_ref": entry_snapshot.family_request_ref,
-                "self_help_failed_attempts": entry_snapshot.self_help_failed_attempts,
+                "family_request_ref": entry_snapshot.family_request.ref,
+                "family_request_version": entry_snapshot.family_request.version,
+                "self_help_action_refs": tuple(
+                    action.ref for action in entry_snapshot.self_help_actions
+                ),
+                "self_help_observation_refs": tuple(
+                    observation.ref for observation in entry_snapshot.self_help_observations
+                ),
             },
         )
         return case
@@ -214,6 +221,7 @@ class FGCNEngine:
             acceptance_criteria=acceptance_criteria,
             required_capability_keys=required_capability_keys,
             task_weight=task_weight,
+            locale=case.blueprint.scenario.locale,
             created_at=_now(created_at),
         )
         self.tasks[task_id] = task
@@ -375,6 +383,7 @@ class FGCNEngine:
             assignee_ref=assignee_ref,
             evidence_ref=evidence_ref,
             outcome_observation=outcome_observation,
+            locale=task.locale,
             delivered_at=_now(submitted_at),
         )
         self.deliveries[delivery_id] = delivery
@@ -454,6 +463,10 @@ class FGCNEngine:
             raise ServiceValidationError("fgcn_quality_state_invalid") from exc
         if quality_state is not TaskQualityState.PASSED:
             raise ServiceConflictError("fgcn_non_pass_quality_requires_rework_flow")
+        delivery_id = self._delivery_by_task.get(task_id)
+        if delivery_id is None:
+            raise ServiceNotFoundError("fgcn_service_delivery_not_found")
+        delivery = self.deliveries[delivery_id]
         review = TaskQualityReview(
             quality_review_id=quality_review_id,
             case_id=case.case_id,
@@ -461,6 +474,7 @@ class FGCNEngine:
             reviewer_ref=reviewer,
             quality_state=quality_state,
             review_note=review_note,
+            locale=delivery.locale,
             reviewed_at=_now(reviewed_at),
         )
         self.reviews[quality_review_id] = review

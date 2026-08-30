@@ -1,4 +1,5 @@
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -6,6 +7,7 @@ from backend.domains.service.domain.errors import ServiceForbiddenError
 from backend.domains.service.fgcn.contracts import GateServiceScope
 from backend.domains.service.fgcn.entry import (
     DEFAULT_CASE_ENTRY_DEPENDENCIES,
+    FamilyRequestRef,
     require_case_entry_dependencies,
     require_case_entry_dependencies_async,
 )
@@ -38,8 +40,6 @@ def _scope() -> GateServiceScope:
         ({"binding_tenant_id": "foreign-tenant"}, "fgcn_tenant_family_binding_invalid"),
         ({"binding_family_id": "foreign-family"}, "fgcn_tenant_family_binding_invalid"),
         ({"binding_status": "REVOKED"}, "fgcn_tenant_family_binding_invalid"),
-        ({"family_initiated_request": False}, "fgcn_family_request_required"),
-        ({"self_help_failed_attempts": 1}, "fgcn_repeated_self_help_failure_required"),
     ),
 )
 def test_entry_gate_rejects_each_invalid_dependency(change, error_code):
@@ -82,9 +82,162 @@ def test_entry_gate_accepts_exact_intent_consent_and_binding_snapshot():
     assert result.growth_intent_status == "CONFIRMED"
     assert result.consent_status == "ACTIVE"
     assert result.binding_tenant_id == scope.tenant_id
-    assert result.family_initiated_request is True
-    assert result.self_help_failed_attempts >= 2
+    assert result.family_request.initiated_by == "FAMILY"
+    assert len(result.self_help_actions) == 2
+    assert len(result.self_help_observations) == 2
     assert stub.calls == 1
+
+
+def test_entry_gate_rejects_withdrawn_deleted_and_expired_canonical_request_refs():
+    scope = _scope()
+    snapshot = valid_entry_snapshot(scope, intent_ref="intent-1")
+
+    with pytest.raises(ServiceForbiddenError, match="fgcn_family_request_withdrawn"):
+        require_case_entry_dependencies(
+            SyncCaseEntryDependencyStub(
+                replace(
+                    snapshot, family_request=replace(snapshot.family_request, status="WITHDRAWN")
+                )
+            ),
+            scope=scope,
+            intent_ref="intent-1",
+        )
+    with pytest.raises(ServiceForbiddenError, match="fgcn_family_request_expired_or_deleted"):
+        require_case_entry_dependencies(
+            SyncCaseEntryDependencyStub(
+                replace(snapshot, family_request=replace(snapshot.family_request, status="DELETED"))
+            ),
+            scope=scope,
+            intent_ref="intent-1",
+        )
+    with pytest.raises(ServiceForbiddenError, match="fgcn_family_request_expired_or_deleted"):
+        require_case_entry_dependencies(
+            SyncCaseEntryDependencyStub(
+                replace(
+                    snapshot,
+                    family_request=replace(
+                        snapshot.family_request,
+                        expires_at=datetime.now(UTC) - timedelta(minutes=1),
+                    ),
+                )
+            ),
+            scope=scope,
+            intent_ref="intent-1",
+        )
+
+
+def test_entry_gate_rejects_forged_cross_scope_and_untraceable_action_refs():
+    scope = _scope()
+    snapshot = valid_entry_snapshot(scope, intent_ref="intent-1")
+    forged_request = replace(snapshot.family_request, ref="family-request:forged")
+    with pytest.raises(ServiceForbiddenError, match="fgcn_self_help_action_reference_invalid"):
+        require_case_entry_dependencies(
+            SyncCaseEntryDependencyStub(replace(snapshot, family_request=forged_request)),
+            scope=scope,
+            intent_ref="intent-1",
+        )
+
+    foreign_request = replace(snapshot.family_request, tenant_id="tenant-foreign")
+    with pytest.raises(ServiceForbiddenError, match="fgcn_family_request_scope_mismatch"):
+        require_case_entry_dependencies(
+            SyncCaseEntryDependencyStub(replace(snapshot, family_request=foreign_request)),
+            scope=scope,
+            intent_ref="intent-1",
+        )
+
+    with pytest.raises(ServiceForbiddenError, match="fgcn_repeated_self_help_evidence_required"):
+        require_case_entry_dependencies(
+            SyncCaseEntryDependencyStub(
+                replace(
+                    snapshot,
+                    self_help_actions=(snapshot.self_help_actions[0],),
+                    self_help_observations=(snapshot.self_help_observations[0],),
+                )
+            ),
+            scope=scope,
+            intent_ref="intent-1",
+        )
+
+
+def test_entry_gate_rejects_cross_scope_or_deleted_observation_reference():
+    scope = _scope()
+    snapshot = valid_entry_snapshot(scope, intent_ref="intent-1")
+    foreign = replace(snapshot.self_help_observations[1], tenant_id="tenant-foreign")
+    with pytest.raises(ServiceForbiddenError, match="fgcn_self_help_observation_reference_invalid"):
+        require_case_entry_dependencies(
+            SyncCaseEntryDependencyStub(
+                replace(
+                    snapshot, self_help_observations=(snapshot.self_help_observations[0], foreign)
+                )
+            ),
+            scope=scope,
+            intent_ref="intent-1",
+        )
+    deleted = replace(snapshot.self_help_observations[1], status="DELETED")
+    with pytest.raises(
+        ServiceForbiddenError, match="fgcn_self_help_observation_expired_or_deleted"
+    ):
+        require_case_entry_dependencies(
+            SyncCaseEntryDependencyStub(
+                replace(
+                    snapshot, self_help_observations=(snapshot.self_help_observations[0], deleted)
+                )
+            ),
+            scope=scope,
+            intent_ref="intent-1",
+        )
+
+
+def test_entry_gate_rejects_expired_action_and_mismatched_version_or_locale():
+    scope = _scope()
+    snapshot = valid_entry_snapshot(scope, intent_ref="intent-1")
+    expired = replace(
+        snapshot.self_help_actions[1],
+        expires_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    with pytest.raises(ServiceForbiddenError, match="fgcn_self_help_action_expired_or_deleted"):
+        require_case_entry_dependencies(
+            SyncCaseEntryDependencyStub(
+                replace(
+                    snapshot,
+                    self_help_actions=(snapshot.self_help_actions[0], expired),
+                )
+            ),
+            scope=scope,
+            intent_ref="intent-1",
+        )
+    wrong_version = replace(snapshot.self_help_actions[1], version=2)
+    with pytest.raises(ServiceForbiddenError, match="fgcn_self_help_action_reference_invalid"):
+        require_case_entry_dependencies(
+            SyncCaseEntryDependencyStub(
+                replace(
+                    snapshot,
+                    self_help_actions=(snapshot.self_help_actions[0], wrong_version),
+                )
+            ),
+            scope=scope,
+            intent_ref="intent-1",
+        )
+    with pytest.raises(ServiceForbiddenError, match="fgcn_case_entry_locale_mismatch"):
+        require_case_entry_dependencies(
+            SyncCaseEntryDependencyStub(replace(snapshot, locale="zh")),
+            scope=scope,
+            intent_ref="intent-1",
+        )
+
+
+def test_family_request_ref_must_be_family_initiated():
+    with pytest.raises(ServiceForbiddenError, match="fgcn_family_request_must_be_family_initiated"):
+        FamilyRequestRef(
+            ref="family-request:not-family",
+            tenant_id="tenant-1",
+            family_id="family-1",
+            intent_ref="intent-1",
+            status="ACTIVE",
+            version=1,
+            locale="en",
+            initiated_by="PROVIDER",
+        )
 
 
 @pytest.mark.asyncio

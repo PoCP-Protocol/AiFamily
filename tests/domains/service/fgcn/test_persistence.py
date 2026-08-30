@@ -348,6 +348,7 @@ async def _postgres_fgcn_engine():
                     )
                 )
                 await connection.run_sync(FGCNBase.metadata.create_all)
+                await connection.run_sync(AuditBase.metadata.create_all)
             yield engine
         finally:
             await engine.dispose()
@@ -394,8 +395,16 @@ async def test_open_service_case_requires_entry_dependencies_and_audits_success(
     assert loaded == _case()
     assert [event.action for event in events] == ["OPEN_SERVICE_CASE"]
     assert events[0].after["scenario_key"] == "S-01"
-    assert events[0].after["family_initiated_request"] is True
-    assert events[0].after["self_help_failed_attempts"] == 2
+    assert events[0].after["family_request_ref"] == "family-request:s01"
+    assert events[0].after["family_request_version"] == 1
+    assert events[0].after["self_help_action_refs"] == [
+        "action-record:self-help-1",
+        "action-record:self-help-2",
+    ]
+    assert events[0].after["self_help_observation_refs"] == [
+        "observation:self-help-1",
+        "observation:self-help-2",
+    ]
 
 
 @pytest.mark.asyncio
@@ -486,9 +495,7 @@ async def test_open_service_case_rejects_same_key_with_changed_case_id(session_f
                 opened_at=NOW,
             )
 
-        assert await session.get(
-            ServiceCaseRow, "00000000-0000-4000-8000-000000000017"
-        ) is None
+        assert await session.get(ServiceCaseRow, "00000000-0000-4000-8000-000000000017") is None
 
 
 @pytest.mark.asyncio
@@ -516,9 +523,7 @@ async def test_open_service_case_fails_closed_on_committed_incomplete_claim(sess
         )
         await session.commit()
 
-        with pytest.raises(
-            ServiceConflictError, match="fgcn_case_opening_idempotency_incomplete"
-        ):
+        with pytest.raises(ServiceConflictError, match="fgcn_case_opening_idempotency_incomplete"):
             await open_service_case(
                 repo,
                 case_id=CASE,
@@ -1253,6 +1258,48 @@ async def test_named_action_application_command_replays_without_duplicate_assign
                 recorder=AuditRecorder(),
                 provider_admission=_ADMITTED_PROVIDER,
             )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "lifecycle_status", [TaskAssignmentStatus.COMPLETED, TaskAssignmentStatus.REVOKED]
+)
+async def test_named_action_replays_terminal_assignment_without_new_audit(
+    postgres_session_factory, lifecycle_status
+):
+    request = _named_action_request()
+    async with postgres_session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        await repo.save_case(_case())
+        await repo.save_task(_task(status=TaskStatus.PENDING))
+        first = await execute_task_assignment_named_action(
+            repo,
+            request,
+            recorder=AuditRecorder(),
+            provider_admission=_ADMITTED_PROVIDER,
+            accepted_at=NOW,
+        )
+
+    async with postgres_session_factory() as session:
+        row = await session.get(TaskAssignmentRow, ASSIGNMENT)
+        assert row is not None
+        row.status = lifecycle_status.value
+        await session.commit()
+
+    async with postgres_session_factory() as session:
+        replay = await execute_task_assignment_named_action(
+            SqlAlchemyFGCNRepository(session),
+            request,
+            recorder=AuditRecorder(),
+            provider_admission=_ADMITTED_PROVIDER,
+            accepted_at=NOW + timedelta(hours=1),
+        )
+        rows = (await session.execute(sa.select(TaskAssignmentRow))).scalars().all()
+        events = await read_all_events(session, tenant_id=TENANT)
+
+    assert replay == replace(first, status=lifecycle_status)
+    assert len(rows) == 1
+    assert len(events) == 3
 
 
 @pytest.mark.asyncio

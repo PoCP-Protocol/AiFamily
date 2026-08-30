@@ -22,6 +22,7 @@ complete.
 from __future__ import annotations
 
 import hashlib
+from dataclasses import asdict
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -71,7 +72,7 @@ from .contracts import (
     TaskQualityState,
     TaskStatus,
 )
-from .scenario import ServiceScenario
+from .scenario import S01OutcomeMarkers, ServiceScenario
 
 _UUID = Uuid(as_uuid=False)
 _TIMESTAMP = DateTime(timezone=True)
@@ -354,6 +355,11 @@ def _snapshot(blueprint: BlueprintSnapshot) -> dict[str, Any]:
         "task_template_keys": list(blueprint.task_template_keys),
         "scenario": {
             "scenario_key": blueprint.scenario.scenario_key,
+            "scenario_version": blueprint.scenario.scenario_version,
+            "outcome_key": blueprint.scenario.outcome_key,
+            "policy_ref": blueprint.scenario.policy_ref,
+            "policy_version": blueprint.scenario.policy_version,
+            "locale": blueprint.scenario.locale,
             "family_problem": blueprint.scenario.family_problem,
             "provider_deliverable": blueprint.scenario.provider_deliverable,
             "service_outcome": blueprint.scenario.service_outcome,
@@ -418,6 +424,12 @@ def _delivery_from_payload(task: ServiceTaskRow) -> ServiceDelivery | None:
         delivered_at = datetime.fromisoformat(
             _required_text(raw["delivered_at"], required["delivered_at"])
         )
+        raw_markers = raw.get("outcome_markers")
+        markers = None
+        if raw_markers is not None:
+            if not isinstance(raw_markers, dict):
+                raise ServiceValidationError("fgcn_delivery_markers_persisted_shape_invalid")
+            markers = S01OutcomeMarkers(**raw_markers)
         delivery = ServiceDelivery(
             delivery_id=_required_text(raw["delivery_id"], required["delivery_id"]),
             case_id=task.case_ref,
@@ -428,8 +440,10 @@ def _delivery_from_payload(task: ServiceTaskRow) -> ServiceDelivery | None:
                 raw["outcome_observation"], required["outcome_observation"]
             ),
             delivered_at=_utc(delivered_at),
+            locale=raw.get("locale", "en"),
+            outcome_markers=markers,
         )
-    except (KeyError, TypeError, ValueError) as exc:
+    except (KeyError, TypeError, ValueError, ServiceValidationError) as exc:
         raise ServiceValidationError("fgcn_delivery_persisted_shape_invalid") from exc
     return delivery
 
@@ -590,8 +604,7 @@ class SqlAlchemyFGCNRepository:
         """Return a bounded, opaque key derived from tenant and client key."""
 
         material = (
-            f"fgcn:open-service-case:{len(scope.tenant_id)}:"
-            f"{scope.tenant_id}:{idempotency_key}"
+            f"fgcn:open-service-case:{len(scope.tenant_id)}:{scope.tenant_id}:{idempotency_key}"
         )
         return f"fgcn:{hashlib.sha256(material.encode('utf-8')).hexdigest()}"
 
@@ -626,9 +639,7 @@ class SqlAlchemyFGCNRepository:
                 "request_hash": request_hash,
             },
         )
-        row = await self._session.get(
-            IdempotencyKeyRow, storage_key, with_for_update=True
-        )
+        row = await self._session.get(IdempotencyKeyRow, storage_key, with_for_update=True)
         if row is None:
             raise ServiceConflictError("fgcn_case_opening_idempotency_unavailable")
         if row.action_name != "OPEN_SERVICE_CASE" or row.request_hash != request_hash:
@@ -924,6 +935,7 @@ class SqlAlchemyFGCNRepository:
             deliverable_ref=deliverable_ref,
             verified_at=_utc(row.verified_at),
             created_at=_required_utc(row.created_at, "fgcn_task_created_at_required"),
+            locale=_blueprint_from_row(case).scenario.locale,
         )
 
     async def save_assignment(self, assignment: TaskAssignment) -> None:
@@ -1004,6 +1016,8 @@ class SqlAlchemyFGCNRepository:
                 "outcome_observation": delivery.outcome_observation,
                 "assignee_ref": delivery.assignee_ref,
                 "delivered_at": delivery.delivered_at.isoformat(),
+                "locale": delivery.locale,
+                "outcome_markers": asdict(delivery.outcome_markers),
             }
         )
         task.deliverable = current
@@ -1033,8 +1047,12 @@ class SqlAlchemyFGCNRepository:
             status = TaskAssignmentStatus(row.status)
         except (TypeError, ValueError) as exc:
             raise ServiceValidationError("fgcn_assignment_persisted_shape_invalid") from exc
-        if status is not TaskAssignmentStatus.ACCEPTED:
-            raise ServiceValidationError("fgcn_only_accepted_assignment_is_supported")
+        if status not in {
+            TaskAssignmentStatus.ACCEPTED,
+            TaskAssignmentStatus.REVOKED,
+            TaskAssignmentStatus.COMPLETED,
+        }:
+            raise ServiceValidationError("fgcn_assignment_status_not_replayable")
         if row.assignee_kind not in _ALLOWED_ASSIGNEE_KINDS:
             raise ServiceValidationError("fgcn_assignee_kind_invalid")
         _human_actor(row.accepted_by_actor_id)
@@ -1110,6 +1128,9 @@ class SqlAlchemyFGCNRepository:
             raise ServiceValidationError("fgcn_quality_review_case_required")
         if task.status != TaskStatus.VERIFIED.value:
             raise ServiceValidationError("fgcn_quality_review_task_state_invalid")
+        delivery = _delivery_from_payload(task)
+        if delivery is None:
+            raise ServiceValidationError("fgcn_quality_review_delivery_required")
         await self._get(ServiceCaseRow, task.case_ref, "fgcn_service_case_not_found")
         return TaskQualityReview(
             quality_review_id=row.quality_review_id,
@@ -1119,6 +1140,7 @@ class SqlAlchemyFGCNRepository:
             quality_state=quality_state,
             review_note=_required_text(row.review_note, "fgcn_quality_review_note_required"),
             reviewed_at=_required_utc(row.reviewed_at, "fgcn_quality_reviewed_at_required"),
+            locale=delivery.locale,
         )
 
     async def load_contribution(self, contribution_id: str) -> ServiceContribution:
@@ -1165,6 +1187,11 @@ class SqlAlchemyFGCNRepository:
             raise ServiceValidationError("fgcn_quality_state_invalid") from exc
         if quality_state is not TaskQualityState.PASSED:
             raise ServiceConflictError("fgcn_non_pass_quality_requires_rework_flow")
+        delivery = _delivery_from_payload(task)
+        if delivery is None:
+            raise ServiceConflictError("fgcn_quality_review_requires_delivery")
+        if review.locale != delivery.locale:
+            raise ServiceConflictError("fgcn_quality_review_locale_mismatch")
         existing = await self._session.get(TaskQualityReviewRow, review.quality_review_id)
         if existing is not None:
             if (
