@@ -25,8 +25,13 @@ from pydantic import BaseModel
 from ..domain.value_objects import (
     AdmissionStatus,
     Channel,
+    FamilyFeedbackOutcome,
+    FeedbackAuthorRole,
+    FeedbackIssueCode,
     ProviderKind,
     QualificationStatus,
+    QualityDecisionStatus,
+    ServiceActionType,
     ServiceQualityRating,
 )
 
@@ -48,6 +53,7 @@ class PublishServiceOfferingRequest(BaseModel):
     admission_status: AdmissionStatus
     source_ref: str
     version_no: int = 1
+    scenario_ref: str = "S-01_21_DAY_EVENING_STUDY_START_CONFLICT_REDUCTION"
 
 
 class OpenAvailabilitySlotRequest(BaseModel):
@@ -85,6 +91,28 @@ class FulfilServiceRecordRequest(BaseModel):
     """
 
     quality_rating: ServiceQualityRating | None = None
+
+
+class RecordFamilyFeedbackRequest(BaseModel):
+    subject_person_id: str
+    author_role: FeedbackAuthorRole
+    outcome: FamilyFeedbackOutcome
+    issue_codes: list[FeedbackIssueCode] = []
+    consent_ref: str
+
+
+class DecideServiceQualityRequest(BaseModel):
+    delivery_record_id: str
+    status: QualityDecisionStatus
+    family_feedback_id: str | None = None
+
+
+class RecordServiceActionRequest(BaseModel):
+    action_type: ServiceActionType
+    delivery_record_id: str | None = None
+    family_feedback_id: str | None = None
+    sla_due_at: datetime | None = None
+    occurred_at: datetime | None = None
 
 
 class CreatePrivateCheckinDraftRequest(BaseModel):

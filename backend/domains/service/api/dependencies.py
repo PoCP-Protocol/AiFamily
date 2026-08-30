@@ -55,6 +55,9 @@ HUMAN_GATED_ACTIONS: frozenset[str] = frozenset(
         "confirm_booking_request",
         "fulfil_service_record",
         "cancel_booking_request",
+        "record_family_feedback",
+        "decide_service_quality",
+        "record_service_action",
     }
 )
 
@@ -64,6 +67,9 @@ _NON_GATED_ACTIONS: dict[str, str] = {
     "open_availability_slot": SERVICE_SUPPLY_RESOURCE,
     "submit_booking_request": SERVICE_BOOKING_RESOURCE,
     "create_private_checkin_draft": SERVICE_BOOKING_RESOURCE,
+    "record_family_feedback": SERVICE_BOOKING_RESOURCE,
+    "decide_service_quality": SERVICE_BOOKING_RESOURCE,
+    "record_service_action": SERVICE_BOOKING_RESOURCE,
 }
 
 _READ_ACTIONS: dict[str, str] = {

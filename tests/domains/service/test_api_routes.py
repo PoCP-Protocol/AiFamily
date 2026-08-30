@@ -59,7 +59,8 @@ from backend.domains.service.infrastructure.sqlalchemy_repository import (
     SqlAlchemyServiceRepository,
 )
 from backend.platform.audit.recorder import AuditRecorder
-from backend.platform.identity.context import ActorContext, ActorType
+from backend.platform.identity.context import ActorContext, ActorType, TenantStatus
+from backend.platform.identity.directory import InMemoryTenantDirectory
 
 from .helpers import CHILD, CONSENT_REF, FAMILY, GUARDIAN, TENANT, granted
 
@@ -134,6 +135,8 @@ def client(wiring: _Wiring) -> Iterator[TestClient]:
     app.dependency_overrides[deps.get_consent_query] = _consent
     app.dependency_overrides[deps.get_action_context] = _ctx
     app.dependency_overrides[deps.get_actor_context] = _actor
+    tenant_directory = InMemoryTenantDirectory({TENANT: TenantStatus.ACTIVE})
+    app.dependency_overrides[deps.get_tenant_directory] = lambda: tenant_directory
     app.dependency_overrides[deps.get_audit_recorder] = lambda: wiring.recorder
     with TestClient(app) as test_client:
         yield test_client
@@ -256,6 +259,70 @@ def test_http_chain_browse_book_confirm_fulfil(client: TestClient, wiring: _Wiri
     # The projection is honest that this is fixture supply, not a real appointment.
     assert row["external_effect"] is False
     assert row["source_system"] == "TEST_FIXTURE"
+
+
+def test_http_feedback_quality_and_remedy_actions(client: TestClient, wiring: _Wiring) -> None:
+    wiring.consent.add(granted())
+    offering_id, slot_id = _seed_supply_http(client, wiring)
+    booking_id = _submit(client, wiring, offering_id, slot_id, "p1-book").json()[
+        "booking_request_id"
+    ]
+    confirmed = client.post(
+        f"/families/{FAMILY}/service/booking-requests/{booking_id}/confirm",
+        headers=_key(wiring, "p1-confirm"),
+    )
+    record_id = confirmed.json()["service_record"]["booking_service_record_id"]
+    fulfilled = client.post(
+        f"/families/{FAMILY}/service/service-records/{record_id}/fulfil",
+        headers=_key(wiring, "p1-fulfil"),
+        json={},
+    )
+    assert fulfilled.status_code == 200
+
+    feedback = client.post(
+        f"/families/{FAMILY}/service/service-records/{record_id}/feedback",
+        headers=_key(wiring, "p1-feedback"),
+        json={
+            "subject_person_id": CHILD,
+            "author_role": "GUARDIAN",
+            "outcome": "NOT_HELPFUL_YET",
+            "issue_codes": ["NEED_MISSED"],
+            "consent_ref": CONSENT_REF,
+        },
+    )
+    assert feedback.status_code == 200, feedback.text
+    feedback_id = feedback.json()["family_feedback_id"]
+
+    rejected = client.post(
+        f"/families/{FAMILY}/service/booking-requests/{booking_id}/quality",
+        headers=_key(wiring, "p1-quality-rejected"),
+        json={
+            "delivery_record_id": record_id,
+            "family_feedback_id": feedback_id,
+            "status": "ACCEPTED",
+        },
+    )
+    assert rejected.status_code == 409
+    assert rejected.json()["detail"] == "not_helpful_feedback_requires_remedy"
+
+    action = client.post(
+        f"/families/{FAMILY}/service/booking-requests/{booking_id}/actions",
+        headers=_key(wiring, "p1-rework"),
+        json={
+            "action_type": "REMEDY_REWORK",
+            "delivery_record_id": record_id,
+            "family_feedback_id": feedback_id,
+        },
+    )
+    assert action.status_code == 200, action.text
+
+    wiring.actor_type = ActorType.AI
+    ai_action = client.post(
+        f"/families/{FAMILY}/service/booking-requests/{booking_id}/actions",
+        headers=_key(wiring, "p1-ai-action"),
+        json={"action_type": "FOLLOW_UP", "delivery_record_id": record_id},
+    )
+    assert ai_action.status_code == 403
 
 
 def test_service_journey_and_private_checkin_draft(client: TestClient, wiring: _Wiring) -> None:

@@ -20,7 +20,11 @@ from backend.platform.consent.models import ConsentGrant, ConsentPurpose
 from ..domain.entities import (
     AvailabilitySlot,
     BookingRequest,
+    FamilyFeedback,
     PrivateCheckinDraft,
+    QualityDecision,
+    ServiceAction,
+    ServiceEvent,
     ServiceOffering,
     ServiceProvider,
     ServiceRecord,
@@ -81,6 +85,10 @@ class FakeServiceRepository:
         self.bookings: dict[str, BookingRequest] = {}
         self.service_records: dict[str, ServiceRecord] = {}
         self.checkin_drafts: dict[str, PrivateCheckinDraft] = {}
+        self.family_feedback: dict[str, FamilyFeedback] = {}
+        self.quality_decisions: dict[str, QualityDecision] = {}
+        self.service_actions: dict[str, ServiceAction] = {}
+        self.service_events: dict[str, ServiceEvent] = {}
 
     async def commit(self) -> None:
         return None
@@ -129,6 +137,9 @@ class FakeServiceRepository:
             raise ServiceNotFoundError("availability_slot_not_found")
         return self.slots[availability_slot_id]
 
+    async def load_slot_for_update(self, availability_slot_id: str) -> AvailabilitySlot:
+        return await self.load_slot(availability_slot_id)
+
     async def list_slots(
         self, tenant_id: str, *, service_offering_id: str | None = None
     ) -> list[AvailabilitySlot]:
@@ -175,6 +186,72 @@ class FakeServiceRepository:
 
     async def list_service_records(self, tenant_id: str, family_id: str) -> list[ServiceRecord]:
         return self._scoped(self.service_records, tenant_id, family_id)
+
+    # -- feedback / quality / named actions --
+    async def save_family_feedback(self, entity: FamilyFeedback) -> None:
+        self.family_feedback[entity.family_feedback_id] = entity
+
+    async def load_family_feedback(self, family_feedback_id: str) -> FamilyFeedback:
+        if family_feedback_id not in self.family_feedback:
+            raise ServiceNotFoundError("family_feedback_not_found")
+        return self.family_feedback[family_feedback_id]
+
+    async def find_feedback_by_idempotency_key(
+        self, tenant_id: str, family_id: str, idempotency_key: str
+    ) -> FamilyFeedback | None:
+        return self._by_key(self.family_feedback, tenant_id, family_id, idempotency_key)
+
+    async def save_quality_decision(self, entity: QualityDecision) -> None:
+        self.quality_decisions[entity.quality_decision_id] = entity
+
+    async def load_quality_decision(self, quality_decision_id: str) -> QualityDecision:
+        if quality_decision_id not in self.quality_decisions:
+            raise ServiceNotFoundError("quality_decision_not_found")
+        return self.quality_decisions[quality_decision_id]
+
+    async def find_quality_decision_by_idempotency_key(
+        self, tenant_id: str, family_id: str, idempotency_key: str
+    ) -> QualityDecision | None:
+        return self._by_key(self.quality_decisions, tenant_id, family_id, idempotency_key)
+
+    async def save_service_action(self, entity: ServiceAction) -> None:
+        self.service_actions[entity.service_action_id] = entity
+
+    async def find_service_action_by_idempotency_key(
+        self, tenant_id: str, family_id: str, idempotency_key: str
+    ) -> ServiceAction | None:
+        return self._by_key(self.service_actions, tenant_id, family_id, idempotency_key)
+
+    async def list_service_actions(self, tenant_id: str, family_id: str) -> list[ServiceAction]:
+        return self._scoped(self.service_actions, tenant_id, family_id)
+
+    # -- transactional service outbox --
+    async def append_service_event(self, entity: ServiceEvent) -> None:
+        existing = await self.find_service_event_by_idempotency_key(
+            entity.tenant_id, entity.idempotency_key
+        )
+        if existing is not None:
+            if existing.model_dump() != entity.model_dump():
+                from ..domain.errors import ServiceConflictError
+
+                raise ServiceConflictError("service_event_idempotency_replay_mismatch")
+            return
+        self.service_events[entity.service_event_id] = entity
+
+    async def find_service_event_by_idempotency_key(
+        self, tenant_id: str, idempotency_key: str
+    ) -> ServiceEvent | None:
+        for event in self.service_events.values():
+            if event.tenant_id == tenant_id and event.idempotency_key == idempotency_key:
+                return event
+        return None
+
+    async def list_pending_service_events(self, tenant_id: str) -> list[ServiceEvent]:
+        return [
+            e
+            for e in self.service_events.values()
+            if e.tenant_id == tenant_id and e.status == "PENDING"
+        ]
 
     # -- private check-in drafts --
     async def append_checkin_draft(self, entity: PrivateCheckinDraft) -> None:

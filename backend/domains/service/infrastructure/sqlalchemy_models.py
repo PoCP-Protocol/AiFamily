@@ -37,7 +37,7 @@ is what proves it on the database production uses.
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, UniqueConstraint
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.types import JSON
 
@@ -202,3 +202,107 @@ class PrivateCheckinDraftRow(Base):
     occurred_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, nullable=False)
     created_by = Column(String, nullable=False)
+
+
+class FamilyFeedbackRow(Base):
+    __tablename__ = "family_service_family_feedback"
+
+    family_feedback_id = Column(String, primary_key=True)
+    tenant_id = Column(String, nullable=False)
+    family_id = Column(String, nullable=False)
+    booking_request_id = Column(String, nullable=False)
+    delivery_record_id = Column(String, nullable=False)
+    author_person_id = Column(String, nullable=False)
+    author_role = Column(String, nullable=False)
+    outcome = Column(String, nullable=False)
+    issue_codes = Column(JSON, nullable=False, default=list)
+    consent_ref = Column(String, nullable=False)
+    idempotency_key = Column(String, nullable=True)
+    correlation_id = Column(String, nullable=False)
+    retention_class = Column(String, nullable=False)
+    occurred_at = Column(DateTime, nullable=False)
+    environment = Column(String, nullable=False)
+    source_system = Column(String, nullable=False)
+    external_effect = Column(Boolean, nullable=False, default=False)
+    attributes_schema_version = Column(Integer, nullable=False, default=1)
+    attributes = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False)
+    created_by = Column(String, nullable=False)
+
+
+class QualityDecisionRow(Base):
+    __tablename__ = "family_service_quality_decisions"
+
+    quality_decision_id = Column(String, primary_key=True)
+    tenant_id = Column(String, nullable=False)
+    family_id = Column(String, nullable=False)
+    booking_request_id = Column(String, nullable=False)
+    delivery_record_id = Column(String, nullable=False)
+    family_feedback_id = Column(String, nullable=True)
+    status = Column(String, nullable=False)
+    decided_by = Column(String, nullable=False)
+    idempotency_key = Column(String, nullable=True)
+    correlation_id = Column(String, nullable=False)
+    retention_class = Column(String, nullable=False)
+    decided_at = Column(DateTime, nullable=False)
+    environment = Column(String, nullable=False)
+    source_system = Column(String, nullable=False)
+    external_effect = Column(Boolean, nullable=False, default=False)
+    attributes_schema_version = Column(Integer, nullable=False, default=1)
+    attributes = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False)
+    created_by = Column(String, nullable=False)
+
+
+class ServiceActionRow(Base):
+    __tablename__ = "family_service_actions"
+
+    service_action_id = Column(String, primary_key=True)
+    tenant_id = Column(String, nullable=False)
+    family_id = Column(String, nullable=False)
+    booking_request_id = Column(String, nullable=False)
+    delivery_record_id = Column(String, nullable=True)
+    family_feedback_id = Column(String, nullable=True)
+    action_type = Column(String, nullable=False)
+    sla_due_at = Column(DateTime, nullable=True)
+    occurred_at = Column(DateTime, nullable=False)
+    actor_person_id = Column(String, nullable=False)
+    idempotency_key = Column(String, nullable=True)
+    correlation_id = Column(String, nullable=False)
+    retention_class = Column(String, nullable=False)
+    environment = Column(String, nullable=False)
+    source_system = Column(String, nullable=False)
+    external_effect = Column(Boolean, nullable=False, default=False)
+    attributes_schema_version = Column(Integer, nullable=False, default=1)
+    attributes = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False)
+    created_by = Column(String, nullable=False)
+
+
+class ServiceEventRow(Base):
+    __tablename__ = "family_service_outbox_events"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "idempotency_key", name="uq_family_service_event_tenant_idempotency"
+        ),
+    )
+
+    service_event_id = Column(String, primary_key=True)
+    tenant_id = Column(String, nullable=False)
+    family_id = Column(String, nullable=False)
+    event_type = Column(String, nullable=False)
+    aggregate_type = Column(String, nullable=False)
+    aggregate_id = Column(String, nullable=False)
+    idempotency_key = Column(String, nullable=False)
+    payload = Column(JSON, nullable=False, default=dict)
+    status = Column(String, nullable=False, default="PENDING")
+    attempt_count = Column(Integer, nullable=False, default=0)
+    occurred_at = Column(DateTime, nullable=False)
+    published_at = Column(DateTime, nullable=True)
+    environment = Column(String, nullable=False)
+    source_system = Column(String, nullable=False)
+    external_effect = Column(Boolean, nullable=False, default=False)
+    attributes_schema_version = Column(Integer, nullable=False, default=1)
+    attributes = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False)

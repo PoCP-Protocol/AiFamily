@@ -411,3 +411,81 @@ async def fulfil_service_record(
         )
     except ServiceDomainError as exc:
         _raise_http(exc)
+
+
+@router.post("/families/{family_id}/service/service-records/{booking_service_record_id}/feedback")
+async def record_family_feedback(
+    family_id: str,
+    booking_service_record_id: str,
+    body: req.RecordFamilyFeedbackRequest,
+    idempotency_key: str | None = Header(default=None),
+    repo: ServiceRepositoryPort = Depends(get_repository),
+    consent: ConsentQueryPort = Depends(get_consent_query),
+    ctx: ActionContext = Depends(get_action_context),
+    actor: ActorContext = Depends(get_actor_context),
+    engine: PolicyEngine = Depends(get_policy_engine),
+    recorder: AuditRecorder = Depends(get_audit_recorder),
+) -> Any:
+    """Adult family feedback; no numeric score or free text is accepted."""
+    _assert_path_family(family_id, ctx)
+    _require_idempotency_key(ctx)
+    _authorize(engine, actor, "record_family_feedback", recorder, ctx)
+    try:
+        booking = await repo.load_service_record(booking_service_record_id)
+        return await commands.record_family_feedback(
+            repo,
+            ctx,
+            recorder,
+            consent,
+            booking_request_id=booking.source_booking_request_id,
+            delivery_record_id=booking_service_record_id,
+            **body.model_dump(),
+        )
+    except ServiceDomainError as exc:
+        _raise_http(exc)
+
+
+@router.post("/families/{family_id}/service/booking-requests/{booking_request_id}/quality")
+async def decide_service_quality(
+    family_id: str,
+    booking_request_id: str,
+    body: req.DecideServiceQualityRequest,
+    idempotency_key: str | None = Header(default=None),
+    repo: ServiceRepositoryPort = Depends(get_repository),
+    ctx: ActionContext = Depends(get_action_context),
+    actor: ActorContext = Depends(get_actor_context),
+    engine: PolicyEngine = Depends(get_policy_engine),
+    recorder: AuditRecorder = Depends(get_audit_recorder),
+) -> Any:
+    _assert_path_family(family_id, ctx)
+    _require_idempotency_key(ctx)
+    _authorize(engine, actor, "decide_service_quality", recorder, ctx)
+    try:
+        return await commands.decide_service_quality(
+            repo, ctx, recorder, booking_request_id=booking_request_id, **body.model_dump()
+        )
+    except ServiceDomainError as exc:
+        _raise_http(exc)
+
+
+@router.post("/families/{family_id}/service/booking-requests/{booking_request_id}/actions")
+async def record_service_action(
+    family_id: str,
+    booking_request_id: str,
+    body: req.RecordServiceActionRequest,
+    idempotency_key: str | None = Header(default=None),
+    repo: ServiceRepositoryPort = Depends(get_repository),
+    ctx: ActionContext = Depends(get_action_context),
+    actor: ActorContext = Depends(get_actor_context),
+    engine: PolicyEngine = Depends(get_policy_engine),
+    recorder: AuditRecorder = Depends(get_audit_recorder),
+) -> Any:
+    _assert_path_family(family_id, ctx)
+    _require_idempotency_key(ctx)
+    _authorize(engine, actor, "record_service_action", recorder, ctx)
+    try:
+        return await commands.record_service_action(
+            repo, ctx, recorder, booking_request_id=booking_request_id, **body.model_dump()
+        )
+    except ServiceDomainError as exc:
+        _raise_http(exc)

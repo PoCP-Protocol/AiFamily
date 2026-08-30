@@ -41,11 +41,17 @@ from .value_objects import (
     BookingStatus,
     Channel,
     Environment,
+    FamilyFeedbackOutcome,
+    FeedbackAuthorRole,
+    FeedbackIssueCode,
     OfferingStatus,
     ProviderKind,
     ProviderStatus,
     QualificationStatus,
+    QualityDecisionStatus,
     ScopeType,
+    ServiceActionType,
+    ServiceEventStatus,
     ServiceQualityRating,
     ServiceRecordSourceSystem,
     ServiceRecordStatus,
@@ -180,6 +186,13 @@ class ServiceProvider(_Extensible, _Audited, _SupplyMaster):
             and self.admission_status == "ADMITTED"
         )
 
+    def is_bookable_at(self, at: datetime) -> bool:
+        return (
+            self.is_bookable
+            and self.effective_from <= at
+            and (self.effective_to is None or at < self.effective_to)
+        )
+
 
 class ServiceOffering(_Extensible, _Audited, _SupplyMaster):
     """`family_service_offerings` (0035). Versioned, bound to one provider.
@@ -212,6 +225,13 @@ class ServiceOffering(_Extensible, _Audited, _SupplyMaster):
     @property
     def is_bookable(self) -> bool:
         return self.status == "ACTIVE" and self.admission_status == "ADMITTED"
+
+    def is_bookable_at(self, at: datetime) -> bool:
+        return (
+            self.is_bookable
+            and self.effective_from <= at
+            and (self.effective_to is None or at < self.effective_to)
+        )
 
 
 class AvailabilitySlot(_Extensible, _SupplyMaster):
@@ -257,6 +277,11 @@ class AvailabilitySlot(_Extensible, _SupplyMaster):
     @property
     def is_open(self) -> bool:
         return self.status == "AVAILABLE" and self.reserved_count < self.capacity
+
+    def is_open_at(self, at: datetime) -> bool:
+        # Booking is allowed before the appointment starts, but never after its
+        # window closes.  This is distinct from the delivery-time window.
+        return self.is_open and at < self.ends_at
 
     def reserve(self) -> AvailabilitySlot:
         """Take one unit of capacity. Refuses a full or non-AVAILABLE slot.
@@ -460,6 +485,160 @@ class ServiceRecord(_Extensible, _Audited, _FixtureBoundary):
         if quality_rating is not None:
             update["service_quality_rating"] = quality_rating
         return self.model_copy(update=update)
+
+
+# The canonical delivery object is already named ServiceRecord in the legacy
+# schema.  Keep the business language available without introducing a second
+# table or aggregate.
+DeliveryRecord = ServiceRecord
+
+
+class FamilyFeedback(_Extensible, _FixtureBoundary):
+    """Bounded feedback from an adult family member about one delivery.
+
+    Feedback is an append-only family fact.  It deliberately has no free-text
+    field and no numeric score: the outcome says whether help was felt, while
+    the allow-listed issue codes give a safe signal for a human remedy.
+    """
+
+    _allowed_source_system: str = "TEST_FIXTURE"
+
+    family_feedback_id: str
+    tenant_id: str
+    family_id: str
+    booking_request_id: str
+    delivery_record_id: str
+    author_person_id: str
+    author_role: FeedbackAuthorRole
+    outcome: FamilyFeedbackOutcome
+    issue_codes: list[FeedbackIssueCode] = []
+    source_system: BookingSourceSystem = "TEST_FIXTURE"
+    consent_ref: str
+    idempotency_key: str | None = None
+    correlation_id: str
+    retention_class: str = "SERVICE_FEEDBACK_TEST"
+    occurred_at: datetime
+    created_at: datetime
+    created_by: str
+
+    @model_validator(mode="after")
+    def _check_feedback(self):
+        if not self.consent_ref.strip():
+            raise ServiceValidationError("family_feedback_consent_ref_required")
+        if len(set(self.issue_codes)) != len(self.issue_codes):
+            raise ServiceValidationError("family_feedback_issue_codes_must_be_unique")
+        return self
+
+
+class QualityDecision(_Extensible, _FixtureBoundary):
+    """Human quality gate for a completed delivery.
+
+    Only ``ACCEPTED`` is eligible for a later FGCN contribution decision.  This
+    object does not write the contribution or cash ledgers; those remain owned
+    by their canonical domains.
+    """
+
+    _allowed_source_system: str = "TEST_FIXTURE"
+
+    quality_decision_id: str
+    tenant_id: str
+    family_id: str
+    booking_request_id: str
+    delivery_record_id: str
+    family_feedback_id: str | None = None
+    status: QualityDecisionStatus
+    source_system: BookingSourceSystem = "TEST_FIXTURE"
+    decided_by: str
+    idempotency_key: str | None = None
+    correlation_id: str
+    retention_class: str = "SERVICE_QUALITY_TEST"
+    decided_at: datetime
+    created_at: datetime
+    created_by: str
+
+    @property
+    def contribution_eligible(self) -> bool:
+        """A quality decision is not itself a contribution or cash release."""
+        return self.status == "ACCEPTED"
+
+
+class ServiceAction(_Extensible, _FixtureBoundary):
+    """One auditable human Named Action in the service playbook."""
+
+    _allowed_source_system: str = "TEST_FIXTURE"
+
+    service_action_id: str
+    tenant_id: str
+    family_id: str
+    booking_request_id: str
+    delivery_record_id: str | None = None
+    family_feedback_id: str | None = None
+    action_type: ServiceActionType
+    source_system: BookingSourceSystem = "TEST_FIXTURE"
+    sla_due_at: datetime | None = None
+    occurred_at: datetime
+    actor_person_id: str
+    idempotency_key: str | None = None
+    correlation_id: str
+    retention_class: str = "SERVICE_ACTION_TEST"
+    created_at: datetime
+    created_by: str
+
+    @model_validator(mode="after")
+    def _check_action(self):
+        if self.action_type == "FIRST_RESPONSE" and self.sla_due_at is None:
+            raise ServiceValidationError("first_response_sla_due_at_required")
+        if self.family_feedback_id is not None and self.delivery_record_id is None:
+            raise ServiceValidationError("feedback_action_requires_delivery")
+        if self.action_type in ("REMEDY_REWORK", "REMEDY_REASSIGN", "REFUND_REQUESTED") and (
+            self.delivery_record_id is None or self.family_feedback_id is None
+        ):
+            raise ServiceValidationError("remedy_action_requires_delivery_and_feedback")
+        return self
+
+    @property
+    def sla_met(self) -> bool | None:
+        if self.action_type != "FIRST_RESPONSE" or self.sla_due_at is None:
+            return None
+        return self.occurred_at <= self.sla_due_at
+
+
+class ServiceEvent(_Extensible, _FixtureBoundary):
+    """Transactional service outbox message.
+
+    The event is a durable integration fact, not a second service backend. Its
+    unique idempotency key makes retries safe; publishing/settlement remains an
+    external consumer concern and is never performed by the AI.
+    """
+
+    _allowed_source_system: str = "TEST_FIXTURE"
+
+    service_event_id: str
+    tenant_id: str
+    family_id: str
+    event_type: str
+    aggregate_type: str
+    aggregate_id: str
+    idempotency_key: str
+    payload: dict
+    status: ServiceEventStatus = "PENDING"
+    attempt_count: int = 0
+    occurred_at: datetime
+    published_at: datetime | None = None
+    environment: Environment
+    source_system: BookingSourceSystem = "TEST_FIXTURE"
+    external_effect: bool = False
+    created_at: datetime
+
+    @model_validator(mode="after")
+    def _check_event(self):
+        if not self.idempotency_key.strip():
+            raise ServiceValidationError("service_event_idempotency_key_required")
+        if self.attempt_count < 0:
+            raise ServiceValidationError("service_event_attempt_count_invalid")
+        if self.status == "PUBLISHED" and self.published_at is None:
+            raise ServiceValidationError("published_event_requires_published_at")
+        return self
 
 
 class PrivateCheckinDraft(_Extensible, _FixtureBoundary):
