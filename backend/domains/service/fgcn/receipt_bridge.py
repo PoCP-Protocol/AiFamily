@@ -35,6 +35,8 @@ from .contracts import (
 )
 from .delivery_application import FGCNDeliveryRepository, submit_service_delivery
 
+_CONFIRMED_BOOKING_STATUS = "CONFIRMED"
+
 
 class CanonicalServiceRecordReader(Protocol):
     """The read-only portion of the canonical Service repository."""
@@ -131,7 +133,7 @@ async def build_service_delivery_from_record(
         raise ServiceValidationError("fgcn_receipt_booking_invalid")
     if booking.booking_request_id != record.source_booking_request_id:
         raise ServiceConflictError("fgcn_receipt_booking_identity_mismatch")
-    if booking.status != "CONFIRMED":
+    if booking.status != _CONFIRMED_BOOKING_STATUS:
         raise ServiceConflictError("fgcn_receipt_booking_not_confirmed")
     if booking.tenant_id != scope.tenant_id or booking.family_id != scope.family_id:
         raise ServiceForbiddenError("fgcn_receipt_booking_scope_mismatch")
