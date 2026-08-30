@@ -159,6 +159,23 @@ def test_expired_or_incomplete_decision_fails_closed() -> None:
         )
 
 
+def test_blank_evidence_id_fails_closed() -> None:
+    with pytest.raises(ProductPackageLifecycleError, match="GATE_EVIDENCE_INVALID"):
+        advance_product_package_lifecycle(
+            _package(),
+            decision=_decision(),
+            evidence=(
+                GateEvidence(
+                    evidence_id=" ",
+                    kind="test",
+                    reference="tests/blank-evidence",
+                    summary="invalid evidence id",
+                ),
+            ),
+            target_status=ArtifactStatus.PILOT,
+        )
+
+
 def test_release_requires_released_matching_baseline() -> None:
     now = datetime(2026, 8, 31, 12, 0, tzinfo=UTC)
     qualified = _package(status=ArtifactStatus.QUALIFIED)

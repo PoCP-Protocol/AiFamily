@@ -89,6 +89,8 @@ def _validate_evidence(evidence: tuple[GateEvidence, ...]) -> tuple[GateEvidence
     if any(not isinstance(item, GateEvidence) for item in evidence):
         raise ProductPackageLifecycleError("GATE_EVIDENCE_INVALID")
     evidence_ids = tuple(item.evidence_id.strip() for item in evidence)
+    if any(not evidence_id for evidence_id in evidence_ids):
+        raise ProductPackageLifecycleError("GATE_EVIDENCE_INVALID")
     if len(set(evidence_ids)) != len(evidence_ids):
         raise ProductPackageLifecycleError("GATE_EVIDENCE_MUST_BE_UNIQUE")
     return evidence
