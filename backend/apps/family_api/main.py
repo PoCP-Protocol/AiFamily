@@ -17,6 +17,13 @@ from backend.apps.family_api.experience_wiring import (
     install_experience_runtime_resolver,
     mount_experience_router,
 )
+from backend.apps.family_api.growth_onboarding_wiring import (
+    FakeGrowthOnboardingRuntime,
+    InMemoryGrowthOnboardingActorResolver,
+    build_fake_growth_onboarding_runtime,
+    install_growth_onboarding_dev_wiring,
+    install_growth_onboarding_production_wiring,
+)
 from backend.apps.family_api.routes import router
 from backend.domains.assessment.api import (
     register_exception_handlers as register_assessment_exception_handlers,
@@ -28,6 +35,9 @@ from backend.domains.family_need.api.routes import (
     register_exception_handlers as register_family_need_exception_handlers,
 )
 from backend.domains.family_need.api.routes import router as family_need_router
+from backend.domains.journey.api.growth_onboarding_routes import (
+    router as growth_onboarding_router,
+)
 from backend.domains.journey.api.routes import (
     register_exception_handlers as register_journey_exception_handlers,
 )
@@ -83,8 +93,50 @@ def _configure_fgcn_persistence() -> None:
     configure_fgcn_session_factory(get_sessionmaker(database_url))
 
 
+def _mount_growth_onboarding(
+    application: FastAPI,
+    *,
+    runtime: FakeGrowthOnboardingRuntime | None = None,
+    actor_resolver: InMemoryGrowthOnboardingActorResolver | None = None,
+    database_url: str | None = None,
+) -> None:
+    """Mount GrowthOnboarding once, selecting only an explicit environment seam.
+
+    Dev/test gets the production-shaped fake installer so tests can provide a
+    concrete runtime and actor resolver without changing the route. Production
+    gets the PostgreSQL installer only when an explicit PostgreSQL URL exists;
+    otherwise the route is still discoverable but retains its 503 defaults.
+    This keeps an absent production dependency fail-closed without silently
+    installing synthetic adapters.
+    """
+
+    if is_dev_environment():
+        install_growth_onboarding_dev_wiring(
+            application,
+            runtime=runtime or build_fake_growth_onboarding_runtime(),
+            actor_resolver=actor_resolver or InMemoryGrowthOnboardingActorResolver(),
+        )
+        return
+
+    configured_url = database_url or _runtime_database_url()
+    if configured_url is not None and is_postgres_url(configured_url):
+        install_growth_onboarding_production_wiring(
+            application,
+            database_url=configured_url,
+        )
+        return
+
+    # Keep the endpoint in OpenAPI while leaving both trusted dependencies at
+    # their explicit 503 fail-closed implementations.
+    application.include_router(growth_onboarding_router)
+
+
 def create_app(
-    *, experience_runtime_resolver: MultimodalDraftRuntimeResolver | None = None
+    *,
+    experience_runtime_resolver: MultimodalDraftRuntimeResolver | None = None,
+    growth_onboarding_runtime: FakeGrowthOnboardingRuntime | None = None,
+    growth_onboarding_actor_resolver: InMemoryGrowthOnboardingActorResolver | None = None,
+    growth_onboarding_database_url: str | None = None,
 ) -> FastAPI:
     _configure_fgcn_persistence()
     application = FastAPI(title="AiFamily family_api", version="0.1.0")
@@ -134,6 +186,12 @@ def create_app(
     # actor or scope fields into these routes.
     application.include_router(fgcn_router)
     register_fgcn_exception_handlers(application)
+    _mount_growth_onboarding(
+        application,
+        runtime=growth_onboarding_runtime,
+        actor_resolver=growth_onboarding_actor_resolver,
+        database_url=growth_onboarding_database_url,
+    )
     # The service dependency is currently being completed; this is a temporary
     # wiring gap, not an intentional environment-specific feature difference.
     # Same fail-closed situation as membership, and for the same reason: the
