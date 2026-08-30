@@ -7,7 +7,9 @@ from backend.intelligence.experience.multimodal_generation import (
     MultimodalExperienceDraft,
     MultimodalExperienceService,
 )
+from backend.intelligence.experience.runs import DurableExperienceRun, RunState
 from backend.intelligence.model_gateway.contracts import MediaInput
+from backend.intelligence.model_gateway.errors import ModelGatewayError
 from backend.intelligence.model_gateway.providers.fake import FakeProvider
 from tests.intelligence.model_gateway.test_fail_closed import VALID_OUTPUT, build
 
@@ -59,6 +61,29 @@ async def test_service_forwards_image_to_gateway_and_returns_draft() -> None:
     assert provider.invocations[0].media_inputs[0].media_type == "IMAGE"
 
 
+@pytest.mark.asyncio
+async def test_service_advances_run_and_checkpoints_draft() -> None:
+    provider = FakeProvider(
+        {"family-image-summary": {"summary": "一条可调整的家庭练习"}}
+    )
+    service = MultimodalExperienceService(build(provider))
+    run = DurableExperienceRun(
+        run_id="run-image-001",
+        tenant_id="tenant-001",
+        family_id="family-001",
+        subject_ids=("subject-001",),
+        request_ref="run-image-001",
+    )
+
+    result = await service.generate_draft(_command(), run=run)
+
+    assert result.output["summary"] == "一条可调整的家庭练习"
+    assert run.state is RunState.SUCCEEDED
+    assert run.latest_checkpoint is not None
+    assert run.latest_checkpoint.draft_payload == result.output
+    assert run.latest_checkpoint.artifact_refs == ("media:sha256:" + "a" * 64,)
+
+
 def test_command_rejects_duplicate_input_refs() -> None:
     with pytest.raises(ValueError, match="duplicates"):
         _command(input_refs=("evidence-1", "evidence-1"))
@@ -74,11 +99,20 @@ async def test_service_preserves_gateway_fail_closed_policy() -> None:
     provider = FakeProvider({"family-image-summary": VALID_OUTPUT})
     service = MultimodalExperienceService(build(provider))
 
-    with pytest.raises(Exception, match="POLICY_REJECTED"):
+    run = DurableExperienceRun(
+        run_id="run-image-001",
+        tenant_id="tenant-001",
+        family_id="family-001",
+        subject_ids=("subject-001",),
+        request_ref="run-image-001",
+    )
+    with pytest.raises(ModelGatewayError, match="POLICY_REJECTED"):
         await service.generate_draft(
             _command(
                 provider_id="openai-compatible-unassessed",
                 data_class="MINOR_PERSONAL_DATA",
-            )
+            ),
+            run=run,
         )
     assert provider.invocations == []
+    assert run.state is RunState.FAILED

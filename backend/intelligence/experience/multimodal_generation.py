@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from backend.intelligence.experience.runs import DurableExperienceRun, RunState
 from backend.intelligence.model_gateway.contracts import (
     DataClass,
     MediaInput,
@@ -101,12 +102,35 @@ class MultimodalExperienceService:
         self._gateway = gateway
 
     async def generate_draft(
-        self, command: MultimodalExperienceCommand
+        self,
+        command: MultimodalExperienceCommand,
+        *,
+        run: DurableExperienceRun | None = None,
     ) -> MultimodalExperienceDraft:
-        draft = await self._gateway.generate_structured(
-            command.to_structured_request(),
-            provider_id=command.provider_id,
-        )
+        if run is not None:
+            if run.run_id != command.run_id:
+                raise ValueError("run_id does not match the experience command")
+            if run.state is RunState.QUEUED:
+                run.transition(RunState.RUNNING, event_id=f"{run.run_id}:started")
+        try:
+            draft = await self._gateway.generate_structured(
+                command.to_structured_request(),
+                provider_id=command.provider_id,
+            )
+        except Exception:
+            if run is not None and run.state is RunState.RUNNING:
+                run.transition(RunState.FAILED, event_id=f"{run.run_id}:failed")
+            raise
+
+        if run is not None:
+            run.checkpoint(
+                checkpoint_id=f"{run.run_id}:draft",
+                artifact_refs=tuple(
+                    f"media:sha256:{media.sha256}" for media in command.media_inputs
+                ),
+                draft_payload=draft.output,
+            )
+            run.transition(RunState.SUCCEEDED, event_id=f"{run.run_id}:succeeded")
         return MultimodalExperienceDraft(
             run_id=command.run_id,
             draft=draft,
