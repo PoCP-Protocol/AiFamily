@@ -5,6 +5,7 @@ const mediaPlaybackConfigured = Boolean(process.env.VITE_MEDIA_PLAYBACK_DTO);
 test("Xiao Ju Deng homepage card opens the H-LIVE-01 read-only detail", async ({ page }) => {
   await page.goto("/");
 
+  await page.getByRole("button", { name: /我想看专家内容 \/ 直播/ }).click();
   await expect(page.getByRole("heading", { name: "为家庭问题找到合适的专家场次" })).toBeVisible();
   await expect(page.getByText("小橘灯：家庭沟通中的温柔练习")).toBeVisible();
   await expect(page.getByText("家长与照护者").first()).toBeVisible();
@@ -24,8 +25,7 @@ test("Xiao Ju Deng homepage card opens the H-LIVE-01 read-only detail", async ({
     await expect(page.getByText("NO_MEDIA").first()).toBeVisible();
   }
   await expect(page.getByPlaceholder("例如：家庭沟通")).toBeVisible();
-  await expect(page.getByText("家庭理解工作台（次级入口）")).toBeVisible();
-  await expect(page.getByText("家庭成长 · AI 原生体验")).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "回到首页" })).toBeVisible();
   await page.getByRole("button", { name: "查看直播详情" }).click();
 
   await expect(page.getByText("H-LIVE-01 · 只读详情")).toBeVisible();

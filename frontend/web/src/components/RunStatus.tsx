@@ -1,16 +1,16 @@
 import type { RunStatus } from "../api/client";
 
 const labels: Record<RunStatus, string> = {
-  idle: "等待输入",
-  validating: "正在检查同意与输入",
-  running: "AI 正在理解",
-  partial: "已生成部分结果",
-  success: "理解草案已生成",
-  refused: "请求被安全拒绝",
-  timeout: "模型响应超时",
-  retrying: "正在安全重试",
-  human_review: "等待人工确认",
-  deleted: "内容已删除",
+  idle: "等你写下一件小事",
+  validating: "正在准备",
+  running: "正在整理你说的事",
+  partial: "已经整理了一部分",
+  success: "支持卡准备好了",
+  refused: "这次暂时无法继续",
+  timeout: "连接有点慢",
+  retrying: "正在再试一次",
+  human_review: "已收到，等人工帮你看",
+  deleted: "这次内容已删除",
 };
 
 type Props = { status: RunStatus; message?: string | null };
