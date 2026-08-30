@@ -12,6 +12,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from backend.intelligence.context_engine.contracts import ContextScope, DataClass
 from backend.platform.consent.gate import ConsentGate
@@ -73,6 +74,11 @@ class ConsentSnapshot:
                 raise ValueError("consent grants must be immutable tuples")
             if any(not isinstance(grant, ConsentGrant) for grant in grants):
                 raise ValueError("consent grants must contain ConsentGrant values")
+        object.__setattr__(
+            self,
+            "grants_by_subject",
+            MappingProxyType(dict(self.grants_by_subject)),
+        )
 
     def grants_for(self, subject_id: str) -> tuple[ConsentGrant, ...]:
         return self.grants_by_subject.get(subject_id, ())

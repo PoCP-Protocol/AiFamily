@@ -125,3 +125,17 @@ async def test_scope_resolver_denies_missing_or_withdrawn_consent() -> None:
 async def test_scope_resolver_denies_unknown_family_before_context_creation() -> None:
     with pytest.raises(ExperienceScopeError, match="TENANT_SCOPE_UNAVAILABLE"):
         await _resolver(grants=(_grant("child-1"),)).resolve("other-family")
+
+
+def test_consent_snapshot_is_immutable_after_construction() -> None:
+    grants = {"child-1": (_grant("child-1"),)}
+    snapshot = ConsentSnapshot(
+        consent_version="consent.v1",
+        grants_by_subject=grants,
+        deletion_ref="delete:tenant-1:family-1",
+    )
+    grants.clear()
+
+    assert snapshot.grants_for("child-1")
+    with pytest.raises(TypeError):
+        snapshot.grants_by_subject["child-2"] = ()  # type: ignore[index]
