@@ -13,6 +13,10 @@ test("Xiao Ju Deng homepage card opens the H-LIVE-01 read-only detail", async ({
   await expect(page.getByRole("article")).toContainText("UNEXPIRED");
   await expect(page.getByRole("article")).toContainText("FAMILY");
   await expect(page.getByRole("article")).toContainText("true · DEV_ONLY");
+  await expect(page.getByRole("article")).toContainText("收藏");
+  await expect(page.getByRole("article")).toContainText("回看");
+  await expect(page.getByRole("article")).toContainText("LOCKED · 不可用");
+  await expect(page.getByRole("button", { name: /收藏|回看/ })).toHaveCount(0);
   await expect(page.getByRole("article")).not.toContainText("token");
   await expect(page.getByRole("article")).not.toContainText("预约");
 

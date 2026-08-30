@@ -31,7 +31,12 @@ if (!relativeScriptPath || relativeScriptPath.startsWith("..")) {
 
 const bundle = await read(scriptPath);
 if (!bundle.includes("SYNTHETIC_TEST")) fail("synthetic test marker is absent from the bundle");
-if (!bundle.includes("SANDBOX_SYNTHETIC") || !bundle.includes("fixture_only") || !bundle.includes("DEV_ONLY")) {
+if (
+  !bundle.includes("SANDBOX_SYNTHETIC") ||
+  !bundle.includes("fixture_only") ||
+  !bundle.includes("DEV_ONLY") ||
+  !bundle.includes("LOCKED")
+) {
   fail("sandbox fixture provenance marker is absent from the bundle");
 }
 if (
@@ -62,7 +67,9 @@ if (
   !catalogSource.includes("fixture_only: true") ||
   !catalogSource.includes('approval_status: "APPROVED"') ||
   !catalogSource.includes('expiry_state: "UNEXPIRED"') ||
-  !catalogSource.includes('audience_scope: "FAMILY"')
+  !catalogSource.includes('audience_scope: "FAMILY"') ||
+  !catalogSource.includes('favorite: "LOCKED"') ||
+  !catalogSource.includes('replay: "LOCKED"')
 ) {
   fail("artifact source map does not retain sandbox-only fixture provenance");
 }

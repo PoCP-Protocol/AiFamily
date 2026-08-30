@@ -23,6 +23,8 @@ export function LiveDetailPage({ record, onBack }: Props) {
         <div><dt>审核状态</dt><dd>{record.approval_status}</dd></div>
         <div><dt>有效期</dt><dd>{record.expiry_state}</dd></div>
         <div><dt>AudienceScope</dt><dd>{record.audience_scope}</dd></div>
+        <div><dt>收藏</dt><dd>{record.capabilities.favorite} · 不可用</dd></div>
+        <div><dt>回看</dt><dd>{record.capabilities.replay} · 不可用</dd></div>
         <div><dt>审核引用</dt><dd>{record.review_ref}</dd></div>
         <div><dt>版本</dt><dd>{record.version}</dd></div>
         <div><dt>family visibility</dt><dd>{record.family_visibility}</dd></div>

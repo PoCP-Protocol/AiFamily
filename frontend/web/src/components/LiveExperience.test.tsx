@@ -24,10 +24,13 @@ describe("Xiao Ju Deng read-only live UI", () => {
     expect(screen.getByText("APPROVED")).toBeInTheDocument();
     expect(screen.getByText("UNEXPIRED")).toBeInTheDocument();
     expect(screen.getByText("FAMILY")).toBeInTheDocument();
+    expect(screen.getAllByText("LOCKED · 不可用")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /收藏|回看/ })).not.toBeInTheDocument();
     expect(screen.getByRole("article")).toHaveTextContent("family-private");
     expect(screen.getByText("2026-08-30T18:00:00+08:00")).toBeInTheDocument();
     expect(XIAO_JU_DENG_FIXTURE.source).toBe("SANDBOX_SYNTHETIC");
     expect(XIAO_JU_DENG_FIXTURE.fixture_only).toBe(true);
+    expect(XIAO_JU_DENG_FIXTURE.capabilities).toEqual({ favorite: "LOCKED", replay: "LOCKED" });
   });
 
   it("keeps production fixture access fail-closed", () => {

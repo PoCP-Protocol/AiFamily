@@ -30,6 +30,10 @@ export type LiveRecord = {
   expiry_state: "UNEXPIRED" | "EXPIRED";
   audience_scope: "FAMILY";
   family_visibility: "family-private" | "public";
+  capabilities: {
+    favorite: "LOCKED";
+    replay: "LOCKED";
+  };
   as_of: string;
   source: "SANDBOX_SYNTHETIC" | "BACKEND";
   fixture_only: boolean;
@@ -53,6 +57,10 @@ export const XIAO_JU_DENG_FIXTURE: LiveRecord = {
   expiry_state: "UNEXPIRED",
   audience_scope: "FAMILY",
   family_visibility: "family-private",
+  capabilities: {
+    favorite: "LOCKED",
+    replay: "LOCKED",
+  },
   as_of: "2026-08-30T18:00:00+08:00",
   source: "SANDBOX_SYNTHETIC",
   fixture_only: true,
