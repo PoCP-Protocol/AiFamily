@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 
@@ -71,6 +72,61 @@ export default function GrowthExplanationScreen() {
   );
   const [retryNonce, setRetryNonce] = useState(0);
   const [showDetails, setShowDetails] = useState(false);
+  const [perspectiveFeedback, setPerspectiveFeedback] = useState<
+    "LIKE" | "NOT_LIKE" | "ADD_CONTEXT" | null
+  >(null);
+  const [supplementText, setSupplementText] = useState("");
+  const [feedbackState, setFeedbackState] = useState<
+    "idle" | "saving" | "saved" | "retry"
+  >("idle");
+  const [smallStepState, setSmallStepState] = useState<
+    "idle" | "saving" | "saved" | "retry"
+  >("idle");
+
+  const connected =
+    session.status === "connected" &&
+    !!session.token &&
+    !!session.selectedFamily;
+  const result = remote?.result;
+
+  const submitPerspectiveFeedback = (
+    feedback: "LIKE" | "NOT_LIKE" | "ADD_CONTEXT",
+  ) => {
+    setPerspectiveFeedback(feedback);
+    if (!connected) {
+      setFeedbackState("saving");
+      setFeedbackState("saved");
+      return;
+    }
+    setFeedbackState("retry");
+    // No canonical feedback contract exists in this slice. Fail closed.
+  };
+
+  const submitSupplement = () => {
+    if (!supplementText.trim()) {
+      setFeedbackState("retry");
+      return;
+    }
+    submitPerspectiveFeedback("ADD_CONTEXT");
+  };
+
+  const startSmallStep = () => {
+    if (!connected) {
+      setSmallStepState("saving");
+      setSmallStepState("saved");
+      return;
+    }
+    setSmallStepState("retry");
+    // No canonical action contract exists in this slice. Fail closed.
+  };
+
+  const saveForLater = () => {
+    if (connected) {
+      setSmallStepState("retry");
+      return;
+    }
+    setSmallStepState("saved");
+  };
 
   useEffect(() => {
     if (
@@ -124,7 +180,6 @@ export default function GrowthExplanationScreen() {
       </ScreenContainer>
     );
 
-  const result = remote?.result;
   const unavailableText =
     remote?.status === "CONSENT_REQUIRED"
       ? "测评授权已撤回，这次结果已停止展示。"
@@ -249,6 +304,136 @@ export default function GrowthExplanationScreen() {
               <Text style={styles.nextStepText}>
                 先做这一步，之后再由你决定要不要继续。
               </Text>
+            </View>
+
+            <View testID="assessment-result-feedback" style={styles.feedbackCard}>
+              <Text style={styles.sectionLabel}>这句话像你们家吗？</Text>
+              <Text style={[styles.feedbackIntro, { color: colors.text }]}>
+                你的反馈会帮助我们把下一次整理说得更贴近，不会改写家庭事实。
+              </Text>
+              <View style={styles.feedbackRow}>
+                <Pressable
+                  testID="assessment-feedback-like"
+                  accessibilityRole="button"
+                  onPress={() => void submitPerspectiveFeedback("LIKE")}
+                  style={({ pressed }) => [
+                    styles.feedbackButton,
+                    perspectiveFeedback === "LIKE" && styles.feedbackSelected,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.feedbackButtonText}>像我们家</Text>
+                </Pressable>
+                <Pressable
+                  testID="assessment-feedback-not-like"
+                  accessibilityRole="button"
+                  onPress={() => void submitPerspectiveFeedback("NOT_LIKE")}
+                  style={({ pressed }) => [
+                    styles.feedbackButton,
+                    perspectiveFeedback === "NOT_LIKE" && styles.feedbackSelected,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.feedbackButtonText}>不太像</Text>
+                </Pressable>
+                <Pressable
+                  testID="assessment-feedback-add-context"
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setPerspectiveFeedback("ADD_CONTEXT");
+                    setFeedbackState("idle");
+                  }}
+                  style={({ pressed }) => [
+                    styles.feedbackButton,
+                    perspectiveFeedback === "ADD_CONTEXT" && styles.feedbackSelected,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.feedbackButtonText}>补充</Text>
+                </Pressable>
+              </View>
+              {perspectiveFeedback === "ADD_CONTEXT" ? (
+                <View style={styles.supplementBox}>
+                  <TextInput
+                    testID="assessment-feedback-input"
+                    accessibilityLabel="补充家庭情况"
+                    value={supplementText}
+                    onChangeText={setSupplementText}
+                    placeholder="补充一句，这样的描述哪里不准确？"
+                    placeholderTextColor="#94A3B8"
+                    multiline
+                    style={[styles.supplementInput, { color: colors.text }]}
+                  />
+                  <Pressable
+                    testID="assessment-feedback-submit"
+                    accessibilityRole="button"
+                    onPress={submitSupplement}
+                    style={({ pressed }) => [
+                      styles.supplementSubmit,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text style={[styles.supplementSubmitText, { color: colors.tint }]}>提交补充</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+              {feedbackState !== "idle" ? (
+                <Text
+                  accessibilityRole="alert"
+                  style={[
+                    styles.feedbackStatus,
+                    { color: feedbackState === "retry" ? "#B42318" : colors.muted },
+                  ]}
+                >
+                  {feedbackState === "saving"
+                    ? "SANDBOX/LOCAL：这次反馈只保存在当前页面。"
+                    : feedbackState === "retry"
+                      ? "暂时无法保存反馈，请稍后重试；当前没有写入服务端。"
+                      : "SANDBOX/LOCAL：这次反馈只保存在当前页面。你也可以返回修改刚才那句话。"}
+                </Text>
+              ) : null}
+            </View>
+
+            <View testID="assessment-result-action" style={styles.actionCard}>
+              <Text style={styles.sectionLabel}>接下来怎么做，由你决定</Text>
+              <Pressable
+                testID="assessment-start-small-step"
+                accessibilityRole="button"
+                disabled={smallStepState === "saving" || smallStepState === "saved"}
+                onPress={() => void startSmallStep()}
+                style={({ pressed }) => [
+                  styles.primaryButton,
+                  { backgroundColor: colors.tint },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {smallStepState === "saving"
+                    ? "SANDBOX/LOCAL：准备试试这一步"
+                    : smallStepState === "saved"
+                      ? "SANDBOX/LOCAL：今晚这一步已在当前页面标记"
+                      : "开始尝试这一步"}
+                </Text>
+              </Pressable>
+              {smallStepState === "saved" ? (
+                <Text style={[styles.actionStatus, { color: colors.muted }]}>
+                  明天可以重新打开这张家庭理解卡；本次标记尚未写入服务端。
+                </Text>
+              ) : smallStepState === "retry" ? (
+                <Text style={styles.actionError}>
+                  暂时没记下，请稍后重试；不会自动触发其他行动。
+                </Text>
+              ) : null}
+              <Pressable
+                testID="assessment-save-for-later"
+                accessibilityRole="button"
+                onPress={saveForLater}
+                style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
+              >
+                <Text style={[styles.editButtonText, { color: colors.tint }]}>
+                  先保存，明天再看
+                </Text>
+              </Pressable>
             </View>
 
             <Pressable
@@ -452,6 +637,61 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   nextStepText: { color: "#8A6729", fontSize: 13, lineHeight: 20 },
+  feedbackCard: {
+    borderRadius: 17,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#D9E2EC",
+    padding: 16,
+    gap: 9,
+  },
+  feedbackIntro: { fontSize: 13, lineHeight: 20 },
+  feedbackRow: { flexDirection: "row", gap: 8, marginTop: 2 },
+  feedbackButton: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  feedbackSelected: { backgroundColor: "#EAF2FF", borderColor: "#1B7CF2" },
+  feedbackButtonText: { color: "#1B65C9", fontSize: 12, fontWeight: "900" },
+  feedbackStatus: { fontSize: 12, lineHeight: 18 },
+  supplementBox: { gap: 8 },
+  supplementInput: {
+    minHeight: 84,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 13,
+    padding: 12,
+    fontSize: 13,
+    lineHeight: 20,
+    textAlignVertical: "top",
+  },
+  supplementSubmit: {
+    minHeight: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  supplementSubmitText: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "900",
+    textDecorationLine: "underline",
+  },
+  actionCard: {
+    borderRadius: 17,
+    backgroundColor: "#F8FBFF",
+    borderWidth: 1,
+    borderColor: "#D9E8FA",
+    padding: 16,
+    gap: 9,
+  },
+  actionStatus: { fontSize: 12, lineHeight: 18 },
+  actionError: { color: "#B42318", fontSize: 12, lineHeight: 18 },
   detailsToggle: {
     minHeight: 42,
     flexDirection: "row",

@@ -1,34 +1,44 @@
 import type { Href } from "expo-router";
 import { Stack, router } from "expo-router";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
-import { getGrowthFocus } from "@/lib/family/core-growth";
 import { useFamilyMobile } from "@/lib/family/family-state";
-import { buildUi02AssessmentResultSummary } from "@/lib/family/ui02-assessment-design";
 
 export default function FamilyAssessmentResultScreen() {
   const colors = useColors();
   const {
-    selectedGrowthFocus,
     assessmentNeedText,
-    assessmentAnswers,
     assessmentSyncState,
     restartAssessment,
   } = useFamilyMobile();
-  const focus = getGrowthFocus(selectedGrowthFocus);
-  const summary = buildUi02AssessmentResultSummary(
-    selectedGrowthFocus,
-    assessmentAnswers,
+  const previewNeed =
+    assessmentNeedText.trim() || "你想找到一个更少冲突的开始";
+  const firstStep = "今晚先留出十分钟，只听孩子把这件小事说完。";
+  const [perspectiveFeedback, setPerspectiveFeedback] = useState<
+    "LIKE" | "NOT_LIKE" | "ADD_CONTEXT" | null
+  >(null);
+  const [supplementText, setSupplementText] = useState("");
+  const [savedAction, setSavedAction] = useState<"idle" | "started" | "saved">(
+    "idle",
   );
-  const firstStep =
-    summary?.practiceSupport[0] ??
-    "今天先留出十分钟，和孩子一起说清楚这件小事。";
+
+  useEffect(() => {
+    if (assessmentSyncState === "synced") {
+      router.replace("/ui/UI-03" as Href);
+    }
+  }, [assessmentSyncState]);
   const uncertain =
-    summary && summary.answeredCount < summary.totalCount
-      ? "有些问题你选择先跳过；之后可以回来补充，不需要现在得出结论。"
-      : "这次只整理了你主动提供的少量信息，不能代表家庭的全部情况。";
+    "这是本机 sandbox 预览，尚未读取服务端结果，也不能代表家庭的全部情况。";
 
   return (
     <ScreenContainer edges={["left", "right", "bottom"]}>
@@ -44,12 +54,12 @@ export default function FamilyAssessmentResultScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.hero}>
-          <Text style={styles.heroBadge}>本次家庭自查已完成</Text>
+          <Text style={styles.heroBadge}>SANDBOX_LOCAL · 本机预览</Text>
           <Text style={[styles.heroTitle, { color: colors.text }]}>
             先把这件小事看清楚
           </Text>
           <Text style={[styles.heroText, { color: colors.muted }]}>
-            内容仅限你的家庭，可随时回来修改或退出。
+            这是无连接时的本机预览，未写入服务端，也不与家庭正式结果并列。
           </Text>
         </View>
         <View
@@ -61,12 +71,10 @@ export default function FamilyAssessmentResultScreen() {
         >
           <Text style={styles.sectionLabel}>我们听到的家庭关注</Text>
           <Text style={[styles.cardTitle, { color: colors.text }]}>
-            {assessmentNeedText.trim() ||
-              focus?.title ||
-              "你想找到一个更少冲突的开始"}
+            {previewNeed}
           </Text>
           <Text style={[styles.cardText, { color: colors.muted }]}>
-            {focus?.subtitle || "先从家庭自己的表达开始，再决定要不要继续。"}
+            先从你的原话开始；连接家庭服务后，才会生成唯一的可回读理解卡。
           </Text>
         </View>
         <View
@@ -75,8 +83,7 @@ export default function FamilyAssessmentResultScreen() {
         >
           <Text style={styles.sectionLabel}>可能的方向</Text>
           <Text style={styles.directionText}>
-            {summary?.supportDirections.slice(0, 2).join("；") ||
-              "先从一次短对话和一个小约定开始。"}
+            先从一次短对话和一个小约定开始。
           </Text>
           <Text style={styles.directionHint}>
             这是支持参考，不是对孩子的评分或诊断。
@@ -104,43 +111,116 @@ export default function FamilyAssessmentResultScreen() {
             先试一次，再由你决定是否继续。
           </Text>
         </View>
-        <View
-          style={[
-            styles.statusCard,
-            {
-              backgroundColor:
-                assessmentSyncState === "synced" ? "#EAF8F3" : "#F1F5F9",
-            },
-          ]}
-        >
-          <Text style={styles.statusIcon}>
-            {assessmentSyncState === "synced" ? "✓" : "•"}
+        <View testID="assessment-result-feedback" style={styles.feedbackCard}>
+          <Text style={styles.sectionLabel}>这句话像你们家吗？</Text>
+          <Text style={[styles.feedbackIntro, { color: colors.text }]}>
+            你的反馈只帮助我们改进这次理解，不会改写家庭事实。
           </Text>
-          <Text style={[styles.statusText, { color: colors.text }]}>
-            {assessmentSyncState === "synced"
-              ? "已保存到家庭测评记录"
-              : "已保存在本机，之后可继续"}
-          </Text>
+          <View style={styles.feedbackRow}>
+            {([
+              ["LIKE", "像我们家"],
+              ["NOT_LIKE", "不太像"],
+              ["ADD_CONTEXT", "补充"],
+            ] as const).map(([value, label]) => (
+              <Pressable
+                testID={`assessment-feedback-${value.toLowerCase()}`}
+                accessibilityRole="button"
+                key={value}
+                onPress={() => setPerspectiveFeedback(value)}
+                style={({ pressed }) => [
+                  styles.feedbackButton,
+                  perspectiveFeedback === value && styles.feedbackSelected,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.feedbackButtonText}>{label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          {perspectiveFeedback === "ADD_CONTEXT" ? (
+            <View style={styles.supplementBox}>
+              <TextInput
+                testID="assessment-feedback-input"
+                accessibilityLabel="补充家庭情况"
+                value={supplementText}
+                onChangeText={setSupplementText}
+                placeholder="补充一句，这样的描述哪里不准确？"
+                placeholderTextColor="#94A3B8"
+                multiline
+                style={[styles.supplementInput, { color: colors.text }]}
+              />
+              <Pressable
+                testID="assessment-feedback-submit"
+                accessibilityRole="button"
+                onPress={() => setPerspectiveFeedback("ADD_CONTEXT")}
+                style={({ pressed }) => [
+                  styles.supplementSubmit,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={[styles.supplementSubmitText, { color: colors.tint }]}>提交补充</Text>
+              </Pressable>
+            </View>
+          ) : null}
+          {perspectiveFeedback ? (
+            <Text style={[styles.feedbackStatus, { color: colors.muted }]}>
+              SANDBOX_LOCAL：反馈只保存在当前页面，未写入服务端。
+            </Text>
+          ) : null}
         </View>
-        {assessmentSyncState === "synced" ? (
+        <View testID="assessment-result-action" style={styles.actionCard}>
+          <Text style={styles.sectionLabel}>接下来怎么做，由你决定</Text>
           <Pressable
-            testID="assessment-explanation"
-            onPress={() => router.push("/ui/UI-03" as Href)}
+            testID="assessment-start-small-step"
+            accessibilityRole="button"
+            onPress={() => setSavedAction("started")}
             style={({ pressed }) => [
               styles.primaryButton,
               { backgroundColor: colors.tint },
               pressed && styles.pressed,
             ]}
           >
-            <Text style={styles.primaryButtonText}>查看可解释结果</Text>
-          </Pressable>
-        ) : (
-          <View testID="assessment-local-boundary" style={styles.localBoundary}>
-            <Text style={[styles.localBoundaryText, { color: colors.muted }]}>
-              这次整理已显示在上面；连上家庭服务后，才会开放服务端回看。
+            <Text style={styles.primaryButtonText}>
+              {savedAction === "started" ? "已记下今晚这一步" : "开始尝试这一步"}
             </Text>
-          </View>
-        )}
+          </Pressable>
+          {savedAction === "started" ? (
+            <Text style={[styles.actionStatus, { color: colors.muted }]}>
+              SANDBOX_LOCAL：当前页面可继续查看，尚未写入服务端。
+            </Text>
+          ) : null}
+          <Pressable
+            testID="assessment-save-for-later"
+            accessibilityRole="button"
+            onPress={() => setSavedAction("saved")}
+            style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
+          >
+            <Text style={[styles.editButtonText, { color: colors.tint }]}>
+              先保存，明天再看
+            </Text>
+          </Pressable>
+          {savedAction === "saved" ? (
+            <Text style={[styles.actionStatus, { color: colors.muted }]}>
+              SANDBOX_LOCAL：当前页面已保留，明天需重新连接后查看正式结果。
+            </Text>
+          ) : null}
+        </View>
+        <View
+          style={[
+            styles.statusCard,
+            { backgroundColor: "#F1F5F9" },
+          ]}
+        >
+          <Text style={styles.statusIcon}>•</Text>
+          <Text style={[styles.statusText, { color: colors.text }]}>
+            SANDBOX_LOCAL：只在本机预览，未写入服务端。
+          </Text>
+        </View>
+        <View testID="assessment-local-boundary" style={styles.localBoundary}>
+          <Text style={[styles.localBoundaryText, { color: colors.muted }]}>
+            这次只是 sandbox 预览；连接家庭服务并完成授权后，才会开放唯一的服务端理解卡。
+          </Text>
+        </View>
         <Pressable
           testID="assessment-restart"
           onPress={() => {
@@ -233,6 +313,60 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   nextStepText: { color: "#8A6729", fontSize: 13, lineHeight: 20 },
+  feedbackCard: {
+    borderRadius: 17,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#D9E2EC",
+    padding: 16,
+    gap: 9,
+  },
+  feedbackIntro: { fontSize: 13, lineHeight: 20 },
+  feedbackRow: { flexDirection: "row", gap: 8, marginTop: 2 },
+  feedbackButton: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  feedbackSelected: { backgroundColor: "#EAF2FF", borderColor: "#1B7CF2" },
+  feedbackButtonText: { color: "#1B65C9", fontSize: 12, fontWeight: "900" },
+  feedbackStatus: { fontSize: 12, lineHeight: 18 },
+  supplementBox: { gap: 8 },
+  supplementInput: {
+    minHeight: 84,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 13,
+    padding: 12,
+    fontSize: 13,
+    lineHeight: 20,
+    textAlignVertical: "top",
+  },
+  supplementSubmit: {
+    minHeight: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  supplementSubmitText: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "900",
+    textDecorationLine: "underline",
+  },
+  actionCard: {
+    borderRadius: 17,
+    backgroundColor: "#F8FBFF",
+    borderWidth: 1,
+    borderColor: "#D9E8FA",
+    padding: 16,
+    gap: 9,
+  },
+  actionStatus: { fontSize: 12, lineHeight: 18 },
   statusCard: {
     borderRadius: 15,
     padding: 13,

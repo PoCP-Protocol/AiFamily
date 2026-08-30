@@ -89,32 +89,53 @@ type VoiceWindow = Window & {
   webkitSpeechRecognition?: new () => VoiceRecognition;
 };
 
-const FOCUS_ICON: Record<
-  string,
-  {
-    name:
-      | "book.fill"
-      | "heart.fill"
-      | "message.fill"
-      | "phone.fill"
-      | "shield.fill";
-    color: string;
-  }
-> = {
-  LEARNING_HABITS: { name: "book.fill", color: "#2F9BE0" },
-  EMOTION_REGULATION: { name: "message.fill", color: "#F5943A" },
-  PARENT_CHILD_COMMUNICATION: { name: "heart.fill", color: "#F0555C" },
-  DEVICE_USE_CONTEXT: { name: "phone.fill", color: "#5B7CF0" },
-  SELF_REGULATION: { name: "shield.fill", color: "#3FB667" },
-};
-
 const ASSESSMENT_BOUNDARY_TEXT = "这是家庭自查，不给孩子打分，不做诊断或排名。";
 const STEP_LABELS: Record<FlowStep, string> = {
   story: "说说来意",
   consent: "说明用途",
-  focus: "选一小块",
-  questions: "回答三题",
+  focus: "确认理解",
+  questions: "少量问题",
 };
+
+const INTERNAL_FOCUS_RULES: {
+  focus: GrowthFocusId;
+  keywords: string[];
+}[] = [
+  {
+    focus: "LEARNING_HABITS",
+    keywords: ["作业", "学习", "写字", "阅读", "拖拉", "磨蹭"],
+  },
+  {
+    focus: "EMOTION_REGULATION",
+    keywords: ["情绪", "生气", "发脾气", "哭", "焦虑", "崩溃"],
+  },
+  {
+    focus: "DEVICE_USE_CONTEXT",
+    keywords: ["手机", "平板", "游戏", "屏幕", "短视频", "上网"],
+  },
+  {
+    focus: "SELF_REGULATION",
+    keywords: ["自律", "坚持", "时间", "习惯", "收拾", "规划"],
+  },
+  {
+    focus: "PARENT_CHILD_COMMUNICATION",
+    keywords: ["沟通", "吵", "争吵", "说话", "亲子", "不听"],
+  },
+];
+const INTERNAL_FOCUS_UNKNOWN: GrowthFocusId = "PARENT_CHILD_COMMUNICATION";
+
+// This is a routing heuristic only: it selects a small question set. 仅用于选择少量问题，
+// 不会生成家庭理解、事实或解释，也不写入 canonical Fact；
+// ambiguous or unknown wording uses the neutral fallback without claiming
+// that the fallback is an interpretation of the family's situation.
+function inferInternalFocus(needText: string): GrowthFocusId {
+  const normalized = needText.trim().toLowerCase();
+  return (
+    INTERNAL_FOCUS_RULES.find((rule) =>
+      rule.keywords.some((keyword) => normalized.includes(keyword)),
+    )?.focus ?? INTERNAL_FOCUS_UNKNOWN
+  );
+}
 
 export default function FamilyAssessmentScreen() {
   const colors = useColors();
@@ -355,7 +376,9 @@ export default function FamilyAssessmentScreen() {
     }
     setAssessmentStep("questions");
     haptic.success();
-    router.push("/ui/UI-02-result" as Href);
+    router.push(
+      (connected ? "/ui/UI-03" : "/ui/UI-02-result") as Href,
+    );
   };
 
   const leaveWithDraft = () => {
@@ -393,6 +416,8 @@ export default function FamilyAssessmentScreen() {
   const continueConsent = () => {
     if (!remoteCanStart) return;
     setBoundaryAccepted(true);
+    selectGrowthFocus(inferInternalFocus(displayNeed));
+    setQuestionIndex(0);
     setAssessmentStep("focus");
   };
 
@@ -484,19 +509,15 @@ export default function FamilyAssessmentScreen() {
           />
         ) : null}
         {flowStep === "focus" ? (
-          <FocusStep
+          <ReflectionStep
             colors={colors}
             needText={reflectedNeed}
-            selected={selectedFocusId}
             onBack={() => setAssessmentStep("consent")}
-            onSelect={(focus) => {
-              selectGrowthFocus(focus);
-              setQuestionIndex(0);
-            }}
             onContinue={() => {
               setAssessmentStep("questions");
               setQuestionIndex(0);
             }}
+            onCorrect={() => setAssessmentStep("story")}
             onSave={leaveWithDraft}
           />
         ) : null}
@@ -767,20 +788,18 @@ function ConsentStep({
   );
 }
 
-function FocusStep({
+function ReflectionStep({
   colors,
   needText,
-  selected,
   onBack,
-  onSelect,
+  onCorrect,
   onContinue,
   onSave,
 }: {
   colors: ReturnType<typeof useColors>;
   needText: string;
-  selected: GrowthFocusId | null;
   onBack: () => void;
-  onSelect: (focus: GrowthFocusId) => void;
+  onCorrect: () => void;
   onContinue: () => void;
   onSave: () => void;
 }) {
@@ -797,85 +816,64 @@ function FocusStep({
           {needText}
         </Text>
         <Text style={[styles.heardHint, { color: colors.muted }]}>
-          如果不准确，可以返回修改。
+          这只是一次可修改的理解，不会变成对孩子的结论。
         </Text>
       </View>
       <Text style={[styles.title, { color: colors.text }]}>
-        哪一小块最相关？
+        这句话像你们家吗？
       </Text>
       <Text style={[styles.subtitle, { color: colors.muted }]}>
-        选一个就好。它只是帮我们决定接下来问哪三件小事。
+        先确认我有没有听对。确认后，我们只问三件和这件事有关的小事。
       </Text>
-      <View style={styles.focusList}>
-        {UI02_ORIGINAL_FOCUS_LAYOUT.map((item) => {
-          const isSelected = item.id === selected;
-          const icon =
-            FOCUS_ICON[item.id] ?? FOCUS_ICON.PARENT_CHILD_COMMUNICATION;
-          return (
-            <Pressable
-              testID={`assessment-focus-${item.id}`}
-              key={item.id}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: isSelected }}
-              onPress={() => {
-                onSelect(item.id);
-                haptic.selection();
-              }}
-              style={({ pressed }) => [
-                styles.focusCard,
-                {
-                  backgroundColor: isSelected ? "#EDF4FF" : colors.surface,
-                  borderColor: isSelected ? "#1B7CF2" : colors.border,
-                },
-                pressed && styles.pressed,
-              ]}
-            >
-              <View style={[styles.focusIcon, { backgroundColor: icon.color }]}>
-                <IconSymbol name={icon.name} size={19} color="#FFFFFF" />
-              </View>
-              <View style={styles.focusCopy}>
-                <Text style={[styles.focusTitle, { color: colors.text }]}>
-                  {item.title}
-                </Text>
-                <Text style={[styles.focusSubtitle, { color: colors.muted }]}>
-                  {item.subtitle}
-                </Text>
-              </View>
-              {isSelected ? (
-                <IconSymbol
-                  name="checkmark.circle.fill"
-                  size={22}
-                  color="#1B7CF2"
-                />
-              ) : null}
-            </Pressable>
-          );
-        })}
-      </View>
       <View style={styles.actionStack}>
         <Pressable
-          testID="assessment-focus-continue"
+          testID="assessment-reflection-confirm"
           accessibilityRole="button"
-          disabled={!selected}
           onPress={onContinue}
           style={({ pressed }) => [
             styles.primaryButton,
-            { backgroundColor: selected ? "#1B7CF2" : "#CBD5E1" },
-            pressed && selected && styles.pressed,
+            { backgroundColor: "#1B7CF2" },
+            pressed && styles.pressed,
           ]}
         >
-          <Text style={styles.primaryButtonText}>继续回答三题</Text>
+          <Text style={styles.primaryButtonText}>像我们家，继续</Text>
         </Pressable>
         <Pressable
+          testID="assessment-reflection-correct"
           accessibilityRole="button"
-          onPress={onBack}
+          onPress={onCorrect}
           style={({ pressed }) => [
             styles.secondaryButton,
             pressed && styles.pressed,
           ]}
         >
           <Text style={[styles.secondaryButtonText, { color: colors.muted }]}>
-            返回修改来意
+            不太像，改一下
+          </Text>
+        </Pressable>
+        <Pressable
+          testID="assessment-reflection-add"
+          accessibilityRole="button"
+          onPress={onCorrect}
+          style={({ pressed }) => [
+            styles.saveButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={[styles.saveButtonText, { color: colors.tint }]}>
+            补充一句
+          </Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          onPress={onBack}
+          style={({ pressed }) => [
+            styles.saveButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={[styles.saveButtonText, { color: colors.muted }]}>
+            返回说明用途
           </Text>
         </Pressable>
         <Pressable
@@ -1017,9 +1015,9 @@ function QuestionStep({
             pressed && styles.pressed,
           ]}
         >
-          <Text style={[styles.saveButtonText, { color: colors.tint }]}>
-            {index === 0 ? "返回选择方向" : "返回上一题"}
-          </Text>
+            <Text style={[styles.saveButtonText, { color: colors.tint }]}>
+              {index === 0 ? "返回修改理解" : "返回上一题"}
+            </Text>
         </Pressable>
       </View>
     </View>
