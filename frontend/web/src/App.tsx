@@ -4,8 +4,7 @@ import {
   ExperienceApiError,
   type ExperienceScope,
 } from "./api/client";
-import { createFakeExperienceApiClient } from "./api/fakeClient";
-import { HttpExperienceApiClient } from "./api/httpClient";
+import { createDefaultExperienceApiClient } from "./api/clientFactory";
 import { DecisionActions } from "./components/DecisionActions";
 import { DraftResult } from "./components/DraftResult";
 import { ExpressionInput, type ExpressionForm } from "./components/ExpressionInput";
@@ -29,9 +28,7 @@ const defaultScope: ExperienceScope = {
 const newRunId = () =>
   typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `web-run-${Date.now()}`;
 
-const defaultClient: ExperienceApiClient = import.meta.env.DEV
-  ? createFakeExperienceApiClient()
-  : new HttpExperienceApiClient();
+const defaultClient: ExperienceApiClient = createDefaultExperienceApiClient(import.meta.env);
 
 export default function App({ client = defaultClient }: Props) {
   const [state, dispatch] = useReducer(studioReducer, initialStudioState);
