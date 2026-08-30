@@ -90,23 +90,32 @@ describe("UI-02/UI-03 conversation scenario", () => {
   it("keeps one connected result source and a clearly marked local fallback", () => {
     expect(ui02).toContain("/ui/UI-03");
     expect(ui02).toContain("/ui/UI-02-result");
-    expect(ui02Result).toContain("SANDBOX_LOCAL");
-    expect(ui02Result).toContain("未写入服务端");
+    expect(ui02Result).toContain("当前页面暂存");
+    expect(ui02Result).toContain("还没有同步");
     expect(ui02Result).toContain('assessmentSyncState === "synced"');
     expect(ui02Result).toContain('router.replace("/ui/UI-03" as Href)');
     expect(ui02Result).not.toContain("buildUi02AssessmentResultSummary");
     expect(ui02Result).not.toContain("查看可解释结果");
   });
 
-  it("fails closed when connected feedback or action contracts are unavailable", () => {
+  it("consumes the canonical support-card loop and keeps recovery bounded", () => {
     expect(ui03).not.toContain("recordDevFlowEvent");
-    expect(ui03).toContain("No canonical feedback contract exists");
-    expect(ui03).toContain("No canonical action contract exists");
+    expect(ui03).toContain("submitAssessmentSupportCardFeedback");
+    expect(ui03).toContain("startAssessmentSupportCardSmallStep");
+    expect(ui03).toContain("recordAssessmentSupportCardCheckin");
+    expect(ui03).toContain("getLatestAssessmentSupportCard");
+    expect(ui03).toContain("FEEDBACK_REFINES_PERSPECTIVE_NOT_FACT");
+    expect(ui03).toContain("FAMILY_CHOSEN_ACTION_NOT_OUTCOME");
+    expect(ui03).toContain("assessment_checkin_not_yet_available");
+    expect(ui03).toContain("FAMILY_FEEDBACK_NOT_OUTCOME_PROOF");
+    expect(ui03).toContain("keyFor(");
     expect(ui03).toContain("暂时无法保存反馈，请稍后重试");
     expect(ui03).toContain("不会自动触发其他行动");
     expect(ui03).toContain("const saveForLater");
-    expect(ui03).toContain('if (connected) {\n      setSmallStepState("retry")');
-    expect(ui03).toContain("SANDBOX/LOCAL");
+    expect(ui03).toContain("assessment-next-day-checkin");
+    expect(ui03).toContain("明天回来，告诉我们发生了什么");
+    expect(ui03).toContain("这次反馈只在当前页面暂存");
+    expect(ui03).toContain("今晚这一步已在当前页面暂存");
   });
 
   it("does not regress into exposed scoring, diagnosis, or automated action", () => {

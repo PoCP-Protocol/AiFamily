@@ -42,7 +42,7 @@ export default function FamilyAssessmentResultScreen() {
     }
   }, [assessmentSyncState]);
   const uncertain =
-    "这是本机 sandbox 预览，尚未读取服务端结果，也不能代表家庭的全部情况。";
+    "这是当前页面暂存的预览，还没有同步到家庭支持卡，也不能代表家庭的全部情况。";
 
   return (
     <ScreenContainer edges={["left", "right", "bottom"]}>
@@ -58,7 +58,7 @@ export default function FamilyAssessmentResultScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.hero}>
-          <Text style={styles.heroBadge}>SANDBOX_LOCAL · 本机预览</Text>
+          <Text style={styles.heroBadge}>当前页面暂存 · 预览</Text>
           <Text style={[styles.heroTitle, { color: colors.text }]}>
             今晚，先让这件事轻一点
           </Text>
@@ -90,7 +90,7 @@ export default function FamilyAssessmentResultScreen() {
             先处理一个具体时刻，不要求今晚解决全部问题。
           </Text>
           <Text style={styles.directionHint}>
-            这是支持参考，不是对孩子的评分或诊断。
+            这是支持参考，是否贴近你们家由你决定。
           </Text>
         </View>
         <View
@@ -168,7 +168,7 @@ export default function FamilyAssessmentResultScreen() {
           ) : null}
           {perspectiveFeedback ? (
             <Text style={[styles.feedbackStatus, { color: colors.muted }]}>
-              SANDBOX_LOCAL：反馈只保存在当前页面，未写入服务端。
+              这次反馈只在当前页面暂存，还没有同步。
             </Text>
           ) : null}
         </View>
@@ -190,7 +190,7 @@ export default function FamilyAssessmentResultScreen() {
           </Pressable>
           {savedAction === "started" ? (
             <Text style={[styles.actionStatus, { color: colors.muted }]}>
-              SANDBOX_LOCAL：当前页面可继续查看，尚未写入服务端。
+              当前页面可以继续查看，这一步还没有同步。
             </Text>
           ) : null}
           <Pressable
@@ -205,7 +205,7 @@ export default function FamilyAssessmentResultScreen() {
           </Pressable>
           {savedAction === "saved" ? (
             <Text style={[styles.actionStatus, { color: colors.muted }]}>
-              SANDBOX_LOCAL：当前页面已保留，明天需重新连接后查看正式结果。
+              当前页面已保留，明天重新连接后再查看家庭支持卡。
             </Text>
           ) : null}
         </View>
@@ -217,12 +217,12 @@ export default function FamilyAssessmentResultScreen() {
         >
           <Text style={styles.statusIcon}>•</Text>
           <Text style={[styles.statusText, { color: colors.text }]}>
-            SANDBOX_LOCAL：只在本机预览，未写入服务端。
+            这次内容只在当前页面暂存，还没有同步。
           </Text>
         </View>
         <View testID="assessment-local-boundary" style={styles.localBoundary}>
           <Text style={[styles.localBoundaryText, { color: colors.muted }]}>
-            这次只是 sandbox 预览，不与家庭正式结果并列；连接家庭服务并完成授权后，才会开放唯一的服务端理解卡。
+            这次是当前页面的预览；连接家庭并完成授权后，才会开放可回看的家庭支持卡。
           </Text>
         </View>
         <Pressable
