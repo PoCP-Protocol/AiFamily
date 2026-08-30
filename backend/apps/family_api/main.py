@@ -378,7 +378,10 @@ def create_app(
     # durable/production resolver replaced by the synthetic test override.
     if experience_runtime_resolver is not None:
         if install_experience_runtime_resolver is None:
-            raise RuntimeError(f"experience_runtime_unavailable: {_EXPERIENCE_IMPORT_ERROR}")
+            raise RuntimeError(
+                "experience_runtime_unavailable: "
+                f"{_EXPERIENCE_IMPORT_ERROR}"
+            )
         install_experience_runtime_resolver(application, experience_runtime_resolver)
     return application
 
