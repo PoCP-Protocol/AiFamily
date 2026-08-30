@@ -61,4 +61,29 @@ describe("Experience Studio", () => {
     expect(await screen.findByText("内容已删除")).toBeInTheDocument();
     expect(screen.queryByText("DRAFT")).not.toBeInTheDocument();
   });
+
+  it("keeps a recorded confirmation distinct from rejection", async () => {
+    const client = createFakeExperienceApiClient();
+    vi.spyOn(client, "decide").mockResolvedValue({
+      run_id: "run-1",
+      status: "recorded",
+      interaction_ref: "event:confirm",
+      idempotency_replayed: false,
+    });
+    render(<App client={client} />);
+    const user = await fillAndSubmit();
+    await user.click(screen.getByRole("button", { name: "确认并请求继续" }));
+    expect(await screen.findByText(/已记录确认/)).toBeInTheDocument();
+  });
+
+  it("shows governed action failures instead of leaving an unhandled rejection", async () => {
+    const client = createFakeExperienceApiClient();
+    vi.spyOn(client, "requestHuman").mockRejectedValue(
+      new Error("network failure"),
+    );
+    render(<App client={client} />);
+    const user = await fillAndSubmit();
+    await user.click(screen.getByRole("button", { name: "请求人工顾问" }));
+    expect(await screen.findByText("暂时无法请求人工顾问，请稍后重试。")).toBeInTheDocument();
+  });
 });

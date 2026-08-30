@@ -40,6 +40,15 @@ export default function App({ client = defaultClient }: Props) {
   });
   const idempotencyKey = useMemo(() => `web:${runId}`, [runId]);
 
+  const showActionError = (error: unknown, message: string) => {
+    dispatch({
+      type: "FAILED",
+      error: error instanceof ExperienceApiError
+        ? error
+        : new ExperienceApiError("INVALID_INPUT", "refused", message),
+    });
+  };
+
   const createDraft = async () => {
     dispatch({ type: "VALIDATING" });
     if (!form.payload.expression.trim()) {
@@ -90,22 +99,38 @@ export default function App({ client = defaultClient }: Props) {
   };
 
   const decide = async (decision: "confirm" | "reject" | "rewrite") => {
-    const receipt = await client.decide({ run_id: runId, decision }, `${idempotencyKey}:${decision}`);
-    if (receipt.status === "pending_human_confirmation") {
-      dispatch({ type: "HUMAN_REVIEW", message: "请求已提交，等待人工闸门确认；草案仍不是家庭事实。" });
-    } else {
-      dispatch({ type: "MESSAGE", message: "这份草案已暂不采用，家庭事实没有改变。" });
+    try {
+      const receipt = await client.decide({ run_id: runId, decision }, `${idempotencyKey}:${decision}`);
+      if (receipt.status === "pending_human_confirmation") {
+        dispatch({ type: "HUMAN_REVIEW", message: "请求已提交，等待人工闸门确认；草案仍不是家庭事实。" });
+      } else if (receipt.status === "rejected") {
+        dispatch({ type: "MESSAGE", message: "这份草案已拒绝采用，家庭事实没有改变。" });
+      } else if (decision === "confirm") {
+        dispatch({ type: "MESSAGE", message: "已记录确认，家庭事实没有改变；后续动作仍需人工闸门。" });
+      } else {
+        dispatch({ type: "MESSAGE", message: "这份草案已暂不采用，家庭事实没有改变。" });
+      }
+    } catch (error) {
+      showActionError(error, "暂时无法记录这个决定，请稍后重试。");
     }
   };
 
   const requestHuman = async () => {
-    await client.requestHuman({ run_id: runId, reason: "家庭成员希望人工核对这份理解草案。" }, `${idempotencyKey}:human`);
-    dispatch({ type: "HUMAN_REVIEW", message: "已请求人工顾问，等待人工确认。" });
+    try {
+      await client.requestHuman({ run_id: runId, reason: "家庭成员希望人工核对这份理解草案。" }, `${idempotencyKey}:human`);
+      dispatch({ type: "HUMAN_REVIEW", message: "已请求人工顾问，等待人工确认。" });
+    } catch (error) {
+      showActionError(error, "暂时无法请求人工顾问，请稍后重试。");
+    }
   };
 
   const deleteRun = async () => {
-    await client.deleteRun(runId, `${idempotencyKey}:delete`);
-    dispatch({ type: "DELETED" });
+    try {
+      await client.deleteRun(runId, `${idempotencyKey}:delete`);
+      dispatch({ type: "DELETED" });
+    } catch (error) {
+      showActionError(error, "暂时无法删除这次体验，请稍后重试。");
+    }
   };
 
   const replayRun = async () => {
@@ -123,16 +148,20 @@ export default function App({ client = defaultClient }: Props) {
   };
 
   const submitFeedback = async (signal: "helpful" | "not_helpful") => {
-    const benchmark = state.draft?.benchmark;
-    await client.submitFeedback({
-      run_id: runId,
-      signal,
-      draft_version: state.draft?.draft_version,
-      model_version: benchmark?.model_version,
-      candidate_id: benchmark?.candidate_id,
-      benchmark_report_ref: benchmark?.benchmark_report_ref,
-    }, `${idempotencyKey}:feedback:${signal}`);
-    dispatch({ type: "MESSAGE", message: signal === "helpful" ? "已记录“有帮助”的反馈。" : "已记录反馈，后续可以改写这份草案。" });
+    try {
+      const benchmark = state.draft?.benchmark;
+      await client.submitFeedback({
+        run_id: runId,
+        signal,
+        draft_version: state.draft?.draft_version,
+        model_version: benchmark?.model_version,
+        candidate_id: benchmark?.candidate_id,
+        benchmark_report_ref: benchmark?.benchmark_report_ref,
+      }, `${idempotencyKey}:feedback:${signal}`);
+      dispatch({ type: "MESSAGE", message: signal === "helpful" ? "已记录“有帮助”的反馈。" : "已记录反馈，后续可以改写这份草案。" });
+    } catch (error) {
+      showActionError(error, "暂时无法记录反馈，请稍后重试。");
+    }
   };
 
   const reset = () => {
