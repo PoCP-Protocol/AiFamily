@@ -1,6 +1,6 @@
 import type { Href } from "expo-router";
 import { Stack, router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -13,12 +13,17 @@ import {
 
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
-import { familyApi } from "@/lib/family/family-api-client";
+import {
+  createMobileRequestId,
+  FamilyApiError,
+  familyApi,
+} from "@/lib/family/family-api-client";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
 import { useFamilyMobile } from "@/lib/family/family-state";
 
 type AssessmentResult = {
   result_id: string;
+  assessment_session_id: string;
   subject: { person_id: string; display_name: string };
   focus_ref: string;
   family_need_ref: string;
@@ -62,6 +67,32 @@ type AssessmentResultProjection = {
   result: AssessmentResult | null;
 };
 
+type SupportLoopProjection = {
+  projection_version: "ASSESSMENT_SUPPORT_LOOP_V1";
+  tenant_id: string;
+  family_id: string;
+  status: "READY" | "NO_RESULT" | "CONSENT_REQUIRED" | "POLICY_BLOCKED";
+  assessment_session_id: string | null;
+  small_step: {
+    action_ref: "TRY_TONIGHT";
+    action_text: string;
+    status: "STARTED";
+    available_for_checkin: "NEXT_DAY";
+    available_for_checkin_at: string;
+    boundary: "FAMILY_CHOSEN_ACTION_NOT_OUTCOME";
+  } | null;
+  latest_feedback: {
+    feedback_type: "LIKE" | "NOT_LIKE" | "ADD_CONTEXT";
+    supplement_text: string | null;
+    boundary: "FEEDBACK_REFINES_PERSPECTIVE_NOT_FACT";
+  } | null;
+  latest_checkin: {
+    outcome: "HELPED" | "NO_CHANGE" | "NOT_TRIED";
+    note: string | null;
+    boundary: "FAMILY_FEEDBACK_NOT_OUTCOME_PROOF";
+  } | null;
+};
+
 export default function GrowthExplanationScreen() {
   const colors = useColors();
   const session = useFamilyApiSession();
@@ -71,6 +102,12 @@ export default function GrowthExplanationScreen() {
     "idle",
   );
   const [retryNonce, setRetryNonce] = useState(0);
+  const [supportRemote, setSupportRemote] =
+    useState<SupportLoopProjection | null>(null);
+  const [supportState, setSupportState] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [supportRetryNonce, setSupportRetryNonce] = useState(0);
   const [showDetails, setShowDetails] = useState(false);
   const [perspectiveFeedback, setPerspectiveFeedback] = useState<
     "LIKE" | "NOT_LIKE" | "ADD_CONTEXT" | null
@@ -82,14 +119,31 @@ export default function GrowthExplanationScreen() {
   const [smallStepState, setSmallStepState] = useState<
     "idle" | "saving" | "saved" | "retry"
   >("idle");
+  const [checkinOutcome, setCheckinOutcome] = useState<
+    "HELPED" | "NO_CHANGE" | "NOT_TRIED" | null
+  >(null);
+  const [checkinNote, setCheckinNote] = useState("");
+  const [checkinState, setCheckinState] = useState<
+    "idle" | "saving" | "saved" | "retry" | "too_soon"
+  >("idle");
+  const operationKeys = useRef<Record<string, string>>({});
 
   const connected =
     session.status === "connected" &&
     !!session.token &&
     !!session.selectedFamily;
   const result = remote?.result;
+  const assessmentSessionId =
+    supportRemote?.assessment_session_id ?? result?.assessment_session_id ?? null;
 
-  const submitPerspectiveFeedback = (
+  const keyFor = (fingerprint: string) => {
+    operationKeys.current[fingerprint] ??= createMobileRequestId(
+      fingerprint.replace(/[^a-z0-9]+/gi, "-").toLowerCase(),
+    );
+    return operationKeys.current[fingerprint];
+  };
+
+  const submitPerspectiveFeedback = async (
     feedback: "LIKE" | "NOT_LIKE" | "ADD_CONTEXT",
   ) => {
     setPerspectiveFeedback(feedback);
@@ -98,8 +152,31 @@ export default function GrowthExplanationScreen() {
       setFeedbackState("saved");
       return;
     }
-    setFeedbackState("retry");
-    // No canonical feedback contract exists in this slice. Fail closed.
+    if (!assessmentSessionId) {
+      setFeedbackState("retry");
+      return;
+    }
+    setFeedbackState("saving");
+    try {
+      await familyApi.submitAssessmentSupportCardFeedback(
+        session.token!,
+        session.selectedFamily!.family_id,
+        {
+          assessment_session_id: assessmentSessionId,
+          feedback_type: feedback,
+          ...(feedback === "ADD_CONTEXT" && supplementText.trim()
+            ? { supplement_text: supplementText.trim() }
+            : {}),
+        },
+        keyFor(
+          `support-feedback:${assessmentSessionId}:${feedback}:${supplementText.trim()}`,
+        ),
+      );
+      setFeedbackState("saved");
+      setSupportRetryNonce((value) => value + 1);
+    } catch {
+      setFeedbackState("retry");
+    }
   };
 
   const submitSupplement = () => {
@@ -116,8 +193,23 @@ export default function GrowthExplanationScreen() {
       setSmallStepState("saved");
       return;
     }
-    setSmallStepState("retry");
-    // No canonical action contract exists in this slice. Fail closed.
+    if (!assessmentSessionId) {
+      setSmallStepState("retry");
+      return;
+    }
+    setSmallStepState("saving");
+    void familyApi
+      .startAssessmentSupportCardSmallStep(
+        session.token!,
+        session.selectedFamily!.family_id,
+        { assessment_session_id: assessmentSessionId, action_ref: "TRY_TONIGHT" },
+        keyFor(`support-small-step:${assessmentSessionId}:TRY_TONIGHT`),
+      )
+      .then(() => {
+        setSmallStepState("saved");
+        setSupportRetryNonce((value) => value + 1);
+      })
+      .catch(() => setSmallStepState("retry"));
   };
 
   const saveForLater = () => {
@@ -126,6 +218,40 @@ export default function GrowthExplanationScreen() {
       return;
     }
     setSmallStepState("saved");
+  };
+
+  const submitCheckin = (outcome: "HELPED" | "NO_CHANGE" | "NOT_TRIED") => {
+    setCheckinOutcome(outcome);
+    if (!connected || !assessmentSessionId) {
+      setCheckinState("retry");
+      return;
+    }
+    setCheckinState("saving");
+    void familyApi
+      .recordAssessmentSupportCardCheckin(
+        session.token!,
+        session.selectedFamily!.family_id,
+        {
+          assessment_session_id: assessmentSessionId,
+          outcome,
+          ...(checkinNote.trim() ? { note: checkinNote.trim() } : {}),
+        },
+        keyFor(
+          `support-checkin:${assessmentSessionId}:${outcome}:${checkinNote.trim()}`,
+        ),
+      )
+      .then(() => {
+        setCheckinState("saved");
+        setSupportRetryNonce((value) => value + 1);
+      })
+      .catch((error: unknown) => {
+        setCheckinState(
+          error instanceof FamilyApiError &&
+            error.code === "assessment_checkin_not_yet_available"
+            ? "too_soon"
+            : "retry",
+        );
+      });
   };
 
   useEffect(() => {
@@ -158,6 +284,50 @@ export default function GrowthExplanationScreen() {
     };
   }, [retryNonce, session.selectedFamily, session.status, session.token]);
 
+  useEffect(() => {
+    if (
+      session.status !== "connected" ||
+      !session.token ||
+      !session.selectedFamily ||
+      !result
+    ) {
+      setSupportRemote(null);
+      setSupportState("idle");
+      return;
+    }
+    let active = true;
+    setSupportState("loading");
+    void familyApi
+      .getLatestAssessmentSupportCard<SupportLoopProjection>(
+        session.token,
+        session.selectedFamily.family_id,
+      )
+      .then((support) => {
+        if (!active) return;
+        setSupportRemote(support);
+        setSupportState("ready");
+        setFeedbackState(support.latest_feedback ? "saved" : "idle");
+        setSmallStepState(support.small_step ? "saved" : "idle");
+        if (support.latest_checkin) {
+          setCheckinOutcome(support.latest_checkin.outcome);
+          setCheckinNote(support.latest_checkin.note ?? "");
+          setCheckinState("saved");
+        }
+      })
+      .catch(() => {
+        if (active) setSupportState("error");
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    result,
+    session.selectedFamily,
+    session.status,
+    session.token,
+    supportRetryNonce,
+  ]);
+
   if (state === "loading")
     return (
       <ScreenContainer edges={["left", "right", "bottom"]}>
@@ -182,9 +352,9 @@ export default function GrowthExplanationScreen() {
 
   const unavailableText =
     remote?.status === "CONSENT_REQUIRED"
-      ? "测评授权已撤回，这次结果已停止展示。"
+        ? "测评授权已撤回，这次结果已停止展示。"
       : remote?.status === "POLICY_BLOCKED"
-        ? "当前家庭策略尚未开放测评结果。"
+        ? "这项家庭整理暂时还不能查看。"
         : "还没有已提交的家庭测评。";
   const firstRecommendation =
     result?.explanation.recommendations[0]?.text ??
@@ -224,7 +394,7 @@ export default function GrowthExplanationScreen() {
               {unavailableText}
             </Text>
             <Text style={[styles.emptyText, { color: colors.muted }]}>
-              先从一件正在发生的家庭小事开始，完成后你会得到一张支持卡，而不是一份给孩子贴标签的报告；不是对孩子的评分、排名或诊断。
+              先从一件正在发生的家庭小事开始，完成后你会得到一张支持卡，帮助你和孩子把这件小事说清楚。
             </Text>
             <Pressable
               testID="assessment-empty-start"
@@ -399,10 +569,14 @@ export default function GrowthExplanationScreen() {
                   ]}
                 >
                   {feedbackState === "saving"
-                    ? "SANDBOX/LOCAL：这次反馈只保存在当前页面。"
+                    ? connected
+                      ? "正在保存这张支持卡的反馈…"
+                      : "这次反馈只在当前页面暂存，还没有同步。"
                     : feedbackState === "retry"
                       ? "暂时无法保存反馈，请稍后重试；当前没有写入服务端。"
-                      : "SANDBOX/LOCAL：这次反馈只保存在当前页面。你也可以返回修改刚才那句话。"}
+                      : connected
+                        ? "已保存到这张家庭支持卡；它只用于修正理解，不会改写家庭事实。"
+                        : "这次反馈已在当前页面暂存；你也可以返回修改刚才那句话。"}
                 </Text>
               ) : null}
             </View>
@@ -422,15 +596,21 @@ export default function GrowthExplanationScreen() {
               >
                 <Text style={styles.primaryButtonText}>
                   {smallStepState === "saving"
-                    ? "SANDBOX/LOCAL：准备试试这一步"
+                    ? connected
+                      ? "正在记下今晚这一步…"
+                      : "正在暂存今晚这一步"
                     : smallStepState === "saved"
-                      ? "SANDBOX/LOCAL：今晚这一步已在当前页面标记"
+                      ? connected
+                        ? "今晚就试这一步"
+                        : "今晚这一步已在当前页面暂存"
                       : "开始尝试这一步"}
                 </Text>
               </Pressable>
               {smallStepState === "saved" ? (
                 <Text style={[styles.actionStatus, { color: colors.muted }]}>
-                  明天可以重新打开这张家庭理解卡；本次标记尚未写入服务端。
+                  {connected
+                    ? "明天回来告诉我们有没有变化；这不是结果证明。"
+                    : "明天可以重新打开这张家庭理解卡；本次标记还没有同步。"}
                 </Text>
               ) : smallStepState === "retry" ? (
                 <Text style={styles.actionError}>
@@ -449,6 +629,96 @@ export default function GrowthExplanationScreen() {
               </Pressable>
             </View>
 
+            {supportState === "error" ? (
+              <View testID="assessment-support-loop-error" style={styles.notice}>
+                <Text style={styles.noticeTitle}>支持卡暂时没有同步</Text>
+                <Text style={styles.noticeText}>
+                  你仍可以查看本次整理；重试不会重复创建反馈或今晚这一步。
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setSupportRetryNonce((value) => value + 1)}
+                  style={styles.retryButton}
+                >
+                  <Text style={styles.retryText}>重试同步</Text>
+                </Pressable>
+              </View>
+            ) : null}
+
+            {supportRemote?.small_step ? (
+              <View testID="assessment-next-day-checkin" style={styles.checkinCard}>
+                <Text style={styles.sectionLabel}>明天回来，告诉我们发生了什么</Text>
+                <Text style={[styles.checkinIntro, { color: colors.text }]}>
+                  只记录你的感受，不把一次反馈当成对孩子或家庭的结论。
+                </Text>
+                {supportRemote.latest_checkin ? (
+                  <Text style={[styles.actionStatus, { color: colors.muted }]}>
+                    已记录：
+                    {supportRemote.latest_checkin.outcome === "HELPED"
+                      ? "有一点帮助"
+                      : supportRemote.latest_checkin.outcome === "NO_CHANGE"
+                        ? "暂时没变化"
+                        : "还没试"}
+                    。这只是家庭反馈，不是结果证明。
+                  </Text>
+                ) : (
+                  <>
+                    <View style={styles.feedbackRow}>
+                      {(
+                        [
+                          ["HELPED", "有一点帮助"],
+                          ["NO_CHANGE", "暂时没变化"],
+                          ["NOT_TRIED", "还没试"],
+                        ] as const
+                      ).map(([outcome, label]) => (
+                        <Pressable
+                          key={outcome}
+                          testID={`assessment-checkin-${outcome.toLowerCase()}`}
+                          accessibilityRole="button"
+                          disabled={checkinState === "saving" || checkinState === "saved"}
+                          onPress={() => submitCheckin(outcome)}
+                          style={({ pressed }) => [
+                            styles.feedbackButton,
+                            checkinOutcome === outcome && styles.feedbackSelected,
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          <Text style={styles.feedbackButtonText}>{label}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    <TextInput
+                      testID="assessment-checkin-note"
+                      accessibilityLabel="补充明天的感受"
+                      value={checkinNote}
+                      onChangeText={setCheckinNote}
+                      placeholder="想补充一句吗？（可选）"
+                      placeholderTextColor="#94A3B8"
+                      multiline
+                      style={[styles.supplementInput, { color: colors.text }]}
+                    />
+                    {checkinState !== "idle" ? (
+                      <Text
+                        accessibilityRole="alert"
+                        style={[
+                          styles.feedbackStatus,
+                          { color: checkinState === "retry" ? "#B42318" : colors.muted },
+                        ]}
+                      >
+                        {checkinState === "saving"
+                          ? "正在保存你的回访…"
+                          : checkinState === "too_soon"
+                            ? "这一步还没到回访时间，明天再回来；刚才没有写入。"
+                            : checkinState === "retry"
+                              ? "暂时无法保存回访，请稍后重试。"
+                              : "已保存；这只是家庭反馈，不是结果证明。"}
+                      </Text>
+                    ) : null}
+                  </>
+                )}
+              </View>
+            ) : null}
+
             <Pressable
               accessibilityRole="button"
               onPress={() => setShowDetails((value) => !value)}
@@ -465,21 +735,13 @@ export default function GrowthExplanationScreen() {
               <View style={styles.provenanceCard}>
                 <Text style={styles.sectionLabel}>本次结果依据</Text>
                 <Text style={styles.provenanceText}>
-                  测评版本 v{result.evidence_lineage.tool_version} ·
-                  来自本次已提交回答
+                  你刚才提供的内容：本次已提交的少量回答
                 </Text>
                 <Text style={styles.provenanceText}>
-                  解释状态：
-                  {result.ai.model_gateway_status === "NOT_INVOKED"
-                    ? "确定性 sandbox 基线，未调用模型"
-                    : "sandbox draft"}
+                  本次整理的范围：只围绕你刚才说的这件家庭小事
                 </Text>
                 <Text style={styles.provenanceText}>
-                  AI 不能修改业务状态：
-                  {result.ai.may_mutate_business_state ? "否" : "是"}
-                </Text>
-                <Text style={styles.provenanceText}>
-                  边界：FAMILY_PERSPECTIVE_NOT_SCORE_OR_DIAGNOSIS
+                  仍需你确认：这是一张支持参考，是否贴近你们家由你决定
                 </Text>
               </View>
             ) : null}
@@ -711,6 +973,15 @@ const styles = StyleSheet.create({
   },
   actionStatus: { fontSize: 12, lineHeight: 18 },
   actionError: { color: "#B42318", fontSize: 12, lineHeight: 18 },
+  checkinCard: {
+    borderRadius: 17,
+    backgroundColor: "#F7F7FF",
+    borderWidth: 1,
+    borderColor: "#DCDCF7",
+    padding: 16,
+    gap: 9,
+  },
+  checkinIntro: { fontSize: 13, lineHeight: 20 },
   detailsToggle: {
     minHeight: 42,
     flexDirection: "row",
