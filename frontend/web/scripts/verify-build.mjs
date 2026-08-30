@@ -35,7 +35,10 @@ if (
   !bundle.includes("SANDBOX_SYNTHETIC") ||
   !bundle.includes("fixture_only") ||
   !bundle.includes("DEV_ONLY") ||
-  !bundle.includes("LOCKED")
+  !bundle.includes("LOCKED") ||
+  !bundle.includes("按家庭问题寻找") ||
+  !bundle.includes("直播中") ||
+  !bundle.includes("已结束 / 回看受限")
 ) {
   fail("sandbox fixture provenance marker is absent from the bundle");
 }

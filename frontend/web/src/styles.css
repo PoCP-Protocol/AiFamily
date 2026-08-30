@@ -72,9 +72,31 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .footer-note { color: #668077; font-size: 0.78rem; margin: 0 auto; max-width: 1240px; padding: 0 clamp(20px, 5vw, 72px) 32px; }
 
 .live-shell { background: #fffaf3; border-bottom: 1px solid #fed7aa; padding: 30px clamp(20px, 5vw, 72px); }
+.live-topbar { background: #fff7ed; border-bottom-color: #fed7aa; }
+.brand-lockup { align-items: baseline; display: flex; gap: 12px; }
+.live-brand { color: #c2410c; font-size: 1.3rem; }
+.brand-context { color: #9a3412; font-size: 0.82rem; font-weight: 700; }
+.live-nav { display: flex; gap: 18px; margin-left: auto; margin-right: 24px; }
+.live-nav a { color: #9a3412; font-size: 0.84rem; font-weight: 750; text-decoration: none; }
+.live-nav a:hover, .live-nav a:focus-visible { color: #7c2d12; text-decoration: underline; }
+.live-home-hero { margin: 0 auto 24px; max-width: 1240px; }
 .live-shell-heading, .live-detail-header { align-items: flex-start; display: flex; gap: 20px; justify-content: space-between; margin: 0 auto 18px; max-width: 1240px; }
 .live-kicker { color: #9a3412; font-size: 0.76rem; font-weight: 800; letter-spacing: 0.12em; margin: 0; text-transform: uppercase; }
 .live-shell h2, .live-detail-page h3 { color: #7c2d12; margin: 7px 0 0; }
+.live-hero-copy { color: #7c2d12; line-height: 1.6; margin: 12px 0 0; max-width: 620px; }
+.live-hero-badges { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.live-question-search { color: #7c2d12; display: grid; font-size: 0.8rem; font-weight: 800; gap: 8px; max-width: 620px; }
+.live-question-search input { background: #fff; border-color: #fdba74; }
+.live-sections { display: grid; gap: 22px; margin: 0 auto; max-width: 1240px; }
+.live-content-section { display: grid; gap: 12px; }
+.live-section-heading { align-items: end; display: flex; justify-content: space-between; }
+.live-section-heading h3 { color: #7c2d12; font-size: 1.05rem; margin: 0; }
+.live-section-heading p { color: #9a3412; font-size: 0.78rem; margin: 4px 0 0; }
+.live-section-count { color: #9a3412; font-size: 0.76rem; font-weight: 800; }
+.live-section-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.live-section-empty, .live-empty-search { background: #fff; border: 1px dashed #fdba74; border-radius: 14px; color: #9a3412; margin: 0; padding: 18px; }
+.live-empty-search { display: grid; gap: 5px; }
+.live-empty-search p { font-size: 0.84rem; margin: 0; }
 .live-scope-badge, .live-status-badge, .live-pill, .live-readonly { border-radius: 999px; font-size: 0.72rem; font-weight: 800; padding: 6px 10px; }
 .live-scope-badge { background: #ffedd5; color: #7c2d12; }
 .live-discovery-card, .live-detail-page, .live-state { background: #fff; border: 1px solid #fdba74; border-radius: 18px; margin: 0 auto; max-width: 1240px; padding: 22px clamp(20px, 3vw, 30px); }
@@ -83,6 +105,7 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .live-readonly { background: #ffedd5; color: #9a3412; }
 .live-discovery-card h3 { color: #7c2d12; font-size: 1.2rem; margin: 16px 0 7px; }
 .live-card-speaker { color: #7c2d12; font-size: 0.9rem; margin: 0; }
+.live-card-summary-copy { color: #7c2d12; font-size: 0.88rem; line-height: 1.55; margin: 12px 0 0; max-width: 760px; }
 .live-card-summary, .live-detail-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 20px 0; }
 .live-card-summary dt, .live-detail-grid dt { color: #9a3412; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; }
 .live-card-summary dd, .live-detail-grid dd { color: #431407; font-size: 0.86rem; margin: 4px 0 0; overflow-wrap: anywhere; }
@@ -95,11 +118,14 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .live-state strong { color: #7c2d12; }
 .live-state p { color: #7c2d12; font-size: 0.86rem; margin: 0; }
 .live-state-backend-missing, .live-state-denied, .live-state-forbidden, .live-state-unauthorized { border-color: #fdba74; }
+.live-locked-action { background: #fff7ed; border: 1px solid #fdba74; border-radius: 999px; color: #9a3412; display: inline-block; font-size: 0.78rem; font-weight: 800; padding: 9px 13px; }
 .live-back-button { margin-top: 4px; }
 
 @media (max-width: 620px) {
   .live-card-summary, .live-detail-grid { grid-template-columns: 1fr; }
   .live-shell-heading, .live-detail-header { flex-direction: column; }
+  .live-nav { margin-left: 0; margin-right: 0; order: 3; width: 100%; }
+  .live-hero-badges { justify-content: flex-start; }
 }
 
 @media (max-width: 840px) {

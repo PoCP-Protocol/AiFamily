@@ -2,7 +2,7 @@ import type { LiveRecord } from "../live/liveCatalog";
 
 type Props = {
   record: LiveRecord;
-  onOpenDetail: () => void;
+  onOpenDetail?: () => void;
 };
 
 export function LiveDiscoveryCard({ record, onOpenDetail }: Props) {
@@ -11,9 +11,11 @@ export function LiveDiscoveryCard({ record, onOpenDetail }: Props) {
       <div className="live-card-topline">
         <span className="live-pill">专家直播</span>
         <span className="live-readonly">只读信息</span>
+        <span className="live-sandbox-mark">DEV_ONLY</span>
       </div>
       <h3>{record.title}</h3>
       <p className="live-card-speaker">主讲人 · {record.speaker}</p>
+      <p className="live-card-summary-copy">{record.expert_summary}</p>
       <dl className="live-card-summary">
         <div>
           <dt>适用范围</dt>
@@ -23,10 +25,22 @@ export function LiveDiscoveryCard({ record, onOpenDetail }: Props) {
           <dt>时间</dt>
           <dd>{record.starts_at} — {record.ends_at}</dd>
         </div>
+        <div>
+          <dt>审核状态</dt>
+          <dd>{record.approval_status} · {record.expiry_state}</dd>
+        </div>
+        <div>
+          <dt>适用家庭</dt>
+          <dd>{record.audience_scope} · {record.family_visibility}</dd>
+        </div>
       </dl>
-      <button className="live-detail-button" type="button" onClick={onOpenDetail}>
-        查看直播详情
-      </button>
+      {onOpenDetail ? (
+        <button className="live-detail-button" type="button" onClick={onOpenDetail}>
+          查看直播详情
+        </button>
+      ) : (
+        <span className="live-locked-action">回看受限 · LOCKED</span>
+      )}
     </article>
   );
 }

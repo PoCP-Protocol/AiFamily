@@ -17,9 +17,12 @@ export type LiveEnvironment = {
   DEV?: boolean;
 };
 
+export type LiveSectionKey = "live-now" | "upcoming" | "ended";
+
 export type LiveRecord = {
   title: string;
   speaker: string;
+  expert_summary: string;
   applicable_scope: string;
   starts_at: string;
   ends_at: string;
@@ -34,19 +37,24 @@ export type LiveRecord = {
     favorite: "LOCKED";
     replay: "LOCKED";
   };
+  section: LiveSectionKey;
   as_of: string;
   source: "SANDBOX_SYNTHETIC" | "BACKEND";
   fixture_only: boolean;
 };
 
+export type LiveSections = Record<LiveSectionKey, LiveRecord[]>;
+
 export type LiveViewModel = {
   state: LiveViewState;
   record: LiveRecord | null;
+  sections?: LiveSections;
 };
 
 export const XIAO_JU_DENG_FIXTURE: LiveRecord = {
   title: "小橘灯：家庭沟通中的温柔练习",
   speaker: "小橘灯老师",
+  expert_summary: "围绕家庭沟通中的具体场景，练习可核对、可暂停的表达方式。",
   applicable_scope: "家长与照护者",
   starts_at: "2026-09-05 19:30",
   ends_at: "2026-09-05 20:30",
@@ -61,14 +69,45 @@ export const XIAO_JU_DENG_FIXTURE: LiveRecord = {
     favorite: "LOCKED",
     replay: "LOCKED",
   },
+  section: "upcoming",
   as_of: "2026-08-30T18:00:00+08:00",
   source: "SANDBOX_SYNTHETIC",
   fixture_only: true,
 };
 
+export const XIAO_JU_DENG_ENDED_FIXTURE: LiveRecord = {
+  title: "小橘灯：冲突后的家庭复盘",
+  speaker: "小橘灯老师",
+  expert_summary: "Sandbox 合成内容：仅用于展示已结束场次与回看门控状态。",
+  applicable_scope: "家长与照护者",
+  starts_at: "2026-08-22 19:30",
+  ends_at: "2026-08-22 20:30",
+  review_ref: "review:H-LIVE-01",
+  version: "H-LIVE-01.v1",
+  status: "EXPIRED",
+  approval_status: "APPROVED",
+  expiry_state: "EXPIRED",
+  audience_scope: "FAMILY",
+  family_visibility: "family-private",
+  capabilities: {
+    favorite: "LOCKED",
+    replay: "LOCKED",
+  },
+  section: "ended",
+  as_of: "2026-08-30T18:00:00+08:00",
+  source: "SANDBOX_SYNTHETIC",
+  fixture_only: true,
+};
+
+export const LIVE_SANDBOX_SECTIONS: LiveSections = {
+  "live-now": [],
+  upcoming: [XIAO_JU_DENG_FIXTURE],
+  ended: [XIAO_JU_DENG_ENDED_FIXTURE],
+};
+
 export const resolveLiveView = (environment: LiveEnvironment): LiveViewModel =>
   environment.DEV === true
-    ? { state: "success", record: XIAO_JU_DENG_FIXTURE }
+    ? { state: "success", record: XIAO_JU_DENG_FIXTURE, sections: LIVE_SANDBOX_SECTIONS }
     : { state: "backend-missing", record: null };
 
 export const LIVE_STATE_COPY: Record<LiveViewState, { label: string; message: string }> = {

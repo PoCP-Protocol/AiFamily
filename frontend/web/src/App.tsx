@@ -148,9 +148,16 @@ export default function App({ client = defaultClient }: Props) {
 
   return (
     <main className="app-shell">
-      <header className="topbar">
-        <div className="brand-mark" aria-label="AiFamily">AiFamily</div>
-        <span className="environment-tag">Web Experience Studio · Sandbox</span>
+      <header className="topbar live-topbar">
+        <div className="brand-lockup">
+          <div className="brand-mark live-brand" aria-label="小橘灯">小橘灯</div>
+          <span className="brand-context">AiFamily · 专家直播</span>
+        </div>
+        <nav className="live-nav" aria-label="直播导航">
+          <a href="#live-home">直播首页</a>
+          <a href="#live-status">安全状态</a>
+        </nav>
+        <span className="environment-tag">SANDBOX · DEV_ONLY</span>
       </header>
       <LiveExperience environment={import.meta.env} />
       <div className="page-grid">
