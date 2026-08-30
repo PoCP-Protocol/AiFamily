@@ -22,6 +22,7 @@ from backend.intelligence.experience.run_store import (
 from backend.intelligence.experience.sql_run_ledger import (
     CommittedExperienceRunLedger,
     ExperienceRunInteractionRow,
+    SessionPerCallExperienceRunLedger,
     SqlAlchemyExperienceRunLedger,
 )
 
@@ -432,3 +433,41 @@ async def test_committed_adapter_persists_preflight_before_provider_boundary(
             idempotency_key="idem-committed-boundary",
         )
         assert retried.status == "reserved"
+
+
+@pytest.mark.asyncio
+async def test_session_per_call_adapter_releases_sessions_and_replays_durably(
+    session_factory,
+) -> None:
+    """A resolver can reuse the ledger without retaining request connections."""
+
+    ledger = SessionPerCallExperienceRunLedger(session_factory)
+    scope = _scope()
+    reservation = await ledger.preflight_create(
+        scope=scope,
+        run_id="run-session-per-call",
+        request_ref="request-session-per-call",
+        request_fingerprint="fingerprint-session-per-call",
+        idempotency_key="idem-session-per-call",
+    )
+    assert reservation.status == "reserved"
+
+    in_progress = await ledger.preflight_create(
+        scope=scope,
+        run_id="run-session-per-call",
+        request_ref="request-session-per-call",
+        request_fingerprint="fingerprint-session-per-call",
+        idempotency_key="idem-session-per-call",
+    )
+    assert in_progress.status == "in_progress"
+
+    await ledger.release_create(reservation=reservation)
+    retried = await ledger.preflight_create(
+        scope=scope,
+        run_id="run-session-per-call",
+        request_ref="request-session-per-call",
+        request_fingerprint="fingerprint-session-per-call",
+        idempotency_key="idem-session-per-call",
+    )
+    assert retried.status == "reserved"
+    await ledger.release_create(reservation=retried)

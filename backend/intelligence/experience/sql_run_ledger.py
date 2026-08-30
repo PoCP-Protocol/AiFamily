@@ -29,7 +29,7 @@ from typing import Any, Protocol
 
 from sqlalchemy import JSON, DateTime, Integer, String, Text, UniqueConstraint, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.intelligence.experience.run_http import (
@@ -774,6 +774,46 @@ class CommittedExperienceRunLedger:
         return await self._ledger.replay(**kwargs)
 
 
+class SessionPerCallExperienceRunLedger:
+    """Open and close one SQL session for each ledger operation.
+
+    FastAPI's runtime resolver returns a value object and has no request
+    teardown hook.  Holding an ``AsyncSession`` in that value would leak a
+    connection unless every route remembered to close it.  This adapter keeps
+    the resolver stateless: each operation gets a fresh session, while the
+    committed adapter still makes preflight durable before model invocation.
+    """
+
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._session_factory = session_factory
+
+    async def _run(self, operation: Any) -> Any:
+        async with self._session_factory() as session:
+            ledger = CommittedExperienceRunLedger(
+                SqlAlchemyExperienceRunLedger(session), session
+            )
+            return await operation(ledger)
+
+    async def preflight_create(self, **kwargs: Any) -> DraftPreflight:
+        return await self._run(lambda ledger: ledger.preflight_create(**kwargs))
+
+    async def finalize_create(self, **kwargs: Any) -> RunReplaySnapshot:
+        return await self._run(lambda ledger: ledger.finalize_create(**kwargs))
+
+    async def release_create(self, **kwargs: Any) -> None:
+        await self._run(lambda ledger: ledger.release_create(**kwargs))
+
+    async def create_draft(self, **kwargs: Any) -> RunReplaySnapshot:
+        return await self._run(lambda ledger: ledger.create_draft(**kwargs))
+
+    async def append_interaction(self, **kwargs: Any) -> InteractionReceipt:
+        return await self._run(lambda ledger: ledger.append_interaction(**kwargs))
+
+    async def replay(self, **kwargs: Any) -> RunReplaySnapshot:
+        async with self._session_factory() as session:
+            return await SqlAlchemyExperienceRunLedger(session).replay(**kwargs)
+
+
 def _jsonable(value: Any) -> Any:
     if isinstance(value, Mapping):
         return {str(key): _jsonable(item) for key, item in value.items()}
@@ -790,5 +830,6 @@ __all__ = [
     "AsyncExperienceRunLedger",
     "CommittedExperienceRunLedger",
     "ExperienceRunInteractionRow",
+    "SessionPerCallExperienceRunLedger",
     "SqlAlchemyExperienceRunLedger",
 ]
