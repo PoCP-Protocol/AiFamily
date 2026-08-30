@@ -80,6 +80,16 @@ superseded_by: null
 
 ## 3. 已知缺口
 
+> **T-14 变更提示（2026-08-29）**：`PolicyEngine.__init__` 现在接受**必填**参数
+> `tenant_directory: TenantDirectory`，`check` 新增"第 0 遍"租户否决 —— 解析
+> `actor.tenant_id`，未登记或非 ACTIVE 一律 DENY，且先于任何规则匹配（这样暂停
+> 原因不会被"无规则"掩盖）。这是 `IDENTITY.md` §3 缺口 3 的执行点。
+> 生产装配拿到的是 `DenyAllTenantDirectory`（本仓库尚无租户存储），因此当前
+> 生产路径对每个租户都 DENY —— 这是刻意的 fail-closed，不是回归。
+> `membership` / `service` 两域各新增一个可覆盖依赖 `get_tenant_directory`，
+> `get_policy_engine` 改为按请求构建（不再是模块级单例，否则会冻结导入时的
+> directory）。测试：`tests/platform/authorization/test_tenant_gate.py`。
+
 按严重度：
 
 1. **`human_only` 的"无条件"实际上是顺序相关的 —— 这是一个真实的绕过路径。** `check` 遍历匹配规则时**遇到第一条 `permits` 就立即返回 ALLOW**（`policy.py:106`）。因此对同一 `(action, resource_type)`：

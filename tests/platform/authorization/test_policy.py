@@ -8,7 +8,10 @@ combination must fail closed (DENY), not fail open.
 from __future__ import annotations
 
 from backend.platform.authorization.policy import PolicyEngine, PolicyRule
-from backend.platform.identity.context import ActorContext, ActorType
+from backend.platform.identity.context import ActorContext, ActorType, TenantStatus
+from backend.platform.identity.directory import InMemoryTenantDirectory
+
+ACTIVE_TENANTS = InMemoryTenantDirectory({"tenant-1": TenantStatus.ACTIVE})
 
 
 def _actor(actor_type: ActorType) -> ActorContext:
@@ -21,7 +24,7 @@ def _actor(actor_type: ActorType) -> ActorContext:
 
 
 def test_unregistered_action_resource_pair_is_denied() -> None:
-    engine = PolicyEngine()
+    engine = PolicyEngine(ACTIVE_TENANTS)
     decision = engine.check(_actor(ActorType.HUMAN), action="delete", resource_type="family")
 
     assert decision.allowed is False
@@ -29,7 +32,7 @@ def test_unregistered_action_resource_pair_is_denied() -> None:
 
 
 def test_explicit_allow_rule_grants_access() -> None:
-    engine = PolicyEngine()
+    engine = PolicyEngine(ACTIVE_TENANTS)
     engine.register(PolicyRule(action="view", resource_type="family"))
 
     decision = engine.check(_actor(ActorType.HUMAN), action="view", resource_type="family")
@@ -38,7 +41,7 @@ def test_explicit_allow_rule_grants_access() -> None:
 
 
 def test_rule_scoped_to_actor_types_denies_unlisted_actor_type() -> None:
-    engine = PolicyEngine()
+    engine = PolicyEngine(ACTIVE_TENANTS)
     engine.register(
         PolicyRule(
             action="approve",
@@ -59,7 +62,7 @@ def test_rule_scoped_to_actor_types_denies_unlisted_actor_type() -> None:
 
 
 def test_human_only_action_denies_ai_actor_even_if_generally_allowed() -> None:
-    engine = PolicyEngine()
+    engine = PolicyEngine(ACTIVE_TENANTS)
     engine.register(
         PolicyRule(
             action="write_canonical_fact",
@@ -80,7 +83,7 @@ def test_human_only_action_denies_ai_actor_even_if_generally_allowed() -> None:
 
 
 def test_human_only_denial_reason_mentions_ai() -> None:
-    engine = PolicyEngine()
+    engine = PolicyEngine(ACTIVE_TENANTS)
     engine.register(
         PolicyRule(action="write_canonical_fact", resource_type="family_fact", human_only=True)
     )
@@ -111,7 +114,7 @@ _HUMAN_ONLY = PolicyRule(
 
 
 def _engine_with(*rules: PolicyRule) -> PolicyEngine:
-    engine = PolicyEngine()
+    engine = PolicyEngine(ACTIVE_TENANTS)
     for rule in rules:
         engine.register(rule)
     return engine

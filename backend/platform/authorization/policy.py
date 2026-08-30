@@ -16,7 +16,20 @@ the smallest possible decision point that:
      (action, resource_type), optionally scoped to certain actor types,
   3. always denies AI actors from actions marked `human_only=True`,
      regardless of whether an ALLOW rule was registered for that action
-     and regardless of the order in which rules were registered.
+     and regardless of the order in which rules were registered,
+  4. always denies an actor whose tenant is not ACTIVE, before any rule is
+     consulted at all.
+
+Point 4 is why `PolicyEngine.__init__` takes a **required** `TenantDirectory`
+(`backend/platform/identity/directory.py`). `TenantContext.is_active` previously
+had zero callers anywhere in the repository, so "a suspended tenant must not
+operate" was not a rule — it was an unread property
+(`docs/06_platform/IDENTITY.md` §3 gap 3). The check belongs here, at the one
+authorization boundary every mutating route already passes through, rather than
+inside each business method: a rule enforced in forty places is enforced in
+thirty-nine. The directory argument has no default because a permissive default
+would fail *open* for every tenant nobody remembered to register, and an
+unknown tenant is denied for exactly the reason an unregistered action is.
 
 Decision semantics: **deny-overrides, order-independent.** `check` collects
 *every* rule matching (action, resource_type) before deciding, and evaluates
@@ -40,6 +53,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from backend.platform.identity.context import ActorContext, ActorType
+from backend.platform.identity.directory import TenantDirectory
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,12 +116,18 @@ class PolicyEngine:
     explicit DENY rule, because DENY is already the default; adding one
     would just be a way to accidentally shadow it.
 
-    The single exception to "rules only grant" is `human_only`, which is a
-    *veto* rather than a rule of its own: see `check`.
+    Two exceptions to "rules only grant", both vetoes rather than rules:
+    `human_only` (R9) and tenant status (see `check`).
+
+    `tenant_directory` is required. It is how the engine answers "is the
+    actor's tenant active" without any route having to fabricate a
+    `TenantContext`; see `backend/platform/identity/directory.py` for why it
+    has no default.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, tenant_directory: TenantDirectory) -> None:
         self._rules: list[PolicyRule] = []
+        self._tenant_directory = tenant_directory
 
     def register(self, rule: PolicyRule) -> None:
         self._rules.append(rule)
@@ -115,7 +135,15 @@ class PolicyEngine:
     def check(self, actor: ActorContext, action: str, resource_type: str) -> Decision:
         """Decide (actor, action, resource_type) with deny-overrides semantics.
 
-        Evaluated in three passes over *all* matching rules, never
+        Pass 0 is the tenant veto and runs *before* any rule is looked at:
+        `actor.tenant_id` is resolved through the `TenantDirectory`, and the
+        decision is DENY when the tenant is unknown or when
+        `TenantContext.is_active` is False. It is deliberately first so that a
+        suspended tenant is reported as a suspended tenant rather than being
+        masked by "no rule registered" — and so that no amount of rule
+        registration can grant a suspended tenant anything.
+
+        The remaining three passes run over *all* matching rules, never
         short-circuiting on the first permissive one:
 
         1. No matching rule at all → DENY (fail-closed default).
@@ -130,6 +158,19 @@ class PolicyEngine:
         and `register(human_only); register(permissive)` produce identical
         decisions.
         """
+        tenant = self._tenant_directory.resolve(actor.tenant_id)
+        if tenant is None:
+            return Decision.deny(
+                f"tenant_id={actor.tenant_id!r} is not known to the tenant directory — "
+                "fail-closed default DENY (unknown must never be more permissive "
+                "than forbidden)"
+            )
+        if not tenant.is_active:
+            return Decision.deny(
+                f"tenant_id={actor.tenant_id!r} has status "
+                f"{tenant.status.value!r}; only an ACTIVE tenant may act"
+            )
+
         matching_rules = [r for r in self._rules if r.matches(action, resource_type)]
 
         if not matching_rules:
