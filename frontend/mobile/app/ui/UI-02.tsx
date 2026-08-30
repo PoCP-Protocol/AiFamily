@@ -662,16 +662,16 @@ function StoryStep({
         <Text style={[styles.voiceButtonText, { color: colors.tint }]}>
           {voiceState === "listening"
             ? "正在听…说完即可"
-            : "用语音说（本机预览）"}
+            : "用语音说（当前设备）"}
         </Text>
       </Pressable>
       {voiceState === "unsupported" ? (
         <Text style={styles.voiceHint}>
-          当前环境未启用语音转写，请改用文字；sandbox 语音不会发送给模型。
+          当前环境还不能用语音转写，请改用文字。
         </Text>
       ) : (
         <Text style={[styles.voiceHint, { color: colors.muted }]}>
-          语音转写只在当前设备完成，sandbox 结果仍需你确认。
+          语音只用于把你的话记下来，结果仍需你确认。
         </Text>
       )}
       <View style={styles.actionStack}>
