@@ -29,7 +29,14 @@ def test_dev_auth_requires_explicit_known_environment(monkeypatch, environment: 
     else:
         monkeypatch.setenv("AIFAMILY_ENV", environment)
 
-    main = _fresh_main_module()
+    try:
+        main = _fresh_main_module()
+    except (RuntimeError, ValueError) as error:
+        # A composition root may reject an unsafe environment at import/startup
+        # instead of constructing a route-less app.  Both are fail-closed; the
+        # rejection must identify the environment configuration.
+        assert "environment" in str(error).lower() or "aifamily_env" in str(error).lower()
+        return
     assert main.is_dev_environment() is False
     client = TestClient(main.create_app())
 
