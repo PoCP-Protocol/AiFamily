@@ -98,6 +98,18 @@ def is_postgres_url(database_url: str) -> bool:
     return database_url.startswith(("postgresql", "postgres://"))
 
 
+def clear_engine_cache() -> None:
+    """Clear cached engines without changing existing sessionmaker bindings.
+
+    The cache is process-local state.  HTTP integration tests use this hook
+    between application lifecycles so a new app resolves and constructs its
+    engine from the current database URL.  Clearing the cache deliberately
+    does not dispose an engine: a sessionmaker already handed to an app keeps
+    its original engine for the rest of that app's lifecycle.
+    """
+    _cached_engine.cache_clear()
+
+
 @lru_cache(maxsize=8)
 def _cached_engine(database_url: str) -> AsyncEngine:
     if database_url.startswith("sqlite"):
