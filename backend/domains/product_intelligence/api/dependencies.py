@@ -26,19 +26,21 @@ longer commit.
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from typing import Any
 
 from fastapi import Request
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..application.context import ActorContext
 from ..application.ports import ProductIntelligenceRepositoryPort
 from ..infrastructure.sqlalchemy_repository import SqlAlchemyProductIntelligenceRepository
 from ..infrastructure.unit_of_work import SqlAlchemyUnitOfWork
 
-_session_factory = None  # set by the owning app at startup; not configured in this PR
+_session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
-def configure_session_factory(session_factory: Any | None) -> None:
+def configure_session_factory(
+    session_factory: async_sessionmaker[AsyncSession] | None,
+) -> None:
     """Install the owning application's explicit async session factory.
 
     Product Intelligence never chooses a local fallback database.  The
@@ -74,7 +76,7 @@ async def get_repository() -> AsyncGenerator[ProductIntelligenceRepositoryPort, 
             "product_intelligence session factory not configured — no owning app exists yet"
         )
     async with (
-        _session_factory() as session,  # type: AsyncSession
+        _session_factory() as session,
         SqlAlchemyUnitOfWork(session),
     ):
         yield SqlAlchemyProductIntelligenceRepository(session)
