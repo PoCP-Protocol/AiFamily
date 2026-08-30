@@ -15,6 +15,8 @@ from datetime import UTC, datetime
 from types import MappingProxyType
 from typing import Any, Literal
 
+from backend.intelligence.context_engine.contracts import ContextScope, ContextSnapshot
+from backend.intelligence.context_engine.store import ContextBroker
 from backend.intelligence.experience.contracts import (
     DeletionRef,
     ExperienceContractError,
@@ -140,6 +142,7 @@ class PrincipalRuntime:
         gateway: ModelGateway,
         knowledge_registry: KnowledgeRegistry,
         router: PrincipalCapabilityRouter | None = None,
+        context_broker: ContextBroker | None = None,
         provider_id: str,
     ) -> None:
         if not provider_id:
@@ -147,6 +150,7 @@ class PrincipalRuntime:
         self._gateway = gateway
         self._knowledge = knowledge_registry
         self._router = router or PrincipalCapabilityRouter()
+        self._context_broker = context_broker
         self._provider_id = provider_id
 
     async def draft(self, request: PrincipalRuntimeRequest) -> PrincipalDraft:
@@ -154,6 +158,7 @@ class PrincipalRuntime:
 
         decision = self._router.resolve(request.route_request)
         self._assert_experience_scope(request, decision)
+        context_projection = self._context_projection(request, decision)
         claims = self._knowledge.retrieve_reviewed(
             purpose=request.knowledge_purpose,
             scope=request.knowledge_scope,
@@ -169,6 +174,7 @@ class PrincipalRuntime:
                 "purpose": decision.purpose,
                 "locale": decision.locale,
             },
+            "context_projection": context_projection,
             "knowledge_claims": [
                 {
                     "claim_id": claim.claim_id,
@@ -219,6 +225,102 @@ class PrincipalRuntime:
             "event_type": event.event_type.value,
             "node": event.node.value,
         }
+
+    def _context_projection(
+        self,
+        request: PrincipalRuntimeRequest,
+        decision: PrincipalRouteDecision,
+    ) -> Mapping[str, Any]:
+        """Load one authorized snapshot, or explicitly mark it unavailable.
+
+        The no-broker path is retained for the first draft slice.  It carries a
+        machine-readable unavailable marker rather than fabricating an empty
+        family context, so callers cannot mistake compatibility for evidence.
+        """
+
+        if self._context_broker is None:
+            return MappingProxyType(
+                {
+                    "status": "UNAVAILABLE",
+                    "reason": "CONTEXT_PROJECTION_UNAVAILABLE",
+                }
+            )
+        scope = self._context_scope(request, decision)
+        snapshot = self._context_broker.read(
+            request.route_request.context_snapshot_ref,
+            scope,
+        )
+        self._assert_snapshot_boundary(snapshot, decision)
+        return self._json_safe_projection(snapshot.read_only_projection)
+
+    @staticmethod
+    def _context_scope(
+        request: PrincipalRuntimeRequest,
+        decision: PrincipalRouteDecision,
+    ) -> ContextScope:
+        if decision.family_id is None:
+            raise PrincipalRuntimeError("CONTEXT_FAMILY_SCOPE_REQUIRED")
+        subject_ids: tuple[str, ...]
+        if decision.subject_id:
+            subject_ids = (decision.subject_id,)
+        elif request.experience_event is not None:
+            subject_ids = request.experience_event.subject_ids
+        else:
+            subject_ids = tuple(
+                sorted(
+                    {
+                        subject_id
+                        for memory in request.memory_refs
+                        for subject_id in memory.subject_ids
+                    }
+                )
+            )
+        if not subject_ids:
+            raise PrincipalRuntimeError("CONTEXT_SUBJECT_SCOPE_REQUIRED")
+        return ContextScope(
+            tenant_id=decision.tenant_id,
+            region_id=decision.region,
+            family_id=decision.family_id,
+            subject_ids=subject_ids,
+            purpose=decision.purpose,
+            consent_version=decision.consent_version,
+            consent_granted=decision.consent_granted,
+            data_class=decision.data_class,
+            locale=decision.locale,
+            content_locale=decision.content_locale,
+            model_locale=decision.model_locale,
+            policy_locale=decision.policy_locale,
+            deletion_ref=f"context:{request.route_request.context_snapshot_ref}",
+            correlation_id=decision.correlation_id,
+            causation_id=decision.causation_id,
+        )
+
+    @staticmethod
+    def _assert_snapshot_boundary(
+        snapshot: ContextSnapshot,
+        decision: PrincipalRouteDecision,
+    ) -> None:
+        if snapshot.region_id != decision.region:
+            raise ScopeMismatchError("CROSS_REGION_CONTEXT_SNAPSHOT")
+        if snapshot.consent_version != decision.consent_version:
+            raise ExperienceContractError("CONTEXT_CONSENT_VERSION_MISMATCH")
+        if not snapshot.consent_granted or not decision.consent_granted:
+            raise ExperienceContractError("CONSENT_REVOKED")
+        if str(snapshot.data_class) != str(decision.data_class):
+            raise ExperienceContractError("CONTEXT_DATA_CLASS_MISMATCH")
+
+    @staticmethod
+    def _json_safe_projection(value: Any) -> Any:
+        """Convert immutable mapping/tuple wrappers to provider-safe JSON values."""
+
+        if isinstance(value, Mapping):
+            return {
+                key: PrincipalRuntime._json_safe_projection(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, tuple):
+            return [PrincipalRuntime._json_safe_projection(item) for item in value]
+        return value
 
     @staticmethod
     def _to_principal_draft(
