@@ -70,7 +70,11 @@ line-length = 100
 # byte-identical to the source repository on purpose — keeping the migration
 # diff verifiable matters more than lint conformance on throwaway scripts.
 # Backend Python is fully linted; nothing here relaxes that.
+# pytest's negative-control fixtures are intentionally invalid Python and must
+# not become repository production-code lint debt when a run uses an in-repo
+# temporary root.
 exclude = ["frontend"]
+extend-exclude = [".codex-tmp"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
