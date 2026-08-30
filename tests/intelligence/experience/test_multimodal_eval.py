@@ -11,7 +11,9 @@ from backend.intelligence.experience.multimodal_eval import (
     MultimodalAdapterResult,
     MultimodalEvalError,
     MultimodalEvalRunner,
+    persist_evaluation_projection,
 )
+from backend.intelligence.experience.run_http import InMemoryExperienceRunLedger, RunScope
 from backend.intelligence.model_gateway.contracts import AiProvenance
 
 
@@ -131,6 +133,42 @@ def test_release_gate_rejects_invalid_policy_limits() -> None:
         EvaluationGatePolicy(min_pass_rate=1.1)
     with pytest.raises(MultimodalEvalError, match="non-negative"):
         EvaluationGatePolicy(max_latency_ms_p95=-1)
+
+
+@pytest.mark.asyncio
+async def test_report_projection_coordinator_writes_gate_and_ref_to_run_ledger() -> None:
+    case = _case()
+    report = MultimodalEvalRunner().run(
+        (case,), {"qwen": lambda item: _result(item, output={"answer": "ok"})}
+    )
+    scope = RunScope(
+        tenant_id="tenant-eval",
+        family_id="family-eval",
+        subject_ids=("guardian-eval",),
+    )
+    ledger = InMemoryExperienceRunLedger()
+    ledger.create_draft(
+        scope=scope,
+        run_id="run-eval",
+        request_ref="request-eval",
+        draft_payload={"status": "DRAFT", "headline": "评估关联"},
+        idempotency_key="create-eval",
+    )
+
+    receipt = await persist_evaluation_projection(
+        ledger,
+        scope=scope,
+        run_id="run-eval",
+        report=report,
+        idempotency_key="evaluation-eval",
+    )
+
+    assert receipt.status == "recorded"
+    snapshot = ledger.replay(scope=scope, run_id="run-eval")
+    projection = snapshot.entries[-1].payload
+    assert projection["report_ref"] == report.report_ref
+    assert projection["release_gate"]["status"] == "ELIGIBLE"
+    assert projection["education_outcome_status"] == "NOT_MEASURED"
 
 
 def test_runner_fails_closed_for_schema_safety_and_provenance() -> None:

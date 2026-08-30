@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import inspect
 import json
 import re
 from collections import Counter, defaultdict
@@ -19,6 +20,10 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
+from backend.intelligence.experience.run_http import (
+    InteractionReceipt,
+    RunScope,
+)
 from backend.intelligence.model_gateway.contracts import AiProvenance
 from backend.intelligence.model_gateway.validation import SchemaValidator
 
@@ -124,6 +129,21 @@ class MultimodalAdapter(Protocol):
     """Provider adapter seam; implementations may be fake and fully local."""
 
     def __call__(self, case: GoldCase) -> MultimodalAdapterResult: ...
+
+
+class EvaluationLedger(Protocol):
+    """Minimal sync/async ledger surface needed for report projection."""
+
+    def record_evaluation(
+        self,
+        *,
+        scope: RunScope,
+        run_id: str,
+        report_ref: str,
+        case_version: str,
+        idempotency_key: str,
+        payload: Mapping[str, Any] | None = None,
+    ) -> InteractionReceipt | Any: ...
 
 
 QualityEvaluator = Callable[[GoldCase, MultimodalAdapterResult], float]
@@ -353,6 +373,43 @@ class EvaluationReleaseGate:
     ) -> None:
         if actual < minimum:
             reasons.append(f"{prefix}:{metric}_rate_below_threshold")
+
+
+async def persist_evaluation_projection(
+    ledger: EvaluationLedger,
+    *,
+    scope: RunScope,
+    run_id: str,
+    report: MultimodalEvaluationReport,
+    idempotency_key: str,
+    gate: EvaluationReleaseDecision | None = None,
+) -> InteractionReceipt:
+    """Persist one report projection through a sync or async Run ledger.
+
+    This function deliberately persists blocked reports too: a release gate
+    decision is audit evidence, not permission to erase a failed evaluation.
+    The report payload is bounded and media-free; the full report remains owned
+    by the evaluation store keyed by ``report_ref``.
+    """
+
+    if not isinstance(report, MultimodalEvaluationReport):
+        raise MultimodalEvalError("evaluation report is required")
+    decision = gate or EvaluationReleaseGate().evaluate(report)
+    if decision.report_ref != report.report_ref:
+        raise MultimodalEvalError("evaluation gate report reference mismatch")
+    result = ledger.record_evaluation(
+        scope=scope,
+        run_id=run_id,
+        report_ref=report.report_ref,
+        case_version=report.case_version,
+        idempotency_key=idempotency_key,
+        payload=report.to_ledger_payload(decision),
+    )
+    if inspect.isawaitable(result):
+        result = await result
+    if not isinstance(result, InteractionReceipt):
+        raise MultimodalEvalError("evaluation ledger returned an invalid receipt")
+    return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -590,6 +647,7 @@ __all__ = [
     "EvaluationGatePolicy",
     "EvaluationReleaseDecision",
     "EvaluationReleaseGate",
+    "EvaluationLedger",
     "FixtureKind",
     "GoldCase",
     "Modality",
@@ -599,6 +657,7 @@ __all__ = [
     "MultimodalEvalRunner",
     "MultimodalEvaluationReport",
     "ProviderEvaluationSummary",
+    "persist_evaluation_projection",
     "ReleaseGateStatus",
     "SafetyAction",
 ]
