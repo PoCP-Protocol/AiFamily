@@ -159,7 +159,9 @@ class S01PostgresAssessmentRepository:
                        c.granted_at,
                        p.birth_date
                 from consents c
-                join persons p on p.person_id=c.subject_person_id
+                join persons p
+                  on p.person_id=c.subject_person_id
+                 and p.family_id=c.family_id
                 where c.family_id=:family_id
                   and c.subject_person_id=:subject_person_id
                   and c.purpose=:purpose
