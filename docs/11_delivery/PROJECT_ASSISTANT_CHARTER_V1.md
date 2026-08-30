@@ -125,6 +125,7 @@ P0 发现后立即通知 Lead，不等待下一次站会；P1 必须有本 Sprin
 1. AFE-4：语义化服务列表目标测试 5 项通过、`pnpm check` 通过；因全量 5 失败和跨 UI/跨端审计缺失，结论为 `PARTIAL`，已发 AFE 返工意见。
 2. ADOM-5：FGCN migration chain 2 项通过且 Fresh Postgres 可逆；未跟踪 `0009_ai_model_drafts.py` 使动态 head=0009/160，manifest/ADR 登记仍缺，结论为 `PARTIAL`，已发 ADOM 返工意见。
 3. AAIR-5/6：删除 worker 7 项、durable deletion 契约 6 项通过；Fresh `tests/intelligence/context_engine` 为 18 passed，敏捷计划旧记录“13 passed”已校正。`InMemoryDurableDeletionStore.production_ready=False`，无 Postgres/outbox 和真实 projection cascade，结论为 `CONTRACTED / adapter-only / RELEASE BLOCKED`，已通知 AAIR/Lead。
-4. 平台闸门：生产 dev_auth probe 返回 200，环境缺失默认 development；结论为 `P0 NO-GO`，已立即通知 Lead 并要求 APLT/ARCH 负向测试。
+4. 平台闸门（复核前）：生产 dev_auth probe 返回 200，环境缺失默认 development；结论为 `P0 NO-GO`，已立即通知 Lead 并要求 APLT/ARCH 负向测试。
+5. APLT-2 SEC-01：显式 production 负向与 test 正向测试 2 项通过；生产 dev_auth 已不在 OpenAPI，但缺失环境变量仍默认 development，且生产没有真实 auth 替代契约，结论为 `CONTRACTED / PARTIAL`，ENV-01 仍 `P0 NO-GO`。
 
 这些记录是可追溯的审查输入，不是对 owner 的替代实现。返工完成后必须重新读取文件并运行新鲜命令，才能更新状态。

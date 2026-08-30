@@ -72,6 +72,13 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 - **状态**：`CONTRACTED / adapter-only`，不是 `INTEGRATED` 或 `PRODUCTION`。`InMemoryDurableDeletionStore.production_ready = False`，job/audit/dead-letter 仍在内存；没有 Postgres/outbox、跨进程抢占、真实文本/媒体/向量/缓存/derived adapters，也没有生产 wiring。
 - **风险与验收**：重启仍会丢队列状态，外部删除只能由注入 port 自行保证。AAIR 必须提供 SQLAlchemy/Postgres store、事务 outbox、lease/重试/DLQ、每类 projection 的真实删除回执和审计关联，或在发布清单中保持 `RELEASE BLOCKED`。在此之前不能把 6 项测试通过描述为删除能力已上线。
 
+### 3.5 APLT-2 SEC-01 生产 dev_auth 复核
+
+- **证据**：`backend/apps/family_api/main.py` 已改为只在允许的 dev/test 环境挂载 `dev_auth_router`；`tests/apps/family_api/test_production_dev_auth_gate.py` 2 项通过。`AIFAMILY_ENV=production` 时 OpenAPI 不含 `/auth/account-session`，POST 返回 404；`AIFAMILY_ENV=test` 仍保持 synthetic 合同并返回 200。
+- **结论**：SEC-01 的“生产不暴露 dev_auth”切片为 `CONTRACTED/PARTIAL`，未越界修改其它战场；但不能升为 P0 已关闭。未设置 `AIFAMILY_ENV` 时仍因 `current_environment()` 默认 `development` 而挂载 dev_auth，ENV-01 仍是 P0。
+- **功能同构风险**：生产现在返回 404，而 dev/test 使用 `/auth/account-session`，尚无真实认证替代端点。安全负向测试正确，但必须由 ARCH/PLT 明确同路径真实认证契约或 ADR 记录端点差异；“删除生产功能”不能作为测试/生产阉割。
+- **附带质量债**：创建 app 时仍出现 service journey duplicate operation ID warning，应由 API/ARCH 纳入 OpenAPI 契约闸门。
+
 这些意见已分别发送给 ADOM-2、AFE-1，并由 Lead 转交 APLT-1、AQA-1、AGOV-1、AAIR-5。未收到返工命令和新鲜输出前，不更新为 DONE。
 
 ## 4. P0/P1/P2 执行清单
