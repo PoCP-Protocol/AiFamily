@@ -19,6 +19,8 @@ PR-001R (chief-architect review on PR #27):
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,6 +74,37 @@ class SqlAlchemyProductIntelligenceRepository:
 
     async def save_evidence(self, entity: Evidence) -> None:
         await self._merge(m.EvidenceRow(**entity.model_dump()))
+
+    async def save_competitor_evidence(
+        self, entity: object, *, tenant_scope: str, created_by: str
+    ) -> None:
+        """Persist a DRAFT evidence card with app-owned scope metadata."""
+
+        now = datetime.now(UTC)
+        await self._merge(
+            m.CompetitorEvidenceRow(
+                id=entity.evidence_id,
+                version=entity.version,
+                created_at=now,
+                updated_at=now,
+                created_by=created_by,
+                tenant_scope=tenant_scope,
+                status="DRAFT",
+                evidence_refs=list(entity.evidence_refs),
+                assumptions=list(entity.assumptions),
+                unknowns=list(entity.unknowns),
+                next_validation=entity.next_validation,
+                expires_at=entity.expires_at,
+                provenance_ref=entity.provenance_ref,
+                competitor_ref=entity.competitor_ref,
+                claim=entity.claim,
+                source_refs=list(entity.source_refs),
+                evidence_status=str(entity.evidence_status),
+                demand_ref=entity.demand_ref,
+                market_insight_ref=entity.market_insight_ref,
+                source_type=entity.source_type,
+            )
+        )
 
     # -- CustomerInsight --
     async def save_customer_insight(self, entity: CustomerInsight) -> None:

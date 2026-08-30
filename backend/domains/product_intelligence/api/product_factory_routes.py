@@ -221,7 +221,7 @@ async def create_competitor_evidence(
     _require_ai_provenance(context, body)
     try:
         card = CompetitorEvidenceCard(
-            evidence_id="pending-competitor-evidence",
+            evidence_id=f"competitor-evidence:{uuid4().hex}",
             competitor_ref=body.competitor_ref,
             claim=body.claim,
             source_refs=tuple(body.source_refs),
@@ -241,10 +241,10 @@ async def create_competitor_evidence(
     saver = getattr(repo, "save_competitor_evidence", None)
     if saver is None:
         raise HTTPException(
-            status_code=501,
+            status_code=503,
             detail="competitor_evidence_persistence_not_configured",
         )
-    await saver(card)
+    await saver(card, tenant_scope=context.tenant_scope, created_by=context.actor_id)
     return _competitor_response(card)
 
 

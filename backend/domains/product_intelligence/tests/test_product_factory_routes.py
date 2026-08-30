@@ -170,7 +170,7 @@ def test_naive_draft_expiry_is_rejected_at_http_boundary(repo, human_context) ->
     assert repo._market_signals == {}
 
 
-def test_competitor_route_fails_closed_until_repository_port_exists(repo, human_context) -> None:
+def test_competitor_route_persists_draft_with_tenant_scope(repo, human_context) -> None:
     response = _client(repo, human_context).post(
         "/product-intelligence/product-factory/competitor-evidence",
         json=_payload(
@@ -181,7 +181,42 @@ def test_competitor_route_fails_closed_until_repository_port_exists(repo, human_
             evidence_status="UNKNOWN",
         ),
     )
-    assert response.status_code == 501
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "DRAFT"
+    assert body["evidence_id"].startswith("competitor-evidence:")
+    stored, tenant_scope, created_by = repo._competitor_evidence[body["evidence_id"]]
+    assert stored.claim == "公开资料显示其提供提醒功能"
+    assert tenant_scope == "tenant-a"
+    assert created_by == "human:pm"
+
+
+def test_competitor_route_fails_closed_without_repository_saver(human_context) -> None:
+    class RepositoryWithoutCompetitorSaver:
+        pass
+
+    app = FastAPI()
+    app.include_router(router)
+
+    async def override_repo():
+        yield RepositoryWithoutCompetitorSaver()
+
+    async def override_context():
+        return human_context
+
+    app.dependency_overrides[get_repository] = override_repo
+    app.dependency_overrides[get_actor_context] = override_context
+    response = TestClient(app).post(
+        "/product-intelligence/product-factory/competitor-evidence",
+        json=_payload(
+            competitor_ref="competitor:example",
+            claim="公开资料显示其提供提醒功能",
+            source_refs=["source:public:one"],
+            demand_ref="demand:one",
+            evidence_status="UNKNOWN",
+        ),
+    )
+    assert response.status_code == 503
     assert response.json()["detail"] == "competitor_evidence_persistence_not_configured"
 
 

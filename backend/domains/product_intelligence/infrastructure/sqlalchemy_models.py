@@ -99,6 +99,32 @@ class EvidenceRow(Base):
     evidence_ref = Column(String, nullable=False)
 
 
+class CompetitorEvidenceRow(Base):
+    """Tenant-scoped DRAFT evidence card; never a competitor ranking."""
+
+    __tablename__ = "product_intelligence_competitor_evidence"
+    id = Column(String, primary_key=True)
+    version = Column(String, nullable=False, default="1.0.0")
+    created_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+    created_by = Column(String, nullable=False)
+    tenant_scope = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="DRAFT")
+    evidence_refs = Column(JSON, nullable=False, default=list)
+    assumptions = Column(JSON, nullable=False, default=list)
+    unknowns = Column(JSON, nullable=False, default=list)
+    next_validation = Column(Text, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    provenance_ref = Column(String, nullable=True)
+    competitor_ref = Column(String, nullable=False)
+    claim = Column(Text, nullable=False)
+    source_refs = Column(JSON, nullable=False, default=list)
+    evidence_status = Column(String, nullable=False)
+    demand_ref = Column(String, nullable=True)
+    market_insight_ref = Column(String, nullable=True)
+    source_type = Column(String, nullable=False)
+
+
 class CustomerInsightRow(Base):
     __tablename__ = "product_intelligence_customer_insights"
     id = Column(String, primary_key=True)

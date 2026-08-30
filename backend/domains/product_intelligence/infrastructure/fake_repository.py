@@ -39,6 +39,7 @@ class FakeProductIntelligenceRepository:
     _market_trends: dict = field(default_factory=dict)
     _customer_segments: dict = field(default_factory=dict)
     _evidence: dict = field(default_factory=dict)
+    _competitor_evidence: dict = field(default_factory=dict)
     _customer_insights: dict = field(default_factory=dict)
     _unmet_needs: dict = field(default_factory=dict)
     _opportunities: dict = field(default_factory=dict)
@@ -72,6 +73,17 @@ class FakeProductIntelligenceRepository:
 
     async def save_evidence(self, entity: Evidence) -> None:
         self._evidence[entity.id] = entity
+
+    async def save_competitor_evidence(
+        self, entity: object, *, tenant_scope: str, created_by: str
+    ) -> None:
+        # Keep scope metadata alongside the immutable proposal in the test
+        # double so tests can assert the same boundary as SQL persistence.
+        self._competitor_evidence[entity.evidence_id] = (
+            entity,
+            tenant_scope,
+            created_by,
+        )
 
     async def save_customer_insight(self, entity: CustomerInsight) -> None:
         self._customer_insights[entity.id] = entity
