@@ -125,6 +125,37 @@ async def test_sql_ledger_interactions_are_append_only_and_replayable(session_fa
 
 
 @pytest.mark.asyncio
+async def test_sql_feedback_references_use_the_shared_evaluation_contract(session_factory) -> None:
+    async with session_factory() as session:
+        await _create(session)
+        ledger = SqlAlchemyExperienceRunLedger(session)
+        async with session.begin():
+            receipt = await ledger.append_interaction(
+                scope=_scope(),
+                run_id="run-sql-1",
+                interaction_type=InteractionType.FEEDBACK,
+                payload={
+                    "signal": "helpful",
+                    "benchmark_report_ref": "benchmark:multimodal:gold.v1:abc123",
+                    "attempt_id": "attempt-sql-1",
+                    "real_event_refs": ["event:experience:sql-1"],
+                },
+                idempotency_key="feedback-eval-sql-1",
+            )
+        assert receipt.status == "recorded"
+
+        with pytest.raises(RunHttpError, match="BENCHMARK_REPORT_REF_INVALID"):
+            async with session.begin():
+                await ledger.append_interaction(
+                    scope=_scope(),
+                    run_id="run-sql-1",
+                    interaction_type=InteractionType.FEEDBACK,
+                    payload={"signal": "helpful", "benchmark_report_ref": "unscoped"},
+                    idempotency_key="feedback-eval-sql-2",
+                )
+
+
+@pytest.mark.asyncio
 async def test_sql_ledger_scope_and_idempotency_conflicts_fail_closed(session_factory) -> None:
     async with session_factory() as session:
         await _create(session)

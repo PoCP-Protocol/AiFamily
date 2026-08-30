@@ -44,6 +44,7 @@ from backend.intelligence.experience.run_http import (
     _assert_draft_payload,
     _assert_safe_mapping,
     _fingerprint,
+    _validate_feedback_payload,
 )
 from backend.intelligence.experience.run_http import (
     RunScope as HttpRunScope,
@@ -717,6 +718,8 @@ class SqlAlchemyExperienceRunLedger:
             raise RunHttpError("HUMAN_REVIEW_STATUS_INVALID")
         if interaction_type is InteractionType.DELETE and payload.get("status") != "deleted":
             raise RunHttpError("DELETION_STATUS_INVALID")
+        if interaction_type is InteractionType.FEEDBACK:
+            _validate_feedback_payload(payload)
 
 
 class CommittedExperienceRunLedger:

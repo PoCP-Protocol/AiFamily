@@ -626,6 +626,45 @@ class InMemoryExperienceRunLedger:
             raise RunHttpError("HUMAN_REVIEW_STATUS_INVALID")
         if interaction_type is InteractionType.DELETE and payload.get("status") != "deleted":
             raise RunHttpError("DELETION_STATUS_INVALID")
+        if interaction_type is InteractionType.FEEDBACK:
+            _validate_feedback_payload(payload)
+
+
+def _validate_feedback_payload(payload: Mapping[str, Any]) -> None:
+    """Validate optional evaluation/model references without resolving them.
+
+    The ledger records references only; it must not fetch benchmark reports or
+    infer model identity from a client payload.  A stable ``benchmark:``
+    namespace is enough to make the linkage auditable while leaving report
+    storage and ownership to the evaluation subsystem.
+    """
+
+    if payload.get("signal") not in {"helpful", "not_helpful", "request_human"}:
+        raise RunHttpError("FEEDBACK_SIGNAL_UNSUPPORTED")
+    for field_name in (
+        "reason",
+        "draft_version",
+        "attempt_id",
+        "candidate_id",
+        "model_version",
+        "benchmark_report_ref",
+    ):
+        value = payload.get(field_name)
+        if value is None:
+            continue
+        if not isinstance(value, str) or not value.strip() or len(value) > 256:
+            raise RunHttpError("FEEDBACK_REFERENCE_INVALID")
+    benchmark_ref = payload.get("benchmark_report_ref")
+    if benchmark_ref is not None and not benchmark_ref.startswith("benchmark:"):
+        raise RunHttpError("BENCHMARK_REPORT_REF_INVALID")
+    event_refs = payload.get("real_event_refs")
+    if event_refs is not None and (
+        not isinstance(event_refs, (list, tuple))
+        or any(
+            not isinstance(ref, str) or not ref.strip() or len(ref) > 256 for ref in event_refs
+        )
+    ):
+        raise RunHttpError("REAL_EVENT_REFS_INVALID")
 
 
 def _fingerprint(value: Mapping[str, Any]) -> str:

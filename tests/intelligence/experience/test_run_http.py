@@ -216,6 +216,43 @@ def test_decision_feedback_and_human_review_are_append_only_entries() -> None:
     assert entries[-1].payload["status"] == "human_review"
 
 
+def test_feedback_evaluation_references_are_namespaced_and_scope_safe() -> None:
+    ledger = _ledger()
+    _create(ledger)
+
+    receipt = ledger.record_feedback(
+        scope=_scope(),
+        run_id="run-1",
+        signal="helpful",
+        idempotency_key="feedback-eval-1",
+        payload={
+            "benchmark_report_ref": "benchmark:multimodal:gold.v1:abc123",
+            "attempt_id": "attempt-1",
+            "candidate_id": "qwen3-vl-flash",
+            "model_version": "2026-08",
+            "real_event_refs": ["event:experience:1"],
+        },
+    )
+    assert receipt.status == "recorded"
+
+    with pytest.raises(RunHttpError, match="BENCHMARK_REPORT_REF_INVALID"):
+        ledger.record_feedback(
+            scope=_scope(),
+            run_id="run-1",
+            signal="helpful",
+            idempotency_key="feedback-eval-2",
+            payload={"benchmark_report_ref": "report-unknown"},
+        )
+    with pytest.raises(RunHttpError, match="REAL_EVENT_REFS_INVALID"):
+        ledger.record_feedback(
+            scope=_scope(),
+            run_id="run-1",
+            signal="helpful",
+            idempotency_key="feedback-eval-3",
+            payload={"real_event_refs": ["event:ok", ""]},
+        )
+
+
 def test_delete_hides_draft_and_artifacts_and_blocks_new_mutations() -> None:
     ledger = _ledger()
     _create(ledger)
