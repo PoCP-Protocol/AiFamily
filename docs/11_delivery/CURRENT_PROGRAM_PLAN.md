@@ -105,6 +105,30 @@ superseded_by: null
 
 P0 任一任务没有真实 PostgreSQL 或 HTTP 证据，Sprint 保持 `NOT_DONE`；FamilyNeed 与 Assessment 各自测试通过不能替代 GrowthIntent→Onboarding 的端到端证据。
 
+### 当前跨 Chat 交付矩阵（PMA-1 复核快照，2026-08-30）
+
+以下矩阵把各 Agent 回传转换为可验收状态。`PASS` 仅表示该层测试证据通过，不能越级为
+生产能力；`PARTIAL` 表示仍缺闭环；`BLOCKED` 表示发布闸门不可绕过。Fake、skip、设计稿
+和单独的 fixture 不作为生产完成证据。
+
+| Thread/标题 | Scope | Owner / commit | PASS 证据 | 当前状态 | 未闭合阻断与下一动作 |
+|---|---|---|---|---|---|
+| APLT-2 / security gate | 环境 fail-closed、Experience 401/403/Consent 错误码 | APLT / `cbc055e`、`736ae19`、`d2196bc` | 定向 7 passed/1 expected-red；非法环境与错误映射通过 | `PARTIAL/BLOCKED (P0)` | unset `AIFAMILY_ENV` 仍默认为 development；真实 auth/session/tenant/consent 未接线。原 WIP owner 收口后补三环境 TestClient 和 OpenAPI/404/401/403 |
+| ADOM-5 / DB-01 migration | Alembic baseline/head、ORM/Manifest/ADR | ADOM/ARCH / `5a67a1b`；0011–0017 WIP | FGCN chain 2 passed；baseline PG 分层 8 passed/1 failed/1 skipped | `PARTIAL/BLOCKED (P1)` | `alembic heads=0017`，未知 head 失败；0011–0017 未形成 tracked/审批链。补对象清单、可逆 Fresh PG、单 head 后才 allow-list |
+| AAIR-6 / durable deletion | deletion queue、lease/retry/DLQ、五类回执 | AAIR / durable deletion slice | durable 子集 6 项；context-engine 25 passed | `CONTRACTED/adapter-only` | InMemory store、无 PG/outbox/跨进程 lease/真实 receipts；补 durable worker 与审计删除证明 |
+| AFE-4 / UI experience | 34 UI 语义图标、成就、多模态、跨端 | AFE / UI slice | 专项 5 passed、mobile `pnpm check` passed；Web 22/typecheck 0 | `PARTIAL` | mobile 全量 249 passed/1 skipped/5 failed；修 UI-02、registry/service contract 与四端视觉/无障碍/locale parity |
+| GROWTH / S05→S08 | Action→Outcome→Story→Recommendation→Annual/Renewal | growth_action_loop / `b431eda`、`78cb9c1`、`dcc0802` | journey 40/4；Fresh PG 44 | `GO (测试契约)/CONTRACTED-PARTIAL` | 无 Journey HTTP/ORM/常驻 worker/真实 sink；补 Audit/Outbox、consent/replay/deletion 与 UI e2e |
+| GROWTH-ONBOARDING | Confirmed Intent→Onboarding HTTP/PG | growth owner / `0cd53fb`、`6b4a8e9` | route/domain 29 passed；PG 单跑 13 passed，但重复一轮 12 passed/1 failed | `CONTRACTED-PARTIAL` | `actor_family_scope_denied` 时序/时钟 flake；0016/0017 migration 未登记。修 fixture 时钟/隔离、非法 UUID=400、跨租户/撤回同意 |
+| AAIR/PLT / Context | Async/SQL Context、scope/replay/delete | AAIR / `02a80c4`、`6a88625`、`6150169`、`9b10d2d` | context 25 passed；disposable PG probe 1 passed | `CONTRACTED-PARTIAL` | PG probe 仍 create_all/同 engine，无 Alembic/restart/production resolver；补 durable Consent、migration、Audit/Outbox、删除 receipts |
+| AAIR/EVAL / Experience | SQL ledger/session、benchmark、唯一 AI gate | AAIR/API / `941feae`、`a11f643`、`96905db`、`69f6508`、`674b764`、`050361f`、`b3fffbb`、`5df865e`、`eb33c06` | evaluation+experience 220 passed/1 warning | `CONTRACTED-PARTIAL` | 双 gate、EvalReport registry、trusted ActorContext/Consent、PG transaction/Audit/Outbox 缺；冻结扩张并合并 canonical gate |
+| MEMBERSHIP-01 / 三账 | entitlement、contribution、settlement | DOM / `0ca62d2` | Fresh PG membership 50 passed/1 warning | `CONTRACTED-PARTIAL` | 生产 API/身份/consent/退款争议/删除审计缺；保持贡献/权益/现金分账、无总分排名 |
+| FGCN / service collaboration | admission→Human Gate→Named Action→TaskAssignment→delivery/quality/contribution | FGCN / `41ad120` | 定向 77 passed/1 skipped/2 warnings；PG persistence+routes 45 passed/2 warnings | `GO (测试契约)/NO-GO (生产)` | reviewer/worker/action context 默认 RuntimeError；one-shot worker 无 queue/通知/DLQ；capacity reservation 非原子；gate/assignment 双事务 crash/retry、生产 identity/consent/duplicate operationId 待补 |
+
+**总闸门（快照）**：architecture `109 passed/1 skipped/1 failed`（Ruff ratchet）、全量 Ruff
+`1 E501`、Alembic unknown 0017、mobile `249/1/5`，因此当前测试候选只能在受控环境继续；
+生产发布明确 `NO-GO`。本地总控在 `41ad120` 之上另有 PMA 文档提交 `4e50883`，远端同步状态
+需以 `git status -sb` 为准，禁止将其它 Agent WIP 一并推送。
+
 ### P1-P6 的首个可实现任务
 
 1. **P1.1 Service value slice**：一个成人授权家庭、一个合资格 `ServiceOffering`、一个 `Slot`、预约确认、履约记录和家庭反馈；支付可用 sandbox，但不能删除退款、取消、幂等、审计和错误路径。

@@ -20,8 +20,10 @@ superseded_by: null
 > 路由、状态机、权限、错误码、审计、人工闸门和失败路径；测试只替换合成数据与外部
 > 适配器，不能因为是 test/dev 而删能力。
 
-**分支状态（2026-08-30）**：远端已推送的版本仍为测试候选，发布判定为 **NO-GO**；当前
-本地已与 `origin/codex/cleanup-superseded` 同步至 `d2196bc`，工作树仍包含其他 Agent 的 WIP。
+**分支状态（2026-08-30）**：远端已推送的版本仍为测试候选，发布判定为 **NO-GO**；
+`origin/codex/cleanup-superseded` 当前可见为 `d2196bc`，本地总控在其上包含 FGCN
+`41ad120`、PMA 文档提交 `4e50883` 及 Web client-mode 提交 `4b9a4b4`；工作树仍包含
+其他 Agent 的 WIP，不能将这些提交视为远端已发布。
 最近提交链含 0cd53fb、9b10d2d、6b4a8e9、cbc055e、736ae19、d2196bc、02a80c4、
 6a88625、6150169、573a86d、a91ad3a、0ca62d2、f8ee917。提交可追踪不等于生产接线完成；生产与 dev/test 仍须功能同构，
 只允许数据和外部适配器不同。
