@@ -85,7 +85,8 @@ export default function CompanionJourneyScreen() {
   }, [serviceCardsOffset, serviceCardsOpacity]);
 
   useEffect(() => {
-    revealServiceCards();
+    const timer = setTimeout(revealServiceCards, 120);
+    return () => clearTimeout(timer);
   }, [revealServiceCards]);
 
   const openCheckin = () => {
