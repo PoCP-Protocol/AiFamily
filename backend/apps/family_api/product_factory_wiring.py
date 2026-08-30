@@ -19,7 +19,24 @@ from backend.domains.product_intelligence.api.dependencies import (
 
 
 def mount_product_factory_router(application: FastAPI) -> None:
-    """Mount the Product Factory draft endpoints exactly once."""
+    """Mount the Product Factory draft endpoints exactly once.
+
+    Composition roots may be assembled by more than one environment adapter
+    (for example, a test harness and the production factory).  Treat a second
+    invocation as a no-op so route registration cannot silently duplicate
+    OpenAPI operations or request dispatch entries.
+    """
+
+    expected = {
+        (route.path, frozenset(route.methods or ()))
+        for route in product_factory_routes.router.routes
+    }
+    registered = {
+        (getattr(route, "path", None), frozenset(getattr(route, "methods", None) or ()))
+        for route in application.routes
+    }
+    if expected and expected.issubset(registered):
+        return
 
     application.include_router(product_factory_routes.router)
 

@@ -13,3 +13,17 @@ def test_product_factory_mount_exposes_draft_contract_without_identity_fallback(
     paths = set(app.openapi()["paths"])
     assert "/product-intelligence/product-factory/demand-frames" in paths
     assert "/product-intelligence/product-factory/product-packages" in paths
+
+
+def test_product_factory_mount_is_idempotent() -> None:
+    app = FastAPI()
+    mount_product_factory_router(app)
+    mount_product_factory_router(app)
+
+    routes = [
+        route
+        for route in app.routes
+        if getattr(route, "path", "").startswith("/product-intelligence/product-factory/")
+    ]
+    signatures = [(route.path, frozenset(route.methods or ())) for route in routes]
+    assert len(signatures) == len(set(signatures))
