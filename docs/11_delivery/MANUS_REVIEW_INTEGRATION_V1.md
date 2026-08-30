@@ -242,7 +242,9 @@ Fresh `uv run pytest tests/domains/service/fgcn -q`（设置 Postgres URL）为 
 和 `get_consent_query` 未接生产组合根，迁移/审计/outbox/常驻 worker 仍缺。此前独立复核还发现
 `_assignment_matches` 把当前 `ACCEPTED` 状态纳入 replay identity，assignment 后续进入
 `COMPLETED`/`REVOKED` 时相同 request 可能误判 mismatch；已发 P1 返工，故状态仍
-`GO（测试契约）/PARTIAL（候选）/NO-GO（生产）`。
+`GO（测试契约）/PARTIAL（候选）/NO-GO（生产）`。另发现 `scenario.py` 以英文短语匹配
+outcome/quality，中文及其它 locale 合法观察无法通过；P1 需改为 scenario/policy/version
+与结构化 outcome markers，文案由 locale registry 渲染，并补多语言正负向测试。
 
 ## 4. P0/P1/P2 执行清单
 

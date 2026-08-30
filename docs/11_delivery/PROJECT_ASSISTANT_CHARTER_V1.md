@@ -167,6 +167,7 @@ PMA 文档），工作树仍有其他 Agent 的 WIP，发布判定仍为 **NO-GO
 24. FGCN `e7cbb0b` 已绑定 S-01 家庭主动请求/自助失败门槛与场景 provenance；Fresh Postgres
 定向 **113 passed**。该数字不改变生产判定：四个依赖仍由 RuntimeError/DenyAll 占位，
 常驻 worker、Audit/Outbox、迁移接线和真实身份/同意缺失，且 assignment 终态 replay 语义
-需按 canonical request hash 修正后再验收。
+需按 canonical request hash 修正后再验收。S-01 规则当前硬编码英文短语，未绑定 locale
+registry；多语言结构化 outcome markers 与 zh/en/fr 负向测试亦为 P1。
 
 这些记录是可追溯的审查输入，不是对 owner 的替代实现。返工完成后必须重新读取文件并运行新鲜命令，才能更新状态。
