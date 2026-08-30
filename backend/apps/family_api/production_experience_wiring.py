@@ -44,6 +44,7 @@ from backend.intelligence.model_gateway.gateway import ModelGateway
 from backend.intelligence.model_gateway.provenance import (
     SqlAlchemyModelDraftRegistry,
 )
+from backend.platform.persistence.unit_of_work import SqlAlchemyUnitOfWork
 
 ScopeResolver = Callable[[str], ContextScope | Awaitable[ContextScope]]
 DraftSubjectResolver = Callable[[ContextScope], str | None]
@@ -63,7 +64,10 @@ class _RequestScopedMultimodalApplication(MultimodalDraftApplication):
     async def generate_draft(
         self, command: ContextBoundMultimodalCommand
     ) -> ContextBoundMultimodalDraft:
-        async with self.session_factory() as session, session.begin():
+        async with SqlAlchemyUnitOfWork(self.session_factory) as unit_of_work:
+            session = unit_of_work.session
+            if session is None:  # pragma: no cover - UoW contract guard
+                raise RuntimeError("production experience UoW did not open a session")
             registry = SqlAlchemyModelDraftRegistry(session)
             application = ContextBoundMultimodalExperienceService(
                 context=self.context_broker,
@@ -81,7 +85,9 @@ class _RequestScopedMultimodalApplication(MultimodalDraftApplication):
                 if self.model_draft_subject_resolver is not None
                 else command.scope.subject_id
             )
-            return await application.generate_draft(_with_subject(command, subject_id))
+            result = await application.generate_draft(_with_subject(command, subject_id))
+            await unit_of_work.commit()
+            return result
 
 
 def _with_subject(
