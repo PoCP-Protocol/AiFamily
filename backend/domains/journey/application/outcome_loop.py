@@ -10,7 +10,8 @@ The sequence represented here is:
 
 ``ActionFact -> ChallengeReview -> Outcome(PENDING) -> Outcome(CONFIRMED)``
 ``                     -> private Story -> Recommendation(DRAFT)``
-``                     -> ServiceCase(REQUESTED) -> AnnualReview/Renewal``
+``                     -> ServiceCaseCommand -> DeliveryReceipt -> Renewal``
+``                     -> AnnualReviewProjection``
 
 All objects carry tenant/family scope.  The production implementation must
 persist the same transitions with audit and outbox records in one transaction
