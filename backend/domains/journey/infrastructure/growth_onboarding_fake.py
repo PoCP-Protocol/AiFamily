@@ -107,6 +107,7 @@ class FakeConsentRecord:
     purpose: str
     status: str
     granted_at: datetime
+    effective_from: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -163,7 +164,9 @@ class FakeGrowthOnboardingConsent:
         purpose: str,
         *,
         granted_at: datetime | None = None,
+        effective_from: datetime | None = None,
     ) -> None:
+        recorded_at = granted_at or self._now()
         self.bindings.setdefault(
             (scope.tenant_id, scope.family_id),
             FakeTenantFamilyBinding(
@@ -179,7 +182,8 @@ class FakeGrowthOnboardingConsent:
                 subject_person_id=subject_person_id,
                 purpose=purpose,
                 status="GRANTED",
-                granted_at=granted_at or self._now(),
+                granted_at=recorded_at,
+                effective_from=effective_from or recorded_at,
             )
         )
 
@@ -225,6 +229,7 @@ class FakeGrowthOnboardingConsent:
             and record.purpose == purpose
             and record.status == "GRANTED"
             and record.granted_at <= moment
+            and (record.effective_from or record.granted_at) <= moment
             for record in self.grants
         )
         if not active:
