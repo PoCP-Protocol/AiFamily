@@ -222,6 +222,21 @@ async def test_withdrawn_consent_takes_effect_immediately(repo, consent, recorde
         await _book(repo, consent, recorder, offering=offering, slot=slot, booking_ref="BOOK-B")
 
 
+async def test_withdrawn_consent_cannot_be_bypassed_by_booking_replay(
+    repo, consent, recorder
+) -> None:
+    """The idempotency fast path must not outrun the live ConsentGate."""
+    consent.add(granted())
+    _provider, offering, slot = await seed_supply(repo, capacity=2, recorder=recorder)
+    ctx = make_ctx(idempotency_key="idem-consent-replay")
+    first = await _book(repo, consent, recorder, offering=offering, slot=slot, ctx=ctx)
+    consent.withdraw(CONSENT_REF)
+
+    with pytest.raises(ServiceForbiddenError, match="consent_required:service:"):
+        await _book(repo, consent, recorder, offering=offering, slot=slot, ctx=ctx)
+    assert len(await repo.list_bookings(first.tenant_id, first.family_id)) == 1
+
+
 async def test_consent_for_another_purpose_does_not_permit_booking(repo, consent, recorder) -> None:
     """A grant is scoped to exactly one purpose — ASSESSMENT consent is not
     SERVICE consent. Widening scope is intentionally not representable."""
@@ -295,6 +310,26 @@ async def test_replayed_idempotency_key_returns_the_same_booking(repo, consent, 
     assert slot_after.reserved_count == 1
 
 
+async def test_booking_replay_compares_booking_ref_and_subject(
+    repo, consent, recorder
+) -> None:
+    consent.add(granted())
+    _provider, offering, slot = await seed_supply(repo, capacity=2, recorder=recorder)
+    ctx = make_ctx(idempotency_key="idem-booking-payload")
+    await _book(repo, consent, recorder, offering=offering, slot=slot, ctx=ctx)
+
+    with pytest.raises(ServiceConflictError, match="idempotency_key_reused_with_different_payload"):
+        await _book(
+            repo,
+            consent,
+            recorder,
+            offering=offering,
+            slot=slot,
+            ctx=ctx,
+            booking_ref="BOOK-DIFFERENT",
+        )
+
+
 async def test_idempotency_key_reused_with_a_different_payload_is_a_conflict(
     repo, consent, recorder
 ) -> None:
@@ -335,6 +370,15 @@ async def test_ai_actor_cannot_book_or_confirm(repo, consent, recorder) -> None:
     assert exc.value.code == "booking_submit_requires_human_actor"
 
     booking = await _book(repo, consent, recorder, offering=offering, slot=slot)
+    with pytest.raises(ServiceForbiddenError) as exc:
+        await commands.confirm_booking_request(
+            repo, ai_ctx, recorder, booking_request_id=booking.booking_request_id
+        )
+    assert exc.value.code == "booking_confirm_requires_human_actor"
+
+    _confirmed, _record = await commands.confirm_booking_request(
+        repo, make_ctx(), recorder, booking_request_id=booking.booking_request_id
+    )
     with pytest.raises(ServiceForbiddenError) as exc:
         await commands.confirm_booking_request(
             repo, ai_ctx, recorder, booking_request_id=booking.booking_request_id

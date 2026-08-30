@@ -17,6 +17,7 @@ from backend.domains.service.domain.entities import utcnow
 from backend.domains.service.domain.errors import (
     ServiceConflictError,
     ServiceForbiddenError,
+    ServiceValidationError,
 )
 
 from .helpers import CHILD, CONSENT_REF, granted, make_ctx, seed_supply
@@ -240,11 +241,25 @@ async def test_feedback_fail_closed_for_consent_scope_and_uncompleted_delivery(
         recorder,
         booking_service_record_id=record.booking_service_record_id,
     )
+    replay_key = "feedback-withdrawal-replay"
+    await commands.record_family_feedback(
+        repo,
+        make_ctx(idempotency_key=replay_key),
+        recorder,
+        consent,
+        booking_request_id=booking.booking_request_id,
+        delivery_record_id=record.booking_service_record_id,
+        subject_person_id=CHILD,
+        author_role="GUARDIAN",
+        outcome="HELPFUL",
+        issue_codes=[],
+        consent_ref=CONSENT_REF,
+    )
     consent.withdraw(CONSENT_REF)
     with pytest.raises(ServiceForbiddenError, match="consent_required:service:"):
         await commands.record_family_feedback(
             repo,
-            make_ctx(idempotency_key="feedback-withdrawn"),
+            make_ctx(idempotency_key=replay_key),
             recorder,
             consent,
             booking_request_id=booking.booking_request_id,
@@ -254,6 +269,68 @@ async def test_feedback_fail_closed_for_consent_scope_and_uncompleted_delivery(
             outcome="HELPFUL",
             issue_codes=[],
             consent_ref=CONSENT_REF,
+        )
+
+
+async def test_feedback_cannot_rebind_a_booking_to_another_consented_subject(
+    repo, consent, recorder
+) -> None:
+    consent.add(granted())
+    booking, record = await _completed(repo, consent, recorder)
+    other_subject = "person-other-child"
+    other_consent = "consent-service-other-child"
+    consent.add(granted(subject_person_id=other_subject, consent_id=other_consent))
+
+    with pytest.raises(ServiceForbiddenError, match="feedback_subject_mismatch"):
+        await commands.record_family_feedback(
+            repo,
+            make_ctx(idempotency_key="feedback-subject-mismatch"),
+            recorder,
+            consent,
+            booking_request_id=booking.booking_request_id,
+            delivery_record_id=record.booking_service_record_id,
+            subject_person_id=other_subject,
+            author_role="GUARDIAN",
+            outcome="HELPFUL",
+            issue_codes=[],
+            consent_ref=other_consent,
+        )
+
+
+async def test_remedy_action_cannot_mix_feedback_from_another_delivery(
+    repo, consent, recorder
+) -> None:
+    consent.add(granted())
+    booking_a, record_a = await _completed(repo, consent, recorder)
+    feedback_a = await commands.record_family_feedback(
+        repo,
+        make_ctx(idempotency_key="feedback-delivery-a"),
+        recorder,
+        consent,
+        booking_request_id=booking_a.booking_request_id,
+        delivery_record_id=record_a.booking_service_record_id,
+        subject_person_id=CHILD,
+        author_role="GUARDIAN",
+        outcome="NOT_HELPFUL_YET",
+        issue_codes=["NEED_MISSED"],
+        consent_ref=CONSENT_REF,
+    )
+    # Simulate a stale/corrupt relational reference without bypassing the
+    # command under test. The service action must reject it before writing a
+    # remedy fact.
+    mixed_feedback = feedback_a.model_copy(update={"delivery_record_id": "foreign-delivery"})
+    await repo.save_family_feedback(mixed_feedback)
+    await repo.commit()
+
+    with pytest.raises(ServiceValidationError, match="service_action_feedback_delivery_mismatch"):
+        await commands.record_service_action(
+            repo,
+            make_ctx(idempotency_key="action-mixed-delivery"),
+            recorder,
+            booking_request_id=booking_a.booking_request_id,
+            delivery_record_id=record_a.booking_service_record_id,
+            family_feedback_id=mixed_feedback.family_feedback_id,
+            action_type="REMEDY_REWORK",
         )
 
 

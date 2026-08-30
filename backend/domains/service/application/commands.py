@@ -416,22 +416,6 @@ async def submit_booking_request(
         allowed_source_system="TEST_FIXTURE",
     )
 
-    if ctx.idempotency_key:
-        existing = await repo.find_booking_by_idempotency_key(
-            ctx.tenant_id, ctx.family_id, ctx.idempotency_key
-        )
-        if existing is not None:
-            # Replay of the same key returns the same booking. A *different*
-            # payload under the same key is a conflict rather than a silent
-            # return of the first result, because a client that reused a key by
-            # accident must find out.
-            if (
-                existing.availability_slot_id != availability_slot_id
-                or existing.service_offering_id != service_offering_id
-            ):
-                raise ServiceConflictError("idempotency_key_reused_with_different_payload")
-            return existing
-
     if not consent_ref.strip():
         raise ServiceValidationError("booking_consent_ref_required")
 
@@ -454,6 +438,28 @@ async def submit_booking_request(
         raise ServiceForbiddenError(
             f"consent_required:{BOOKING_CONSENT_PURPOSE.value}:{subject_person_id}"
         )
+
+    # Consent is deliberately checked before an idempotent replay. A replay is
+    # still a request carrying a minor subject, and returning an old result after
+    # withdrawal would turn the idempotency fast path into a consent bypass.
+    if ctx.idempotency_key:
+        existing = await repo.find_booking_by_idempotency_key(
+            ctx.tenant_id, ctx.family_id, ctx.idempotency_key
+        )
+        if existing is not None:
+            # Replay of the same key returns the same booking. A *different*
+            # payload under the same key is a conflict rather than a silent
+            # return of the first result, because a client that reused a key by
+            # accident must find out.
+            if (
+                existing.availability_slot_id != availability_slot_id
+                or existing.service_offering_id != service_offering_id
+                or existing.booking_ref != booking_ref
+                or existing.consent_ref != consent_ref
+                or existing.service_snapshot.get("subject_person_id") != subject_person_id
+            ):
+                raise ServiceConflictError("idempotency_key_reused_with_different_payload")
+            return existing
 
     offering = await repo.load_offering(service_offering_id)
     assert_family_scope(expected_family_id=ctx.tenant_id, actual_family_id=offering.tenant_id)
@@ -507,6 +513,7 @@ async def submit_booking_request(
             "channel": slot.channel,
             "scenario_ref": offering.attributes.get("scenario_ref", FIRST_SCENARIO_REF),
             "outcome_ref": offering.attributes.get("outcome_ref"),
+            "subject_person_id": subject_person_id,
         },
         environment=ctx.environment,
         correlation_id=ctx.correlation_id,
@@ -577,6 +584,9 @@ async def confirm_booking_request(
     booking already has a delivery obligation attached; creating the receipt
     only at completion would leave "confirmed but never delivered" unrepresented.
     """
+    # Must run before the state-idempotency return below: an AI caller may not
+    # learn or replay a human confirmation through a second command path.
+    assert_human_actor(ctx.actor, code="booking_confirm")
     booking = await repo.load_booking(booking_request_id)
     assert_family_scope(expected_family_id=ctx.family_id, actual_family_id=booking.family_id)
 
@@ -589,6 +599,8 @@ async def confirm_booking_request(
         # confirm cannot produce a second record anyway. Returning the existing
         # pair makes the replay a success rather than a 409 a client must
         # special-case.
+        if booking.status != CONFIRMED_BOOKING_STATUS:
+            raise ServiceConflictError("confirmed_booking_record_mismatch")
         return booking, existing_record
 
     now = utcnow()
@@ -829,19 +841,6 @@ async def record_family_feedback(
 ) -> FamilyFeedback:
     """Record an adult's bounded response after a completed delivery."""
     assert_human_actor(ctx.actor, code="family_feedback")
-    if ctx.idempotency_key:
-        existing = await repo.find_feedback_by_idempotency_key(
-            ctx.tenant_id, ctx.family_id, ctx.idempotency_key
-        )
-        if existing is not None:
-            if (
-                existing.booking_request_id != booking_request_id
-                or existing.delivery_record_id != delivery_record_id
-                or existing.outcome != outcome
-            ):
-                raise ServiceConflictError("family_feedback_idempotency_replay_mismatch")
-            return existing
-
     if any(code not in FEEDBACK_ISSUE_CODES for code in issue_codes):
         raise ServiceValidationError("family_feedback_issue_code_not_allowed")
     record = await repo.load_service_record(delivery_record_id)
@@ -852,6 +851,8 @@ async def record_family_feedback(
         raise ServiceConflictError("feedback_requires_completed_delivery")
     booking = await repo.load_booking(booking_request_id)
     assert_family_scope(expected_family_id=ctx.family_id, actual_family_id=booking.family_id)
+    if booking.service_snapshot.get("subject_person_id") != subject_person_id:
+        raise ServiceForbiddenError("feedback_subject_mismatch")
 
     grants = await consent.list_grants(
         tenant_id=ctx.tenant_id,
@@ -872,6 +873,24 @@ async def record_family_feedback(
         raise ServiceForbiddenError(
             f"consent_required:{BOOKING_CONSENT_PURPOSE.value}:{subject_person_id}"
         )
+
+    # The live Consent check must precede an idempotent replay; otherwise a
+    # withdrawn grant could be bypassed by repeating the old feedback key.
+    if ctx.idempotency_key:
+        existing = await repo.find_feedback_by_idempotency_key(
+            ctx.tenant_id, ctx.family_id, ctx.idempotency_key
+        )
+        if existing is not None:
+            if (
+                existing.booking_request_id != booking_request_id
+                or existing.delivery_record_id != delivery_record_id
+                or existing.outcome != outcome
+                or existing.author_person_id != ctx.actor_person_id
+                or existing.consent_ref != consent_ref
+                or sorted(existing.issue_codes) != sorted(issue_codes)
+            ):
+                raise ServiceConflictError("family_feedback_idempotency_replay_mismatch")
+            return existing
 
     now = utcnow()
     feedback = FamilyFeedback(
@@ -958,6 +977,8 @@ async def decide_service_quality(
         assert_family_scope(expected_family_id=ctx.family_id, actual_family_id=feedback.family_id)
         if feedback.delivery_record_id != delivery_record_id:
             raise ServiceValidationError("quality_feedback_delivery_mismatch")
+        if feedback.booking_request_id != booking_request_id:
+            raise ServiceValidationError("quality_feedback_booking_mismatch")
         if feedback.outcome == "NOT_HELPFUL_YET" and status == "ACCEPTED":
             raise ServiceConflictError("not_helpful_feedback_requires_remedy")
 
@@ -1061,6 +1082,8 @@ async def record_service_action(
         assert_family_scope(expected_family_id=ctx.family_id, actual_family_id=feedback.family_id)
         if feedback.booking_request_id != booking_request_id:
             raise ServiceValidationError("service_action_feedback_booking_mismatch")
+        if delivery_record_id is not None and feedback.delivery_record_id != delivery_record_id:
+            raise ServiceValidationError("service_action_feedback_delivery_mismatch")
 
     now = occurred_at or utcnow()
     action = ServiceAction(
