@@ -95,6 +95,7 @@ class ServiceCaseProgressProjection:
     subject_person_id: str
     purpose: str
     consent_version: str
+    correlation_id: str
     case_status: CaseStatus
     tasks: tuple[ServiceTaskProgressProjection, ...]
     verified_contributions: tuple[VerifiedContributionProjection, ...]
@@ -110,7 +111,7 @@ class ServiceCaseProgressProjection:
             subject_person_id=self.subject_person_id,
             purpose=self.purpose,
             consent_version=self.consent_version,
-            correlation_id=f"projection:{self.case_id}",
+            correlation_id=self.correlation_id,
         )
 
     @property
@@ -289,6 +290,8 @@ def _project_allocations(
         raise TypeError("fgcn_projection_allocation_fact_must_be_immutable")
     if allocation.case_id != case.case_id:
         raise ServiceForbiddenError("fgcn_projection_allocation_case_mismatch")
+    if case.status is not CaseStatus.COMPLETED:
+        raise ServiceValidationError("fgcn_projection_allocation_case_not_completed")
     projected: list[AllocationUnitsProjection] = []
     seen_ids: set[str] = set()
     for line in allocation.lines:
@@ -440,6 +443,7 @@ def build_case_progress_projection(
         subject_person_id=case.scope.subject_person_id,
         purpose=case.scope.purpose,
         consent_version=case.scope.consent_version,
+        correlation_id=case.scope.correlation_id,
         case_status=case.status,
         tasks=tuple(task_projections),
         verified_contributions=tuple(

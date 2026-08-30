@@ -257,3 +257,8 @@ def test_projection_rejects_contribution_without_verified_delivery_fact() -> Non
             contributions=(_contribution(),),
             viewer_scope=_scope(),
         )
+
+
+def test_projection_rejects_allocation_for_non_terminal_case() -> None:
+    with pytest.raises(ServiceValidationError, match="allocation_case_not_completed"):
+        build_case_progress_projection(_case(), allocation=_allocation(), viewer_scope=_scope())
