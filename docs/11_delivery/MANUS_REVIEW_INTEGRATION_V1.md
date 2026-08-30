@@ -56,9 +56,9 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 
 ### 3.2 ADOM-5 FGCN 迁移链
 
-- **证据**：Fresh Postgres 下 `tests/database/test_fgcn_migration_chain.py` 2 passed；`alembic upgrade head`、`downgrade base`、再次 upgrade 成功。当前工作区新出现未跟踪 `0009_ai_model_drafts.py`，head=0009、160 表；0009 尚未登记/提交。
-- **缺口/风险**：迁移测试已在 WIP 中拆分 baseline、0008 固定边界和动态 head，但未登记 0009 会让 head 口径漂移。若测试只接受 0008，会误报合法 WIP；若无条件接受 head，又会掩盖未审查迁移。
-- **补测与验收**：baseline/0008/head 测试分层且全绿；0004→0008 固定 159 表、单 head、可逆；只有 owner 完成 ADR/manifest、核对模型对象和 Fresh Postgres 结果后才允许 0009→160；未知 head 必须失败。
+- **证据**：DB-01 提交 `981343b` 后 Fresh Postgres 下 `tests/database/test_alembic_baseline_applies.py` 3 passed、`tests/database/test_fgcn_migration_chain.py` 2 passed；0001 baseline、0008 固定边界与动态 head 已分层，0008=159 表。当前工作区新出现未跟踪 `database/migrations/versions/0009_ai_model_drafts.py`，head=0009、160 表；`governance/ADR/ADR-0045-durable-model-draft-provenance-registry.md` 与该 migration 均未正式提交，`MIGRATION_MANIFEST` 尚无 0009 capability 条目。
+- **缺口/风险**：迁移测试显式允许 0008→159 或 0009→160，未知 head 会失败；但未登记的 0009 仍会改变动态 head，不能把测试通过或 WIP 文件当成发布能力。ORM、迁移对象、AI draft 数据保留/删除和生产 wiring 尚未完成。
+- **下一步与验收**：ADOM/AAIR/ARCH 必须二选一并留证：①补 ADR、`governance/MIGRATION_MANIFEST.yaml`、ORM/表/索引/CHECK 对象清单、Fresh Postgres upgrade/downgrade/re-upgrade 后再纳入 0009→160；或 ②在批准前移出/隔离 0009，恢复 0008=159 责任边界。两种路径都要求单 head、未知 head 失败，不能简单改常数。
 
 ### 3.3 AAIR-5 Context 删除 Worker
 
