@@ -301,3 +301,12 @@ pnpm check                                  passed
 - 所有投影不写 canonical 事实，不产生家庭总分、排名或未经验证的贡献；
 - 删除状态必须能回放并留下审计链，外部存储未确认时只能标记待处理；
 - 测试数据库执行 migration 后，dev/test/prod 使用同一 API 与状态机，仅适配器和数据来源不同。
+
+### 16.1 当前集成阻塞
+
+- 已启动 `docker-compose.dev.yml` 的 disposable Postgres，但首次 `alembic upgrade head` 暴露真实
+  迁移问题：`0005_fgcn_assignment_request_idempotency` 的 revision 字符串超过历史
+  `alembic_version.version_num VARCHAR(32)`，在更新版本号时失败；迁移 owner 必须在不破坏历史
+  版本链的前提下改为不超过 32 字符并验证 0004→0006 全链路。
+- 未设置 `DATABASE_URL` 时 Alembic 会落到 SQLite，而基线包含 Postgres 专用 SQL；这不是可接受的
+  测试降级，开发规范必须要求显式 Postgres URL 后再执行 migration。
