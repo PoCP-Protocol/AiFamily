@@ -314,6 +314,52 @@ route{provider_id, vendor, model, model_version, strategy,
 
 至少提供：真实 HTTP 成功测试（DRAFT/provenance）、缺同意/跨 scope/未准入测试（provider invocation=0）、超时/重试/幂等测试、删除测试、回放不重算测试、Web smoke/e2e 输出、请求与响应 schema 版本、trace/audit 引用和回滚方式。只有 AG-04 复核通过并由 AG-00 记录集成结论，S3-API-01 才能进入 `DONE_WITH_EVIDENCE`。
 
+### Sprint 4 看板：真实 API 验收与决策/反馈端点对齐
+
+Sprint 4 以“真实后端可验证接线”为目标，但必须区分已实现路由、候选命名和未完成能力。当前后端只确认 draft POST 路由；决策、反馈、删除和回放尚未挂 HTTP，不能把 Web Fake client 演示当作后端完成证据。
+
+| 编号 | 工作包 | 状态 | 最小交付 | 依赖/验收 |
+|---|---|---|---|---|
+| **S4-API-01 / AG-02** | Runtime resolver 与真实 draft API | `BLOCKED` | 接入身份、授权、同意、Context Snapshot 和环境 resolver | 解除条件：TestClient 成功 DRAFT；生产未配置时 503 fail-closed；拒绝路径 provider invocation=0 |
+| **S4-API-02 / AG-00** | Family API 路由挂载与 OpenAPI | `READY_FOR_DEV` | 挂载并锁定 `POST /families/{family_id}/experience/multimodal/drafts` | 依赖 AG-02 resolver；OpenAPI 路径、请求/响应 schema 与版本快照可复核 |
+| **S4-API-03 / AG-03** | Web HTTP client 接线 | `READY_FOR_REVIEW` | draft POST 使用真实 API；决策/反馈/删除/回放先保持 seam，禁止臆造 URL | 真实 draft API 通过后，补错误语义和 smoke/e2e；候选端点待后端确认 |
+| **S4-API-04 / AG-04** | 最小验收证据与回归 Gate | `READY_FOR_REVIEW` | 成功、拒绝、scope、生产 fail-closed、幂等和 DRAFT/provenance 证据 | 指定 pytest、OpenAPI、Web 测试输出齐全；未完成端点标记 `TBD` |
+| **S4-API-05 / AG-01** | 端点语义与用户故事追踪 | `IN_PROGRESS` | 将 S2-US1~US5 映射到 draft/decision/feedback/replay 资源 | 不允许把 AI 草案当事实；人工确认和真实事件引用保持显式 |
+
+#### Runtime resolver / 真实 draft API 最小验收证据
+
+AG-02 与 AG-00 对齐的最小证据集如下；未达到前，S4-API-01 只能保持 `BLOCKED`：
+
+1. 运行 `uv run pytest tests/apps/family_api/test_experience_router_mount.py tests/apps/family_api/test_experience_wiring.py -q`，并贴出实际输出。
+2. OpenAPI 必须出现 `POST /families/{family_id}/experience/multimodal/drafts`，请求只允许 Contract Freeze §1 的 generation intent 字段。
+3. 显式安装 `install_synthetic_experience_runtime(..., environment="test")` 的 TestClient 成功返回 `status=DRAFT`、`requires_human_confirmation=true` 和服务端解析的 `scope.family_id`；非 `test` 环境安装 synthetic runtime 必须抛 `ValueError`。
+4. production/AIFAMILY_ENV=production 未安装 synthetic runtime 时，返回 503 `multimodal_experience_runtime_not_configured`；不能自动降级为假 AI 文案。
+5. 缺 consent、跨 scope、过期/撤回上下文和未准入 Provider 的测试必须证明 Provider invocation 为 0（可检查 FakeProvider invocations 或 Attempt ledger），并保留拒绝码、trace/audit 引用。
+6. 成功路径必须保留 `run_id`、`provenance` 和 `route`；输出固定为 `DRAFT`，不写 canonical Fact。相同幂等键不得产生重复副作用。
+7. Replay 证据必须来自已持久化的 run/checkpoint/attempt/event 投影，不能重调 Gateway 或重算模型；删除必须有删除状态/证明。当前后端尚无这些 HTTP routes，故此项是 Sprint 4 后续交付，不得标为已完成。
+
+#### 决策、反馈、删除、回放端点命名对齐
+
+下表是 AG-03 提议、AG-02/AG-00 待确认的统一命名。标为 `PROPOSED_TBD` 的端点在后端实际挂载前，Web `HttpExperienceApiClient` 不得实现或声称可用；Fake client 仅用于测试。
+
+| 语义 | 建议 HTTP 端点 | 最小请求/查询 | 最小响应/状态 | 当前状态 |
+|---|---|---|---|---|
+| 草案生成 | `POST /families/{family_id}/experience/multimodal/drafts` | generation intent；`Idempotency-Key` header | `run_id,status=DRAFT,scope,context_snapshot_ref,provenance,route` | **IMPLEMENTED / 待 resolver 生产接线** |
+| 决策确认 | `POST /families/{family_id}/experience/multimodal/runs/{run_id}/decisions` | `decision=confirm\|rewrite\|reject`、`draft_version`、改写文本/理由（适用时）；`Idempotency-Key` | `run_id,status,decision_ref,human_gate_ref,audit_ref` | **PROPOSED_TBD** |
+| 反馈 | `POST /families/{family_id}/experience/multimodal/runs/{run_id}/feedback` | `signal`、`reason`、`draft_version`、`attempt_id`、`candidate_id`、`model_version`、`benchmark_report_ref`、`real_event_refs`；幂等 header | `run_id,feedback_ref,recorded` | **PROPOSED_TBD** |
+| 请求人工 | `POST /families/{family_id}/experience/multimodal/runs/{run_id}/human-review` | `reason`、影响范围；幂等 header | `run_id,status=human_review,human_gate_ref` | **PROPOSED_TBD** |
+| 删除 | `DELETE /families/{family_id}/experience/multimodal/runs/{run_id}` | 删除原因/幂等 header（不得传媒体 bytes） | `run_id,status=deleted,deletion_ref` | **PROPOSED_TBD** |
+| 回放 | `GET /families/{family_id}/experience/multimodal/runs/{run_id}/replay` | 只读 scope；不得触发生成 | `run_id,entries,event_sequence,source_refs` | **PROPOSED_TBD** |
+
+命名原则：所有端点以 `runs/{run_id}` 表示同一 Experience Run；`decision_ref`、`feedback_ref`、`human_gate_ref`、`deletion_ref` 和事件引用必须能回到审计/回放链。Replay 是只读投影，不重新调用 Gateway；任何决策或反馈都不能直接把 AI 草案写成 Family/Growth/Service/Commerce 事实。
+
+#### Sprint 4 未决项
+
+- runtime resolver 的真实身份、授权、同意和 Context Snapshot 组合根尚未接入；默认 API 仍应 503 fail-closed。
+- 决策/反馈/人工/删除/回放端点尚无后端实现，以上 URL 和字段在 AG-00/AG-02/AG-03 确认前均为 `PROPOSED_TBD`。
+- `attempt_id`、`benchmark_report_ref`、实际成本等运行字段是否进入生产响应仍需 AG-02 与 AG-04 根据评估和合规证据冻结。
+- Web 已有 Fake client 的 16 个单元测试和 1 个 Playwright 场景只能证明交互 seam，不能证明真实后端能力；真实 API 接线后需重新执行同等路径。
+
 ## 5. 通用任务卡格式
 
 每张任务卡必须包含：
