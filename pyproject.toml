@@ -57,7 +57,7 @@ minversion = "8.0"
 # PYTHONPATH tricks. The legacy repository's Python code required an implicit
 # cwd of `50_开发_dev/backend` to resolve `packages.contracts` imports; that
 # class of hidden coupling is banned here by construction.
-addopts = "-ra --strict-markers --strict-config"
+addopts = "-ra --strict-markers --strict-config --import-mode=importlib"
 testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
