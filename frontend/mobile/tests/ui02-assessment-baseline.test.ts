@@ -40,6 +40,7 @@ describe("UI-02 family conversation assessment contract", () => {
   it("starts from the adult's own words and offers a voice entry", () => {
     expect(source).toContain("你希望家庭先看清什么？");
     expect(source).toContain("assessment-need-input");
+    expect(source).toContain('accessibilityLabel="你希望家庭先看清什么"');
     expect(source).toContain("assessment-voice-sandbox");
     expect(source).toContain("结果仍需你确认");
     expect(source).not.toContain("sandbox 语音");

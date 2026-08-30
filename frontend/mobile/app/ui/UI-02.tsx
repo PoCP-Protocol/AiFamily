@@ -638,7 +638,7 @@ function StoryStep({
       </View>
       <TextInput
         testID="assessment-need-input"
-        accessibilityLabel="你现在最想解决什么"
+        accessibilityLabel="你希望家庭先看清什么"
         multiline
         value={value}
         onChangeText={onChange}
