@@ -197,6 +197,28 @@ async def test_provider_failure_releases_preflight_for_same_key_retry(
     assert len(provider.invocations) == 2
 
 
+@pytest.mark.asyncio
+async def test_scope_mismatch_is_forbidden_before_gateway_invocation(production_runtime) -> None:
+    resolver, provider, scope = production_runtime
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_multimodal_draft_runtime_resolver] = lambda: replace(
+        resolver,
+        scope_resolver=lambda _: scope,
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/families/another-family/experience/multimodal/drafts",
+            json=_body("run-production-scope-mismatch"),
+            headers={"Idempotency-Key": "production-scope-mismatch"},
+        )
+
+    assert response.status_code == 403
+    assert len(provider.invocations) == 0
+
+
 def test_production_resolver_rejects_test_environment() -> None:
     with pytest.raises(ValueError, match="test environment"):
         ProductionExperienceRuntimeResolver(

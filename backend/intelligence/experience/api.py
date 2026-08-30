@@ -545,6 +545,16 @@ async def _resolve_request_runtime(
             resolved = await resolver.resolve(family_id)
         except HTTPException:
             raise
+        except PermissionError as error:
+            # A trusted identity/tenant/family resolver uses PermissionError
+            # for an authenticated principal that cannot act on this family.
+            # Preserve the distinction from an unavailable composition root:
+            # callers get 403, while missing configuration and infrastructure
+            # failures remain the fail-closed 503 below.
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="family_access_denied",
+            ) from error
         except Exception as error:  # noqa: BLE001 — resolver boundary fails closed
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
