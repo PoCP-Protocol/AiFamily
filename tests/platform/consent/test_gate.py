@@ -42,7 +42,7 @@ def _grant(
         guardian_person_id="guardian-1",
         purpose=purpose,
         status=status,
-        granted_at=datetime.now(UTC),
+        granted_at=EVALUATION_TIME - timedelta(minutes=1),
     )
 
 
