@@ -245,6 +245,8 @@ Fresh `uv run pytest tests/domains/service/fgcn -q`（设置 Postgres URL）为 
 `GO（测试契约）/PARTIAL（候选）/NO-GO（生产）`。另发现 `scenario.py` 以英文短语匹配
 outcome/quality，中文及其它 locale 合法观察无法通过；P1 需改为 scenario/policy/version
 与结构化 outcome markers，文案由 locale registry 渲染，并补多语言正负向测试。
+入口快照中的 `family_request_ref` 与 `self_help_failed_attempts` 还未绑定可追溯的
+FamilyRequest/ActionRecord 及 tenant/family/intent 作用域，不能把整数门槛当作业务事实。
 
 ## 4. P0/P1/P2 执行清单
 

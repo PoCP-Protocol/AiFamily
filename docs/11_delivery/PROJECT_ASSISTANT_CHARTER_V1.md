@@ -169,5 +169,8 @@ PMA 文档），工作树仍有其他 Agent 的 WIP，发布判定仍为 **NO-GO
 常驻 worker、Audit/Outbox、迁移接线和真实身份/同意缺失，且 assignment 终态 replay 语义
 需按 canonical request hash 修正后再验收。S-01 规则当前硬编码英文短语，未绑定 locale
 registry；多语言结构化 outcome markers 与 zh/en/fr 负向测试亦为 P1。
+入口快照的 `family_request_ref` 与 `self_help_failed_attempts` 尚未绑定 canonical
+FamilyRequest/ActionRecord 及租户—家庭—意图作用域；应在生产前补数据血缘和删除/撤回验证，
+不能以测试 fixture 的整数门槛代替业务事实。
 
 这些记录是可追溯的审查输入，不是对 owner 的替代实现。返工完成后必须重新读取文件并运行新鲜命令，才能更新状态。
