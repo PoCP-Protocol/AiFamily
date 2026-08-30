@@ -130,6 +130,21 @@ def test_import_openapi_and_success_shape(
     assert "session_ref" in reads[0].accessed_fields
 
 
+def test_repeated_read_is_idempotent_and_has_no_external_effect(
+    wiring: tuple[TestClient, FakeLiveReader, AuditRecorder],
+) -> None:
+    client, reader, recorder = wiring
+    first = client.get(f"/families/{FAMILY}/live-sessions/{SESSION}")
+    second = client.get(f"/families/{FAMILY}/live-sessions/{SESSION}")
+
+    assert first.status_code == second.status_code == 200
+    assert first.json() == second.json()
+    assert first.json()["external_effect"] is False
+    assert reader.calls == [(TENANT, FAMILY, SESSION)] * 2
+    assert len(recorder.all_events()) == 2
+    assert all(event.action_kind is AuditActionKind.READ for event in recorder.all_events())
+
+
 def test_openapi_exposes_only_get_detail() -> None:
     app = FastAPI()
     app.include_router(router)
@@ -220,3 +235,15 @@ def test_default_read_adapter_is_fail_closed() -> None:
         import asyncio
 
         asyncio.run(deps.get_live_session_read_port())
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[deps.get_action_context] = lambda: _ctx()
+    app.dependency_overrides[deps.get_actor_context] = _actor
+    app.dependency_overrides[deps.get_policy_engine] = lambda: deps.build_policy_engine(
+        InMemoryTenantDirectory({TENANT: TenantStatus.ACTIVE})
+    )
+    app.dependency_overrides[deps.get_audit_recorder] = AuditRecorder
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get(f"/families/{FAMILY}/live-sessions/{SESSION}")
+    assert response.status_code == 500
