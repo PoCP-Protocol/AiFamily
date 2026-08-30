@@ -546,16 +546,29 @@ async def _resolve_request_runtime(
         except HTTPException:
             raise
         except PermissionError as error:
-            # A trusted identity/tenant/family resolver uses PermissionError
-            # for an authenticated principal that cannot act on this family.
-            # Preserve the distinction from an unavailable composition root:
-            # callers get 403, while missing configuration and infrastructure
-            # failures remain the fail-closed 503 below.
+            # Scope resolution deliberately distinguishes authentication from
+            # authorization/consent.  Do not collapse a missing principal into
+            # a family denial: callers need a stable 401 to initiate login,
+            # while an authenticated but out-of-scope or revoked request stays
+            # a non-disclosing 403.
+            if error.args and error.args[0] == "AUTHENTICATED_PRINCIPAL_UNAVAILABLE":
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="authentication_required",
+                    headers={"WWW-Authenticate": "Bearer"},
+                ) from error
+            if error.args and error.args[0] == "CONSENT_REQUIRED":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="CONSENT_REQUIRED",
+                ) from error
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="family_access_denied",
             ) from error
         except Exception as error:  # noqa: BLE001 — resolver boundary fails closed
+            # Missing configuration and infrastructure failures remain a
+            # fail-closed 503; do not expose resolver internals to clients.
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="multimodal_experience_runtime_unavailable",
