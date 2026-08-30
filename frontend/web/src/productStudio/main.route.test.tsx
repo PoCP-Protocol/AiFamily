@@ -13,6 +13,8 @@ describe("Web Product Studio route", () => {
     render(<WebRoot />);
     expect(screen.getByRole("heading", { name: "产品设计工厂" })).toBeInTheDocument();
     expect(screen.getByTestId("product-studio-environment")).toHaveTextContent("Sandbox");
+    expect(screen.getByRole("heading", { name: "创建需求草案" })).toBeInTheDocument();
+    expect(screen.getByText(/提交后仅显示 DRAFT 和可追溯 provenance/)).toBeInTheDocument();
     expect(screen.getByText(/所有 AI 内容均为 DRAFT/)).toBeInTheDocument();
   });
 
@@ -37,4 +39,3 @@ describe("Web Product Studio route", () => {
     expect(screen.getByRole("status")).toHaveTextContent("PLM");
   });
 });
-
