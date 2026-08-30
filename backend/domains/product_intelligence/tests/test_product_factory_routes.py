@@ -185,7 +185,9 @@ def test_competitor_route_fails_closed_until_repository_port_exists(repo, human_
     assert response.json()["detail"] == "competitor_evidence_persistence_not_configured"
 
 
-def test_product_package_route_reuses_education_product_command(repo, human_context) -> None:
+def test_product_package_route_returns_draft_without_persisting_definition(
+    repo, human_context
+) -> None:
     now = datetime.now(UTC)
     import asyncio
 
@@ -225,8 +227,11 @@ def test_product_package_route_reuses_education_product_command(repo, human_cont
     assert response.status_code == 201
     body = response.json()
     assert body["status"] == "DRAFT"
+    assert body["draft_id"].startswith("draft:product-package:")
+    assert body["product_definition_id"] is None
     assert body["duration_days"] == 21
     assert body["may_mutate_business_state"] is False
+    assert repo._product_definitions == {}
 
 
 def test_product_package_parent_scope_failure_returns_not_found(repo, human_context) -> None:

@@ -59,7 +59,10 @@ class CompetitorEvidenceCardResponse(DraftEnvelopeResponse):
 
 
 class ProductPackageDraftResponse(DraftEnvelopeResponse):
-    product_definition_id: str
+    draft_id: str
+    # Deprecated compatibility slot.  Product Factory does not create a
+    # ProductDefinition; this remains null until a human-gated adoption.
+    product_definition_id: str | None = None
     concept_id: str
     product_kind: Literal["MICRO_CAMP", "SCALE_PLAN", "CUSTOM"]
     duration_days: int

@@ -9,6 +9,7 @@ until a repository port can persist the richer evidence-card shape.
 from __future__ import annotations
 
 from typing import NoReturn
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -259,35 +260,24 @@ async def create_product_package(
 ) -> ProductPackageDraftResponse:
     _require_ai_provenance(context, body)
     try:
-        definition = await commands.create_education_product_definition(
-            repo,
-            context,
-            concept_id=body.concept_id,
-            product_kind=body.product_kind,
-            duration_days=body.duration_days,
-            zone="UNIQUE_CANDIDATE" if body.zone == "EXCLUSIVE_CANDIDATE" else body.zone,
-            primary_contradiction=body.primary_contradiction,
-            demand_ref=body.demand_ref,
-            market_insight_refs=body.market_insight_refs,
-            component_ids=body.component_ids,
-            skill_ids=body.skill_ids,
-            success_metric_ids=body.success_metric_ids,
-            guardrail_ids=body.guardrail_ids,
-            stop_conditions=body.stop_conditions,
-            pause_policy=body.pause_policy,
-            human_gate_policy=body.human_gate_policy,
-            model_ref=body.model_ref,
-            prompt_use_case_version=body.prompt_use_case_version,
-            confidence=body.confidence,
-        )
+        # Product Factory only proposes a package.  Loading the concept proves
+        # the reference exists in the caller's tenant; the eventual named
+        # action is responsible for persisting a ProductDefinition after human
+        # review.  Calling ``create_education_product_definition`` here would
+        # violate the DRAFT-only response contract by writing a domain fact.
+        concept = await repo.load_product_concept(body.concept_id, context.tenant_scope)
     except ProductIntelligenceDomainError as exc:
         _raise_domain_http(exc)
+    draft_id = f"draft:product-package:{uuid4().hex}"
     return ProductPackageDraftResponse(
-        product_definition_id=definition.id,
-        concept_id=definition.concept_id,
-        product_kind=definition.product_kind,
-        duration_days=definition.duration_days or body.duration_days,
-        zone=definition.zone,
+        draft_id=draft_id,
+        # Kept as a nullable compatibility field: no ProductDefinition exists
+        # until a separate human-gated adoption command runs.
+        product_definition_id=None,
+        concept_id=concept.id,
+        product_kind=body.product_kind,
+        duration_days=body.duration_days,
+        zone="UNIQUE_CANDIDATE" if body.zone == "EXCLUSIVE_CANDIDATE" else body.zone,
         demand_ref=body.demand_ref,
         market_insight_refs=tuple(body.market_insight_refs),
         competitor_evidence_refs=tuple(body.competitor_evidence_refs),
