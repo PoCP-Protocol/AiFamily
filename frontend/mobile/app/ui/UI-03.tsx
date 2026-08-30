@@ -1,435 +1,496 @@
-import type { Href } from "expo-router";
-import { Stack, router } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { Stack } from "expo-router";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import Svg, { Circle, Line, Polygon, Text as SvgText } from "react-native-svg";
 
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
-import { createMobileRequestId, familyApi, FamilyApiError } from "@/lib/family/family-api-client";
+import { familyApi, FamilyApiError, type FamilyContextSummary } from "@/lib/family/family-api-client";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
-import { useFamilyMobile } from "@/lib/family/family-state";
 
-interface Ui03ScoreDimension {
-  dimension_ref: string;
-  label: string;
-  score: number;
-  peer_reference: number;
+type ConsentState = "GRANTED" | "REQUIRED" | "REVOKED" | "REVIEW_REQUIRED" | "EXPIRED";
+type AuthorizedContextState = "AUTHORIZED" | "DENIED" | "WITHDRAWN" | "EXPIRED" | "NOT_RETURNED";
+type Ui03ViewState =
+  | "loading"
+  | "family_selection"
+  | "empty"
+  | "success"
+  | "denied"
+  | "withdrawn"
+  | "expired"
+  | "unauthorized"
+  | "forbidden"
+  | "conflict"
+  | "error"
+  | "demo_only";
+
+interface Ui03ProcessingPurpose {
+  purpose_ref: string;
+  title?: string;
+  description: string;
+  data_scope?: string[];
+  retention?: string;
+  withdrawal?: string;
 }
 
-interface Ui03Scorecard {
-  generated_by: "FAMILI_PRINCIPAL_FAMILY_EDUCATION_MODEL";
-  overall_score: number;
-  overall_band: string;
-  dimensions: Ui03ScoreDimension[];
-  core_issue_tags: string[];
-  recommendations: string[];
-  score_boundary: "SUPPORT_ORIENTATION_SCORE_NOT_CHILD_DIAGNOSIS_OR_RANKING";
+interface Ui03ConsentProjection {
+  required_purposes?: string[];
+  state: ConsentState;
+  policy_version?: string;
 }
 
-interface Ui03EvidenceCoverage {
-  source_response_count: number;
-  interpreted_response_count: number;
-  coverage_ratio: number;
-  mapped_item_refs: string[];
-  evidence_summaries: string[];
-  uninterpreted_item_refs: string[];
-  uncertainty_item_refs: string[];
-  uncertainty_reasons: string[];
-  support_direction_refs: string[];
-  support_direction_labels: string[];
-  next_questions?: string[];
+interface Ui03AuthorizedContextProjection {
+  state: AuthorizedContextState;
+  family_id?: string;
+  role?: string;
 }
 
-interface RemoteHypothesisProjection {
+interface Ui03AssessmentProjection {
+  availability: "AVAILABLE" | "CONSENT_REQUIRED" | "NO_SUBJECT" | "POLICY_BLOCKED";
+  subjects: { person_id: string; display_name: string; availability: "AVAILABLE" | "CONSENT_REQUIRED" }[];
+  tool: { tool_ref: string; version_no: number; title: string; purpose: string } | null;
+  consent_state?: Ui03ConsentProjection;
+}
+
+interface Ui03HypothesisProjection {
   projection_version: "UI03_GROWTH_HYPOTHESIS_V1";
-  availability: "READY" | "NO_SUBMITTED_ASSESSMENT" | "POLICY_BLOCKED" | "CONSENT_WITHDRAWN" | "SUBMITTED" | "ANALYZING" | "ACKNOWLEDGED" | "DISMISSED" | "ANALYSIS_FAILED";
-  ai_state: "NOT_INVOKED" | "MODEL_DRAFT_READY" | "MODEL_GATEWAY_BLOCKED" | "READ_ONLY_PERSISTED";
-  latest_assessment_session_id?: string | null;
-  named_actions?: { generate?: "GENERATE_GROWTH_HYPOTHESIS"; confirm?: "CONFIRM_GROWTH_HYPOTHESIS" };
-  hypothesis: null | {
-    hypothesis_ref: string;
-    subject_person_id: string;
-    subject_display_name: string;
-    focus_ref: string;
+  availability: "READY" | "NO_SUBMITTED_ASSESSMENT" | "POLICY_BLOCKED" | "CONSENT_WITHDRAWN" | "EXPIRED" | "EMPTY" | "DENIED";
+  entry_state?: "READY" | "EMPTY" | "CONSENT_REQUIRED" | "REVIEW_REQUIRED" | "FORBIDDEN" | "STALE" | "ERROR";
+  consent_state?: Ui03ConsentProjection;
+  authorized_context?: Ui03AuthorizedContextProjection;
+  processing_purposes?: Ui03ProcessingPurpose[];
+  hypothesis: {
+    subject_display_name?: string;
     title: string;
     statement: string;
-    source_refs: {
-      assessment_session_id: string;
-      assessment_response_id: string;
-      assessment_evidence_id: string;
-      tool_ref: string;
-      tool_version: number;
-      assessment_submitted_at?: string | null;
-    };
     limitations: string[];
-    fact_boundary: "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS";
-    safety_gate?: { required: boolean; reason_refs: string[]; mode: "HUMAN_REVIEW_REQUIRED" };
-    evidence_coverage?: Ui03EvidenceCoverage;
-    scorecard?: Ui03Scorecard;
-  };
+    fact_boundary?: "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS";
+    source_refs?: { assessment_session_id?: string; assessment_submitted_at?: string | null };
+  } | null;
 }
 
-interface HypothesisDecisionReceipt { outcome: "INTENT_CREATED" | "NO_ACTION"; intent: { intent_id: string } | null; replayed: boolean }
+export interface Ui03StateInput {
+  phase?: "loading";
+  errorStatus?: number;
+  errorCode?: string;
+  availability?: string;
+  entryState?: string;
+  consentState?: string;
+  authorizedContextState?: string;
+  hasProjection?: boolean;
+}
 
-const PREVIEW_SCORECARD: Ui03Scorecard = {
-  generated_by: "FAMILI_PRINCIPAL_FAMILY_EDUCATION_MODEL",
-  overall_score: 0,
-  overall_band: "PENDING_ASSESSMENT",
-  dimensions: [
-    { dimension_ref: "communication", label: "沟通", score: 50, peer_reference: 50 },
-    { dimension_ref: "habit", label: "习惯", score: 50, peer_reference: 50 },
-    { dimension_ref: "emotion", label: "情绪", score: 50, peer_reference: 50 },
-    { dimension_ref: "boundary", label: "边界", score: 50, peer_reference: 50 },
-    { dimension_ref: "support", label: "支持", score: 50, peer_reference: 50 },
-  ],
-  core_issue_tags: ["完成测评后显示", "家庭支持方向", "非诊断结论"],
-  recommendations: [
-    "先完成免费家庭测评，系统会基于已提交答案整理支持方向。",
-    "AI 只生成家庭支持假设，不替代专业诊断或儿童能力评价。",
-    "确认方向后，再进入 90 天家庭成长方案预览。",
-  ],
-  score_boundary: "SUPPORT_ORIENTATION_SCORE_NOT_CHILD_DIAGNOSIS_OR_RANKING",
-};
+export function mapUi03ViewState(input: Ui03StateInput): Ui03ViewState {
+  if (input.phase === "loading") return "loading";
+  const errorCode = input.errorCode?.toUpperCase() ?? "";
+  if (input.errorStatus === 401) return "unauthorized";
+  if (input.errorStatus === 403) return "forbidden";
+  if (input.errorStatus === 409) return "conflict";
+  if (input.errorStatus === 410 || errorCode.includes("EXPIRED")) return "expired";
+  if (input.errorStatus !== undefined) return "error";
 
-const RADAR_CENTER = { x: 120, y: 104 };
-const RADAR_POINTS = [
-  { x: 120, y: 24, labelX: 120, labelY: 14, anchor: "middle" as const },
-  { x: 196, y: 80, labelX: 217, labelY: 78, anchor: "start" as const },
-  { x: 168, y: 170, labelX: 188, labelY: 190, anchor: "start" as const },
-  { x: 72, y: 170, labelX: 52, labelY: 190, anchor: "end" as const },
-  { x: 44, y: 80, labelX: 23, labelY: 78, anchor: "end" as const },
-] as const;
+  const entryState = input.entryState?.toUpperCase();
+  const consentState = input.consentState?.toUpperCase();
+  const authorizedContextState = input.authorizedContextState?.toUpperCase();
+  const availability = input.availability?.toUpperCase();
+
+  if (entryState === "STALE" || entryState === "REVIEW_REQUIRED" || entryState === "ERROR") return "error";
+  if (consentState === "EXPIRED" || authorizedContextState === "EXPIRED" || availability === "EXPIRED") return "expired";
+  if (consentState === "REVOKED" || authorizedContextState === "WITHDRAWN" || availability === "CONSENT_WITHDRAWN") return "withdrawn";
+  if (entryState === "FORBIDDEN" || entryState === "CONSENT_REQUIRED" || consentState === "REQUIRED" || consentState === "REVIEW_REQUIRED" || availability === "POLICY_BLOCKED" || availability === "DENIED") return "denied";
+  if (entryState === "EMPTY" || availability === "EMPTY" || availability === "NO_SUBMITTED_ASSESSMENT" || availability === "NO_SUBJECT") return "empty";
+  if ((entryState === "READY" || availability === "READY") && input.hasProjection) return "success";
+  return "error";
+}
 
 export default function GrowthExplanationScreen() {
   const colors = useColors();
   const session = useFamilyApiSession();
-  const { activeOnboardingId, setActiveOnboardingId } = useFamilyMobile();
-  const [remote, setRemote] = useState<RemoteHypothesisProjection | null>(null);
-  const [remoteState, setRemoteState] = useState<"idle" | "loading" | "generating" | "ready" | "fallback">("idle");
-  const [decisionState, setDecisionState] = useState<"idle" | "saving" | "error">("idle");
-  const [confirmed, setConfirmed] = useState(false);
-  const decisionKeys = useRef<Record<string, string>>({});
-  const generateKeys = useRef<Record<string, string>>({});
-  const onboardingKeys = useRef<Record<string, string>>({});
-  const hypothesis = remote?.hypothesis ?? null;
-  const scorecard = hypothesis?.scorecard ?? null;
-  const safetyGateRequired = hypothesis?.safety_gate?.required === true;
-  const named_actions = remote?.named_actions ?? { generate: "GENERATE_GROWTH_HYPOTHESIS" as const, confirm: "CONFIRM_GROWTH_HYPOTHESIS" as const };
+  const [viewState, setViewState] = useState<Ui03ViewState>("loading");
+  const [assessment, setAssessment] = useState<Ui03AssessmentProjection | null>(null);
+  const [projection, setProjection] = useState<Ui03HypothesisProjection | null>(null);
+  const [error, setError] = useState<FamilyApiError | null>(null);
+  const [purposeOpen, setPurposeOpen] = useState(true);
+  const [retryNonce, setRetryNonce] = useState(0);
 
   useEffect(() => {
-    if (session.status !== "connected" || !session.token || !session.selectedFamily) { setRemoteState("idle"); return; }
-    const token = session.token;
-    const familyId = session.selectedFamily.family_id;
     let active = true;
-    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+    setViewState("loading");
+    setAssessment(null);
+    setProjection(null);
+    setError(null);
 
-    const load = async (): Promise<void> => {
-      const result = await familyApi.getGrowthHypothesis<RemoteHypothesisProjection>(token, familyId);
-      if (!active) return;
-      setRemote(result);
-      if (result.availability === "CONSENT_WITHDRAWN") { setRemoteState("ready"); return; }
-      if (result.availability === "SUBMITTED" || result.availability === "ANALYSIS_FAILED") {
-        const sessionId = result.latest_assessment_session_id;
-        if (!sessionId) { setRemoteState("ready"); return; }
-        setRemoteState("generating");
-        const fingerprint = `${sessionId}:GENERATE`;
-        generateKeys.current[fingerprint] ??= `generate-${sessionId}-${Date.now().toString(36)}`;
-        try {
-          await familyApi.generateGrowthHypothesis(token, familyId, sessionId, generateKeys.current[fingerprint]);
-          if (active) await load();
-        } catch {
-          if (active) setRemoteState("fallback");
+    if (session.status === "loading") return () => { active = false; };
+    if (session.status === "local_synthetic") {
+      setViewState("demo_only");
+      return () => { active = false; };
+    }
+    if (session.status === "family_selection") {
+      setViewState("family_selection");
+      return () => { active = false; };
+    }
+    if (session.status === "no_family") {
+      setViewState("empty");
+      return () => { active = false; };
+    }
+    if (session.status === "error") {
+      const sessionError = session.error ?? new FamilyApiError("Family API 会话错误", 0, "FAMILY_API_SESSION_ERROR", null);
+      setError(sessionError);
+      setViewState(mapUi03ViewState({ errorStatus: sessionError.status, errorCode: sessionError.code }));
+      return () => { active = false; };
+    }
+    if (session.status !== "connected" || !session.token || !session.selectedFamily) {
+      setViewState("error");
+      return () => { active = false; };
+    }
+
+    const load = async () => {
+      try {
+        const [assessmentResult, projectionResult] = await Promise.all([
+          familyApi.getFamilyAssessment<Ui03AssessmentProjection>(session.token!, session.selectedFamily!.family_id),
+          familyApi.getGrowthHypothesis<Ui03HypothesisProjection>(session.token!, session.selectedFamily!.family_id),
+        ]);
+        if (!active) return;
+        const nextConsent = projectionResult.consent_state?.state ?? assessmentResult.consent_state?.state;
+        const nextViewState = mapUi03ViewState({
+          availability: projectionResult.availability,
+          entryState: projectionResult.entry_state,
+          consentState: nextConsent,
+          authorizedContextState: projectionResult.authorized_context?.state,
+          hasProjection: Boolean(projectionResult.hypothesis),
+        });
+        setAssessment(assessmentResult);
+        setProjection(projectionResult);
+        if (nextViewState === "success" && !getPurposeText(assessmentResult, projectionResult)) {
+          setError(new FamilyApiError("处理目的缺失", 0, "PROVENANCE_INCOMPLETE", null));
+          setViewState("error");
+          return;
         }
-        return;
+        setViewState(nextViewState);
+      } catch (cause) {
+        if (!active) return;
+        const nextError = asFamilyApiError(cause);
+        setError(nextError);
+        setViewState(mapUi03ViewState({ errorStatus: nextError.status, errorCode: nextError.code }));
       }
-      if (result.availability === "ANALYZING") {
-        setRemoteState("generating");
-        pollTimer = setTimeout(() => { if (active) void load(); }, 1500);
-        return;
-      }
-      setRemoteState("ready");
     };
 
-    setRemoteState("loading");
-    void load().catch(() => { if (active) setRemoteState("fallback"); });
-    return () => { active = false; if (pollTimer) clearTimeout(pollTimer); };
-  }, [session.selectedFamily, session.status, session.token]);
+    void load();
+    return () => { active = false; };
+  }, [retryNonce, session.selectedFamily, session.status, session.token]);
 
-  const ensureActiveOnboarding = async (token: string, familyId: string, guardianPersonId: string, childId: string) => {
-    if (activeOnboardingId) return;
-    const fingerprint = `${familyId}:${childId}:START_ONBOARDING`;
-    onboardingKeys.current[fingerprint] ??= createMobileRequestId("ui03-start-onboarding");
-    try {
-      const result = await familyApi.startGrowthOnboarding<{ onboarding: { onboarding_id: string } }>(token, familyId, {
-        childId,
-        guardianPersonId,
-        structuredSafetySignals: ["NONE"],
-      }, onboardingKeys.current[fingerprint]);
-      setActiveOnboardingId(result.onboarding.onboarding_id);
-    } catch (error) {
-      if (error instanceof FamilyApiError && error.code.includes("growth_onboarding_already_active")) {
-        const active = await familyApi.getActiveOnboarding(token, familyId);
-        if (active?.onboarding_id) setActiveOnboardingId(active.onboarding_id);
-        return;
-      }
-      // Onboarding-start 失败（如缺少必要同意、生命阶段不支持）不阻塞成长意向确认；
-      // UI-04 会在缺少 activeOnboardingId 时引导用户回到 UI-02 补齐前置条件。
-    }
-  };
+  const retry = () => setRetryNonce((value) => value + 1);
 
-  const generatePlan = async () => {
-    if (confirmed) { router.push("/ui/UI-04" as Href); return; }
-    if (session.status !== "connected" || !session.token || !session.selectedFamily || !hypothesis) { router.replace("/ui/UI-02" as Href); return; }
-    if (safetyGateRequired) {
-      setDecisionState("error");
-      return;
-    }
-    if (named_actions.confirm !== "CONFIRM_GROWTH_HYPOTHESIS") {
-      setDecisionState("error");
-      return;
-    }
-    const fingerprint = `${hypothesis.hypothesis_ref}:CONFIRM`;
-    decisionKeys.current[fingerprint] ??= `confirm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
-    setDecisionState("saving");
-    try {
-      const result = await familyApi.decideGrowthHypothesis<HypothesisDecisionReceipt>(session.token, session.selectedFamily.family_id, {
-        assessment_session_id: hypothesis.source_refs.assessment_session_id,
-        hypothesis_ref: hypothesis.hypothesis_ref,
-        decision_type: "CONFIRM",
-      }, decisionKeys.current[fingerprint]);
-      if (result.outcome === "INTENT_CREATED") {
-        await ensureActiveOnboarding(session.token, session.selectedFamily.family_id, session.selectedFamily.person_id, hypothesis.subject_person_id);
-        setDecisionState("idle");
-        setConfirmed(true);
-        router.push("/ui/UI-04" as Href);
-        return;
-      }
-      setDecisionState("idle");
-    } catch { setDecisionState("error"); }
-  };
-
-  if (remoteState === "loading" || remoteState === "generating") {
-    return (
-      <ScreenContainer edges={["left", "right", "bottom"]}>
-        <Stack.Screen options={{ headerShown: true, title: "AI成长诊断", headerBackTitle: "返回" }} />
-        <View style={styles.emptyPage}>
-          <ActivityIndicator color={colors.tint} />
-          <Text style={[styles.emptyTitle, { color: colors.text }]}>AI 正在生成成长诊断报告</Text>
-          <Text style={[styles.emptyText, { color: colors.muted }]}>AI 会基于你提交的免费测评生成成长诊断报告；这不是儿童诊断结论、能力测验或排名。</Text>
-        </View>
-      </ScreenContainer>
-    );
+  if (viewState === "loading") return <LoadingState colors={colors} />;
+  if (viewState === "family_selection") return <FamilySelectionState contexts={session.contexts} onSelect={session.selectFamily} colors={colors} />;
+  if (viewState === "demo_only") return <DemoOnlyState onConnect={session.connectDevSession} colors={colors} />;
+  if (viewState === "empty") return <EmptyState onRetry={retry} colors={colors} />;
+  if (viewState === "unauthorized" || viewState === "forbidden" || viewState === "conflict" || viewState === "error") {
+    return <ErrorState state={viewState} error={error} onRetry={retry} colors={colors} />;
   }
 
-  const isPreview = !hypothesis || !scorecard;
-  const consentWithdrawn = remote?.availability === "CONSENT_WITHDRAWN";
-  const displayScorecard = scorecard ?? PREVIEW_SCORECARD;
-  const evidenceCoverage = hypothesis?.evidence_coverage ?? null;
-  const aiState = remote?.ai_state ?? "NOT_INVOKED";
-  const submittedAt = formatDate(hypothesis?.source_refs.assessment_submitted_at);
-  const summaryRows = [
-    hypothesis?.subject_display_name ? `姓名：${hypothesis.subject_display_name}` : null,
-    submittedAt ? `测评时间：${submittedAt}` : null,
-    hypothesis?.source_refs.tool_version ? `测评版本：v${hypothesis.source_refs.tool_version}` : "先完成免费家庭测评",
-    isPreview ? "完成后生成家庭支持方向" : `AI状态：${formatAiState(aiState)}`,
-  ].filter(Boolean);
+  const purposeText = getPurposeText(assessment, projection);
+  const consentState = projection?.consent_state?.state ?? assessment?.consent_state?.state ?? "REVIEW_REQUIRED";
+  const authorizedContext = projection?.authorized_context;
+  const hypothesis = projection?.hypothesis;
 
   return (
     <ScreenContainer edges={["left", "right", "bottom"]}>
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          title: "AI成长诊断",
-          headerBackTitle: "返回",
-          headerRight: () => <IconSymbol name="ellipsis" size={24} color="#111827" />,
-        }}
-      />
+      <Stack.Screen options={{ headerShown: true, title: "VS-GROWTH-01", headerBackTitle: "返回" }} />
       <ScrollView contentContainerStyle={styles.content}>
-        {isPreview ? <View style={styles.previewNotice}><Text style={styles.previewNoticeTitle}>{consentWithdrawn ? "测评授权已撤回" : "先完成免费家庭测评"}</Text><Text style={styles.previewNoticeText}>{consentWithdrawn ? "根据你的授权选择，系统已停止展示这次测评和 AI 分析内容。如需继续，请重新确认测评授权。" : "AI 会基于你提交的免费测评生成成长诊断报告；这不是儿童诊断结论、能力测验或排名。"}</Text></View> : null}
-        <View style={styles.assessmentSummary}>
-          <View style={styles.summaryAvatar}><IconSymbol name="person.crop.circle.fill" size={58} color="#2563EB" /></View>
-          <View style={styles.summaryCopy}>
-            <Text style={styles.summaryBadge}>{isPreview ? "测评后生成" : "AI成长诊断报告"}</Text>
-            <Text style={styles.summaryTitle}>{isPreview ? "家庭成长诊断预览" : hypothesis.subject_display_name ? `${hypothesis.subject_display_name}的成长诊断` : "家庭成长诊断"}</Text>
-            {summaryRows.map((row) => <Text key={row} style={styles.summaryMeta}>{row}</Text>)}
+        <View style={styles.headerRow}>
+          <View style={styles.headerCopy}>
+            <Text style={[styles.eyebrow, { color: colors.tint }]}>VS-GROWTH-01</Text>
+            <Text style={[styles.title, { color: colors.text }]}>家庭成长支持</Text>
+            <Text style={[styles.subtitle, { color: colors.muted }]}>成人先选择家庭，再查看处理目的和授权状态。</Text>
           </View>
-          <View style={styles.summaryScorePill}>
-            <Text style={styles.summaryScore}>{isPreview ? "—" : displayScorecard.overall_score}</Text>
-            <Text style={styles.summaryScoreLabel}>参考分</Text>
-          </View>
-          <IconSymbol name="chevron.right" size={19} color="#536A8B" />
+          <IconSymbol name="shield.fill" size={28} color={colors.tint} />
         </View>
 
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>综合成长评估</Text>
-        <GrowthRadarOverview scorecard={displayScorecard} isPreview={isPreview} />
+        <FamilyContextCard context={session.selectedFamily} colors={colors} />
 
-        {scorecard ? <>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>核心问题</Text>
-          <View style={styles.tags}>
-            {scorecard.core_issue_tags.slice(0, 3).map((tag, index) => (
-              <View key={tag} style={[styles.tag, { backgroundColor: tagColors[index].background }]}>
-                <Text style={[styles.tagText, { color: tagColors[index].text }]}>{tag}</Text>
-              </View>
-            ))}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardHeaderCopy}>
+              <Text style={[styles.cardTitle, { color: colors.text }]}>处理目的</Text>
+              <Text style={[styles.cardHint, { color: colors.muted }]}>以下内容只来自 canonical API 返回；未返回的字段不在本地补齐。</Text>
+            </View>
+            <Pressable accessibilityRole="button" accessibilityState={{ expanded: purposeOpen }} onPress={() => setPurposeOpen((value) => !value)}>
+              <Text style={[styles.link, { color: colors.tint }]}>{purposeOpen ? "收起" : "查看"}</Text>
+            </Pressable>
           </View>
-        </> : null}
+          {purposeOpen ? <PurposeContent purposeText={purposeText} purposes={projection?.processing_purposes} colors={colors} /> : null}
+        </View>
 
-        {evidenceCoverage ? <>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>证据覆盖度</Text>
-          <View style={styles.evidenceCard}>
-            <Text style={styles.evidenceHeadline}>{Math.round(evidenceCoverage.coverage_ratio * 100)}% 已纳入结构化解读</Text>
-            <Text style={styles.evidenceMeta}>已解释 {evidenceCoverage.interpreted_response_count} / {evidenceCoverage.source_response_count} 项回答</Text>
-            {evidenceCoverage.uninterpreted_item_refs.length > 0 ? <Text style={styles.evidenceWarning}>仍有 {evidenceCoverage.uninterpreted_item_refs.length} 项未纳入当前解读</Text> : null}
-            {evidenceCoverage.uncertainty_reasons.map((reason) => <Text key={reason} style={styles.evidenceWarning}>{reason}</Text>)}
-          </View>
-          {evidenceCoverage.evidence_summaries.length > 0 ? <View style={styles.evidenceCard}>
-            <Text style={styles.evidenceHeadline}>本次分析依据</Text>
-            {evidenceCoverage.evidence_summaries.slice(0, 3).map((summary) => <Text key={summary} style={styles.evidenceMeta}>• {summary}</Text>)}
-          </View> : null}
-          {evidenceCoverage.next_questions && evidenceCoverage.next_questions.length > 0 ? <View style={styles.questionCard}>
-            <Text style={styles.questionCardTitle}>如果你愿意，可以继续补充</Text>
-            {evidenceCoverage.next_questions.map((question) => <Text key={question} style={styles.questionCardText}>• {question}</Text>)}
-          </View> : null}
-        </> : null}
+        <ConsentCard state={consentState} colors={colors} />
+        <AuthorizedContextCard context={authorizedContext} colors={colors} />
 
-        {scorecard ? <>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>成长建议</Text>
-          <View style={styles.suggestions}>
-            {scorecard.recommendations.slice(0, 3).map((item, index) => (
-              <View key={`${index}-${item}`} style={styles.suggestionRow}>
-                <View style={styles.suggestionIndex}><Text style={styles.suggestionIndexText}>{index + 1}</Text></View>
-                <Text style={[styles.suggestionText, { color: colors.text }]}>{item}</Text>
-              </View>
-            ))}
-          </View>
-        </> : null}
+        {viewState === "success" && hypothesis ? <HypothesisCard hypothesis={hypothesis} colors={colors} /> : null}
+        {viewState === "denied" ? <BlockedNotice title="当前未获得授权" detail="canonical API 返回了拒绝或需要同意的状态；本页不会通过勾选框代替 ConsentGrant。" /> : null}
+        {viewState === "withdrawn" ? <BlockedNotice title="授权已撤回" detail="撤回状态立即阻止继续读取；如需继续，请由 canonical Consent 流程重新处理。" /> : null}
+        {viewState === "expired" ? <BlockedNotice title="授权已过期" detail="当前授权上下文已过期；本页不会沿用过期上下文或本地缓存。" /> : null}
 
-        {evidenceCoverage && evidenceCoverage.support_direction_labels.length > 0 ? <>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>支持方向</Text>
-          <View style={styles.directionCard}>
-            {evidenceCoverage.support_direction_labels.slice(0, 3).map((label) => <Text key={label} style={[styles.directionText, { color: colors.text }]}>• {label}</Text>)}
-          </View>
-        </> : null}
-
-        {decisionState === "error" ? <Text style={[styles.errorText, { color: "#D96464" }]}>支持方案暂时未形成，请稍后重试。</Text> : null}
-        {safetyGateRequired ? <View style={styles.safetyNotice}>
-          <Text style={styles.safetyNoticeTitle}>需要人工复核</Text>
-          <Text style={styles.safetyNoticeText}>这次测评出现了需要谨慎理解的健康或家庭压力信号。AI 不会直接生成成长方案，请联系专业人工支持进一步判断。</Text>
-        </View> : null}
-        <Pressable disabled={decisionState === "saving"} onPress={() => void generatePlan()} style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.tint }, pressed && styles.pressed]}>
-          <IconSymbol name="star.fill" size={18} color="#FFFFFF" />
-          <Text style={styles.primaryButtonText}>{decisionState === "saving" ? "正在生成" : isPreview ? "进入免费测评" : safetyGateRequired ? "等待人工复核" : "生成个性化方案"}</Text>
-        </Pressable>
-        <Text style={[styles.boundaryText, { color: colors.muted }]}>以上内容用于家庭支持参考，不是儿童诊断结论、能力测验或排名。</Text>
+        <ConsentActionBoundary colors={colors} />
+        <Text style={[styles.boundary, { color: colors.muted }]}>本页面只读取家庭范围内的 canonical projection，不创建 Family、Consent、授权上下文或成长事实。</Text>
       </ScrollView>
     </ScreenContainer>
   );
 }
 
-function GrowthRadarOverview({ scorecard, isPreview = false }: { scorecard: Ui03Scorecard; isPreview?: boolean }) {
-  const childPoints = radarPolygon(scorecard.dimensions.map((item) => item.score));
-  const peerPoints = radarPolygon(scorecard.dimensions.map((item) => item.peer_reference));
+function LoadingState({ colors }: { colors: ReturnType<typeof useColors> }) {
   return (
-    <View style={styles.radarCard}>
-      <Svg width={240} height={224} viewBox="0 0 240 224" accessibilityLabel="综合成长评估雷达图">
-        <Polygon points={RADAR_POINTS.map((point) => `${point.x},${point.y}`).join(" ")} fill="none" stroke="#C6DBF6" strokeWidth={1} />
-        <Polygon points={radarPolygon([50, 50, 50, 50, 50])} fill="none" stroke="#E1ECFA" strokeWidth={1} />
-        {RADAR_POINTS.map((point, index) => <Line key={`axis-${scorecard.dimensions[index]?.dimension_ref ?? index}`} x1={RADAR_CENTER.x} y1={RADAR_CENTER.y} x2={point.x} y2={point.y} stroke="#E1ECFA" strokeWidth={1} />)}
-        <Polygon points={peerPoints} fill="rgba(247, 181, 77, 0.16)" stroke="#F2A23A" strokeWidth={2} />
-        <Polygon points={childPoints} fill="rgba(47, 143, 251, 0.22)" stroke="#2F8FFB" strokeWidth={2} />
-        <Circle cx={RADAR_CENTER.x} cy={RADAR_CENTER.y} r={35} fill="#FFFFFF" stroke="#D5E6FA" strokeWidth={1} />
-        <SvgText x={RADAR_CENTER.x} y={RADAR_CENTER.y - 2} textAnchor="middle" fill="#2563EB" fontSize={24} fontWeight="800">{isPreview ? "—" : scorecard.overall_score}</SvgText>
-        <SvgText x={RADAR_CENTER.x} y={RADAR_CENTER.y + 17} textAnchor="middle" fill="#6B7280" fontSize={10}>{isPreview ? "待生成" : "参考分"}</SvgText>
-        {scorecard.dimensions.slice(0, 5).map((dimension, index) => {
-          const point = RADAR_POINTS[index];
-          return <SvgText key={dimension.dimension_ref} x={point.labelX} y={point.labelY} textAnchor={point.anchor} fill="#5B6B7F" fontSize={11} fontWeight="700">{dimension.label}{isPreview ? "" : dimension.score}</SvgText>;
-        })}
-      </Svg>
-      <View style={styles.legendRow}>
-        <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: "#2F8FFB" }]} /><Text style={styles.legendText}>家庭自查线索</Text></View>
-        <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: "#F2A23A" }]} /><Text style={styles.legendText}>参考方向</Text></View>
+    <ScreenContainer edges={["left", "right", "bottom"]}>
+      <Stack.Screen options={{ headerShown: true, title: "VS-GROWTH-01", headerBackTitle: "返回" }} />
+      <View style={styles.centerState}>
+        <ActivityIndicator color={colors.tint} />
+        <Text style={[styles.stateTitle, { color: colors.text }]}>正在读取家庭上下文</Text>
+        <Text style={[styles.stateDetail, { color: colors.muted }]}>正在等待 Family API 返回家庭范围、处理目的和授权状态。</Text>
+      </View>
+    </ScreenContainer>
+  );
+}
+
+function FamilySelectionState({ contexts, onSelect, colors }: { contexts: FamilyContextSummary[]; onSelect: (familyId: string) => Promise<void>; colors: ReturnType<typeof useColors> }) {
+  return (
+    <ScreenContainer edges={["left", "right", "bottom"]}>
+      <Stack.Screen options={{ headerShown: true, title: "选择家庭", headerBackTitle: "返回" }} />
+      <ScrollView contentContainerStyle={styles.content}>
+        <Text style={[styles.eyebrow, { color: colors.tint }]}>VS-GROWTH-01</Text>
+        <Text style={[styles.title, { color: colors.text }]}>选择家庭</Text>
+        <Text style={[styles.subtitle, { color: colors.muted }]}>请选择 Family API 已返回且当前成人有权限访问的家庭上下文。</Text>
+        {contexts.map((context) => (
+          <Pressable key={context.family_id} accessibilityRole="button" onPress={() => void onSelect(context.family_id)} style={({ pressed }) => [styles.familyOption, { borderColor: colors.border, backgroundColor: colors.surface }, pressed && styles.pressed]}>
+            <IconSymbol name="person.2.fill" size={24} color={colors.tint} />
+            <View style={styles.familyOptionCopy}>
+              <Text style={[styles.familyOptionTitle, { color: colors.text }]}>家庭 {context.family_id}</Text>
+              <Text style={[styles.familyOptionMeta, { color: colors.muted }]}>当前角色：{context.role}</Text>
+            </View>
+            <IconSymbol name="chevron.right" size={18} color={colors.muted} />
+          </Pressable>
+        ))}
+        <View style={styles.boundaryCard}>
+          <Text style={[styles.boundaryCardTitle, { color: colors.text }]}>创建家庭</Text>
+          <Text style={[styles.boundaryCardDetail, { color: colors.muted }]}>现有 canonical client 未提供 CreateFamily 动作；本页不在本地创建家庭或伪造家庭上下文。</Text>
+          <Pressable disabled style={[styles.secondaryButton, { borderColor: colors.border }]}><Text style={[styles.secondaryButtonText, { color: colors.muted }]}>创建家庭（需 Family API）</Text></Pressable>
+        </View>
+      </ScrollView>
+    </ScreenContainer>
+  );
+}
+
+function DemoOnlyState({ onConnect, colors }: { onConnect: () => Promise<void>; colors: ReturnType<typeof useColors> }) {
+  return (
+    <ScreenContainer edges={["left", "right", "bottom"]}>
+      <Stack.Screen options={{ headerShown: true, title: "VS-GROWTH-01", headerBackTitle: "返回" }} />
+      <View style={styles.centerState}>
+        <Text style={styles.demoBadge}>DEMO_ONLY</Text>
+        <Text style={[styles.stateTitle, { color: colors.text }]}>未连接 canonical API</Text>
+        <Text style={[styles.stateDetail, { color: colors.muted }]}>当前只展示流程边界，不提供 synthetic Family、Consent、处理目的或 authorized context，也不会把演示内容当作真实证据。</Text>
+        <Pressable onPress={() => void onConnect()} style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.tint }, pressed && styles.pressed]}><Text style={styles.primaryButtonText}>连接 Family API</Text></Pressable>
+      </View>
+    </ScreenContainer>
+  );
+}
+
+function EmptyState({ onRetry, colors }: { onRetry: () => void; colors: ReturnType<typeof useColors> }) {
+  return (
+    <ScreenContainer edges={["left", "right", "bottom"]}>
+      <Stack.Screen options={{ headerShown: true, title: "VS-GROWTH-01", headerBackTitle: "返回" }} />
+      <View style={styles.centerState}>
+        <IconSymbol name="person.2.fill" size={36} color={colors.muted} />
+        <Text style={[styles.stateTitle, { color: colors.text }]}>尚未返回家庭上下文</Text>
+        <Text style={[styles.stateDetail, { color: colors.muted }]}>当前没有可供选择或读取的 Family API 家庭，不会在本地创建家庭。</Text>
+        <Pressable onPress={onRetry} style={({ pressed }) => [styles.secondaryButton, { borderColor: colors.border }, pressed && styles.pressed]}><Text style={[styles.secondaryButtonText, { color: colors.text }]}>重新读取</Text></Pressable>
+      </View>
+    </ScreenContainer>
+  );
+}
+
+function ErrorState({ state, error, onRetry, colors }: { state: Extract<Ui03ViewState, "unauthorized" | "forbidden" | "conflict" | "error">; error: FamilyApiError | null; onRetry: () => void; colors: ReturnType<typeof useColors> }) {
+  const copy = state === "unauthorized"
+    ? { title: "登录已失效", detail: "请重新连接账号；未获得认证上下文前不会读取家庭数据。" }
+    : state === "forbidden"
+      ? { title: "无权访问当前家庭", detail: "当前账号没有这个家庭范围的读取权限，服务端拒绝了请求。" }
+      : state === "conflict"
+        ? { title: "家庭上下文发生冲突", detail: "当前请求与服务端状态不一致，请重新读取后再继续。" }
+        : { title: "暂时无法读取", detail: "canonical API 没有返回可用 projection；本页不会把错误静默成空态或成功。" };
+  return (
+    <ScreenContainer edges={["left", "right", "bottom"]}>
+      <Stack.Screen options={{ headerShown: true, title: "VS-GROWTH-01", headerBackTitle: "返回" }} />
+      <View style={styles.centerState}>
+        <Text style={[styles.errorBadge, { color: "#B42318", backgroundColor: "#FEE4E2" }]}>{errorLabel(state, error)}</Text>
+        <Text style={[styles.stateTitle, { color: colors.text }]}>{copy.title}</Text>
+        <Text style={[styles.stateDetail, { color: colors.muted }]}>{copy.detail}</Text>
+        <Pressable onPress={onRetry} style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.tint }, pressed && styles.pressed]}><Text style={styles.primaryButtonText}>重新读取</Text></Pressable>
+      </View>
+    </ScreenContainer>
+  );
+}
+
+function FamilyContextCard({ context, colors }: { context: FamilyContextSummary | null; colors: ReturnType<typeof useColors> }) {
+  return (
+    <View style={[styles.contextCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <View style={styles.contextIcon}><IconSymbol name="person.2.fill" size={24} color={colors.tint} /></View>
+      <View style={styles.contextCopy}>
+        <Text style={[styles.contextLabel, { color: colors.muted }]}>当前家庭上下文</Text>
+        <Text style={[styles.contextTitle, { color: colors.text }]}>{context ? `家庭 ${context.family_id}` : "未选择家庭"}</Text>
+        <Text style={[styles.contextMeta, { color: colors.muted }]}>{context ? `成人角色：${context.role}` : "等待 canonical API 返回"}</Text>
       </View>
     </View>
   );
 }
 
-function radarPolygon(values: number[]) {
-  return RADAR_POINTS.map((point, index) => {
-    const value = Math.max(0, Math.min(100, values[index] ?? 0)) / 100;
-    const x = RADAR_CENTER.x + (point.x - RADAR_CENTER.x) * value;
-    const y = RADAR_CENTER.y + (point.y - RADAR_CENTER.y) * value;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" ");
+function PurposeContent({ purposeText, purposes, colors }: { purposeText: string | null; purposes?: Ui03ProcessingPurpose[]; colors: ReturnType<typeof useColors> }) {
+  return (
+    <View style={styles.purposeContent}>
+      <Text style={[styles.purposeText, { color: colors.text }]}>{purposeText ?? "canonical API 未返回处理目的"}</Text>
+      {purposes?.map((purpose) => (
+        <View key={purpose.purpose_ref} style={styles.purposeItem}>
+          <Text style={[styles.purposeItemTitle, { color: colors.text }]}>{purpose.title ?? purpose.purpose_ref}</Text>
+          <Text style={[styles.purposeItemDetail, { color: colors.muted }]}>{purpose.description}</Text>
+          {purpose.data_scope?.length ? <Text style={[styles.purposeItemDetail, { color: colors.muted }]}>数据范围：{purpose.data_scope.join("、")}</Text> : null}
+          {purpose.retention ? <Text style={[styles.purposeItemDetail, { color: colors.muted }]}>留存：{purpose.retention}</Text> : null}
+          {purpose.withdrawal ? <Text style={[styles.purposeItemDetail, { color: colors.muted }]}>撤回：{purpose.withdrawal}</Text> : null}
+        </View>
+      ))}
+    </View>
+  );
 }
 
-function formatDate(value?: string | null) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+function ConsentCard({ state, colors }: { state: ConsentState; colors: ReturnType<typeof useColors> }) {
+  const copy = consentCopy(state);
+  return (
+    <View style={[styles.card, { borderColor: state === "GRANTED" ? "#B7E3C2" : colors.border, backgroundColor: state === "GRANTED" ? "#F4FBF5" : colors.surface }]}>
+      <View style={styles.cardHeader}>
+        <View style={styles.cardHeaderCopy}>
+          <Text style={[styles.cardTitle, { color: colors.text }]}>授权状态</Text>
+          <Text style={[styles.cardHint, { color: colors.muted }]}>处理目的与授权状态由服务端返回，页面勾选不能替代 ConsentGrant。</Text>
+        </View>
+        <Text style={[styles.statePill, { color: copy.color, backgroundColor: copy.background }]}>{copy.label}</Text>
+      </View>
+      <Text style={[styles.cardDetail, { color: colors.muted }]}>{copy.detail}</Text>
+    </View>
+  );
 }
 
-function formatAiState(value: RemoteHypothesisProjection["ai_state"]) {
-  if (value === "MODEL_DRAFT_READY") return "模型草稿已生成";
-  if (value === "MODEL_GATEWAY_BLOCKED") return "模型网关已拦截";
-  if (value === "READ_ONLY_PERSISTED") return "已读取历史草稿";
-  return "尚未调用模型";
+function AuthorizedContextCard({ context, colors }: { context?: Ui03AuthorizedContextProjection; colors: ReturnType<typeof useColors> }) {
+  const returned = context?.state === "AUTHORIZED";
+  return (
+    <View style={[styles.card, { borderColor: returned ? "#B7E3C2" : colors.border, backgroundColor: returned ? "#F4FBF5" : colors.surface }]}>
+      <Text style={[styles.cardTitle, { color: colors.text }]}>authorized context</Text>
+      <Text style={[styles.cardDetail, { color: colors.muted }]}>{returned ? "canonical API 已返回当前家庭的 authorized context。" : "canonical API 未返回可用 authorized context；本地不会补发或推断授权上下文。"}</Text>
+      {context?.family_id ? <Text style={[styles.cardHint, { color: colors.muted }]}>家庭：{context.family_id}{context.role ? ` · 角色：${context.role}` : ""}</Text> : null}
+    </View>
+  );
 }
 
-const tagColors = [
-  { background: "#FDEBEC", text: "#D96464" },
-  { background: "#EEF2FF", text: "#5B6FEF" },
-  { background: "#FFF3E5", text: "#B87530" },
-] as const;
+function HypothesisCard({ hypothesis, colors }: { hypothesis: NonNullable<Ui03HypothesisProjection["hypothesis"]>; colors: ReturnType<typeof useColors> }) {
+  return (
+    <View style={[styles.card, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+      <Text style={[styles.cardTitle, { color: colors.text }]}>家庭支持方向</Text>
+      <Text style={[styles.hypothesisTitle, { color: colors.text }]}>{hypothesis.title}</Text>
+      <Text style={[styles.cardDetail, { color: colors.text }]}>{hypothesis.statement}</Text>
+      {hypothesis.source_refs?.assessment_session_id ? <Text style={[styles.cardHint, { color: colors.muted }]}>来源测评：{hypothesis.source_refs.assessment_session_id}</Text> : null}
+      {hypothesis.limitations.map((item) => <Text key={item} style={[styles.cardHint, { color: colors.muted }]}>• {item}</Text>)}
+      <Text style={[styles.boundaryNote, { color: colors.muted }]}>{hypothesis.fact_boundary === "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS" ? "这是带来源的家庭支持假设，不是事实、诊断或结果结论。" : "仅展示服务端返回的受限解释内容。"}</Text>
+    </View>
+  );
+}
+
+function BlockedNotice({ title, detail }: { title: string; detail: string }) {
+  return <View style={styles.blockedNotice}><Text style={styles.blockedTitle}>{title}</Text><Text style={styles.blockedDetail}>{detail}</Text></View>;
+}
+
+function ConsentActionBoundary({ colors }: { colors: ReturnType<typeof useColors> }) {
+  return (
+    <View style={[styles.actionBoundary, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+      <Text style={[styles.cardTitle, { color: colors.text }]}>同意 / 拒绝 / 撤回</Text>
+      <Text style={[styles.cardDetail, { color: colors.muted }]}>现有 canonical client 没有 Consent 授予、拒绝或撤回动作端点。三个动作保持停止态，直到服务端提供对应 Named Action；点击或本地勾选不会改变授权事实。</Text>
+      <View style={styles.actionRow}>
+        <Pressable disabled style={[styles.actionButton, { borderColor: colors.border }]}><Text style={[styles.actionButtonText, { color: colors.muted }]}>同意</Text></Pressable>
+        <Pressable disabled style={[styles.actionButton, { borderColor: colors.border }]}><Text style={[styles.actionButtonText, { color: colors.muted }]}>拒绝</Text></Pressable>
+        <Pressable disabled style={[styles.actionButton, { borderColor: colors.border }]}><Text style={[styles.actionButtonText, { color: colors.muted }]}>撤回</Text></Pressable>
+      </View>
+    </View>
+  );
+}
+
+function getPurposeText(assessment: Ui03AssessmentProjection | null, projection: Ui03HypothesisProjection | null) {
+  return projection?.processing_purposes?.[0]?.description ?? assessment?.tool?.purpose ?? null;
+}
+
+function consentCopy(state: ConsentState) {
+  if (state === "GRANTED") return { label: "已同意", detail: "canonical API 返回当前目的范围内的有效授权。", color: "#19713A", background: "#DDF5E3" };
+  if (state === "REVOKED") return { label: "已撤回", detail: "撤回后立即停止新的读取或处理。", color: "#B42318", background: "#FEE4E2" };
+  if (state === "EXPIRED") return { label: "已过期", detail: "授权不再有效，不能沿用旧上下文。", color: "#8A5A00", background: "#FFF1C7" };
+  if (state === "REQUIRED") return { label: "需要同意", detail: "服务端要求先完成对应目的的授权。", color: "#8A5A00", background: "#FFF1C7" };
+  return { label: "待复核", detail: "授权状态不完整或需要人工/服务端复核。", color: "#6B46C1", background: "#EEE7FF" };
+}
+
+function errorLabel(state: Extract<Ui03ViewState, "unauthorized" | "forbidden" | "conflict" | "error">, error: FamilyApiError | null) {
+  if (state === "unauthorized") return "401 UNAUTHENTICATED";
+  if (state === "forbidden") return "403 FAMILY_FORBIDDEN";
+  if (state === "conflict") return "409 VERSION_CONFLICT";
+  return error?.code ?? "API_ERROR";
+}
+
+function asFamilyApiError(cause: unknown) {
+  return cause instanceof FamilyApiError
+    ? cause
+    : new FamilyApiError(cause instanceof Error ? cause.message : "Family API 错误", 0, "FAMILY_API_ERROR", null);
+}
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 34, gap: 16, backgroundColor: "#FFFFFF" },
-  safetyNotice: { borderRadius: 16, backgroundColor: "#FFF4E5", borderWidth: 1, borderColor: "#F3C879", padding: 14, gap: 4 },
-  safetyNoticeTitle: { color: "#8A4B00", fontSize: 14, lineHeight: 20, fontWeight: "900" },
-  safetyNoticeText: { color: "#6F532B", fontSize: 12, lineHeight: 18, fontWeight: "700" },
-  emptyPage: { flex: 1, padding: 24, justifyContent: "center", gap: 16 },
-  emptyTitle: { fontSize: 29, lineHeight: 37, fontWeight: "800" },
-  emptyText: { fontSize: 15, lineHeight: 23 },
-  previewNotice: { borderRadius: 16, backgroundColor: "#FFF6DF", borderWidth: 1, borderColor: "#F8DE94", padding: 14, gap: 4 },
-  previewNoticeTitle: { color: "#8A5A00", fontSize: 14, lineHeight: 20, fontWeight: "900" },
-  previewNoticeText: { color: "#6F5A36", fontSize: 12, lineHeight: 18, fontWeight: "700" },
-  assessmentSummary: { minHeight: 138, borderRadius: 16, backgroundColor: "#E8F2FF", padding: 16, flexDirection: "row", alignItems: "center", gap: 12, shadowColor: "#B9DCFF", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 4 },
-  summaryAvatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
-  summaryCopy: { flex: 1, gap: 4 },
-  summaryBadge: { alignSelf: "flex-start", overflow: "hidden", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: "#FFFFFF80", color: "#2563EB", fontSize: 11, lineHeight: 15, fontWeight: "800" },
-  summaryTitle: { color: "#09295A", fontSize: 18, lineHeight: 24, fontWeight: "800" },
-  summaryMeta: { color: "#5B7091", fontSize: 12, lineHeight: 17, fontWeight: "700" },
-  summaryScorePill: { width: 54, height: 54, borderRadius: 27, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
-  summaryScore: { color: "#2563EB", fontSize: 20, lineHeight: 24, fontWeight: "900" },
-  summaryScoreLabel: { color: "#6B7280", fontSize: 9, lineHeight: 12, fontWeight: "800" },
-  sectionTitle: { fontSize: 18, lineHeight: 25, fontWeight: "800" },
-  radarCard: { alignItems: "center", borderRadius: 14, paddingTop: 10, paddingBottom: 12, backgroundColor: "#FFFFFF" },
-  legendRow: { flexDirection: "row", justifyContent: "center", gap: 20, marginTop: -4 },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
-  legendDot: { width: 10, height: 10, borderRadius: 5 },
-  legendText: { color: "#6B7280", fontSize: 12, lineHeight: 17, fontWeight: "700" },
-  tags: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  tag: { borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6 },
-  tagText: { fontSize: 12, lineHeight: 17, fontWeight: "700" },
-  evidenceCard: { borderRadius: 14, backgroundColor: "#F5F9FF", borderWidth: 1, borderColor: "#D9E8FA", padding: 14, gap: 5 },
-  evidenceHeadline: { color: "#164B8A", fontSize: 16, lineHeight: 22, fontWeight: "900" },
-  evidenceMeta: { color: "#5B7091", fontSize: 12, lineHeight: 18, fontWeight: "700" },
-  evidenceWarning: { color: "#8A5A00", fontSize: 12, lineHeight: 18, fontWeight: "700" },
-  suggestions: { gap: 12 },
-  suggestionRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  suggestionIndex: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", marginTop: 1, backgroundColor: "#EAF0FF" },
-  suggestionIndexText: { fontSize: 12, lineHeight: 17, fontWeight: "800", color: "#2F8FFB" },
-  suggestionText: { flex: 1, fontSize: 14, lineHeight: 22 },
-  directionCard: { borderRadius: 14, backgroundColor: "#F7FBF8", borderWidth: 1, borderColor: "#D8EBDD", padding: 14, gap: 8 },
-  directionText: { fontSize: 13, lineHeight: 20, fontWeight: "700" },
-  questionCard: { borderRadius: 14, backgroundColor: "#FFF9EC", borderWidth: 1, borderColor: "#F4DEAA", padding: 14, gap: 5 },
-  questionCardTitle: { color: "#8A5A00", fontSize: 14, lineHeight: 20, fontWeight: "900" },
-  questionCardText: { color: "#6F5A36", fontSize: 12, lineHeight: 18, fontWeight: "700" },
-  errorText: { fontSize: 12, lineHeight: 18, textAlign: "center" },
-  primaryButton: { minHeight: 52, borderRadius: 26, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginTop: 2 },
-  primaryButtonText: { color: "#FFFFFF", fontSize: 16, lineHeight: 22, fontWeight: "800" },
-  boundaryText: { marginTop: -6, fontSize: 11, lineHeight: 17, textAlign: "center" },
-  pressed: { opacity: 0.84, transform: [{ scale: 0.985 }] },
+  content: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 34, gap: 14, backgroundColor: "#FFFFFF" },
+  headerRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 14 },
+  headerCopy: { flex: 1, gap: 4 },
+  eyebrow: { fontSize: 11, lineHeight: 16, fontWeight: "900", letterSpacing: 1.2 },
+  title: { fontSize: 28, lineHeight: 35, fontWeight: "900" },
+  subtitle: { fontSize: 13, lineHeight: 20, fontWeight: "600" },
+  contextCard: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderRadius: 16, padding: 14 },
+  contextIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#EAF2FF", alignItems: "center", justifyContent: "center" },
+  contextCopy: { flex: 1, gap: 2 },
+  contextLabel: { fontSize: 11, lineHeight: 16, fontWeight: "700" },
+  contextTitle: { fontSize: 17, lineHeight: 23, fontWeight: "900" },
+  contextMeta: { fontSize: 12, lineHeight: 18, fontWeight: "600" },
+  card: { borderWidth: 1, borderRadius: 16, padding: 14, gap: 9 },
+  cardHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
+  cardHeaderCopy: { flex: 1, gap: 3 },
+  cardTitle: { fontSize: 16, lineHeight: 22, fontWeight: "900" },
+  cardHint: { fontSize: 11, lineHeight: 17, fontWeight: "600" },
+  cardDetail: { fontSize: 13, lineHeight: 20, fontWeight: "600" },
+  link: { fontSize: 12, lineHeight: 18, fontWeight: "900" },
+  purposeContent: { gap: 9 },
+  purposeText: { fontSize: 14, lineHeight: 22, fontWeight: "700" },
+  purposeItem: { gap: 3, borderTopWidth: 1, borderTopColor: "#E8EEF5", paddingTop: 9 },
+  purposeItemTitle: { fontSize: 13, lineHeight: 19, fontWeight: "800" },
+  purposeItemDetail: { fontSize: 12, lineHeight: 18, fontWeight: "600" },
+  statePill: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5, fontSize: 11, lineHeight: 16, fontWeight: "900" },
+  blockedNotice: { borderRadius: 16, borderWidth: 1, borderColor: "#F3C879", backgroundColor: "#FFF7E6", padding: 14, gap: 4 },
+  blockedTitle: { color: "#8A4B00", fontSize: 15, lineHeight: 21, fontWeight: "900" },
+  blockedDetail: { color: "#6F532B", fontSize: 12, lineHeight: 18, fontWeight: "700" },
+  hypothesisTitle: { fontSize: 18, lineHeight: 24, fontWeight: "900" },
+  boundaryNote: { borderTopWidth: 1, borderTopColor: "#E8EEF5", paddingTop: 9, fontSize: 11, lineHeight: 17, fontWeight: "700" },
+  actionBoundary: { borderWidth: 1, borderRadius: 16, padding: 14, gap: 9 },
+  actionRow: { flexDirection: "row", gap: 8 },
+  actionButton: { flex: 1, minHeight: 42, borderWidth: 1, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#F4F6F8" },
+  actionButtonText: { fontSize: 13, lineHeight: 18, fontWeight: "800" },
+  boundary: { fontSize: 11, lineHeight: 17, textAlign: "center", fontWeight: "600" },
+  centerState: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 14 },
+  stateTitle: { fontSize: 22, lineHeight: 29, fontWeight: "900", textAlign: "center" },
+  stateDetail: { fontSize: 14, lineHeight: 22, textAlign: "center", fontWeight: "600" },
+  primaryButton: { minHeight: 48, borderRadius: 24, paddingHorizontal: 20, alignItems: "center", justifyContent: "center" },
+  primaryButtonText: { color: "#FFFFFF", fontSize: 14, lineHeight: 20, fontWeight: "900" },
+  secondaryButton: { minHeight: 44, borderRadius: 12, borderWidth: 1, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" },
+  secondaryButtonText: { fontSize: 13, lineHeight: 19, fontWeight: "800" },
+  demoBadge: { color: "#8A5A00", backgroundColor: "#FFF1C7", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, fontSize: 11, lineHeight: 16, fontWeight: "900", letterSpacing: 1 },
+  errorBadge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, fontSize: 11, lineHeight: 16, fontWeight: "900" },
+  familyOption: { minHeight: 70, borderWidth: 1, borderRadius: 16, padding: 14, flexDirection: "row", alignItems: "center", gap: 11 },
+  familyOptionCopy: { flex: 1, gap: 2 },
+  familyOptionTitle: { fontSize: 15, lineHeight: 21, fontWeight: "900" },
+  familyOptionMeta: { fontSize: 12, lineHeight: 18, fontWeight: "600" },
+  boundaryCard: { borderRadius: 16, backgroundColor: "#F7F8FA", padding: 14, gap: 8 },
+  boundaryCardTitle: { fontSize: 15, lineHeight: 21, fontWeight: "900" },
+  boundaryCardDetail: { fontSize: 12, lineHeight: 18, fontWeight: "600" },
+  pressed: { opacity: 0.82, transform: [{ scale: 0.985 }] },
 });
