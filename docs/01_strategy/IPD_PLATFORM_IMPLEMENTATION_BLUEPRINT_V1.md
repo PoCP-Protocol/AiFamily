@@ -18,12 +18,25 @@ canonical: false
 
 ## 1. 设计结论
 
-平台的主对象不再是页面或单次 AI 对话，而是一个可版本化的 `ProductInitiative`：
+平台的主对象不再是页面或单次 AI 对话，而是一个从真实需求启动、可版本化的
+`ProductInitiative`。IPD 的方向是“需求衍生到市场洞察”，不是“市场信号驱动需求”：
+
+```text
+家庭需求 / 客户之声 / 服务问题
+  → DemandFrame + RequirementHypothesis
+  → MarketInsight（规模、替代、竞争、趋势验证）
+  → ProductInitiative / Opportunity
+```
+
+市场洞察必须回答“这个需求是否具有可验证的外部价值”，不能反过来凭热点制造家庭需求。
+
+随后由 `ProductInitiative` 承载这条需求到产品的版本化决策链：
 
 ```text
 ProductInitiative
-  ├─ MarketEvidence / VOC
+  ├─ DemandFrame / VoiceOfCustomer
   ├─ RequirementBaseline
+  ├─ MarketInsight / CompetitiveEvidence
   ├─ ConceptSet → SelectedConcept
   ├─ ArchitectureBaseline
   ├─ VerificationPlan / VerificationRun
@@ -33,15 +46,16 @@ ProductInitiative
 ```
 
 已有业务域仍然是事实 Owner。IPD 对象只管理产品与研发决策、版本和证据，不复制
-`family`、`journey`、`service`、`commerce` 或 `community` 的业务事实。当前产品设计链
+`family`、`journey`、`service`、`commerce` 或 `community` 的业务事实。当前代码链
 `MarketSignal → CustomerInsight → Opportunity → GrowthProblem → GrowthHypothesis →
-GrowthStrategy → ProductConcept` 继续保留，新增对象以引用和快照方式接入。
+GrowthStrategy → ProductConcept` 继续保留；IPD 编排在其上游增加 `DemandFrame`，并将
+需求基线和市场洞察以引用/快照方式接入 Opportunity。
 
 ## 2. IPD 阶段与平台能力映射
 
 | 阶段 | Gate | 平台输入 | 平台输出 | 当前落点 |
 |---|---|---|---|---|
-| 市场管理 | G0/MM | 市场信号、VOC、竞争替代 | `ProductInitiative`、机会假设 | `market_insight`、`product_intelligence` |
+| 需求与市场管理 | G0/MM | 家庭需求、VOC、市场/竞争验证 | `ProductInitiative`、机会假设 | `family_need` + `market_insight` + `product_intelligence` |
 | 概念决策 | G1/CDCP | MRD、三区判断、概念候选 | `ProductCharter`、入选概念 | `ProductConcept` + AI Runtime |
 | 计划决策 | G2/PDCP | PRD、依赖、成本、合规计划 | `RequirementBaseline`、版本范围 | 待新增 IPD application |
 | 开发决策 | G3/ADCP | 架构、代码、事件、迁移、测试 | `ArchitectureBaseline`、候选发布 | `ProductDefinition`、`ServiceBlueprintVersion` |

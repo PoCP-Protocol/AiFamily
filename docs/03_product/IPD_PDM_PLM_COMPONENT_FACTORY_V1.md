@@ -50,8 +50,10 @@ Web UI 的每个按钮都必须映射到 Command/Query、权限、审计和验�
 
 ### IPD：跨职能产品开发
 
-IPD 以 `ProductInitiative` 为根，串起市场证据、需求基线、概念候选、架构基线、验证和
-阶段 Gate。IPMT 决定投资与停止；PDT 负责设计和交付；领域 Owner 负责业务事实。
+IPD 以真实家庭需求为起点，以 `ProductInitiative` 为决策根，先形成 `DemandFrame` 和
+`RequirementHypothesis`，再用 `MarketInsight` 验证规模、替代、竞争与趋势，最后串起概念
+候选、架构基线、验证和阶段 Gate。IPMT 决定投资与停止；PDT 负责设计和交付；领域 Owner
+负责业务事实。市场洞察不能绕过需求直接生成产品。
 
 最小 Gate：G0 机会、G1 概念、G2 计划、G3 开发冻结、G4 资格、G5 发布、G6 生命周期。
 

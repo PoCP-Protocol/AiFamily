@@ -61,6 +61,8 @@ def test_product_definition_rejects_zone_mismatch() -> None:
             product_kind="MICRO_CAMP",
             duration_days=21,
             zone="HOMOGENEOUS",
+            demand_ref="family-need-1",
+            market_insight_refs=["market-insight-1"],
             education_spec=_spec(),
         )
 
@@ -81,3 +83,19 @@ def test_component_library_preserves_three_zone_and_contract_refs() -> None:
     )
     assert component.zone == "ADVANTAGE"
     assert component.required_skill_ids == ["explain_growth_hypothesis"]
+
+
+def test_education_product_requires_demand_and_market_insight_refs() -> None:
+    common = _common()
+    common["id"] = "definition-2"
+    with pytest.raises(ProductIntelligenceValidationError, match="demand_ref_required"):
+        ProductDefinition(
+            **common,
+            concept_id="concept-1",
+            component_ids=["understand-v1", "action-v1"],
+            product_kind="MICRO_CAMP",
+            duration_days=21,
+            zone="ADVANTAGE",
+            market_insight_refs=["market-insight-1"],
+            education_spec=_spec(),
+        )

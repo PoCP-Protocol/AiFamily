@@ -22,7 +22,9 @@ canonical: false
 带版本、成本、验证指标和发布条件的 `ProductPackage`，而不是直接生成一个页面。
 
 ```text
-MarketSignal / VOC
+FamilyNeed / 客户之声 / 服务问题
+  → DemandFrame + RequirementHypothesis
+  → MarketInsight（规模、替代、竞争、趋势验证）
   → Opportunity + GrowthProblem
   → AI Product Factory
   → ProductConcept candidates

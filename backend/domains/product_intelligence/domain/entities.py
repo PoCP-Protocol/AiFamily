@@ -537,12 +537,26 @@ class ProductDefinition(_CommonFields):
     duration_days: int | None = None
     zone: ProductZone = "HOMOGENEOUS"
     primary_contradiction: str | None = None
+    demand_ref: str | None = None
+    market_insight_refs: list[str] = Field(default_factory=list)
     education_spec: EducationProductSpec | None = None
 
     @model_validator(mode="after")
     def _education_spec_matches_definition(self) -> ProductDefinition:
         if self.education_spec is None:
             return self
+        if not self.demand_ref or not self.demand_ref.strip():
+            raise ProductIntelligenceValidationError("education_product_demand_ref_required")
+        if not self.market_insight_refs:
+            raise ProductIntelligenceValidationError("education_product_market_insight_required")
+        if any(not value or not value.strip() for value in self.market_insight_refs):
+            raise ProductIntelligenceValidationError(
+                "education_product_market_insight_refs_must_not_be_empty"
+            )
+        if len(set(self.market_insight_refs)) != len(self.market_insight_refs):
+            raise ProductIntelligenceValidationError(
+                "education_product_market_insight_refs_must_be_unique"
+            )
         if self.education_spec.product_kind != self.product_kind:
             raise ProductIntelligenceValidationError("education_product_kind_mismatch")
         if (
