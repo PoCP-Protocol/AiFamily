@@ -3,7 +3,7 @@ id: AGILE-REBUILD-PLAN-001
 title: Family 家庭需求平台敏捷重建计划
 type: delivery-plan
 status: current
-version: 0.5
+version: 0.6
 owner: chief-architect
 created: 2026-08-30
 updated: 2026-08-30
@@ -366,3 +366,35 @@ pnpm check                                  passed
 “事实复盘”：代码/迁移/测试/运行证据、已关闭债务、未关闭债务、下一轮任务和可发布环境。
 任何新任务必须挂接到商业目标 → 场景 → 分级流程 → 数据 → 应用 → AI/人工控制 → UI/运营
 入口 → 验收测试链；缺链的任务只能进入设计 backlog。
+
+## 18. Sprint 2.1 复核结果（项目助理驱动，2026-08-30）
+
+- **DB-01：CONTRACTED / PARTIAL**。`tests/database/test_alembic_baseline_applies.py` 已将历史
+  baseline（0001，152/7/60）与 0004-0008 additive head（0008，159/7/60）分层，并对当前
+  未登记的 0009 WIP 只做显式 `160` allow-list；Fresh Postgres baseline 3 passed、FGCN chain
+  2 passed、Ruff 通过。0009 仍需 ADR、MIGRATION_MANIFEST、ORM/迁移对象清单和 owner 提交，未知
+  head 必须失败。
+- **AAIR-6：CONTRACTED / adapter-only**。新增 durable deletion queue 的端口、租约、重试、DLQ、
+  幂等、租户隔离和 TEXT/MEDIA/VECTOR/CACHE/DERIVED 回执合同；定向删除测试 13 passed、Ruff
+  通过。当前实现仍是 `InMemoryDurableDeletionStore`，没有 Postgres/outbox、跨进程 lease 或真实
+  五类 projection，保持 `RELEASE BLOCKED`，不得标记生产删除完成。
+- **AFE-4：PARTIAL**。服务列表已用语义图标、步骤和家庭小成就替换可见 UI 编号，专项 5 tests
+  与 `pnpm check` 通过；全量移动端仍 5 failures，`family-screen-list.tsx`、通用 `[id]` 路由和
+  UI-05/UI-09 旧文案仍存在可见内部编号，需另开 UX-01 返工。
+- **PMA-1：常驻审查**。项目助理已对以上交付发送反向意见，并将 P0/P1 任务写入审查报告和
+  章程；当前发布判定仍为 `NO-GO`，原因是生产 dev_auth/环境默认、身份/同意持久化、架构与
+  Ruff 闸门、全量移动端契约漂移等未关闭。
+
+### 18.1 当前可复现闸门
+
+```text
+uv run pytest tests/architecture -q                 106 passed, 1 skipped, 4 failed
+uv run ruff check . --output-format concise          1 E501（并发 WIP family/entities.py）
+uv run pytest tests/database/test_alembic_baseline_applies.py -q  3 passed
+uv run pytest tests/database/test_fgcn_migration_chain.py -q      2 passed
+cd frontend/mobile; pnpm test -- --run              247 passed, 1 skipped, 5 failed
+cd frontend/mobile; pnpm check                       passed
+```
+
+上述失败必须被项目助理逐轮复核；不得用抬高基线、删除测试、把 0009 WIP 偷换为已完成或将
+synthetic adapter 当真实依赖来“修绿”。
