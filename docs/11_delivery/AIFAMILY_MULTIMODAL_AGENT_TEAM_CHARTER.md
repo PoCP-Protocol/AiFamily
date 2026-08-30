@@ -110,6 +110,129 @@ AG-00 对“是否可以标记完成”负最终责任，但不替代专业 Agen
 - AG-04：生成质量、安全、延迟、成本、可访问性和环境 parity 报告。
 - AG-00：以证据决定是否扩大到音频/视频；未达阈值不得打开生产路由。
 
+### Sprint 1 当前看板（2026-08-30）
+
+以下是本轮“文字 + 图片 → Web 草稿”的实际派工状态。状态是项目管理状态，不替代 AG-00 对代码、测试和交付证据的最终复核。
+
+| 编号 | 当前任务 | 状态 | 下一动作 | 依赖/交付证据 |
+|---|---|---|---|---|
+| **AG-01** | 产品验收、体验/游戏感/成就感验收矩阵 | `IN_PROGRESS` | 固化 P0 用户故事和 Sprint 1 Review 清单 | 本章程 §1、§5、§7；等待纵向切片演示 |
+| **AG-02** | Engagement / Model Gateway 多模态体验链路 | `COMPLETED` | 将完成项交 AG-00 集成复核，补齐缺证据 | Gateway/Experience 代码、定向测试和 provenance 记录 |
+| **AG-03** | Web Experience Studio API/状态契约 | `READY_FOR_REVIEW` | 由 AG-04 复核 `frontend/web/` 的组件、契约和端到端测试 | 独立 Vite/React Web 已可运行；待完成市场洞察/竞品证据对象接入 |
+| **AG-04** | QA、合规、gold set、拒绝集和发布 Gate | `READY_FOR_REVIEW` | 对接 Web 实现后执行端到端、拒绝和无障碍验收 | 测试矩阵、拒绝路径和环境 parity 检查 |
+| **AG-00** | 集成、QA 复核、阻塞裁决和 Sprint Review | `IN_PROGRESS` | 安排 Sprint 1 Review，核对 AG-02/AG-03 实测证据 | 依赖 AG-03 交付复核和 AG-04 验收 |
+
+#### Sprint 1 历史阻塞（已解除）
+
+AG-03 已交付可运行的独立 Vite/React `frontend/web/`，因此“没有 Web 宿主”这一阻塞已于 2026-08-30 解除。当前仍需 AG-04 对组件、契约和端到端路径进行复核；该复核不等同于 Model Gateway 或体验契约已获生产准入。
+
+- **解除负责人**：AG-00（登记/集成）+ AG-03（建立实现）；
+- **解除证据**：`frontend/web/` 的 Vite/React 工程、组件测试和 Playwright 场景已存在；AG-00 需在 Review 中复跑命令并记录输出；
+- **后续未决**：市场洞察/竞品证据对象尚未进入 `CreateDraftInput`，不应把当前 Web DRAFT 展示描述为完整市场洞察链路。
+
+### Sprint 2 当前看板与用户故事（2026-08-30）
+
+Sprint 2 的交付主线固定为：
+
+```text
+需求 → 市场洞察 → 竞品分析 → 体验草案 → 人工确认 → 交付反馈
+```
+
+| 编号 | Sprint 2 工作包 | 状态 | 本轮输出 | 依赖/下一动作 |
+|---|---|---|---|---|
+| **AG-01** | 需求证据、市场洞察、竞品分析和 IPD 用户故事 | `IN_PROGRESS` | 5 条用户故事、证据卡模板、验收矩阵 | 需要 AG-04 复核证据完整性 |
+| **AG-02** | 证据引用 → AI 体验草案的 Model Gateway 链路 | `READY_FOR_DEV` | 结构化输入、provenance、DRAFT 输出和反馈事件契约 | 依赖 AG-01 的 schema；继续使用 Gateway 唯一入口 |
+| **AG-03** | Web 体验草案、人工确认和交付反馈界面 | `BLOCKED` | 契约已完成；等待 `frontend/web/` 宿主实现 | 唯一阻塞解除后接入输入、草案、确认、反馈和回放 |
+| **AG-04** | 需求/竞品证据 gold set、拒绝矩阵和验收检查 | `READY_FOR_REVIEW` | 来源完整性、未知项、AI 草案边界和拒绝用例 | 等待 AG-02/AG-03 实现后执行端到端验收 |
+| **AG-00** | Sprint 2 集成、依赖裁决和 Review | `IN_PROGRESS` | 统一任务卡、集成窗口和阻塞台账 | 保持唯一阻塞登记；不以文档完成替代 Web 证据 |
+
+#### Sprint 2 用户故事与验收
+
+**S2-US1｜家长提交可追溯的真实需求**
+
+- 作为家长，我可以在 Web 记录一个具体处境、涉及主体、期望改变和时间范围，并看到系统如何区分我的原话、系统观察和待验证假设。
+- 验收：需求记录含 `tenant/family/subject/purpose/locale`、来源引用、同意状态和幂等键；缺少主体范围或同意时明确拒绝；AI 只能生成 `DemandPerspective(DRAFT)`，不得写成家庭事实。
+- 证据要求：原始输入引用（脱敏）、用户确认时间、授权/同意引用、需求事件 ID；若来自访谈或客服，必须有来源类型、采集日期和去标识说明。
+
+**S2-US2｜从需求生成有来源的市场洞察草案**
+
+- 作为产品经理，我可以把需求证据卡交给 AI，得到问题模式、目标人群假设、场景频次线索和待验证问题，并逐条追溯到来源。
+- 验收：每个结论带 `evidence_refs`、时间范围、适用范围、置信度和“事实/推断/未知”标签；无来源、过期或互相矛盾的证据必须显式标记，不得补写；输出状态固定为 `DRAFT`/`PROPOSED`。
+- 证据要求：使用的用户证据卡、检索/分析时间、模型与 Prompt/Schema 版本、Context Snapshot 引用、人工复核记录；市场洞察未经过人工确认不得进入产品主数据。
+
+**S2-US3｜基于证据做竞品能力分析，而非主观排名**
+
+- 作为产品经理，我可以按统一维度查看竞品在场景覆盖、交互、多模态、交付和治理方面的公开证据、未知项及可借鉴做法。
+- 验收：每个竞品声明至少有可访问来源、发布日期/检索日期、原文定位、来源类型和适用范围；无法核验的内容标为 `UNKNOWN`；不得生成“最好/最差”或家庭教育效果排名，不得把宣传语当作效果事实。
+- 证据要求：官方文档/产品页面/公开演示/用户授权材料优先；二手评论只能作为线索并标低置信度；保留来源快照哈希或归档引用，避免链接变化导致不可复查。
+
+**S2-US4｜由需求与市场洞察生成可审查的体验产品草案**
+
+- 作为产品设计者，我可以选择已确认范围内的需求和市场洞察，生成一个 Web 多模态体验草案，包含目标、步骤、输入模态、反馈机制、难度调整和成就触发条件。
+- 验收：草案引用需求/洞察证据，列出组件/Skill、模型版本、限制与风险；AI 输出为 `ProductDraft(DRAFT)` 或 `Recommendation(PROPOSED)`，不能直接创建 Family/Growth/Service/Commerce 事实；成就条件必须指向真实 `ExperienceEvent`/`ActionOutcome`。
+- 证据要求：需求与洞察 ID、组件/Skill 版本、Model Gateway provenance、生成时间、schema 校验结果、拒绝/安全检查结果；未提供证据的体验主张标为待验证假设。
+
+**S2-US5｜人工确认并用交付反馈驱动下一轮迭代**
+
+- 作为产品负责人或家庭用户，我可以接受、修改、拒绝、暂停或请求人工处理体验草案，并在交付后提交可定位到版本和行动事件的反馈。
+- 验收：每个决定记录 actor、reason、scope、时间、前后版本、人工闸门和审计 ID；拒绝或暂停可恢复；交付反馈能关联到产品版本、Run、Recommendation 和真实行动事件；反馈只进入评估/下一轮需求，不自动改写既有事实。
+- 证据要求：`RecommendationDecision`、`FeedbackSignal`、`DeliveryRecord`、审计事件、回放链接和删除证明（适用时）；AI 生成的成就叙事必须能回放到真实事件，不能凭空增加积分、等级、家庭总分或排名。
+
+#### 统一证据来源规则
+
+所有 Sprint 2 用户故事使用以下来源分层，并在交付物中保留来源引用：
+
+| 来源层 | 可证明内容 | 最低字段 | 不能证明 |
+|---|---|---|---|
+| **A：用户/业务证据** | 家庭表达、已发生行动、交付反馈 | `source_ref`、主体范围、采集时间、同意/授权、去标识说明 | 不能单独证明市场规模或教育效果 |
+| **B：市场/竞品证据** | 产品公开能力、定价/流程、已声明特性 | URL/文档引用、发布日期、检索日期、原文定位、来源类型、快照/哈希 | 不能把宣传语推导成真实效果或用户偏好 |
+| **C：系统/运行证据** | 契约、测试、Trace、模型版本、交付结果 | request/run/attempt ID、版本、测试命令输出、审计/回放引用 | 不能把测试夹具当生产能力 |
+
+AI 可以组合 A/B/C 生成洞察、竞品分析和体验草案，但所有 AI 产物都必须标注为视角、建议或假设；只有经过命名动作和人工确认，才能进入后续产品交付流程。
+
+### 跨 Agent 对齐结论与未决项（Sprint 2，2026-08-30）
+
+本节基于 AG-02 Model Benchmark 交付摘要、`backend/intelligence/experience/model_benchmark.py` 与 `MULTIMODAL_LLM_SELECTION.md`，以及 AG-03 `frontend/web/` 交付摘要和 `frontend/web/src/api/client.ts`、组件测试的现场核对。结论用于联调，不替代 AG-00 的最终验收。
+
+#### 已对齐的验收映射
+
+| 用户故事 | AG-02 模型评估/治理映射 | AG-03 Web 交互映射 | 当前结论 |
+|---|---|---|---|
+| **S2-US1 需求输入** | gold case 必须包含匿名处境、模态、期望 schema 和安全标签；benchmark 只能证明结构化/安全表现，不能证明需求真实性；provenance 至少含 request/context/prompt/schema/version | `ExpressionInput` 支持文字、图片 `media://` 引用、scope、purpose、locale、consent；缺同意或 scope 时拒绝 | 输入和治理边界一致；需求证据对象仍需接入后端/前端契约 |
+| **S2-US2 市场洞察** | evidence-bound case；质量分只代表 schema pass；结果保留 case/version/provenance；合规 Gate 前保持 DRAFT | DRAFT 的 evidence/provenance 区已预留，但尚未接 `MarketInsight`/`evidence_refs` 对象 | 只能展示“有来源的 AI 草案”，不能展示为已验证市场事实 |
+| **S2-US3 竞品分析** | AG-04 注入来源证据哈希；benchmark 不含 ranking 字段，禁止最好/最差排名 | 当前 Web 尚无竞品证据对象和来源卡片 UI | 未决：竞品字段、来源快照和未知项展示契约 |
+| **S2-US4 体验草案** | 质量=结构化通过率；安全=(安全通过率+拒答准确率)/2；成本=单位微美元；延迟=P95；`ModelBenchmarkSummary` 记录权重、Gate 和 `education_outcome_status=NOT_MEASURED` | `DraftResult` 展示 `understanding`、`next_step`、`limitations` 和 provenance；输出固定 `DRAFT` | 模型评估只能标为“契约质量/安全评估”，不能渲染成孩子或家庭成绩 |
+| **S2-US5 人工确认/交付反馈** | Recommendation/Feedback/Delivery Record 应挂 candidate/model/version、run/attempt、benchmark report/case_version、Gate；反馈进入下一轮评估；成就引用真实 ExperienceEvent | `DecisionActions` 支持 confirm/rewrite/reject/human；`FeedbackActions` 支持 helpful/not_helpful；已有删除和 `ReplayTimeline` | 决策/反馈交互已具备；关联字段和生产 API 命名待 AG-00 裁决 |
+
+#### 统一字段建议（待 AG-00 采纳）
+
+为避免模型评估和 Web 交互各自造字段，建议在 Experience Draft/Replay/Feedback 契约中使用以下可选治理字段：
+
+```text
+benchmark_report_ref
+case_version
+candidate_id / provider_id / model / model_version
+quality_score / safety_score / cost_score / latency_score / composite_score
+score_weights
+benchmark_gate_status / failures
+education_outcome_status = NOT_MEASURED
+provenance_ref / human_gate_ref / feedback_ref
+draft_version / attempt_id / real_event_refs
+```
+
+Web 只把上述字段作为“契约质量、安全评估、来源和版本”显示；`BLOCKED` 只显示不可运行/仅研究状态。`ReplayTimeline` 为只读投影，不重新调用 Gateway。任何成就展示都必须携带真实事件引用。
+
+#### 未决项与责任人
+
+| 未决项 | 影响 | 责任人 | 解除条件 |
+|---|---|---|---|
+| `CreateDraftInput` 是否增加 `demand_ref`、`market_insight_refs`、`competitor_analysis_refs` | US1→US4 无法形成可追溯输入链 | AG-00 + AG-01 + AG-02 | 评审后冻结字段、版本和空值/拒绝语义，并补契约测试 |
+| `DeliveryRecord`、`Recommendation`、`Feedback` 的关联 ID 命名 | US5 无法跨 Web、Gateway、评估回放 | AG-00 + AG-02 + AG-03 | 选定 `run_id`/`attempt_id`/`draft_version`/`feedback_ref` 映射并写入 API 契约 |
+| Web 的 `MarketInsight`/竞品证据卡片和未知项展示 | US2/US3 只能看到通用 provenance，无法审查证据 | AG-03 + AG-01 | `frontend/web/` 新增证据对象只读投影、来源快照和 `UNKNOWN` 状态测试 |
+| 真实匿名 gold set、供应商正式准入和价格运行记录 | 无法从离线 benchmark 晋级 Pilot/生产 | AG-02 + AG-04 | gold set 版本化、DPIA/安全/转委托/删除资料齐全，Gate 变为 `ELIGIBLE` |
+
+当前没有新增阻塞；上述项目是 Sprint 2 的未决决策/后续任务。唯一已记录的 Web 工程阻塞已在本章程“Sprint 1 历史阻塞（已解除）”中关闭。
+
 ## 5. 通用任务卡格式
 
 每张任务卡必须包含：
@@ -143,6 +266,28 @@ AG-00 对“是否可以标记完成”负最终责任，但不替代专业 Agen
 ```
 
 不得只写“已完成”“代码已提交”；必须给出可核验路径或命令输出。
+
+### 6.1.1 当前 Sprint 每日同步模板
+
+各 Agent 在项目线程使用以下固定字段；缺少“证据”或“阻塞解除条件”的同步视为未完成同步：
+
+```text
+[SPRINT-1][AG-xx][YYYY-MM-DD][状态]
+任务：<任务编号与一句话目标>
+昨日证据：<文件/提交/命令及实际输出；没有则写“无”>
+今日交付：<可审查的文件、接口、测试或决策>
+依赖变化：<等待哪个 Agent，或“无”>
+风险/阻塞：<事实 + 影响 + 解除条件；没有则写“无”>
+体验指标：<本日涉及的理解时间/可控性/反馈/成就证据；不适用写“无”>
+需要 AG-00 决策：<具体问题与建议；没有则写“无”>
+战场变更：<绝对/仓库相对路径；是否影响其他 Agent>
+```
+
+AG-00 每日同步最后追加一行：
+
+```text
+集成结论：<继续 / 缩小切片 / BLOCKED / 可进入 Review>；唯一阻塞：<当前阻塞或“无”>
+```
 
 ### 6.2 状态流转
 
@@ -193,4 +338,3 @@ AG-00 的裁决必须包含：事实证据、受影响任务、选择（修复/�
 ## 9. 本章程的维护
 
 本文件是本子项目的执行章程，属于 `NOT_CANONICAL` 交付文档。若要改变系统边界、AI 权限、数据治理、供应商准入或宪章约束，必须先由 AG-00 提交对应 ADR/治理变更，不得在本文件中悄然放宽。
-

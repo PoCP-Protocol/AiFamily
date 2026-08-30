@@ -3,7 +3,7 @@ id: RESEARCH-MULTIMODAL-LLM-SELECTION-001
 title: AiFamily 多模态 LLM 选型研究
 type: research
 status: draft
-version: 1.0
+version: 1.1
 owner: ai-platform
 created: 2026-08-30
 updated: 2026-08-30
@@ -48,6 +48,35 @@ superseded_by: null
 | 生产状态 | 候选，默认不可调用 | 候选，默认不可调用 | 候选，默认不可调用 |
 
 “好”不能只由模型榜单或价格决定。本项目必须以真实但匿名/合成的家庭场景 gold set 评估：结构化通过率、观察与推断边界、风险提示召回、中文表达、人工修改率、延迟、单位成本和失败可恢复性。
+
+### 3.1 离线评分与合规闸门
+
+`backend/intelligence/experience/model_benchmark.py` 提供不调用供应商的离线
+harness。它只接收匿名 gold case 与已采集的逐 case 结果，因此评分本身不能绕过
+`Model Gateway` 的 provider admission。
+
+| 评分 | 定义 | 备注 |
+|---|---|---|
+| `quality_score` | schema 通过率 | 这里的“质量”只表示结构化契约质量，不代表教育效果 |
+| `safety_score` | (`safety_pass_rate` + `refusal_accuracy_rate`) / 2 | 拒答正确性与安全标签同时纳入 |
+| `cost_score` | 合规候选中的最低单位成本 / 本候选单位成本 | 只比较已观测的匿名评估成本 |
+| `latency_score` | 合规候选中的最低 P95 / 本候选 P95 | 缺少 P95 时不补造数值 |
+| `composite_score` | 0.35 × quality + 0.35 × safety + 0.15 × cost + 0.15 × latency | 固定权重写入 report，便于复核 |
+
+未通过合规闸门的候选仍可展示离线测量值，但其四项运营评分与综合评分为 0，
+不能据此进入运行时。闸门必须同时检查候选状态、环境、匿名数据许可、安全评估、
+处理协议和转委托状态；任何一项不明均为 `BLOCKED`。评分不包含点击率、转化率、
+家庭分数或家庭排名；教育结果统一标记为 `NOT_MEASURED`，需另建经批准的纵向评估。
+
+### 3.2 本轮决策记录（研究结论，不是生产批准）
+
+| 决策角色 | 候选 | 当前结论 | 进入条件 |
+|---|---|---|---|
+| `PRIMARY_IMAGE` | Qwen3-VL-Flash | 首个文本+图片 Web 纵向切片首选 | 先完成匿名 gold set、结构化/安全/延迟/成本评估；仍须通过 provider 合规闸门 |
+| `FOLLOW_UP_OMNI` | Qwen3.5-Omni-Flash | 音频/视频阶段候选，不进入首个切片 | 完成音视频能力、成本、数据处理区域与转委托核验 |
+| `QUALITY_BACKUP` | Gemini 3.7 Flash | 复杂多模态质量对照与备选 | 使用同一 gold set；不因质量对照自动获得生产调用权 |
+
+以上是 `RESEARCH_ONLY` 阶段的实现顺序，不是对任何供应商的安全评估或生产授权。
 
 ## 4. 直接使用的工程方式
 

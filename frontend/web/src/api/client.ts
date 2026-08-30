@@ -1,0 +1,146 @@
+export type DataClass =
+  | "SYNTHETIC"
+  | "OPERATIONAL_TEXT"
+  | "FAMILY_PRIVATE_TEXT"
+  | "MINOR_PERSONAL_DATA";
+
+export type RunStatus =
+  | "idle"
+  | "validating"
+  | "running"
+  | "partial"
+  | "success"
+  | "refused"
+  | "timeout"
+  | "retrying"
+  | "human_review"
+  | "deleted";
+
+export type ExperienceErrorCode =
+  | "CONSENT_REQUIRED"
+  | "PROVIDER_NOT_ADMITTED"
+  | "TIMEOUT"
+  | "MEDIA_DELETED"
+  | "SCOPE_MISMATCH"
+  | "INVALID_INPUT";
+
+export type MediaInput = {
+  media_type: "IMAGE";
+  uri: string;
+  mime_type: string;
+  sha256: string;
+};
+
+export type ExperienceScope = {
+  tenant_id: string;
+  region_id: string;
+  family_id: string;
+  subject_ids: string[];
+  purpose: string;
+  consent_version: string;
+  consent_granted: boolean;
+  locale: string;
+};
+
+export type CreateDraftInput = {
+  run_id: string;
+  use_case: string;
+  prompt_version: string;
+  schema_version: string;
+  data_class: DataClass;
+  context_snapshot_ref: string;
+  payload: { expression: string };
+  input_refs: string[];
+  media_inputs: MediaInput[];
+  scope: ExperienceScope;
+};
+
+export type ExperienceProvenance = {
+  provenance_ref: string;
+  kind: "AI_DRAFT" | "SYNTHETIC_TEST";
+  model_attempt_ref: string;
+  context_snapshot_ref: string;
+  prompt_version: string;
+  schema_version: string;
+  captured_at: string;
+};
+
+export type BenchmarkMetadata = {
+  benchmark_report_ref: string;
+  benchmark_case_version: string;
+  candidate_id: string;
+  provider_id: string;
+  model: string;
+  model_version: string;
+  quality_score?: number | null;
+  safety_score?: number | null;
+  cost_score?: number | null;
+  latency_score?: number | null;
+  composite_score?: number | null;
+  score_weights?: Record<string, number>;
+  benchmark_gate_status: "ADMITTED" | "PILOT_CANDIDATE" | "BLOCKED" | "UNKNOWN";
+  benchmark_gate_failures?: string[];
+  education_outcome_status: "NOT_MEASURED" | "MEASURED";
+};
+
+export type ExperienceDraft = {
+  run_id: string;
+  draft_version: string;
+  status: "DRAFT";
+  output: { understanding: string; next_step: string };
+  limitations: string[];
+  provenance: ExperienceProvenance;
+  requires_human_confirmation: true;
+  media_inputs: MediaInput[];
+  correlation_id: string;
+  benchmark?: BenchmarkMetadata;
+};
+
+export type DraftDecisionInput = {
+  run_id: string;
+  decision: "confirm" | "reject" | "rewrite";
+  replacement_text?: string;
+};
+
+export type FeedbackInput = {
+  run_id: string;
+  signal: "helpful" | "not_helpful" | "request_human";
+  draft_version?: string;
+  candidate_id?: string;
+  model_version?: string;
+  attempt_id?: string;
+  benchmark_report_ref?: string;
+  event_refs?: string[];
+};
+
+export type HumanReviewInput = { run_id: string; reason: string };
+export type DecisionReceipt = { run_id: string; status: "pending_human_confirmation" | "rejected" };
+export type FeedbackReceipt = { run_id: string; recorded: true };
+export type HumanReviewReceipt = { run_id: string; status: "human_review" };
+export type DeletionReceipt = { run_id: string; status: "deleted" };
+export type ReplaySnapshot = {
+  run_id: string;
+  entries: Array<{ label: string; at: string }>;
+  benchmark?: Pick<BenchmarkMetadata, "benchmark_report_ref" | "benchmark_case_version" | "model_version" | "benchmark_gate_status">;
+};
+
+export class ExperienceApiError extends Error {
+  readonly code: ExperienceErrorCode;
+  readonly status: RunStatus;
+
+  constructor(code: ExperienceErrorCode, status: RunStatus, message: string) {
+    super(message);
+    this.name = "ExperienceApiError";
+    this.code = code;
+    this.status = status;
+  }
+}
+
+export interface ExperienceApiClient {
+  createDraft(input: CreateDraftInput, idempotencyKey: string): Promise<ExperienceDraft>;
+  decide(input: DraftDecisionInput, idempotencyKey: string): Promise<DecisionReceipt>;
+  submitFeedback(input: FeedbackInput, idempotencyKey: string): Promise<FeedbackReceipt>;
+  requestHuman(input: HumanReviewInput, idempotencyKey: string): Promise<HumanReviewReceipt>;
+  deleteRun(runId: string, idempotencyKey: string): Promise<DeletionReceipt>;
+  replayRun(runId: string): Promise<ReplaySnapshot>;
+}
