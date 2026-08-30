@@ -230,7 +230,10 @@ export class HttpExperienceApiClient implements ExperienceApiClient {
     }
     const resolvedSessionId = sessionId?.trim() || this.sessionId;
     if (resolvedSessionId) headers["X-Session-Id"] = resolvedSessionId;
-    const resolvedLocale = this.locale || locale?.trim();
+    // A request's explicit locale wins over the client default.  This keeps a
+    // long-lived client safe for a locale switch while retaining a fallback
+    // for calls that do not carry a scope locale.
+    const resolvedLocale = locale?.trim() || this.locale;
     if (resolvedLocale) headers["X-User-Locale"] = resolvedLocale;
     return headers;
   }

@@ -60,7 +60,10 @@ describe("HttpExperienceApiClient", () => {
       fetchImpl,
     });
 
-    await client.createDraft(input, "idem-context");
+    await client.createDraft(
+      { ...input, scope: { ...input.scope, locale: "fr-FR" } },
+      "idem-context",
+    );
 
     const [, init] = fetchImpl.mock.calls[0];
     const headers = init?.headers as Record<string, string>;
@@ -68,7 +71,7 @@ describe("HttpExperienceApiClient", () => {
     expect(headers).toMatchObject({
       Authorization: "Bearer session-token",
       "X-Session-Id": "session-1",
-      "X-User-Locale": "en-US",
+      "X-User-Locale": "fr-FR",
     });
     expect(headers).not.toHaveProperty("X-Tenant-Id");
     expect(headers).not.toHaveProperty("X-Family-Id");
