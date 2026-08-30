@@ -13,6 +13,10 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
+from backend.intelligence.context_engine.async_port import (
+    AsyncContextBrokerAdapter,
+    AsyncContextBrokerPort,
+)
 from backend.intelligence.context_engine.contracts import ContextScope, ContextSnapshot
 from backend.intelligence.context_engine.store import ContextBroker
 from backend.intelligence.experience.multimodal_application import (
@@ -25,6 +29,13 @@ from backend.intelligence.experience.multimodal_generation import (
 from backend.intelligence.experience.multimodal_routing import MultimodalRouteRequest
 from backend.intelligence.experience.runs import DurableExperienceRun
 from backend.intelligence.model_gateway.contracts import MediaInput
+from backend.intelligence.model_gateway.provenance import (
+    ModelDraftIdentity,
+    ModelDraftNotFound,
+    ModelDraftRegistryPort,
+    ModelDraftScope,
+    StoredModelDraft,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +52,7 @@ class ContextBoundMultimodalCommand:
     input_refs: tuple[str, ...] = ()
     media_inputs: tuple[MediaInput, ...] = ()
     session_id: str | None = None
+    model_draft_subject_id: str | None = None
     snapshot_ttl: timedelta = timedelta(minutes=15)
 
     def __post_init__(self) -> None:
@@ -55,6 +67,11 @@ class ContextBoundMultimodalCommand:
             raise ValueError("output_schema is required")
         if self.snapshot_ttl <= timedelta(0):
             raise ValueError("snapshot_ttl must be positive")
+        if self.model_draft_subject_id is not None:
+            if not self.model_draft_subject_id.strip():
+                raise ValueError("model_draft_subject_id must not be blank")
+            if self.model_draft_subject_id not in self.scope.subject_ids:
+                raise ValueError("model_draft_subject_id must belong to context scope")
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +91,14 @@ class ContextBoundMultimodalDraft:
     def requires_human_confirmation(self) -> bool:
         return self.routed.requires_human_confirmation
 
+    @property
+    def draft_id(self) -> str | None:
+        return self.routed.experience.draft_id
+
+    @property
+    def provenance_ref(self) -> str | None:
+        return self.routed.experience.provenance_ref
+
 
 class ContextBoundMultimodalExperienceService:
     """Build context first, then delegate to the routed Gateway application seam."""
@@ -81,11 +106,20 @@ class ContextBoundMultimodalExperienceService:
     def __init__(
         self,
         *,
-        context: ContextBroker,
+        context: ContextBroker | AsyncContextBrokerPort,
         routed: RoutedMultimodalExperienceService,
+        registry: ModelDraftRegistryPort | None = None,
     ) -> None:
-        self._context = context
+        if isinstance(context, ContextBroker):
+            # Keep the deterministic synchronous broker available to tests and
+            # local development without blocking the async application loop.
+            self._context: AsyncContextBrokerPort = AsyncContextBrokerAdapter(context)
+        elif isinstance(context, AsyncContextBrokerPort):
+            self._context = context
+        else:
+            raise TypeError("context must implement AsyncContextBrokerPort")
         self._routed = routed
+        self._registry = registry
 
     async def generate_draft(
         self,
@@ -99,10 +133,18 @@ class ContextBoundMultimodalExperienceService:
             or run.subject_ids != command.scope.subject_ids
         ):
             raise ValueError("run scope must match context scope")
-        snapshot = self._context.snapshot(
-            scope=command.scope,
-            now=None,
-            snapshot_ttl=command.snapshot_ttl,
+        stored = await self._resolve_existing(command)
+        snapshot = (
+            await self._context.read(
+                stored.draft.provenance.context_snapshot_ref,
+                command.scope,
+            )
+            if stored is not None
+            else await self._context.snapshot(
+                scope=command.scope,
+                now=None,
+                snapshot_ttl=command.snapshot_ttl,
+            )
         )
         generation_command = MultimodalExperienceCommand(
             run_id=command.run_id,
@@ -120,11 +162,59 @@ class ContextBoundMultimodalExperienceService:
             input_refs=tuple(dict.fromkeys((*command.input_refs, *snapshot.source_refs))),
             media_inputs=command.media_inputs,
             session_id=command.session_id,
+            model_draft_scope=self._draft_scope(command),
         )
         routed = await self._routed.generate_draft(
             generation_command, command.route_request, run=run
         )
         return ContextBoundMultimodalDraft(snapshot=snapshot, routed=routed)
+
+    async def _resolve_existing(
+        self, command: ContextBoundMultimodalCommand
+    ) -> StoredModelDraft | None:
+        """Resolve a prior draft before minting a replacement context snapshot."""
+
+        if self._registry is None:
+            return None
+        scope = self._draft_scope(command)
+        if scope is None:
+            raise ValueError(
+                "model_draft_scope is required when a ModelDraft registry is configured"
+            )
+        identity = ModelDraftIdentity.from_run_id(command.run_id)
+        try:
+            return await self._registry.resolve_stored(
+                identity.provenance_ref,
+                tenant_id=scope.tenant_id,
+                family_id=scope.family_id,
+                subject_person_id=scope.subject_person_id,
+                purpose=scope.purpose,
+                correlation_id=scope.correlation_id,
+            )
+        except ModelDraftNotFound:
+            return None
+
+    @staticmethod
+    def _draft_scope(command: ContextBoundMultimodalCommand) -> ModelDraftScope | None:
+        """Derive a review/action subject without flattening multi-subject scope."""
+
+        subject_id = command.model_draft_subject_id
+        if subject_id is None and len(command.scope.subject_ids) == 1:
+            subject_id = command.scope.subject_ids[0]
+        if subject_id is None:
+            # The generation service raises a precise configuration error only
+            # when a registry is actually installed.  Keeping this ``None``
+            # preserves direct, non-persisted multimodal contract tests while
+            # preventing an application from silently inventing an action
+            # subject in a multi-subject context.
+            return None
+        return ModelDraftScope(
+            tenant_id=command.scope.tenant_id,
+            family_id=command.scope.family_id,
+            subject_person_id=subject_id,
+            purpose=command.scope.purpose,
+            correlation_id=command.scope.correlation_id,
+        )
 
 
 __all__ = [
