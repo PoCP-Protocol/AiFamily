@@ -16,6 +16,11 @@ from backend.domains.service.domain.errors import (
 from backend.intelligence.human_gate import ActorType, NamedActionRequest
 from backend.platform.audit import AuditEvent, AuditRecorder
 
+from .admission import (
+    DEFAULT_PROVIDER_ADMISSION,
+    ProviderAdmissionQuery,
+    require_provider_admitted,
+)
 from .contracts import (
     AllocationBasisType,
     AllocationBucket,
@@ -35,6 +40,11 @@ from .contracts import (
     TaskQualityReview,
     TaskQualityState,
     TaskStatus,
+)
+from .entry import (
+    DEFAULT_CASE_ENTRY_DEPENDENCIES,
+    CaseEntryDependencyQuery,
+    require_case_entry_dependencies,
 )
 
 if TYPE_CHECKING:
@@ -75,8 +85,16 @@ class FGCNEngine:
     the durable adapter can later replay the same commands in one transaction.
     """
 
-    def __init__(self, audit_recorder: AuditRecorder | None = None) -> None:
+    def __init__(
+        self,
+        audit_recorder: AuditRecorder | None = None,
+        *,
+        case_entry_dependencies: CaseEntryDependencyQuery = DEFAULT_CASE_ENTRY_DEPENDENCIES,
+        provider_admission: ProviderAdmissionQuery = DEFAULT_PROVIDER_ADMISSION,
+    ) -> None:
         self.audit = audit_recorder or AuditRecorder()
+        self.case_entry_dependencies = case_entry_dependencies
+        self.provider_admission = provider_admission
         self.cases: dict[str, ServiceCase] = {}
         self.tasks: dict[str, ServiceTask] = {}
         self.assignments: dict[str, TaskAssignment] = {}
@@ -122,6 +140,15 @@ class FGCNEngine:
             return existing
         if case_id in self.cases:
             raise ServiceConflictError("fgcn_case_id_already_exists")
+        # Entry evidence belongs to the Growth/Consent/identity boundaries,
+        # not to FGCN.  Resolve it immediately before the first case write so
+        # an unconfirmed intent, invalid consent, or foreign binding cannot
+        # create a ServiceCase.
+        require_case_entry_dependencies(
+            self.case_entry_dependencies,
+            scope=scope,
+            intent_ref=intent_ref,
+        )
         case = ServiceCase(
             case_id=case_id,
             scope=scope,
@@ -155,6 +182,7 @@ class FGCNEngine:
         description: str,
         role_key: str,
         acceptance_criteria: tuple[str, ...],
+        required_capability_keys: tuple[str, ...] = (),
         task_weight: Decimal | int | str = Decimal("1"),
         actor_id: str,
         created_at: datetime | None = None,
@@ -177,6 +205,7 @@ class FGCNEngine:
             description=description,
             role_key=role_key,
             acceptance_criteria=acceptance_criteria,
+            required_capability_keys=required_capability_keys,
             task_weight=task_weight,
             created_at=_now(created_at),
         )
@@ -226,6 +255,13 @@ class FGCNEngine:
             return self.assignments[previous_assignment_id]
         if task.status is not TaskStatus.PENDING:
             raise ServiceConflictError("fgcn_task_already_has_responsible_person")
+        require_provider_admitted(
+            self.provider_admission,
+            provider_ref=assignee_ref,
+            assignee_kind=assignee_kind,
+            required_capability_keys=task.required_capability_keys,
+            scope=case.scope,
+        )
         if any(
             assignment.task_id == task_id and assignment.status is TaskAssignmentStatus.ACCEPTED
             for assignment in self.assignments.values()
@@ -387,9 +423,17 @@ class FGCNEngine:
         reviewer = _human(reviewer_ref)
         if quality_review_id in self.reviews:
             existing = self.reviews[quality_review_id]
+            try:
+                quality_state = TaskQualityState(quality_state)
+            except ValueError as exc:
+                raise ServiceValidationError("fgcn_quality_state_invalid") from exc
             if existing.task_id != task_id or existing.reviewer_ref != reviewer:
                 raise ServiceConflictError("fgcn_quality_review_id_reuse_mismatch")
+            if existing.quality_state is not quality_state or existing.review_note != review_note:
+                raise ServiceConflictError("fgcn_quality_review_idempotency_replay_mismatch")
             return existing
+        if case.status in {CaseStatus.COMPLETED, CaseStatus.CANCELLED}:
+            raise ServiceConflictError("fgcn_quality_case_is_terminal")
         if task.status is not TaskStatus.DELIVERED:
             raise ServiceConflictError("fgcn_quality_review_requires_delivery")
         if task.responsible_ref == reviewer:
@@ -451,37 +495,40 @@ class FGCNEngine:
     ) -> ServiceContribution:
         task = self._task(task_id)
         case = self._case(task.case_id)
+        provider = _human(provider_ref)
         if task.status is not TaskStatus.VERIFIED:
             raise ServiceConflictError("fgcn_contribution_requires_verified_task")
         delivery = self.deliveries.get(delivery_id)
-        if delivery is None or delivery.task_id != task_id or delivery.assignee_ref != provider_ref:
+        if delivery is None or delivery.task_id != task_id or delivery.assignee_ref != provider:
             raise ServiceForbiddenError("fgcn_contribution_delivery_mismatch")
+        started = _now(started_at)
+        completed = _now(completed_at)
+        contribution = ServiceContribution(
+            contribution_id=contribution_id,
+            case_id=case.case_id,
+            task_id=task_id,
+            provider_ref=provider,
+            role_key=role_key,
+            delivery_id=delivery_id,
+            quality_state=ContributionQualityState.VERIFIED,
+            started_at=started,
+            completed_at=completed,
+        )
         if contribution_id in self.contributions:
             existing = self.contributions[contribution_id]
-            if existing.delivery_id == delivery_id:
+            if existing == contribution:
                 return existing
-            raise ServiceConflictError("fgcn_contribution_id_already_exists")
+            raise ServiceConflictError("fgcn_contribution_idempotency_replay_mismatch")
         previous_id = self._contribution_by_delivery.get(delivery_id)
         if previous_id is not None:
             previous = self.contributions[previous_id]
             if previous.contribution_id == contribution_id:
                 return previous
             raise ServiceConflictError("fgcn_one_contribution_per_delivery")
-        contribution = ServiceContribution(
-            contribution_id=contribution_id,
-            case_id=case.case_id,
-            task_id=task_id,
-            provider_ref=provider_ref,
-            role_key=role_key,
-            delivery_id=delivery_id,
-            quality_state=ContributionQualityState.VERIFIED,
-            started_at=_now(started_at),
-            completed_at=_now(completed_at),
-        )
         self.contributions[contribution_id] = contribution
         self._contribution_by_delivery[delivery_id] = contribution_id
         self._audit(
-            actor_id=provider_ref,
+            actor_id=provider,
             scope=case.scope,
             action="RECORD_SERVICE_CONTRIBUTION",
             resource_type="ServiceContribution",
@@ -497,6 +544,8 @@ class FGCNEngine:
     ) -> ServiceCase:
         case = self._case(case_id)
         actor = _human(actor_id)
+        if case.status is CaseStatus.CANCELLED:
+            raise ServiceConflictError("fgcn_cancelled_case_is_immutable")
         tasks = [task for task in self.tasks.values() if task.case_id == case_id]
         if not tasks:
             raise ServiceConflictError("fgcn_case_requires_tasks_before_close")
@@ -504,6 +553,14 @@ class FGCNEngine:
             raise ServiceConflictError("fgcn_case_has_unfinished_tasks")
         if not any(task.status is TaskStatus.VERIFIED for task in tasks):
             raise ServiceConflictError("fgcn_case_requires_verified_service")
+        verified_task_ids = {task.task_id for task in tasks if task.status is TaskStatus.VERIFIED}
+        contributed_task_ids = {
+            contribution.task_id
+            for contribution in self.contributions.values()
+            if contribution.case_id == case_id
+        }
+        if not verified_task_ids.issubset(contributed_task_ids):
+            raise ServiceConflictError("fgcn_case_requires_verified_contribution")
         if case.status is CaseStatus.COMPLETED:
             return case
         closed_at_value = _now(closed_at)
@@ -543,6 +600,13 @@ class FGCNEngine:
             raise ServiceConflictError("fgcn_allocation_requires_completed_case")
         contributions = [item for item in self.contributions.values() if item.case_id == case_id]
         if not contributions:
+            raise ServiceConflictError("fgcn_allocation_requires_verified_contribution")
+        verified_task_ids = {
+            task.task_id
+            for task in self.tasks.values()
+            if task.case_id == case_id and task.status is TaskStatus.VERIFIED
+        }
+        if not verified_task_ids.issubset({item.task_id for item in contributions}):
             raise ServiceConflictError("fgcn_allocation_requires_verified_contribution")
         policy = case.blueprint
         lines: list[AllocationLine] = []

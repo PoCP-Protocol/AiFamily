@@ -21,6 +21,7 @@ complete.
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -56,6 +57,7 @@ from .contracts import (
     AllocationReleaseState,
     AllocationStatement,
     BlueprintSnapshot,
+    CaseOpeningIdempotencyRecord,
     CaseStatus,
     ContributionQualityState,
     GateServiceScope,
@@ -158,6 +160,27 @@ class ServiceCaseRow(FGCNBase):
     )
     shadow_allocation_policy_ref: Mapped[str | None] = mapped_column(String(160), nullable=True)
     shadow_allocation_policy_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class IdempotencyKeyRow(FGCNBase):
+    """Mapping for the existing platform idempotency table.
+
+    FGCN does not add or alter the shared table.  It stores a hashed,
+    tenant-scoped key in its existing primary-key column, so the legacy global
+    physical key space cannot turn into a cross-tenant collision.
+    """
+
+    __tablename__ = "idempotency_keys"
+
+    idempotency_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    action_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    response_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response_body: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        _TIMESTAMP, nullable=False, server_default=sa.func.now()
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(_TIMESTAMP, nullable=True)
 
 
 class ServiceTaskRow(FGCNBase):
@@ -357,6 +380,12 @@ def _text_tuple(value: object, code: str) -> tuple[str, ...]:
     return result
 
 
+def _optional_text_tuple(value: object, code: str) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise ServiceValidationError(code)
+    return tuple(_required_text(item, code) for item in value)
+
+
 def _human_actor(value: object, code: str = "fgcn_requires_human_actor") -> str:
     actor = _required_text(value, "fgcn_actor_required")
     if actor.lower().startswith("ai:") or actor.upper() in {"AI", "SYSTEM"}:
@@ -543,6 +572,92 @@ class SqlAlchemyFGCNRepository:
         if row is None:
             raise ServiceNotFoundError(code)
         return row
+
+    @staticmethod
+    def _case_opening_storage_key(scope: GateServiceScope, idempotency_key: str) -> str:
+        """Return a bounded, opaque key derived from tenant and client key."""
+
+        material = (
+            f"fgcn:open-service-case:{len(scope.tenant_id)}:"
+            f"{scope.tenant_id}:{idempotency_key}"
+        )
+        return f"fgcn:{hashlib.sha256(material.encode('utf-8')).hexdigest()}"
+
+    async def claim_case_opening(
+        self,
+        *,
+        scope: GateServiceScope,
+        idempotency_key: str,
+        request_hash: str,
+    ) -> CaseOpeningIdempotencyRecord:
+        """Atomically reserve or replay a case-opening request.
+
+        The insert, row lock/read, case write, audit flush, and response update
+        all use the caller's transaction.  ``ON CONFLICT DO NOTHING`` is
+        supported by both production PostgreSQL and the SQLite parity adapter;
+        PostgreSQL waits for a concurrent winner before the locked read.
+        """
+
+        storage_key = self._case_opening_storage_key(scope, idempotency_key)
+        insert_result = await self._session.execute(
+            sa.text(
+                """
+                INSERT INTO idempotency_keys(
+                    idempotency_key, action_name, request_hash
+                ) VALUES (:key, :action, :request_hash)
+                ON CONFLICT (idempotency_key) DO NOTHING
+                """
+            ),
+            {
+                "key": storage_key,
+                "action": "OPEN_SERVICE_CASE",
+                "request_hash": request_hash,
+            },
+        )
+        row = await self._session.get(
+            IdempotencyKeyRow, storage_key, with_for_update=True
+        )
+        if row is None:
+            raise ServiceConflictError("fgcn_case_opening_idempotency_unavailable")
+        if row.action_name != "OPEN_SERVICE_CASE" or row.request_hash != request_hash:
+            raise ServiceConflictError("fgcn_case_opening_idempotency_replay_mismatch")
+        inserted = insert_result.rowcount == 1
+        case_id: str | None = None
+        if row.response_body is not None:
+            if not isinstance(row.response_body, dict):
+                raise ServiceConflictError("fgcn_case_opening_idempotency_response_invalid")
+            value = row.response_body.get("case_id")
+            if not isinstance(value, str) or not value.strip():
+                raise ServiceConflictError("fgcn_case_opening_idempotency_response_invalid")
+            case_id = value
+        if not inserted and case_id is None:
+            raise ServiceConflictError("fgcn_case_opening_idempotency_incomplete")
+        return CaseOpeningIdempotencyRecord(
+            request_hash=request_hash, case_id=case_id, is_new=inserted
+        )
+
+    async def complete_case_opening(
+        self,
+        *,
+        scope: GateServiceScope,
+        idempotency_key: str,
+        request_hash: str,
+        case_id: str,
+    ) -> None:
+        """Bind the claimed key to its case before the transaction commits."""
+
+        storage_key = self._case_opening_storage_key(scope, idempotency_key)
+        result = await self._session.execute(
+            sa.update(IdempotencyKeyRow)
+            .where(
+                IdempotencyKeyRow.idempotency_key == storage_key,
+                IdempotencyKeyRow.action_name == "OPEN_SERVICE_CASE",
+                IdempotencyKeyRow.request_hash == request_hash,
+            )
+            .values(response_code=200, response_body={"case_id": case_id})
+        )
+        if result.rowcount != 1:
+            raise ServiceConflictError("fgcn_case_opening_idempotency_claim_missing")
 
     async def flush_audit(self, recorder: AuditRecorder) -> int:
         """Flush audit events through this repository's transaction.
@@ -743,7 +858,7 @@ class SqlAlchemyFGCNRepository:
                 created_at=created_at,
                 updated_at=datetime.now(UTC),
                 role_key=task.role_key,
-                required_capability_keys=[],
+                required_capability_keys=list(task.required_capability_keys),
                 task_weight=task.task_weight,
                 rework_of_task_id=None,
                 rework_attempt=0,
@@ -758,6 +873,10 @@ class SqlAlchemyFGCNRepository:
         except (TypeError, ValueError) as exc:
             raise ServiceValidationError("fgcn_task_persisted_shape_invalid") from exc
         criteria = _text_tuple(row.acceptance_criteria, "fgcn_task_acceptance_criteria_missing")
+        required_capability_keys = _optional_text_tuple(
+            row.required_capability_keys,
+            "fgcn_task_required_capability_keys_invalid",
+        )
         deliverable_ref = None
         if row.deliverable is not None:
             if not isinstance(row.deliverable, dict):
@@ -786,6 +905,7 @@ class SqlAlchemyFGCNRepository:
             description=row.description,
             role_key=_required_text(row.role_key, "fgcn_task_role_required"),
             acceptance_criteria=criteria,
+            required_capability_keys=required_capability_keys,
             task_weight=row.task_weight,
             status=status,
             responsible_ref=row.responsible_ref,
@@ -1129,8 +1249,6 @@ class SqlAlchemyFGCNRepository:
             raise ServiceValidationError("fgcn_case_status_invalid") from exc
         if case_status is not CaseStatus.COMPLETED:
             raise ServiceConflictError("fgcn_allocation_requires_completed_case")
-        if case.collaboration_blueprint_version != statement.policy_version:
-            raise ServiceConflictError("fgcn_allocation_policy_snapshot_mismatch")
         blueprint = _blueprint_from_row(case)
         if (
             blueprint.policy_ref != statement.policy_ref
@@ -1360,6 +1478,7 @@ __all__ = [
     "AllocationLineRow",
     "AllocationRunRow",
     "FGCNBase",
+    "IdempotencyKeyRow",
     "ServiceCaseRow",
     "ServiceContributionRow",
     "ServiceTaskRow",

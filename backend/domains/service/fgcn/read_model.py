@@ -14,10 +14,16 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from enum import StrEnum
 from types import MappingProxyType
 
-from backend.domains.service.domain.errors import ServiceForbiddenError, ServiceValidationError
+from backend.domains.service.domain.errors import (
+    ServiceConflictError,
+    ServiceForbiddenError,
+    ServiceValidationError,
+)
 
+from .admission import ProviderAdmissionSnapshot, assert_provider_admitted
 from .contracts import (
     AllocationBasisType,
     AllocationBucket,
@@ -152,6 +158,220 @@ class ServiceCaseProgressProjection:
         return self.verified_contributions
 
 
+class PDCAPhase(StrEnum):
+    """The first unmet phase in one FGCN service-improvement cycle."""
+
+    PLAN = "PLAN"
+    DO = "DO"
+    CHECK = "CHECK"
+    ACT = "ACT"
+
+
+@dataclass(frozen=True, slots=True)
+class FGCNPDCAProjection:
+    """Read-only evidence that locates an FGCN case in the PDCA cycle.
+
+    This is an evidence projection, not a second workflow or a command. A
+    phase is ready only when its concrete FGCN facts exist; the projection
+    never infers delivery, quality, contribution, or settlement from a draft
+    or from a model output.
+    """
+
+    case_id: str
+    family_id: str
+    subject_person_id: str
+    intent_ref: str
+    plan_ref: str
+    blueprint_ref: str
+    plan_ready: bool
+    do_ready: bool
+    check_ready: bool
+    act_ready: bool
+    current_phase: PDCAPhase
+    blockers: tuple[str, ...]
+    resource_gap: str | None
+    provider_ref: str | None
+    capacity_available: int | None
+    shadow_allocation_present: bool
+
+    @property
+    def cycle_complete(self) -> bool:
+        return self.plan_ready and self.do_ready and self.check_ready and self.act_ready
+
+
+def _assert_human_actor(actor_id: str, error_code: str) -> None:
+    if (
+        not isinstance(actor_id, str)
+        or not actor_id.strip()
+        or actor_id.strip().upper() in {"AI", "SYSTEM"}
+        or actor_id.strip().lower().startswith(("ai:", "system:"))
+    ):
+        raise ServiceForbiddenError(error_code)
+
+
+def build_fgcn_pdca_projection(
+    case: ServiceCase,
+    tasks: Iterable[ServiceTask] = (),
+    assignments: Iterable[TaskAssignment] = (),
+    deliveries: Iterable[ServiceDelivery] = (),
+    quality_reviews: Iterable[TaskQualityReview] = (),
+    contributions: Iterable[ServiceContribution] = (),
+    allocation: AllocationStatement | None = None,
+    viewer_scope: GateServiceScope | None = None,
+    *,
+    provider_admission: ProviderAdmissionSnapshot | None = None,
+) -> FGCNPDCAProjection:
+    """Evaluate FGCN facts as one deterministic PLAN→ACT PDCA cycle.
+
+    ``provider_admission`` is an explicit upstream snapshot, not a local
+    provider registry or a capacity reservation. A zero-capacity snapshot is
+    surfaced as ``RESOURCE_GAP``; this function never creates state.
+    """
+
+    task_facts = tuple(tasks)
+    assignment_facts = tuple(assignments)
+    delivery_facts = tuple(deliveries)
+    review_facts = tuple(quality_reviews)
+    contribution_facts = tuple(contributions)
+    progress = build_case_progress_projection(
+        case,
+        tasks=task_facts,
+        assignments=assignment_facts,
+        deliveries=delivery_facts,
+        quality_reviews=review_facts,
+        contributions=contribution_facts,
+        allocation=allocation,
+        viewer_scope=viewer_scope,
+    )
+
+    blockers: list[str] = []
+    resource_gap: str | None = None
+    required_capabilities = tuple(
+        sorted({key for task in task_facts for key in task.required_capability_keys})
+    )
+    plan_ready = bool(task_facts)
+    if not plan_ready:
+        blockers.append("fgcn_plan_tasks_required")
+    if provider_admission is None:
+        blockers.append("fgcn_provider_admission_unavailable")
+        plan_ready = False
+    else:
+        admission_provider_ref = ""
+        admission_assignee_kind = ""
+        if isinstance(provider_admission, ProviderAdmissionSnapshot):
+            admission_provider_ref = provider_admission.provider_ref
+            admission_assignee_kind = provider_admission.assignee_kind
+        try:
+            assert_provider_admitted(
+                provider_admission,
+                provider_ref=admission_provider_ref,
+                assignee_kind=admission_assignee_kind,
+                required_capability_keys=required_capabilities,
+                scope=case.scope,
+            )
+        except (ServiceConflictError, ServiceForbiddenError, ServiceValidationError) as exc:
+            blockers.append(exc.code)
+            plan_ready = False
+            if exc.code == "RESOURCE_GAP":
+                resource_gap = exc.code
+
+    task_ids = {task.task_id for task in task_facts}
+    assigned_task_ids = {assignment.task_id for assignment in assignment_facts}
+    delivered_task_ids = {delivery.task_id for delivery in delivery_facts}
+    reviewed_task_ids = {
+        review.task_id for review in review_facts if review.quality_state is TaskQualityState.PASSED
+    }
+    contributed_task_ids = {item.task_id for item in contribution_facts}
+    assigned_provider_refs = {assignment.assignee_ref for assignment in assignment_facts}
+    provider_assignment_matches = not assigned_provider_refs or (
+        isinstance(provider_admission, ProviderAdmissionSnapshot)
+        and assigned_provider_refs == {provider_admission.provider_ref}
+    )
+    if not provider_assignment_matches:
+        blockers.append("fgcn_provider_assignment_mismatch")
+    do_ready = (
+        bool(task_ids)
+        and task_ids.issubset(assigned_task_ids)
+        and task_ids.issubset(delivered_task_ids)
+        and provider_assignment_matches
+        and all(
+            task.status in {TaskStatus.DELIVERED, TaskStatus.VERIFIED, TaskStatus.CLOSED}
+            and task.deliverable_ref is not None
+            for task in task_facts
+        )
+    )
+    if not do_ready:
+        blockers.append("fgcn_delivery_evidence_incomplete")
+
+    check_ready = (
+        do_ready
+        and task_ids.issubset(reviewed_task_ids)
+        and all(task.status in {TaskStatus.VERIFIED, TaskStatus.CLOSED} for task in task_facts)
+    )
+    if not check_ready:
+        blockers.append("fgcn_quality_decision_incomplete")
+
+    allocation_marker_matches = (
+        allocation is not None
+        and case.shadow_allocation_finalized_at is not None
+        and allocation.created_at == case.shadow_allocation_finalized_at
+        and allocation.policy_ref == case.blueprint.policy_ref
+        and allocation.policy_version == case.blueprint.policy_version
+    )
+    if allocation is not None and not allocation_marker_matches:
+        blockers.append("fgcn_shadow_allocation_marker_missing")
+
+    act_ready = (
+        check_ready
+        and task_ids.issubset(contributed_task_ids)
+        and case.status is CaseStatus.COMPLETED
+        and allocation_marker_matches
+    )
+    if not act_ready:
+        if not task_ids.issubset(contributed_task_ids):
+            blockers.append("fgcn_contribution_not_released")
+        if case.status is not CaseStatus.COMPLETED:
+            blockers.append("fgcn_case_not_completed")
+        if not allocation_marker_matches:
+            blockers.append("fgcn_shadow_allocation_not_finalized")
+
+    if not plan_ready:
+        current_phase = PDCAPhase.PLAN
+    elif not do_ready:
+        current_phase = PDCAPhase.DO
+    elif not check_ready:
+        current_phase = PDCAPhase.CHECK
+    else:
+        current_phase = PDCAPhase.ACT
+
+    return FGCNPDCAProjection(
+        case_id=progress.case_id,
+        family_id=case.scope.family_id,
+        subject_person_id=case.scope.subject_person_id,
+        intent_ref=case.intent_ref,
+        plan_ref=case.plan_ref,
+        blueprint_ref=case.blueprint.blueprint_ref,
+        plan_ready=plan_ready,
+        do_ready=do_ready,
+        check_ready=check_ready,
+        act_ready=act_ready,
+        current_phase=current_phase,
+        blockers=tuple(dict.fromkeys(blockers)),
+        resource_gap=resource_gap,
+        provider_ref=(
+            provider_admission.provider_ref
+            if isinstance(provider_admission, ProviderAdmissionSnapshot)
+            else None
+        ),
+        capacity_available=(
+            provider_admission.capacity_available
+            if isinstance(provider_admission, ProviderAdmissionSnapshot)
+            else None
+        ),
+        shadow_allocation_present=allocation is not None,
+    )
+
+
 def _immutable_facts[FactT](
     value: Iterable[FactT], expected_type: type[FactT], name: str
 ) -> tuple[FactT, ...]:
@@ -185,6 +405,8 @@ def _assert_scope(case: ServiceCase, viewer_scope: GateServiceScope | None) -> N
         raise ServiceForbiddenError("fgcn_projection_purpose_scope_violation")
     if viewer_scope.consent_version != case.scope.consent_version:
         raise ServiceForbiddenError("fgcn_projection_consent_scope_violation")
+    if viewer_scope.correlation_id != case.scope.correlation_id:
+        raise ServiceForbiddenError("fgcn_projection_correlation_scope_violation")
 
 
 def _index_tasks(case: ServiceCase, tasks: tuple[ServiceTask, ...]) -> dict[str, ServiceTask]:
@@ -192,6 +414,11 @@ def _index_tasks(case: ServiceCase, tasks: tuple[ServiceTask, ...]) -> dict[str,
     for task in tasks:
         if task.case_id != case.case_id:
             raise ServiceForbiddenError("fgcn_projection_task_case_mismatch")
+        if (
+            task.blueprint_ref != case.blueprint.blueprint_ref
+            or task.blueprint_version != case.blueprint.version
+        ):
+            raise ServiceValidationError("fgcn_projection_task_blueprint_mismatch")
         if task.task_id in indexed and indexed[task.task_id] != task:
             raise ServiceValidationError("fgcn_projection_duplicate_task")
         indexed[task.task_id] = task
@@ -229,6 +456,14 @@ def _index_reviews(
             raise ServiceForbiddenError("fgcn_projection_quality_case_mismatch")
         if review.task_id not in tasks:
             raise ServiceValidationError("fgcn_projection_quality_task_missing")
+        _assert_human_actor(
+            review.reviewer_ref,
+            "fgcn_projection_quality_reviewer_must_be_human",
+        )
+        if tasks[review.task_id].responsible_ref == review.reviewer_ref:
+            raise ServiceForbiddenError(
+                "fgcn_projection_quality_reviewer_must_differ_from_delivery_person"
+            )
         if review.task_id in by_task and by_task[review.task_id] != review:
             raise ServiceValidationError("fgcn_projection_one_quality_review_per_task")
         by_task[review.task_id] = review
@@ -243,6 +478,7 @@ def _index_contributions(
     contributions: tuple[ServiceContribution, ...],
 ) -> dict[str, VerifiedContributionProjection]:
     indexed: dict[str, VerifiedContributionProjection] = {}
+    contribution_by_delivery: dict[str, str] = {}
     for contribution in contributions:
         if contribution.case_id != case.case_id:
             raise ServiceForbiddenError("fgcn_projection_contribution_case_mismatch")
@@ -272,7 +508,14 @@ def _index_contributions(
         previous = indexed.get(contribution.contribution_id)
         if previous is not None and previous != projected:
             raise ServiceValidationError("fgcn_projection_duplicate_contribution")
+        previous_contribution_id = contribution_by_delivery.get(contribution.delivery_id)
+        if (
+            previous_contribution_id is not None
+            and previous_contribution_id != contribution.contribution_id
+        ):
+            raise ServiceValidationError("fgcn_projection_one_contribution_per_delivery")
         indexed[contribution.contribution_id] = projected
+        contribution_by_delivery[contribution.delivery_id] = contribution.contribution_id
     return indexed
 
 
@@ -292,6 +535,15 @@ def _project_allocations(
         raise ServiceForbiddenError("fgcn_projection_allocation_case_mismatch")
     if case.status is not CaseStatus.COMPLETED:
         raise ServiceValidationError("fgcn_projection_allocation_case_not_completed")
+    _assert_human_actor(
+        allocation.triggered_by_actor_id,
+        "fgcn_projection_allocation_requires_human_actor",
+    )
+    if (
+        allocation.policy_ref != case.blueprint.policy_ref
+        or allocation.policy_version != case.blueprint.policy_version
+    ):
+        raise ServiceValidationError("fgcn_projection_allocation_policy_mismatch")
     projected: list[AllocationUnitsProjection] = []
     seen_ids: set[str] = set()
     for line in allocation.lines:
@@ -300,6 +552,13 @@ def _project_allocations(
         if line.allocation_id in seen_ids:
             raise ServiceValidationError("fgcn_projection_duplicate_allocation_line")
         seen_ids.add(line.allocation_id)
+        if (
+            line.policy_ref != allocation.policy_ref
+            or line.policy_version != allocation.policy_version
+        ):
+            raise ServiceValidationError("fgcn_projection_allocation_policy_mismatch")
+        if line.basis_type is AllocationBasisType.CASE and line.basis_ref != case.case_id:
+            raise ServiceValidationError("fgcn_projection_allocation_case_basis_mismatch")
         if line.basis_type.value == "CONTRIBUTION_WEIGHT" and line.basis_ref not in contributions:
             raise ServiceValidationError("fgcn_projection_allocation_contribution_required")
         projected.append(
@@ -447,8 +706,7 @@ def build_case_progress_projection(
         case_status=case.status,
         tasks=tuple(task_projections),
         verified_contributions=tuple(
-            contribution_by_id[contribution_id]
-            for contribution_id in sorted(contribution_by_id)
+            contribution_by_id[contribution_id] for contribution_id in sorted(contribution_by_id)
         ),
         allocation_lines=allocation_lines,
     )
@@ -488,10 +746,13 @@ project_case_progress = build_case_progress_projection
 
 __all__ = [
     "AllocationUnitsProjection",
+    "FGCNPDCAProjection",
+    "PDCAPhase",
     "ServiceCaseProgressProjection",
     "ServiceCaseProgressProjector",
     "ServiceTaskProgressProjection",
     "VerifiedContributionProjection",
     "build_case_progress_projection",
+    "build_fgcn_pdca_projection",
     "project_case_progress",
 ]

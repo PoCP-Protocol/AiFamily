@@ -109,6 +109,22 @@ class GateServiceScope:
 
 
 @dataclass(frozen=True, slots=True)
+class CaseOpeningIdempotencyRecord:
+    """The durable claim/result for one tenant-scoped case-opening request."""
+
+    request_hash: str
+    case_id: str | None = None
+    is_new: bool = False
+
+    def __post_init__(self) -> None:
+        _text(self.request_hash, "case_opening_request_hash")
+        if self.case_id is not None:
+            _text(self.case_id, "case_opening_case_id")
+        if not isinstance(self.is_new, bool):
+            raise ServiceValidationError("fgcn_case_opening_claim_invalid")
+
+
+@dataclass(frozen=True, slots=True)
 class BlueprintSnapshot:
     """The published service configuration frozen into a case."""
 
@@ -186,6 +202,7 @@ class ServiceTask:
     description: str
     role_key: str
     acceptance_criteria: tuple[str, ...]
+    required_capability_keys: tuple[str, ...] = ()
     task_weight: Decimal = Decimal("1")
     status: TaskStatus = TaskStatus.PENDING
     responsible_ref: str | None = None
@@ -208,6 +225,46 @@ class ServiceTask:
             raise ServiceValidationError("fgcn_task_configuration_invalid")
         if any(not criterion.strip() for criterion in self.acceptance_criteria):
             raise ServiceValidationError("fgcn_acceptance_criteria_invalid")
+        try:
+            status = TaskStatus(self.status)
+        except (TypeError, ValueError) as exc:
+            raise ServiceValidationError("fgcn_task_status_invalid") from exc
+        object.__setattr__(self, "status", status)
+        if self.responsible_ref is not None:
+            object.__setattr__(
+                self,
+                "responsible_ref",
+                _text(self.responsible_ref, "task_responsible_ref"),
+            )
+        if self.deliverable_ref is not None:
+            object.__setattr__(
+                self,
+                "deliverable_ref",
+                _text(self.deliverable_ref, "task_deliverable_ref"),
+            )
+        if status in {
+            TaskStatus.ACCEPTED,
+            TaskStatus.IN_PROGRESS,
+            TaskStatus.DELIVERED,
+            TaskStatus.VERIFIED,
+            TaskStatus.CLOSED,
+        } and self.responsible_ref is None:
+            raise ServiceValidationError("fgcn_task_responsible_ref_required")
+        if (
+            status in {TaskStatus.DELIVERED, TaskStatus.VERIFIED, TaskStatus.CLOSED}
+            and self.deliverable_ref is None
+        ):
+            raise ServiceValidationError("fgcn_task_delivery_evidence_required")
+        if status in {TaskStatus.VERIFIED, TaskStatus.CLOSED} and self.verified_at is None:
+            raise ServiceValidationError("fgcn_task_verified_time_required")
+        if status not in {TaskStatus.VERIFIED, TaskStatus.CLOSED} and self.verified_at is not None:
+            raise ServiceValidationError("fgcn_task_verified_time_invalid")
+        capabilities = tuple(
+            _text(key, "required_capability_key") for key in self.required_capability_keys
+        )
+        if len(capabilities) != len(set(capabilities)):
+            raise ServiceValidationError("fgcn_required_capability_keys_duplicate")
+        object.__setattr__(self, "required_capability_keys", capabilities)
         weight = _decimal(self.task_weight, "task_weight")
         if weight <= 0:
             raise ServiceValidationError("fgcn_task_weight_must_be_positive")
@@ -357,6 +414,20 @@ class AllocationLine:
             _text(value, name)
         if self.policy_version < 1:
             raise ServiceValidationError("fgcn_allocation_policy_version_invalid")
+        expected_release_state = (
+            AllocationReleaseState.HELD
+            if allocation_bucket is AllocationBucket.QUALITY_RESERVE
+            else AllocationReleaseState.RELEASED
+        )
+        if release_state is not expected_release_state:
+            raise ServiceValidationError("fgcn_allocation_release_state_invalid")
+        expected_basis_type = (
+            AllocationBasisType.CONTRIBUTION_WEIGHT
+            if allocation_bucket is AllocationBucket.DELIVERY_RESOURCE
+            else AllocationBasisType.CASE
+        )
+        if basis_type is not expected_basis_type:
+            raise ServiceValidationError("fgcn_allocation_basis_type_invalid")
         units = _decimal(self.units, "allocation_units")
         if units < 0:
             raise ServiceValidationError("fgcn_allocation_units_negative")
@@ -389,6 +460,10 @@ class AllocationStatement:
             raise ServiceValidationError("fgcn_allocation_total_must_be_100_units")
         if sum((line.units for line in self.lines), Decimal("0")) != total_units:
             raise ServiceValidationError("fgcn_allocation_lines_must_sum_to_100_units")
+        if len({line.allocation_id for line in self.lines}) != len(self.lines):
+            raise ServiceValidationError("fgcn_duplicate_allocation_line_id")
+        if any(line.allocation_run_id != self.allocation_run_id for line in self.lines):
+            raise ServiceValidationError("fgcn_allocation_line_run_mismatch")
         if any(line.case_id != self.case_id for line in self.lines):
             raise ServiceValidationError("fgcn_allocation_line_case_mismatch")
         object.__setattr__(self, "total_units", total_units)
@@ -402,6 +477,7 @@ __all__ = [
     "AllocationReleaseState",
     "AllocationStatement",
     "BlueprintSnapshot",
+    "CaseOpeningIdempotencyRecord",
     "CaseStatus",
     "ContributionQualityState",
     "GateServiceScope",

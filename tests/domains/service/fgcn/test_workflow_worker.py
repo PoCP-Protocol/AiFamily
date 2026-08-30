@@ -29,7 +29,12 @@ from backend.intelligence.human_gate import (
     HumanGateBase,
     SqlAlchemyHumanGate,
 )
+from backend.intelligence.human_gate.persistence import HumanTaskRow
 from backend.platform.audit import AuditBase, AuditRecorder, read_all_events
+from tests.domains.service.fgcn.admission_test_doubles import (
+    AsyncProviderAdmissionStub,
+    admitted_snapshot,
+)
 
 NOW = datetime(2026, 8, 30, 9, tzinfo=UTC)
 TENANT = "00000000-0000-4000-8000-000000000001"
@@ -38,6 +43,9 @@ CHILD = "00000000-0000-4000-8000-000000000003"
 CASE = "00000000-0000-4000-8000-000000000006"
 TASK = "00000000-0000-4000-8000-000000000007"
 ASSIGNMENT = "00000000-0000-4000-8000-000000000008"
+_ADMITTED_PROVIDER = AsyncProviderAdmissionStub(
+    admitted_snapshot(capability_keys=("family_guidance",))
+)
 
 
 def _service_scope() -> GateServiceScope:
@@ -97,6 +105,7 @@ def _task() -> ServiceTask:
         description="Deliver the configured guidance activity.",
         role_key="DELIVERY_RESOURCE",
         acceptance_criteria=("Evidence reference is present",),
+        required_capability_keys=("family_guidance",),
         task_weight=Decimal("1"),
         status=TaskStatus.PENDING,
         created_at=NOW,
@@ -183,6 +192,11 @@ async def test_worker_consumes_after_restart_and_replay_is_safe(session_factory)
             SqlAlchemyFGCNRepository(session),
             task_id,
             recorder=AuditRecorder(),
+            claim_owner="worker-a",
+            provider_admission=_ADMITTED_PROVIDER,
+            lease_ttl=timedelta(hours=4),
+            claimed_at=NOW + timedelta(hours=2),
+            completed_at=NOW + timedelta(hours=2),
             accepted_at=NOW + timedelta(hours=2),
         )
 
@@ -194,6 +208,11 @@ async def test_worker_consumes_after_restart_and_replay_is_safe(session_factory)
             SqlAlchemyFGCNRepository(session),
             task_id,
             recorder=AuditRecorder(),
+            claim_owner="worker-b",
+            provider_admission=_ADMITTED_PROVIDER,
+            lease_ttl=timedelta(hours=4),
+            claimed_at=NOW + timedelta(hours=3),
+            completed_at=NOW + timedelta(hours=3),
             accepted_at=NOW + timedelta(hours=3),
         )
         events = await read_all_events(session, tenant_id=TENANT)
@@ -204,9 +223,13 @@ async def test_worker_consumes_after_restart_and_replay_is_safe(session_factory)
     assert [event.action for event in events] == [
         "CREATE_HUMAN_TASK",
         "DECIDE_HUMAN_TASK",
+        "CLAIM_HUMAN_TASK",
         "CONFIRM_SERVICE_TASK_ASSIGNMENT",
         "ACCEPT_SERVICE_TASK",
         "ASSIGN_SERVICE_CASE",
+        "COMPLETE_HUMAN_TASK_CLAIM",
+        "CLAIM_HUMAN_TASK",
+        "COMPLETE_HUMAN_TASK_CLAIM",
     ]
 
 
@@ -239,6 +262,8 @@ async def test_worker_refuses_rejected_task_and_rechecks_case_scope(session_fact
                 SqlAlchemyFGCNRepository(session),
                 "human-task:reject-1",
                 recorder=AuditRecorder(),
+                claim_owner="worker-a",
+                provider_admission=_ADMITTED_PROVIDER,
             )
         assert (
             await SqlAlchemyFGCNRepository(session).load_task(TASK)
@@ -264,6 +289,8 @@ async def test_worker_refuses_rejected_task_and_rechecks_case_scope(session_fact
                 SqlAlchemyFGCNRepository(session),
                 task_id,
                 recorder=AuditRecorder(),
+                claim_owner="worker-a",
+                provider_admission=_ADMITTED_PROVIDER,
             )
         assert (await session.execute(TaskAssignmentRow.__table__.select())).all() == []
 
@@ -273,8 +300,15 @@ async def test_worker_audit_failure_rolls_back_domain_command(session_factory):
     task_id = await _seed_accepted_task(session_factory)
 
     class FailingRecorder(AuditRecorder):
+        def __init__(self):
+            super().__init__()
+            self.flush_calls = 0
+
         async def flush(self, session):
-            raise RuntimeError("audit store unavailable")
+            self.flush_calls += 1
+            if self.flush_calls == 2:
+                raise RuntimeError("audit store unavailable")
+            return await super().flush(session)
 
     async with session_factory() as session:
         with pytest.raises(RuntimeError, match="audit store unavailable"):
@@ -283,6 +317,10 @@ async def test_worker_audit_failure_rolls_back_domain_command(session_factory):
                 SqlAlchemyFGCNRepository(session),
                 task_id,
                 recorder=FailingRecorder(),
+                claim_owner="worker-a",
+                provider_admission=_ADMITTED_PROVIDER,
+                lease_ttl=timedelta(hours=4),
+                claimed_at=NOW + timedelta(hours=2),
             )
         await session.rollback()
 
@@ -290,5 +328,12 @@ async def test_worker_audit_failure_rolls_back_domain_command(session_factory):
         fgcn = SqlAlchemyFGCNRepository(session)
         assert (await fgcn.load_task(TASK)).status is TaskStatus.PENDING
         assert (await session.execute(TaskAssignmentRow.__table__.select())).all() == []
+        human_task = await session.get(HumanTaskRow, task_id)
+        assert human_task is not None
+        assert human_task.claim_owner == "worker-a"
         events = await read_all_events(session, tenant_id=TENANT)
-        assert [event.action for event in events] == ["CREATE_HUMAN_TASK", "DECIDE_HUMAN_TASK"]
+        assert [event.action for event in events] == [
+            "CREATE_HUMAN_TASK",
+            "DECIDE_HUMAN_TASK",
+            "CLAIM_HUMAN_TASK",
+        ]

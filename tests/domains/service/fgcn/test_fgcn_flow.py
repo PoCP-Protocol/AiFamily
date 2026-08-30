@@ -10,10 +10,14 @@ from backend.domains.service.domain.errors import (
     ServiceValidationError,
 )
 from backend.domains.service.fgcn.contracts import (
+    AllocationBasisType,
     AllocationBucket,
+    AllocationLine,
+    AllocationReleaseState,
     BlueprintSnapshot,
     CaseStatus,
     GateServiceScope,
+    ServiceTask,
     TaskQualityState,
     TaskStatus,
 )
@@ -26,6 +30,14 @@ from backend.intelligence.human_gate import (
 )
 from backend.intelligence.model_gateway import FakeProvider, ModelGateway
 from backend.intelligence.model_gateway.contracts import StructuredRequest
+from tests.domains.service.fgcn.admission_test_doubles import (
+    SyncProviderAdmissionStub,
+    admitted_snapshot,
+)
+from tests.domains.service.fgcn.entry_test_doubles import (
+    SyncCaseEntryDependencyStub,
+    valid_entry_snapshot,
+)
 
 NOW = datetime(2026, 8, 30, 9, tzinfo=UTC)
 
@@ -65,7 +77,14 @@ def _blueprint(*, status: str = "PUBLISHED") -> BlueprintSnapshot:
 
 
 def _engine() -> FGCNEngine:
-    engine = FGCNEngine()
+    engine = FGCNEngine(
+        case_entry_dependencies=SyncCaseEntryDependencyStub(
+            valid_entry_snapshot(_scope(), intent_ref="intent-1")
+        ),
+        provider_admission=SyncProviderAdmissionStub(
+            admitted_snapshot(capability_keys=("family_guidance",))
+        ),
+    )
     engine.open_case(
         case_id="case-1",
         scope=_scope(),
@@ -84,6 +103,7 @@ def _engine() -> FGCNEngine:
         description="Deliver the configured guidance activity.",
         role_key="DELIVERY_RESOURCE",
         acceptance_criteria=("Evidence reference is present",),
+        required_capability_keys=("family_guidance",),
         actor_id="steward-1",
         created_at=NOW,
     )
@@ -175,6 +195,143 @@ async def test_ai_gateway_human_gate_and_fgcn_assignment_form_one_audited_path()
         "ACCEPT_SERVICE_TASK",
         "ASSIGN_SERVICE_CASE",
     ]
+
+
+@pytest.mark.asyncio
+async def test_assignment_requires_an_active_provider_capability_match():
+    engine = _engine()
+    engine.provider_admission = SyncProviderAdmissionStub(
+        admitted_snapshot(capability_keys=("unrelated_capability",))
+    )
+    request = await _assignment_request()()
+
+    with pytest.raises(ServiceForbiddenError, match="fgcn_provider_capability_mismatch"):
+        engine.execute_named_action(request)
+
+    assert engine.tasks["task-1"].status is TaskStatus.PENDING
+    assert engine.assignments == {}
+
+
+@pytest.mark.asyncio
+async def test_assignment_refuses_provider_resource_gap_without_writes():
+    engine = _engine()
+    engine.provider_admission = SyncProviderAdmissionStub(
+        admitted_snapshot(capability_keys=("family_guidance",), capacity_available=0)
+    )
+    request = await _assignment_request()()
+
+    with pytest.raises(ServiceConflictError, match="RESOURCE_GAP"):
+        engine.execute_named_action(request)
+
+    assert engine.tasks["task-1"].status is TaskStatus.PENDING
+    assert engine.cases["case-1"].status is CaseStatus.OPEN
+    assert engine.assignments == {}
+    assert [event.action for event in engine.audit.all_events()] == [
+        "OPEN_SERVICE_CASE",
+        "CREATE_SERVICE_TASK",
+    ]
+
+
+@pytest.mark.parametrize("capacity", [None, -1, True, 1.5, "1"])
+def test_provider_admission_snapshot_rejects_missing_or_malformed_capacity(capacity):
+    from backend.domains.service.fgcn.admission import ProviderAdmissionSnapshot
+
+    with pytest.raises(ServiceValidationError, match="fgcn_provider_admission_capacity_invalid"):
+        ProviderAdmissionSnapshot(
+            provider_ref="expert-1",
+            assignee_kind="EXPERT",
+            admission_status="ACTIVE",
+            capability_keys=("family_guidance",),
+            allowed_purposes=("service_collaboration",),
+            capacity_available=capacity,
+        )
+
+
+@pytest.mark.parametrize(
+    ("status", "responsible_ref", "deliverable_ref", "verified_at", "error_code"),
+    (
+        (
+            TaskStatus.DELIVERED,
+            "expert-1",
+            None,
+            None,
+            "fgcn_task_delivery_evidence_required",
+        ),
+        (
+            TaskStatus.VERIFIED,
+            "expert-1",
+            "evidence:task-1",
+            None,
+            "fgcn_task_verified_time_required",
+        ),
+        (
+            TaskStatus.ACCEPTED,
+            "expert-1",
+            None,
+            NOW,
+            "fgcn_task_verified_time_invalid",
+        ),
+    ),
+)
+def test_task_contract_rejects_states_without_their_proof(
+    status, responsible_ref, deliverable_ref, verified_at, error_code
+):
+    with pytest.raises(ServiceValidationError, match=error_code):
+        ServiceTask(
+            task_id="task-invalid-state",
+            case_id="case-1",
+            blueprint_ref="communication-21day-service-collab",
+            blueprint_version=1,
+            task_key="AI_GUIDANCE_DELIVERY",
+            title="Guidance delivery",
+            description="Deliver the configured guidance activity.",
+            role_key="DELIVERY_RESOURCE",
+            acceptance_criteria=("Evidence reference is present",),
+            status=status,
+            responsible_ref=responsible_ref,
+            deliverable_ref=deliverable_ref,
+            verified_at=verified_at,
+            created_at=NOW,
+        )
+
+
+@pytest.mark.parametrize(
+    ("bucket", "basis_type", "release_state"),
+    (
+        (
+            AllocationBucket.QUALITY_RESERVE,
+            AllocationBasisType.CASE,
+            AllocationReleaseState.RELEASED,
+        ),
+        (
+            AllocationBucket.PLATFORM,
+            AllocationBasisType.CASE,
+            AllocationReleaseState.HELD,
+        ),
+        (
+            AllocationBucket.DELIVERY_RESOURCE,
+            AllocationBasisType.CASE,
+            AllocationReleaseState.RELEASED,
+        ),
+    ),
+)
+def test_allocation_contract_rejects_invalid_freeze_or_basis(bucket, basis_type, release_state):
+    with pytest.raises(ServiceValidationError, match="fgcn_allocation_"):
+        AllocationLine(
+            allocation_id="allocation-invalid",
+            allocation_run_id="allocation-run-1",
+            case_id="case-1",
+            allocation_bucket=bucket,
+            units=Decimal("10"),
+            beneficiary_ref="beneficiary-1",
+            beneficiary_kind="PLATFORM",
+            role_key="ROLE",
+            policy_ref="shadow-policy.v1",
+            policy_version=1,
+            basis_type=basis_type,
+            basis_ref="case-1",
+            release_state=release_state,
+        )
 
 
 def test_blueprint_must_be_published_and_task_must_come_from_its_snapshot():
@@ -358,6 +515,30 @@ def test_scope_and_idempotency_replay_are_fail_closed():
         )
 
 
+def test_open_case_refuses_unconfirmed_growth_intent_before_any_write():
+    scope = _scope()
+    query = SyncCaseEntryDependencyStub(
+        valid_entry_snapshot(scope, intent_ref="intent-1", growth_intent_status="DRAFT")
+    )
+    engine = FGCNEngine(case_entry_dependencies=query)
+
+    with pytest.raises(ServiceForbiddenError, match="fgcn_growth_intent_not_confirmed"):
+        engine.open_case(
+            case_id="case-entry-denied",
+            scope=scope,
+            intent_ref="intent-1",
+            plan_ref="plan-1",
+            owner_id="steward-1",
+            blueprint=_blueprint(),
+            idempotency_key="open-case-entry-denied",
+            opened_at=NOW,
+        )
+
+    assert engine.cases == {}
+    assert engine.audit.all_events() == ()
+    assert query.calls == 1
+
+
 @pytest.mark.asyncio
 async def test_completed_case_rejects_new_delivery_but_keeps_existing_replay() -> None:
     engine = _engine()
@@ -376,12 +557,15 @@ async def test_completed_case_rejects_new_delivery_but_keeps_existing_replay() -
         engine.cases["case-1"], status=CaseStatus.COMPLETED, closed_at=NOW + timedelta(hours=3)
     )
     engine.tasks["task-1"] = replace(engine.tasks["task-1"], status=TaskStatus.ACCEPTED)
-    assert engine.submit_delivery(
-        delivery_id=existing.delivery_id,
-        task_id="task-1",
-        assignee_ref="expert-1",
-        evidence_ref="evidence:terminal-1",
-    ) == existing
+    assert (
+        engine.submit_delivery(
+            delivery_id=existing.delivery_id,
+            task_id="task-1",
+            assignee_ref="expert-1",
+            evidence_ref="evidence:terminal-1",
+        )
+        == existing
+    )
     with pytest.raises(ServiceConflictError, match="fgcn_delivery_case_is_terminal"):
         engine.submit_delivery(
             delivery_id="delivery-terminal-2",
@@ -389,3 +573,81 @@ async def test_completed_case_rejects_new_delivery_but_keeps_existing_replay() -
             assignee_ref="expert-1",
             evidence_ref="evidence:terminal-2",
         )
+
+
+@pytest.mark.asyncio
+async def test_engine_rejects_changed_quality_or_contribution_replays() -> None:
+    engine = _engine()
+    request = await _assignment_request()()
+    engine.execute_named_action(request)
+    engine.submit_delivery(
+        delivery_id="delivery-replay-boundary",
+        task_id="task-1",
+        assignee_ref="expert-1",
+        evidence_ref="evidence:replay-boundary",
+        submitted_at=NOW + timedelta(hours=1),
+    )
+    engine.verify_delivery(
+        quality_review_id="review-replay-boundary",
+        task_id="task-1",
+        reviewer_ref="quality-1",
+        review_note="first decision",
+        reviewed_at=NOW + timedelta(hours=2),
+    )
+
+    with pytest.raises(
+        ServiceConflictError, match="fgcn_quality_review_idempotency_replay_mismatch"
+    ):
+        engine.verify_delivery(
+            quality_review_id="review-replay-boundary",
+            task_id="task-1",
+            reviewer_ref="quality-1",
+            review_note="changed decision",
+            reviewed_at=NOW + timedelta(hours=2),
+        )
+
+    engine.record_contribution(
+        contribution_id="contribution-replay-boundary",
+        task_id="task-1",
+        delivery_id="delivery-replay-boundary",
+        provider_ref="expert-1",
+        role_key="DELIVERY_RESOURCE",
+        started_at=NOW,
+        completed_at=NOW + timedelta(hours=1),
+    )
+    with pytest.raises(ServiceConflictError, match="fgcn_contribution_idempotency_replay_mismatch"):
+        engine.record_contribution(
+            contribution_id="contribution-replay-boundary",
+            task_id="task-1",
+            delivery_id="delivery-replay-boundary",
+            provider_ref="expert-1",
+            role_key="DIFFERENT_ROLE",
+            started_at=NOW,
+            completed_at=NOW + timedelta(hours=1),
+        )
+
+
+@pytest.mark.asyncio
+async def test_engine_does_not_close_or_quality_accept_a_cancelled_case() -> None:
+    engine = _engine()
+    request = await _assignment_request()()
+    engine.execute_named_action(request)
+    engine.submit_delivery(
+        delivery_id="delivery-cancelled-boundary",
+        task_id="task-1",
+        assignee_ref="expert-1",
+        evidence_ref="evidence:cancelled-boundary",
+        submitted_at=NOW + timedelta(hours=1),
+    )
+    engine.cases["case-1"] = replace(engine.cases["case-1"], status=CaseStatus.CANCELLED)
+
+    with pytest.raises(ServiceConflictError, match="fgcn_quality_case_is_terminal"):
+        engine.verify_delivery(
+            quality_review_id="review-cancelled-boundary",
+            task_id="task-1",
+            reviewer_ref="quality-1",
+            review_note="must not pass",
+            reviewed_at=NOW + timedelta(hours=2),
+        )
+    with pytest.raises(ServiceConflictError, match="fgcn_cancelled_case_is_immutable"):
+        engine.close_case(case_id="case-1", actor_id="quality-1")

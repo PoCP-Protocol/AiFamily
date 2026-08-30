@@ -16,7 +16,10 @@ from backend.domains.service.domain.errors import (
     ServiceNotFoundError,
     ServiceValidationError,
 )
-from backend.domains.service.fgcn.application import execute_task_assignment_named_action
+from backend.domains.service.fgcn.application import (
+    execute_task_assignment_named_action,
+    open_service_case,
+)
 from backend.domains.service.fgcn.contracts import (
     AllocationBucket,
     AllocationLine,
@@ -39,6 +42,7 @@ from backend.domains.service.fgcn.contracts import (
 from backend.domains.service.fgcn.persistence import (
     AllocationLineRow,
     FGCNBase,
+    IdempotencyKeyRow,
     ServiceCaseRow,
     ServiceContributionRow,
     SqlAlchemyFGCNRepository,
@@ -52,6 +56,14 @@ from backend.intelligence.human_gate import (
 )
 from backend.platform.audit import AuditBase, AuditEvent, AuditRecorder, read_all_events
 from backend.platform.persistence.unit_of_work import SqlAlchemyUnitOfWork
+from tests.domains.service.fgcn.admission_test_doubles import (
+    AsyncProviderAdmissionStub,
+    admitted_snapshot,
+)
+from tests.domains.service.fgcn.entry_test_doubles import (
+    AsyncCaseEntryDependencyStub,
+    valid_entry_snapshot,
+)
 from tests.support.postgres import SKIP_REASON, postgres_test_url
 
 NOW = datetime(2026, 8, 30, 9, tzinfo=UTC)
@@ -65,6 +77,9 @@ TASK = "00000000-0000-4000-8000-000000000007"
 ASSIGNMENT = "00000000-0000-4000-8000-000000000008"
 CONTRIBUTION = "00000000-0000-4000-8000-000000000009"
 ALLOCATION_RUN = "00000000-0000-4000-8000-000000000010"
+_ADMITTED_PROVIDER = AsyncProviderAdmissionStub(
+    admitted_snapshot(capability_keys=("family_guidance",))
+)
 
 
 def _scope() -> GateServiceScope:
@@ -117,6 +132,7 @@ def _task(*, status: TaskStatus = TaskStatus.VERIFIED) -> ServiceTask:
         description="Deliver the configured guidance activity.",
         role_key="DELIVERY_RESOURCE",
         acceptance_criteria=("Evidence reference is present",),
+        required_capability_keys=("family_guidance",),
         task_weight=Decimal("1"),
         status=status,
         responsible_ref="expert-1" if status is not TaskStatus.PENDING else None,
@@ -308,6 +324,21 @@ async def _postgres_fgcn_engine():
                     ),
                 ):
                     await connection.execute(text(f"CREATE TYPE {type_name} AS ENUM ({values})"))
+                await connection.execute(
+                    text(
+                        """
+                        CREATE TABLE idempotency_keys (
+                            idempotency_key varchar(128) PRIMARY KEY,
+                            action_name varchar(128) NOT NULL,
+                            request_hash varchar(128) NOT NULL,
+                            response_code integer NULL,
+                            response_body jsonb NULL,
+                            created_at timestamptz NOT NULL DEFAULT now(),
+                            expires_at timestamptz NULL
+                        )
+                        """
+                    )
+                )
                 await connection.run_sync(FGCNBase.metadata.create_all)
             yield engine
         finally:
@@ -324,6 +355,334 @@ async def postgres_session_factory():
         pytest.skip(SKIP_REASON)
     async with _postgres_fgcn_engine() as engine:
         yield async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+
+@pytest.mark.asyncio
+async def test_open_service_case_requires_entry_dependencies_and_audits_success(session_factory):
+    scope = _scope()
+    query = AsyncCaseEntryDependencyStub(valid_entry_snapshot(scope, intent_ref=INTENT))
+    recorder = AuditRecorder()
+
+    async with session_factory() as session:
+        case = await open_service_case(
+            SqlAlchemyFGCNRepository(session),
+            case_id=CASE,
+            scope=scope,
+            intent_ref=INTENT,
+            plan_ref=PLAN,
+            owner_id="steward-1",
+            blueprint=_blueprint(),
+            idempotency_key="open-case-1",
+            recorder=recorder,
+            entry_dependencies=query,
+            opened_at=NOW,
+        )
+
+    assert case == _case()
+    assert query.calls == 1
+    async with session_factory() as session:
+        loaded = await SqlAlchemyFGCNRepository(session).load_case(CASE)
+        events = await read_all_events(session, tenant_id=TENANT)
+    assert loaded == _case()
+    assert [event.action for event in events] == ["OPEN_SERVICE_CASE"]
+
+
+@pytest.mark.asyncio
+async def test_open_service_case_replays_durably_after_session_restart(session_factory):
+    scope = _scope()
+    first_query = AsyncCaseEntryDependencyStub(valid_entry_snapshot(scope, intent_ref=INTENT))
+    async with session_factory() as session:
+        first = await open_service_case(
+            SqlAlchemyFGCNRepository(session),
+            case_id=CASE,
+            scope=scope,
+            intent_ref=INTENT,
+            plan_ref=PLAN,
+            owner_id="steward-1",
+            blueprint=_blueprint(),
+            idempotency_key="open-case-restart",
+            recorder=AuditRecorder(),
+            entry_dependencies=first_query,
+            opened_at=NOW,
+        )
+
+    replay_query = AsyncCaseEntryDependencyStub(
+        None, error=RuntimeError("entry dependency must not be read on replay")
+    )
+    replay_recorder = AuditRecorder()
+    async with session_factory() as session:
+        replay = await open_service_case(
+            SqlAlchemyFGCNRepository(session),
+            case_id=CASE,
+            scope=scope,
+            intent_ref=INTENT,
+            plan_ref=PLAN,
+            owner_id="steward-1",
+            blueprint=_blueprint(),
+            idempotency_key="open-case-restart",
+            recorder=replay_recorder,
+            entry_dependencies=replay_query,
+            opened_at=NOW + timedelta(days=1),
+        )
+        rows = (await session.scalars(sa.select(IdempotencyKeyRow))).all()
+        events = await read_all_events(session, tenant_id=TENANT)
+
+    assert replay == first
+    assert replay_query.calls == 0
+    assert replay_recorder.all_events() == ()
+    assert len(rows) == 1
+    assert rows[0].response_body == {"case_id": CASE}
+    assert rows[0].idempotency_key != "open-case-restart"
+    assert len(events) == 1
+
+
+@pytest.mark.asyncio
+async def test_open_service_case_rejects_same_key_with_changed_case_id(session_factory):
+    scope = _scope()
+    async with session_factory() as session:
+        await open_service_case(
+            SqlAlchemyFGCNRepository(session),
+            case_id=CASE,
+            scope=scope,
+            intent_ref=INTENT,
+            plan_ref=PLAN,
+            owner_id="steward-1",
+            blueprint=_blueprint(),
+            idempotency_key="open-case-conflict",
+            recorder=AuditRecorder(),
+            entry_dependencies=AsyncCaseEntryDependencyStub(
+                valid_entry_snapshot(scope, intent_ref=INTENT)
+            ),
+            opened_at=NOW,
+        )
+
+        with pytest.raises(
+            ServiceConflictError, match="fgcn_case_opening_idempotency_replay_mismatch"
+        ):
+            await open_service_case(
+                SqlAlchemyFGCNRepository(session),
+                case_id="00000000-0000-4000-8000-000000000017",
+                scope=scope,
+                intent_ref=INTENT,
+                plan_ref=PLAN,
+                owner_id="steward-1",
+                blueprint=_blueprint(),
+                idempotency_key="open-case-conflict",
+                recorder=AuditRecorder(),
+                entry_dependencies=AsyncCaseEntryDependencyStub(
+                    valid_entry_snapshot(scope, intent_ref=INTENT)
+                ),
+                opened_at=NOW,
+            )
+
+        assert await session.get(
+            ServiceCaseRow, "00000000-0000-4000-8000-000000000017"
+        ) is None
+
+
+@pytest.mark.asyncio
+async def test_open_service_case_fails_closed_on_committed_incomplete_claim(session_factory):
+    scope = _scope()
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        await open_service_case(
+            repo,
+            case_id=CASE,
+            scope=scope,
+            intent_ref=INTENT,
+            plan_ref=PLAN,
+            owner_id="steward-1",
+            blueprint=_blueprint(),
+            idempotency_key="open-case-incomplete",
+            recorder=AuditRecorder(),
+            entry_dependencies=AsyncCaseEntryDependencyStub(
+                valid_entry_snapshot(scope, intent_ref=INTENT)
+            ),
+            opened_at=NOW,
+        )
+        await session.execute(
+            sa.update(IdempotencyKeyRow).values(response_code=None, response_body=None)
+        )
+        await session.commit()
+
+        with pytest.raises(
+            ServiceConflictError, match="fgcn_case_opening_idempotency_incomplete"
+        ):
+            await open_service_case(
+                repo,
+                case_id=CASE,
+                scope=scope,
+                intent_ref=INTENT,
+                plan_ref=PLAN,
+                owner_id="steward-1",
+                blueprint=_blueprint(),
+                idempotency_key="open-case-incomplete",
+                recorder=AuditRecorder(),
+                entry_dependencies=AsyncCaseEntryDependencyStub(
+                    None, error=RuntimeError("must not re-run entry gate")
+                ),
+                opened_at=NOW,
+            )
+
+
+@pytest.mark.asyncio
+async def test_open_service_case_same_raw_key_isolated_between_tenants(session_factory):
+    scope_a = _scope()
+    scope_b = replace(
+        scope_a,
+        tenant_id="00000000-0000-4000-8000-000000000101",
+        family_id="00000000-0000-4000-8000-000000000102",
+        subject_person_id="00000000-0000-4000-8000-000000000103",
+        correlation_id="corr-persistence-tenant-b",
+    )
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        await open_service_case(
+            repo,
+            case_id=CASE,
+            scope=scope_a,
+            intent_ref=INTENT,
+            plan_ref=PLAN,
+            owner_id="steward-1",
+            blueprint=_blueprint(),
+            idempotency_key="same-client-key",
+            recorder=AuditRecorder(),
+            entry_dependencies=AsyncCaseEntryDependencyStub(
+                valid_entry_snapshot(scope_a, intent_ref=INTENT)
+            ),
+            opened_at=NOW,
+        )
+        await open_service_case(
+            repo,
+            case_id="00000000-0000-4000-8000-000000000018",
+            scope=scope_b,
+            intent_ref=INTENT,
+            plan_ref=PLAN,
+            owner_id="steward-1",
+            blueprint=_blueprint(),
+            idempotency_key="same-client-key",
+            recorder=AuditRecorder(),
+            entry_dependencies=AsyncCaseEntryDependencyStub(
+                valid_entry_snapshot(scope_b, intent_ref=INTENT)
+            ),
+            opened_at=NOW,
+        )
+        rows = (await session.scalars(sa.select(IdempotencyKeyRow))).all()
+
+    assert len(rows) == 2
+    assert len({row.idempotency_key for row in rows}) == 2
+
+
+@pytest.mark.asyncio
+async def test_open_service_case_rolls_back_claim_with_case_when_audit_fails(session_factory):
+    class _FailingAuditRecorder(AuditRecorder):
+        async def flush(self, session):
+            raise RuntimeError("audit store unavailable")
+
+    scope = _scope()
+    async with session_factory() as session:
+        with pytest.raises(RuntimeError, match="audit store unavailable"):
+            await open_service_case(
+                SqlAlchemyFGCNRepository(session),
+                case_id=CASE,
+                scope=scope,
+                intent_ref=INTENT,
+                plan_ref=PLAN,
+                owner_id="steward-1",
+                blueprint=_blueprint(),
+                idempotency_key="open-case-rollback",
+                recorder=_FailingAuditRecorder(),
+                entry_dependencies=AsyncCaseEntryDependencyStub(
+                    valid_entry_snapshot(scope, intent_ref=INTENT)
+                ),
+                opened_at=NOW,
+            )
+        await session.rollback()
+        assert await session.get(ServiceCaseRow, CASE) is None
+        assert (await session.scalars(sa.select(IdempotencyKeyRow))).all() == []
+
+        recovered = await open_service_case(
+            SqlAlchemyFGCNRepository(session),
+            case_id=CASE,
+            scope=scope,
+            intent_ref=INTENT,
+            plan_ref=PLAN,
+            owner_id="steward-1",
+            blueprint=_blueprint(),
+            idempotency_key="open-case-rollback",
+            recorder=AuditRecorder(),
+            entry_dependencies=AsyncCaseEntryDependencyStub(
+                valid_entry_snapshot(scope, intent_ref=INTENT)
+            ),
+            opened_at=NOW,
+        )
+
+    assert recovered.case_id == CASE
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("change", "error_code"),
+    (
+        ({"growth_intent_status": "DRAFT"}, "fgcn_growth_intent_not_confirmed"),
+        ({"consent_status": "REVOKED"}, "fgcn_consent_not_active"),
+        ({"consent_purpose": "other-purpose"}, "fgcn_consent_scope_mismatch"),
+        ({"consent_version": "consent.v2"}, "fgcn_consent_scope_mismatch"),
+        ({"consent_subject_person_id": "foreign-child"}, "fgcn_consent_scope_mismatch"),
+        ({"binding_tenant_id": "foreign-tenant"}, "fgcn_tenant_family_binding_invalid"),
+    ),
+)
+async def test_open_service_case_refuses_invalid_entry_without_business_or_audit_writes(
+    session_factory, change, error_code
+):
+    scope = _scope()
+    query = AsyncCaseEntryDependencyStub(
+        replace(valid_entry_snapshot(scope, intent_ref=INTENT), **change)
+    )
+
+    async with session_factory() as session:
+        with pytest.raises(ServiceForbiddenError, match=error_code):
+            await open_service_case(
+                SqlAlchemyFGCNRepository(session),
+                case_id=CASE,
+                scope=scope,
+                intent_ref=INTENT,
+                plan_ref=PLAN,
+                owner_id="steward-1",
+                blueprint=_blueprint(),
+                idempotency_key="open-case-1",
+                recorder=AuditRecorder(),
+                entry_dependencies=query,
+                opened_at=NOW,
+            )
+        await session.rollback()
+        assert await session.get(ServiceCaseRow, CASE) is None
+        assert await read_all_events(session, tenant_id=TENANT) == []
+
+
+@pytest.mark.asyncio
+async def test_open_service_case_refuses_query_failure_before_any_write(session_factory):
+    scope = _scope()
+    query = AsyncCaseEntryDependencyStub(None, error=RuntimeError("dependency store down"))
+
+    async with session_factory() as session:
+        with pytest.raises(ServiceForbiddenError, match="fgcn_case_entry_dependencies_unavailable"):
+            await open_service_case(
+                SqlAlchemyFGCNRepository(session),
+                case_id=CASE,
+                scope=scope,
+                intent_ref=INTENT,
+                plan_ref=PLAN,
+                owner_id="steward-1",
+                blueprint=_blueprint(),
+                idempotency_key="open-case-1",
+                recorder=AuditRecorder(),
+                entry_dependencies=query,
+                opened_at=NOW,
+            )
+        await session.rollback()
+        assert await session.get(ServiceCaseRow, CASE) is None
+        assert await read_all_events(session, tenant_id=TENANT) == []
 
 
 @pytest.mark.asyncio
@@ -386,6 +745,49 @@ async def test_fgcn_facts_round_trip_with_audit_in_one_committed_session(session
         is AllocationReleaseState.HELD
     )
     assert len(events) == 1
+
+
+@pytest.mark.asyncio
+async def test_allocation_uses_policy_version_not_blueprint_version(session_factory):
+    blueprint = replace(_blueprint(), version=2, policy_version=7)
+    statement = replace(
+        _statement(),
+        policy_version=7,
+        lines=tuple(replace(line, policy_version=7) for line in _statement().lines),
+    )
+    open_case = replace(_case(), blueprint=blueprint)
+    completed_case = replace(_case(status=CaseStatus.COMPLETED), blueprint=blueprint)
+    accepted_task = replace(
+        _task(status=TaskStatus.ACCEPTED),
+        blueprint_ref=blueprint.blueprint_ref,
+        blueprint_version=blueprint.version,
+    )
+    delivered_task = replace(
+        _task(status=TaskStatus.DELIVERED),
+        blueprint_ref=blueprint.blueprint_ref,
+        blueprint_version=blueprint.version,
+    )
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        await repo.save_case(open_case)
+        await repo.save_task(accepted_task)
+        await repo.save_assignment(_assignment())
+        await repo.save_delivery(_delivery())
+        await repo.save_task(delivered_task)
+        await repo.save_quality_review(_review())
+        await repo.save_contribution(_contribution())
+        await repo.save_case(completed_case)
+        await repo.save_allocation_statement(statement)
+        await session.commit()
+
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        loaded = await repo.load_allocation_statement(CASE)
+        loaded_task = await repo.load_task(TASK)
+
+    assert loaded.policy_version == 7
+    assert loaded.lines[-1].policy_version == 7
+    assert loaded_task.blueprint_version == 2
 
 
 @pytest.mark.asyncio
@@ -668,7 +1070,11 @@ async def test_named_action_application_command_persists_assignment_and_audit(
         await repo.save_case(_case())
         await repo.save_task(_task(status=TaskStatus.PENDING))
         assignment = await execute_task_assignment_named_action(
-            repo, request, recorder=recorder, accepted_at=accepted_at
+            repo,
+            request,
+            recorder=recorder,
+            provider_admission=_ADMITTED_PROVIDER,
+            accepted_at=accepted_at,
         )
 
     async with session_factory() as session:
@@ -681,12 +1087,65 @@ async def test_named_action_application_command_persists_assignment_and_audit(
     assert assignment == loaded_assignment
     assert loaded_task.status is TaskStatus.ACCEPTED
     assert loaded_task.responsible_ref == "expert-1"
+    assert loaded_task.required_capability_keys == ("family_guidance",)
     assert loaded_case.status is CaseStatus.ASSIGNED
     assert [event.action for event in events] == [
         "CONFIRM_SERVICE_TASK_ASSIGNMENT",
         "ACCEPT_SERVICE_TASK",
         "ASSIGN_SERVICE_CASE",
     ]
+
+
+@pytest.mark.asyncio
+async def test_named_action_refuses_an_unadmitted_provider_without_writes(session_factory):
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        await repo.save_case(_case())
+        await repo.save_task(_task(status=TaskStatus.PENDING))
+        await session.commit()
+
+        with pytest.raises(ServiceForbiddenError, match="fgcn_provider_not_admitted"):
+            await execute_task_assignment_named_action(
+                repo,
+                _named_action_request(),
+                recorder=AuditRecorder(),
+                provider_admission=AsyncProviderAdmissionStub(None),
+                accepted_at=NOW,
+            )
+        await session.rollback()
+
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        assert (await repo.load_task(TASK)).status is TaskStatus.PENDING
+        assert (await session.execute(sa.select(TaskAssignmentRow))).scalars().all() == []
+        assert await read_all_events(session, tenant_id=TENANT) == []
+
+
+@pytest.mark.asyncio
+async def test_named_action_refuses_provider_resource_gap_without_writes(session_factory):
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        await repo.save_case(_case())
+        await repo.save_task(_task(status=TaskStatus.PENDING))
+        await session.commit()
+
+        with pytest.raises(ServiceConflictError, match="RESOURCE_GAP"):
+            await execute_task_assignment_named_action(
+                repo,
+                _named_action_request(),
+                recorder=AuditRecorder(),
+                provider_admission=AsyncProviderAdmissionStub(
+                    admitted_snapshot(capability_keys=("family_guidance",), capacity_available=0)
+                ),
+                accepted_at=NOW,
+            )
+        await session.rollback()
+
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        assert (await repo.load_task(TASK)).status is TaskStatus.PENDING
+        assert (await session.execute(sa.select(TaskAssignmentRow))).scalars().all() == []
+        assert await read_all_events(session, tenant_id=TENANT) == []
 
 
 @pytest.mark.asyncio
@@ -700,7 +1159,11 @@ async def test_named_action_without_assignment_id_generates_a_durable_uuid(sessi
         await repo.save_case(_case())
         await repo.save_task(_task(status=TaskStatus.PENDING))
         assignment = await execute_task_assignment_named_action(
-            repo, request, recorder=AuditRecorder(), accepted_at=NOW
+            repo,
+            request,
+            recorder=AuditRecorder(),
+            provider_admission=_ADMITTED_PROVIDER,
+            accepted_at=NOW,
         )
 
     assert UUID(assignment.assignment_id).version == 5
@@ -716,7 +1179,11 @@ async def test_named_action_application_command_replays_without_duplicate_assign
         await repo.save_case(_case())
         await repo.save_task(_task(status=TaskStatus.PENDING))
         first = await execute_task_assignment_named_action(
-            repo, request, recorder=AuditRecorder(), accepted_at=NOW
+            repo,
+            request,
+            recorder=AuditRecorder(),
+            provider_admission=_ADMITTED_PROVIDER,
+            accepted_at=NOW,
         )
 
     async with session_factory() as session:
@@ -725,6 +1192,7 @@ async def test_named_action_application_command_replays_without_duplicate_assign
             repo,
             request,
             recorder=AuditRecorder(),
+            provider_admission=_ADMITTED_PROVIDER,
             accepted_at=NOW + timedelta(hours=1),
         )
         rows = (await session.execute(sa.select(TaskAssignmentRow))).scalars().all()
@@ -741,7 +1209,10 @@ async def test_named_action_application_command_replays_without_duplicate_assign
             ServiceConflictError, match="fgcn_assignment_idempotency_replay_mismatch"
         ):
             await execute_task_assignment_named_action(
-                repo, changed_request, recorder=AuditRecorder()
+                repo,
+                changed_request,
+                recorder=AuditRecorder(),
+                provider_admission=_ADMITTED_PROVIDER,
             )
 
 
@@ -765,7 +1236,10 @@ async def test_named_action_application_command_rejects_foreign_scope_and_leaves
 
         with pytest.raises(ServiceForbiddenError, match="fgcn_family_scope_violation"):
             await execute_task_assignment_named_action(
-                repo, _named_action_request(scope=foreign_scope), recorder=AuditRecorder()
+                repo,
+                _named_action_request(scope=foreign_scope),
+                recorder=AuditRecorder(),
+                provider_admission=_ADMITTED_PROVIDER,
             )
         assert (await session.execute(sa.select(TaskAssignmentRow))).scalars().all() == []
 
@@ -791,6 +1265,7 @@ async def test_named_action_application_command_rejects_correlation_replay(
                 repo,
                 _named_action_request(scope=mismatched_scope),
                 recorder=AuditRecorder(),
+                provider_admission=_ADMITTED_PROVIDER,
             )
 
 
@@ -813,6 +1288,7 @@ async def test_named_action_application_command_does_not_claim_success_when_audi
                 repo,
                 _named_action_request(),
                 recorder=_FailingAuditRecorder(),
+                provider_admission=_ADMITTED_PROVIDER,
                 accepted_at=NOW,
             )
         await session.rollback()
@@ -838,6 +1314,7 @@ async def test_named_action_application_command_rejects_ai_looking_human_id(
                 repo,
                 _named_action_request(actor_id="AI:agent-1"),
                 recorder=AuditRecorder(),
+                provider_admission=_ADMITTED_PROVIDER,
             )
 
 

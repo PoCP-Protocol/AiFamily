@@ -10,6 +10,8 @@ create a payment/settlement record.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -19,6 +21,7 @@ from uuid import NAMESPACE_URL, uuid5
 from backend.domains.service.domain.errors import (
     ServiceConflictError,
     ServiceForbiddenError,
+    ServiceNotFoundError,
     ServiceValidationError,
 )
 from backend.intelligence.human_gate import (
@@ -29,20 +32,56 @@ from backend.intelligence.human_gate import (
 from backend.intelligence.human_gate.contracts import HUMAN_ACTOR_TYPES
 from backend.platform.audit import AuditEvent, AuditRecorder
 
+from .admission import (
+    DEFAULT_ASYNC_PROVIDER_ADMISSION,
+    AsyncProviderAdmissionQuery,
+    require_provider_admitted_async,
+)
 from .contracts import (
+    BlueprintSnapshot,
+    CaseOpeningIdempotencyRecord,
     CaseStatus,
+    GateServiceScope,
     ServiceCase,
     ServiceTask,
     TaskAssignment,
     TaskAssignmentStatus,
     TaskStatus,
 )
+from .entry import (
+    DEFAULT_ASYNC_CASE_ENTRY_DEPENDENCIES,
+    AsyncCaseEntryDependencyQuery,
+    require_case_entry_dependencies_async,
+)
 
 
-class FGCNAssignmentRepository(Protocol):
-    """The narrow durable port used by the assignment command."""
+class FGCNCaseRepository(Protocol):
+    """The narrow durable port used by the protected case-opening command."""
 
     async def load_case(self, case_id: str) -> ServiceCase: ...
+
+    async def save_case(self, case: ServiceCase) -> None: ...
+
+    async def flush_audit(self, recorder: AuditRecorder) -> int: ...
+
+    async def commit(self) -> None: ...
+
+    async def claim_case_opening(
+        self, *, scope: GateServiceScope, idempotency_key: str, request_hash: str
+    ) -> CaseOpeningIdempotencyRecord: ...
+
+    async def complete_case_opening(
+        self,
+        *,
+        scope: GateServiceScope,
+        idempotency_key: str,
+        request_hash: str,
+        case_id: str,
+    ) -> None: ...
+
+
+class FGCNAssignmentRepository(FGCNCaseRepository, Protocol):
+    """The narrow durable port used by the assignment command."""
 
     async def load_task(self, task_id: str) -> ServiceTask: ...
 
@@ -50,15 +89,205 @@ class FGCNAssignmentRepository(Protocol):
         self, *, source_request_id: str
     ) -> TaskAssignment | None: ...
 
-    async def save_case(self, case: ServiceCase) -> None: ...
-
     async def save_task(self, task: ServiceTask) -> None: ...
 
     async def save_assignment(self, assignment: TaskAssignment) -> None: ...
 
-    async def flush_audit(self, recorder: AuditRecorder) -> int: ...
 
-    async def commit(self) -> None: ...
+
+def _assert_case_owner(owner_id: str) -> str:
+    if not isinstance(owner_id, str) or not owner_id.strip():
+        raise ServiceValidationError("fgcn_actor_required")
+    normalized = owner_id.strip()
+    if normalized.lower().startswith("ai:") or normalized.upper() in {"AI", "SYSTEM"}:
+        raise ServiceForbiddenError("fgcn_requires_human_actor")
+    return normalized
+
+
+def _case_open_request_matches(
+    existing: ServiceCase,
+    *,
+    scope: GateServiceScope,
+    intent_ref: str,
+    plan_ref: str,
+    owner_id: str,
+    blueprint: BlueprintSnapshot,
+) -> bool:
+    return (
+        existing.scope == scope
+        and existing.intent_ref == intent_ref
+        and existing.plan_ref == plan_ref
+        and existing.owner_id == owner_id
+        and existing.blueprint == blueprint
+    )
+
+
+def _case_open_request_hash(
+    *,
+    case_id: str,
+    scope: GateServiceScope,
+    intent_ref: str,
+    plan_ref: str,
+    owner_id: str,
+    blueprint: BlueprintSnapshot,
+) -> str:
+    canonical = json.dumps(
+        {
+            "action": "OPEN_SERVICE_CASE",
+            "case_id": case_id,
+            "scope": {
+                "tenant_id": scope.tenant_id,
+                "family_id": scope.family_id,
+                "subject_person_id": scope.subject_person_id,
+                "purpose": scope.purpose,
+                "consent_version": scope.consent_version,
+                "correlation_id": scope.correlation_id,
+            },
+            "intent_ref": intent_ref,
+            "plan_ref": plan_ref,
+            "owner_id": owner_id,
+            "blueprint": {
+                "blueprint_ref": blueprint.blueprint_ref,
+                "version": blueprint.version,
+                "status": blueprint.status,
+                "policy_ref": blueprint.policy_ref,
+                "policy_version": blueprint.policy_version,
+                "checksum": blueprint.checksum,
+                "task_template_keys": blueprint.task_template_keys,
+                "total_units": str(blueprint.total_units),
+            },
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+async def open_service_case(
+    repo: FGCNCaseRepository,
+    *,
+    case_id: str,
+    scope: GateServiceScope,
+    intent_ref: str,
+    plan_ref: str,
+    owner_id: str,
+    blueprint: BlueprintSnapshot,
+    idempotency_key: str,
+    recorder: AuditRecorder,
+    entry_dependencies: AsyncCaseEntryDependencyQuery = DEFAULT_ASYNC_CASE_ENTRY_DEPENDENCIES,
+    opened_at: datetime | None = None,
+) -> ServiceCase:
+    """Open a durable case only after all external entry dependencies pass.
+
+    The existing platform idempotency table stores a tenant-scoped opaque key
+    and request hash in the same transaction as the case and audit event. A
+    replay with the same immutable case payload returns the stored case;
+    changed scope, intent, plan, owner, blueprint, or case id is rejected.
+    """
+
+    owner = _assert_case_owner(owner_id)
+    if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+        raise ServiceValidationError("fgcn_case_idempotency_key_required")
+    request_hash = _case_open_request_hash(
+        case_id=case_id,
+        scope=scope,
+        intent_ref=intent_ref,
+        plan_ref=plan_ref,
+        owner_id=owner,
+        blueprint=blueprint,
+    )
+    candidate = ServiceCase(
+        case_id=case_id,
+        scope=scope,
+        intent_ref=intent_ref,
+        plan_ref=plan_ref,
+        owner_id=owner,
+        blueprint=blueprint,
+        opened_at=_now(opened_at),
+    )
+
+    try:
+        existing = await repo.load_case(case_id)
+    except ServiceNotFoundError:
+        existing = None
+    if existing is not None:
+        if not _case_open_request_matches(
+            existing,
+            scope=scope,
+            intent_ref=intent_ref,
+            plan_ref=plan_ref,
+            owner_id=owner,
+            blueprint=blueprint,
+        ):
+            raise ServiceConflictError("fgcn_case_idempotency_replay_mismatch")
+        reservation = await repo.claim_case_opening(
+            scope=scope, idempotency_key=idempotency_key.strip(), request_hash=request_hash
+        )
+        if reservation.case_id is not None and reservation.case_id != existing.case_id:
+            raise ServiceConflictError("fgcn_case_opening_idempotency_case_mismatch")
+        if reservation.case_id is None and reservation.is_new:
+            await repo.complete_case_opening(
+                scope=scope,
+                idempotency_key=idempotency_key.strip(),
+                request_hash=request_hash,
+                case_id=existing.case_id,
+            )
+            await repo.commit()
+        return existing
+
+    await require_case_entry_dependencies_async(
+        entry_dependencies,
+        scope=scope,
+        intent_ref=intent_ref,
+    )
+    reservation = await repo.claim_case_opening(
+        scope=scope, idempotency_key=idempotency_key.strip(), request_hash=request_hash
+    )
+    if reservation.case_id is not None:
+        try:
+            replay = await repo.load_case(reservation.case_id)
+        except ServiceNotFoundError as exc:
+            raise ServiceConflictError(
+                "fgcn_case_opening_idempotency_case_missing"
+            ) from exc
+        if not _case_open_request_matches(
+            replay,
+            scope=scope,
+            intent_ref=intent_ref,
+            plan_ref=plan_ref,
+            owner_id=owner,
+            blueprint=blueprint,
+        ):
+            raise ServiceConflictError("fgcn_case_opening_idempotency_replay_mismatch")
+        return replay
+    if not reservation.is_new:
+        raise ServiceConflictError("fgcn_case_opening_idempotency_incomplete")
+    await repo.save_case(candidate)
+    recorder.record(
+        AuditEvent(
+            actor_id=owner,
+            tenant_id=scope.tenant_id,
+            action="OPEN_SERVICE_CASE",
+            resource_type="ServiceCase",
+            resource_id=candidate.case_id,
+            reason="confirmed intent, active consent, and tenant-family binding accepted",
+            correlation_id=scope.correlation_id,
+            after={
+                "status": candidate.status.value,
+                "blueprint_ref": candidate.blueprint.blueprint_ref,
+            },
+        )
+    )
+    await repo.complete_case_opening(
+        scope=scope,
+        idempotency_key=idempotency_key.strip(),
+        request_hash=request_hash,
+        case_id=candidate.case_id,
+    )
+    await repo.flush_audit(recorder)
+    await repo.commit()
+    return candidate
 
 
 def _now(value: datetime | None) -> datetime:
@@ -133,6 +362,7 @@ async def execute_task_assignment_named_action(
     request: NamedActionRequest,
     *,
     recorder: AuditRecorder,
+    provider_admission: AsyncProviderAdmissionQuery = DEFAULT_ASYNC_PROVIDER_ADMISSION,
     accepted_at: datetime | None = None,
 ) -> TaskAssignment:
     """Execute ``CONFIRM_SERVICE_TASK_ASSIGNMENT`` after Human Gate approval.
@@ -183,6 +413,13 @@ async def execute_task_assignment_named_action(
         raise ServiceConflictError("fgcn_case_is_terminal")
     if task.status is not TaskStatus.PENDING:
         raise ServiceConflictError("fgcn_task_already_has_responsible_person")
+    await require_provider_admitted_async(
+        provider_admission,
+        provider_ref=assignee_ref,
+        assignee_kind=assignee_kind,
+        required_capability_keys=task.required_capability_keys,
+        scope=case.scope,
+    )
 
     accepted_at = _now(accepted_at)
     assignment = TaskAssignment(
@@ -254,4 +491,9 @@ async def execute_task_assignment_named_action(
     return assignment
 
 
-__all__ = ["FGCNAssignmentRepository", "execute_task_assignment_named_action"]
+__all__ = [
+    "FGCNAssignmentRepository",
+    "FGCNCaseRepository",
+    "execute_task_assignment_named_action",
+    "open_service_case",
+]
