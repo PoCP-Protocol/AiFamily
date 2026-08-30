@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Literal
 
 from ..domain.entities import GrowthHypothesisEvidence
@@ -385,9 +386,7 @@ class AssessmentCommandHandler:
         )
         return receipt
 
-    async def submit_support_card_feedback(
-        self, command: SubmitSupportCardFeedbackCommand
-    ) -> dict:
+    async def submit_support_card_feedback(self, command: SubmitSupportCardFeedbackCommand) -> dict:
         command.meta.require()
         if not _is_uuid(command.session_id):
             raise AssessmentValidationError("valid_assessment_session_id_required")
@@ -422,6 +421,7 @@ class AssessmentCommandHandler:
 
         evidence = await self._load_support_evidence(command)
         feedback = await self._repository.persist_support_card_feedback(
+            tenant_id=command.tenant_id,
             family_id=command.family_id,
             session_id=evidence.assessment_session_id,
             actor_id=command.actor_id,
@@ -458,9 +458,7 @@ class AssessmentCommandHandler:
         )
         return receipt
 
-    async def start_assessment_small_step(
-        self, command: StartAssessmentSmallStepCommand
-    ) -> dict:
+    async def start_assessment_small_step(self, command: StartAssessmentSmallStepCommand) -> dict:
         command.meta.require()
         if not _is_uuid(command.session_id):
             raise AssessmentValidationError("valid_assessment_session_id_required")
@@ -486,10 +484,14 @@ class AssessmentCommandHandler:
 
         evidence = await self._load_support_evidence(command)
         existing = await self._repository.load_small_step(
-            command.family_id, evidence.assessment_session_id, command.action_ref
+            command.tenant_id,
+            command.family_id,
+            evidence.assessment_session_id,
+            command.action_ref,
         )
         if existing is None:
             step = await self._repository.persist_small_step(
+                tenant_id=command.tenant_id,
                 family_id=command.family_id,
                 session_id=evidence.assessment_session_id,
                 actor_id=command.actor_id,
@@ -529,9 +531,7 @@ class AssessmentCommandHandler:
             )
         return receipt
 
-    async def record_assessment_checkin(
-        self, command: RecordAssessmentCheckinCommand
-    ) -> dict:
+    async def record_assessment_checkin(self, command: RecordAssessmentCheckinCommand) -> dict:
         command.meta.require()
         if not _is_uuid(command.session_id):
             raise AssessmentValidationError("valid_assessment_session_id_required")
@@ -564,11 +564,17 @@ class AssessmentCommandHandler:
 
         evidence = await self._load_support_evidence(command)
         step = await self._repository.load_small_step(
-            command.family_id, evidence.assessment_session_id, SMALL_STEP_ACTION_REF
+            command.tenant_id,
+            command.family_id,
+            evidence.assessment_session_id,
+            SMALL_STEP_ACTION_REF,
         )
         if step is None:
             raise AssessmentConflictError("assessment_small_step_not_started")
+        if not _checkin_is_available(step):
+            raise AssessmentConflictError("assessment_checkin_not_yet_available")
         checkin = await self._repository.persist_assessment_checkin(
+            tenant_id=command.tenant_id,
             family_id=command.family_id,
             session_id=evidence.assessment_session_id,
             actor_id=command.actor_id,
@@ -637,3 +643,25 @@ def _small_step_text(focus_ref: str) -> str:
         "DEVICE_USE_CONTEXT": "今晚先约定一个可以停下来的时刻，停下后先听孩子说完为什么还想继续。",
         "SELF_REGULATION": "今晚只选一个容易做到的时刻，把这一步做完，不要求一次改变全部。",
     }.get(focus_ref, "今晚先留出十分钟，只听孩子把这件事说完，再一起选一个最小的下一步。")
+
+
+def _checkin_is_available(step: dict) -> bool:
+    """Enforce the product promise that reflection opens the next day.
+
+    The timestamp is persisted by the repository so a process restart cannot
+    turn a UI label into an immediately available action. Missing or malformed
+    timestamps fail closed instead of silently weakening the boundary.
+    """
+    raw = step.get("available_for_checkin_at")
+    if isinstance(raw, datetime):
+        available_at = raw
+    elif isinstance(raw, str):
+        try:
+            available_at = datetime.fromisoformat(raw)
+        except ValueError:
+            return False
+    else:
+        return False
+    if available_at.tzinfo is None:
+        available_at = available_at.replace(tzinfo=UTC)
+    return datetime.now(UTC) >= available_at

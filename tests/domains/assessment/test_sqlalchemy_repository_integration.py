@@ -3,12 +3,11 @@ PostgreSQL instance — the "not yet verified against a real Postgres
 instance" gap explicitly flagged in the previous commit is closed here.
 
 Requires `PY_ASSESSMENT_TEST_DATABASE_URL` env var pointing at a disposable
-PostgreSQL database that already has the schema from
-`database/migrations/0001..0044` applied (see this task's own verification
-notes — do NOT point this at a shared team database; use an isolated
-throwaway instance). Skipped entirely if that env var is not set, so this
-suite never silently runs against — or fails to run against — the wrong
-database.
+PostgreSQL database with the Alembic head applied (the legacy baseline plus
+the support-loop revision `0004_assessment_support_loop`). Do NOT point this
+at a shared team database; use an isolated throwaway instance. Skipped entirely
+if that env var is not set, so this suite never silently runs against — or fails
+to run against — the wrong database.
 """
 
 from __future__ import annotations
@@ -23,9 +22,12 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from backend.domains.assessment.application.commands import (
     AssessmentCommandHandler,
     MutationMeta,
+    RecordAssessmentCheckinCommand,
     SaveAssessmentResponseCommand,
     StartAssessmentCommand,
+    StartAssessmentSmallStepCommand,
     SubmitAssessmentCommand,
+    SubmitSupportCardFeedbackCommand,
 )
 from backend.domains.assessment.application.growth_hypothesis_commands import (
     DecideGrowthHypothesisCommand,
@@ -33,9 +35,11 @@ from backend.domains.assessment.application.growth_hypothesis_commands import (
 )
 from backend.domains.assessment.application.queries import (
     AssessmentQueryHandler,
+    GetSupportLoopProjectionQuery,
     GetUi02ProjectionQuery,
     GetUi03ProjectionQuery,
 )
+from backend.domains.assessment.domain.errors import AssessmentConflictError
 from backend.domains.assessment.infrastructure.deterministic_interpretation import (
     DeterministicInterpretationAdapter,
 )
@@ -202,6 +206,139 @@ class TestSqlAlchemyRepositoryRealPostgres:
         )
         assert projection["availability"] == "AVAILABLE"
         assert projection["tool"]["tool_ref"] == "FAMILY_SUPPORT_NEEDS"
+
+    async def test_support_card_loop_persists_and_reopens_from_postgres(self, connection):
+        tenant_id, family_id, child_id, guardian_id = await _seed_family(connection)
+        repo = SqlAlchemyAssessmentRepository(connection)
+        commands = AssessmentCommandHandler(repo)
+        queries = AssessmentQueryHandler(repo, DeterministicInterpretationAdapter())
+
+        start = await commands.start(
+            StartAssessmentCommand(
+                family_id, tenant_id, guardian_id, child_id, None, _meta("loop-start")
+            )
+        )
+        session_id = start["session"]["assessment_session_id"]
+        await commands.save_response(
+            SaveAssessmentResponseCommand(
+                family_id,
+                tenant_id,
+                guardian_id,
+                session_id,
+                "FOCUS",
+                "SINGLE_CHOICE",
+                "PARENT_CHILD_COMMUNICATION",
+                _meta("loop-focus"),
+            )
+        )
+        await commands.submit(
+            SubmitAssessmentCommand(
+                family_id, tenant_id, guardian_id, session_id, _meta("loop-submit")
+            )
+        )
+        feedback = await commands.submit_support_card_feedback(
+            SubmitSupportCardFeedbackCommand(
+                family_id,
+                tenant_id,
+                guardian_id,
+                session_id,
+                "ADD_CONTEXT",
+                "最难的是开始前的五分钟。",
+                _meta("loop-feedback"),
+            )
+        )
+        assert feedback["feedback"]["feedback_type"] == "ADD_CONTEXT"
+        feedback_replay = await commands.submit_support_card_feedback(
+            SubmitSupportCardFeedbackCommand(
+                family_id,
+                tenant_id,
+                guardian_id,
+                session_id,
+                "ADD_CONTEXT",
+                "最难的是开始前的五分钟。",
+                _meta("loop-feedback"),
+            )
+        )
+        assert feedback_replay["replayed"] is True
+        feedback_count = await connection.scalar(
+            text(
+                "select count(*) from family_assessment_support_card_feedback "
+                "where tenant_id=:tenant_id and family_id=:family_id "
+                "and assessment_session_id=cast(:session_id as uuid)"
+            ),
+            {"tenant_id": tenant_id, "family_id": family_id, "session_id": session_id},
+        )
+        assert feedback_count == 1
+        with pytest.raises(AssessmentConflictError, match="idempotency_key_payload_mismatch"):
+            await commands.submit_support_card_feedback(
+                SubmitSupportCardFeedbackCommand(
+                    family_id,
+                    tenant_id,
+                    guardian_id,
+                    session_id,
+                    "ADD_CONTEXT",
+                    "这是同一个 key 的不同内容。",
+                    _meta("loop-feedback"),
+                )
+            )
+
+        step = await commands.start_assessment_small_step(
+            StartAssessmentSmallStepCommand(
+                family_id, tenant_id, guardian_id, session_id, "TRY_TONIGHT", _meta("loop-step")
+            )
+        )
+        assert step["small_step"]["available_for_checkin"] == "NEXT_DAY"
+        step_replay = await commands.start_assessment_small_step(
+            StartAssessmentSmallStepCommand(
+                family_id, tenant_id, guardian_id, session_id, "TRY_TONIGHT", _meta("loop-step")
+            )
+        )
+        assert step_replay["replayed"] is True
+        assert step_replay["small_step"]["small_step_id"] == step["small_step"]["small_step_id"]
+        too_soon = await queries.get_support_loop_projection(
+            GetSupportLoopProjectionQuery(family_id, tenant_id, guardian_id)
+        )
+        assert too_soon["small_step"]["available_for_checkin_at"] is not None
+
+        with pytest.raises(AssessmentConflictError, match="assessment_checkin_not_yet_available"):
+            await commands.record_assessment_checkin(
+                RecordAssessmentCheckinCommand(
+                    family_id,
+                    tenant_id,
+                    guardian_id,
+                    session_id,
+                    "HELPED",
+                    "还没到次日。",
+                    _meta("loop-checkin-too-soon"),
+                )
+            )
+
+        await connection.execute(
+            text(
+                "update family_assessment_small_steps "
+                "set available_for_checkin_at=now()-interval '1 second' "
+                "where tenant_id=:tenant_id and family_id=:family_id "
+                "and assessment_session_id=cast(:session_id as uuid)"
+            ),
+            {"tenant_id": tenant_id, "family_id": family_id, "session_id": session_id},
+        )
+        checkin = await commands.record_assessment_checkin(
+            RecordAssessmentCheckinCommand(
+                family_id,
+                tenant_id,
+                guardian_id,
+                session_id,
+                "HELPED",
+                "今晚少争了一会儿。",
+                _meta("loop-checkin"),
+            )
+        )
+        assert checkin["checkin"]["outcome"] == "HELPED"
+
+        reopened = await repo.load_support_loop_state(tenant_id, family_id, session_id)
+        assert reopened["latest_feedback"]["supplement_text"] == "最难的是开始前的五分钟。"
+        assert reopened["small_step"]["action_ref"] == "TRY_TONIGHT"
+        assert reopened["latest_checkin"]["outcome"] == "HELPED"
 
     async def test_growth_hypothesis_confirm_creates_intent_against_real_db(self, connection):
         tenant_id, family_id, child_id, guardian_id = await _seed_family(connection)

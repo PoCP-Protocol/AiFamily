@@ -9,6 +9,7 @@ must be scoped, replayable, and visible in the existing audit/outbox seam.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -89,9 +90,7 @@ def test_support_card_to_action_and_next_day_checkin(client: TestClient) -> None
     auth = _auth(client)
     session_id = _submit_assessment(client, auth)
 
-    result = client.get(
-        f"/families/{FAMILY}/assessments/results/latest", headers=auth
-    )
+    result = client.get(f"/families/{FAMILY}/assessments/results/latest", headers=auth)
     assert result.status_code == 200, result.text
     assert result.json()["result"]["assessment_session_id"] == session_id
 
@@ -140,6 +139,24 @@ def test_support_card_to_action_and_next_day_checkin(client: TestClient) -> None
     )
     assert step_projection.status_code == 200
     assert step_projection.json()["small_step"]["action_ref"] == "TRY_TONIGHT"
+
+    too_soon = client.post(
+        f"/families/{FAMILY}/assessments/support-card/checkins",
+        json={
+            "assessment_session_id": session_id,
+            "outcome": "HELPED",
+            "note": "现在还不能提交次日回访。",
+        },
+        headers={**auth, "idempotency-key": "support-loop-checkin-too-soon"},
+    )
+    assert too_soon.status_code == 409, too_soon.text
+    assert too_soon.json()["detail"] == "assessment_checkin_not_yet_available"
+
+    # The fake repository exposes its clock-backed record only to this
+    # synthetic test, allowing the acceptance path to represent the next day
+    # without sleeping for 24 hours.
+    step_record = dev_wiring._assessment_repository.small_steps[(FAMILY, session_id, "TRY_TONIGHT")]
+    step_record["available_for_checkin_at"] = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
 
     checkin = client.post(
         f"/families/{FAMILY}/assessments/support-card/checkins",

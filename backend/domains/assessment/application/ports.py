@@ -124,7 +124,7 @@ class AssessmentRepositoryPort(Protocol):
     ) -> GrowthHypothesisEvidence | None: ...
 
     async def load_support_loop_state(
-        self, family_id: str, session_id: str
+        self, tenant_id: str, family_id: str, session_id: str
     ) -> dict: ...
 
     async def load_or_create_growth_intent(
@@ -165,6 +165,7 @@ class AssessmentRepositoryPort(Protocol):
     async def persist_support_card_feedback(
         self,
         *,
+        tenant_id: str,
         family_id: str,
         session_id: str,
         actor_id: str,
@@ -173,12 +174,13 @@ class AssessmentRepositoryPort(Protocol):
     ) -> dict: ...
 
     async def load_small_step(
-        self, family_id: str, session_id: str, action_ref: str
+        self, tenant_id: str, family_id: str, session_id: str, action_ref: str
     ) -> dict | None: ...
 
     async def persist_small_step(
         self,
         *,
+        tenant_id: str,
         family_id: str,
         session_id: str,
         actor_id: str,
@@ -189,6 +191,7 @@ class AssessmentRepositoryPort(Protocol):
     async def persist_assessment_checkin(
         self,
         *,
+        tenant_id: str,
         family_id: str,
         session_id: str,
         actor_id: str,

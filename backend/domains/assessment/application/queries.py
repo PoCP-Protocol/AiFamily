@@ -129,9 +129,7 @@ class AssessmentQueryHandler:
                 query.tenant_id, query.family_id, "POLICY_BLOCKED", None
             )
 
-        evidence = await self._repository.load_hypothesis_evidence(
-            query.family_id, query.tenant_id
-        )
+        evidence = await self._repository.load_hypothesis_evidence(query.family_id, query.tenant_id)
         if evidence is None:
             return _assessment_result_projection(
                 query.tenant_id, query.family_id, "NO_RESULT", None
@@ -159,9 +157,7 @@ class AssessmentQueryHandler:
             _map_assessment_result(evidence, interpretation),
         )
 
-    async def get_support_loop_projection(
-        self, query: GetSupportLoopProjectionQuery
-    ) -> dict:
+    async def get_support_loop_projection(self, query: GetSupportLoopProjectionQuery) -> dict:
         """Read the family's chosen step and latest reflection without side effects."""
         await self._repository.assert_tenant_family_scope(
             query.tenant_id, query.family_id, query.actor_id
@@ -171,9 +167,7 @@ class AssessmentQueryHandler:
                 query.tenant_id, query.family_id, "POLICY_BLOCKED", None, None
             )
 
-        evidence = await self._repository.load_hypothesis_evidence(
-            query.family_id, query.tenant_id
-        )
+        evidence = await self._repository.load_hypothesis_evidence(query.family_id, query.tenant_id)
         if evidence is None:
             return _support_loop_projection(
                 query.tenant_id, query.family_id, "NO_RESULT", None, None
@@ -188,7 +182,7 @@ class AssessmentQueryHandler:
             )
 
         state = await self._repository.load_support_loop_state(
-            query.family_id, evidence.assessment_session_id
+            query.tenant_id, query.family_id, evidence.assessment_session_id
         )
         return _support_loop_projection(
             query.tenant_id,
@@ -341,8 +335,7 @@ def _map_assessment_result(evidence, interpretation: dict) -> dict:
                 for response in evidence.response_set
             ],
             "hypothesis": (
-                "这是基于本次家庭回答整理出的待验证支持方向，"
-                "你可以拒绝它或重新开始一次测评。"
+                "这是基于本次家庭回答整理出的待验证支持方向，你可以拒绝它或重新开始一次测评。"
             ),
             "recommendations": recommendations,
         },

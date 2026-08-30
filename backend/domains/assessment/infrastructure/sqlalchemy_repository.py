@@ -1,20 +1,18 @@
-"""Real repository — asyncpg/SQLAlchemy Core against the EXISTING PostgreSQL
-schema owned by NestJS SQL migrations
-(`database/migrations/0040_ui02_versioned_family_assessment.sql`,
-`0041_ui03_growth_hypothesis_confirmation.sql`). Per migration plan section 5
-("single migration owner per schema... Pre-existing schemas get an Alembic
-baseline revision rather than being rewritten from scratch"), this file does
-NOT create a new schema or new migrations — it reads/writes the tables the
-NestJS service already owns, using raw parameterized SQL that mirrors
-`assessment.service.ts` / `growth-hypothesis.service.ts` statement-by-statement.
-Alembic ownership of this schema only begins at cutover (`NEST_ACTIVE →
-PYTHON_READY → CUTOVER`), not before — this repository is the "PYTHON_READY"
-stage: correct against the existing schema, not yet the sole writer.
+"""Real repository — asyncpg/SQLAlchemy Core against the existing PostgreSQL
+schema. Legacy assessment/session tables remain compatibility-owned; the
+support-card action loop is owned by the post-baseline Alembic migration in
+this repository. Both paths use the same connection supplied by the caller so
+business state, idempotency, audit, and outbox writes remain one transaction.
+
+The repository reads/writes the tables the existing service owns, using raw
+parameterized SQL that mirrors its assessment statements. It does not create
+an alternate domain store or a second event ledger.
 """
 
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -78,6 +76,53 @@ def _map_response_row(row) -> AssessmentResponse:
         captured_at=row.captured_at,
         visibility=row.visibility,
     )
+
+
+def _iso_timestamp(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
+def _map_feedback_row(row) -> dict:
+    return {
+        "feedback_id": str(row.feedback_id),
+        "session_id": str(row.assessment_session_id),
+        "feedback_type": row.feedback_type,
+        "supplement_text": row.supplement_text,
+        "recorded_at": _iso_timestamp(row.recorded_at),
+        "visibility": row.visibility,
+        "boundary": row.boundary,
+    }
+
+
+def _map_small_step_row(row) -> dict:
+    return {
+        "small_step_id": str(row.small_step_id),
+        "session_id": str(row.assessment_session_id),
+        "action_ref": row.action_ref,
+        "action_text": row.action_text,
+        "status": row.status,
+        "started_at": _iso_timestamp(row.started_at),
+        "available_for_checkin": "NEXT_DAY",
+        "available_for_checkin_at": _iso_timestamp(row.available_for_checkin_at),
+        "visibility": row.visibility,
+        "boundary": row.boundary,
+    }
+
+
+def _map_checkin_row(row) -> dict:
+    return {
+        "checkin_id": str(row.checkin_id),
+        "session_id": str(row.assessment_session_id),
+        "outcome": row.outcome,
+        "note": row.note,
+        "recorded_at": _iso_timestamp(row.recorded_at),
+        "visibility": row.visibility,
+        "boundary": row.boundary,
+    }
 
 
 class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
@@ -507,6 +552,7 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
         idempotency_key,
         source,
     ) -> None:
+        session = receipt.get("session") or {}
         await self._connection.execute(
             text(
                 """
@@ -526,9 +572,10 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
                 "metadata": json.dumps(
                     {
                         "source": source,
-                        "tool_ref": receipt["session"]["tool_ref"],
-                        "tool_version": receipt["session"]["tool_version"],
-                        "boundary": receipt["boundary"],
+                        "tool_ref": session.get("tool_ref"),
+                        "tool_version": session.get("tool_version"),
+                        "boundary": receipt.get("boundary"),
+                        "action": action,
                     }
                 ),
             },
@@ -550,11 +597,12 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
                     {
                         "family_id": family_id,
                         "assessment_session_id": session_id,
-                        "status": receipt["session"]["status"],
-                        "tool_ref": receipt["session"]["tool_ref"],
-                        "tool_version": receipt["session"]["tool_version"],
+                        "status": session.get("status"),
+                        "tool_ref": session.get("tool_ref"),
+                        "tool_version": session.get("tool_version"),
                         "evidence_id": receipt.get("evidence_id"),
-                        "boundary": receipt["boundary"],
+                        "boundary": receipt.get("boundary"),
+                        "action": action,
                     }
                 ),
             },
@@ -741,6 +789,197 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
                 "correlation_id": correlation_id,
             },
         )
+
+    async def load_support_loop_state(
+        self, tenant_id: str, family_id: str, session_id: str
+    ) -> dict:
+        step = await self.load_small_step(tenant_id, family_id, session_id, "TRY_TONIGHT")
+        feedback_result = await self._connection.execute(
+            text(
+                """
+                select feedback_id,assessment_session_id,feedback_type,supplement_text,
+                       recorded_at,visibility,boundary
+                from family_assessment_support_card_feedback
+                where tenant_id=:tenant_id and family_id=:family_id
+                  and assessment_session_id=cast(:session_id as uuid)
+                order by recorded_at desc,feedback_id desc limit 1
+                """
+            ),
+            {"tenant_id": tenant_id, "family_id": family_id, "session_id": session_id},
+        )
+        checkin_result = await self._connection.execute(
+            text(
+                """
+                select checkin_id,assessment_session_id,outcome,note,recorded_at,visibility,
+                       boundary
+                from family_assessment_checkins
+                where tenant_id=:tenant_id and family_id=:family_id
+                  and assessment_session_id=cast(:session_id as uuid)
+                order by recorded_at desc,checkin_id desc limit 1
+                """
+            ),
+            {"tenant_id": tenant_id, "family_id": family_id, "session_id": session_id},
+        )
+        feedback_row = feedback_result.first()
+        checkin_row = checkin_result.first()
+        return {
+            "small_step": step,
+            "latest_feedback": _map_feedback_row(feedback_row) if feedback_row else None,
+            "latest_checkin": _map_checkin_row(checkin_row) if checkin_row else None,
+        }
+
+    async def persist_support_card_feedback(
+        self,
+        *,
+        tenant_id: str,
+        family_id: str,
+        session_id: str,
+        actor_id: str,
+        feedback_type: str,
+        supplement_text: str | None,
+    ) -> dict:
+        result = await self._connection.execute(
+            text(
+                """
+                insert into family_assessment_support_card_feedback(
+                    tenant_id,family_id,assessment_session_id,actor_person_id,feedback_type,
+                    supplement_text
+                ) values (
+                    :tenant_id,:family_id,cast(:session_id as uuid),cast(:actor_id as uuid),
+                    :feedback_type,:supplement_text
+                )
+                returning feedback_id,assessment_session_id,feedback_type,supplement_text,
+                          recorded_at,visibility,boundary
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "family_id": family_id,
+                "session_id": session_id,
+                "actor_id": actor_id,
+                "feedback_type": feedback_type,
+                "supplement_text": supplement_text,
+            },
+        )
+        return _map_feedback_row(result.first())
+
+    async def load_small_step(
+        self, tenant_id: str, family_id: str, session_id: str, action_ref: str
+    ) -> dict | None:
+        result = await self._connection.execute(
+            text(
+                """
+                select small_step_id,assessment_session_id,action_ref,action_text,status,
+                       started_at,available_for_checkin_at,visibility,boundary
+                from family_assessment_small_steps
+                where tenant_id=:tenant_id and family_id=:family_id
+                  and assessment_session_id=cast(:session_id as uuid)
+                  and action_ref=:action_ref
+                order by started_at desc,small_step_id desc limit 1
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "family_id": family_id,
+                "session_id": session_id,
+                "action_ref": action_ref,
+            },
+        )
+        row = result.first()
+        return _map_small_step_row(row) if row else None
+
+    async def persist_small_step(
+        self,
+        *,
+        tenant_id: str,
+        family_id: str,
+        session_id: str,
+        actor_id: str,
+        action_ref: str,
+        action_text: str,
+    ) -> dict:
+        result = await self._connection.execute(
+            text(
+                """
+                insert into family_assessment_small_steps(
+                    tenant_id,family_id,assessment_session_id,actor_person_id,action_ref,
+                    action_text,status,available_for_checkin_at
+                ) values (
+                    :tenant_id,:family_id,cast(:session_id as uuid),cast(:actor_id as uuid),
+                    :action_ref,:action_text,'STARTED',now()+interval '1 day'
+                )
+                returning small_step_id,assessment_session_id,action_ref,action_text,status,
+                          started_at,available_for_checkin_at,visibility,boundary
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "family_id": family_id,
+                "session_id": session_id,
+                "actor_id": actor_id,
+                "action_ref": action_ref,
+                "action_text": action_text,
+            },
+        )
+        return _map_small_step_row(result.first())
+
+    async def persist_assessment_checkin(
+        self,
+        *,
+        tenant_id: str,
+        family_id: str,
+        session_id: str,
+        actor_id: str,
+        outcome: str,
+        note: str | None,
+    ) -> dict:
+        step_result = await self._connection.execute(
+            text(
+                """
+                select small_step_id,available_for_checkin_at
+                from family_assessment_small_steps
+                where tenant_id=:tenant_id and family_id=:family_id
+                  and assessment_session_id=cast(:session_id as uuid)
+                  and action_ref='TRY_TONIGHT'
+                order by started_at desc,small_step_id desc limit 1
+                """
+            ),
+            {"tenant_id": tenant_id, "family_id": family_id, "session_id": session_id},
+        )
+        step_row = step_result.first()
+        if step_row is None:
+            raise AssessmentConflictError("assessment_small_step_not_started")
+        available_at = step_row.available_for_checkin_at
+        if available_at.tzinfo is None:
+            available_at = available_at.replace(tzinfo=UTC)
+        if datetime.now(UTC) < available_at:
+            raise AssessmentConflictError("assessment_checkin_not_yet_available")
+
+        result = await self._connection.execute(
+            text(
+                """
+                insert into family_assessment_checkins(
+                    tenant_id,family_id,assessment_session_id,small_step_id,actor_person_id,
+                    outcome,note
+                ) values (
+                    :tenant_id,:family_id,cast(:session_id as uuid),:small_step_id,
+                    cast(:actor_id as uuid),:outcome,:note
+                )
+                returning checkin_id,assessment_session_id,outcome,note,recorded_at,visibility,
+                          boundary
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "family_id": family_id,
+                "session_id": session_id,
+                "small_step_id": step_row.small_step_id,
+                "actor_id": actor_id,
+                "outcome": outcome,
+                "note": note,
+            },
+        )
+        return _map_checkin_row(result.first())
 
     async def _load_responses(self, session_id: str) -> list[AssessmentResponse]:
         result = await self._connection.execute(

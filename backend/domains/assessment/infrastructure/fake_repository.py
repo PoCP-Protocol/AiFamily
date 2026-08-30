@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from ..domain.entities import AssessmentResponse, AssessmentSession, GrowthHypothesisEvidence
 from ..domain.errors import (
@@ -425,13 +425,19 @@ class FakeAssessmentRepository:
             ],
         )
 
-    async def load_support_loop_state(self, family_id: str, session_id: str) -> dict:
+    async def load_support_loop_state(
+        self, tenant_id: str, family_id: str, session_id: str
+    ) -> dict:
         step = self.small_steps.get((family_id, session_id, "TRY_TONIGHT"))
+        if step is not None and step.get("tenant_id") != tenant_id:
+            step = None
         feedback = next(
             (
                 item
                 for item in reversed(self.support_card_feedback)
-                if item["family_id"] == family_id and item["session_id"] == session_id
+                if item["tenant_id"] == tenant_id
+                and item["family_id"] == family_id
+                and item["session_id"] == session_id
             ),
             None,
         )
@@ -439,13 +445,19 @@ class FakeAssessmentRepository:
             (
                 item
                 for item in reversed(self.assessment_checkins)
-                if item["family_id"] == family_id and item["session_id"] == session_id
+                if item["tenant_id"] == tenant_id
+                and item["family_id"] == family_id
+                and item["session_id"] == session_id
             ),
             None,
         )
         return {
             "small_step": (
-                {key: value for key, value in step.items() if key not in {"family_id", "actor_id"}}
+                {
+                    key: value
+                    for key, value in step.items()
+                    if key not in {"tenant_id", "family_id", "actor_id"}
+                }
                 if step
                 else None
             ),
@@ -453,7 +465,7 @@ class FakeAssessmentRepository:
                 {
                     key: value
                     for key, value in feedback.items()
-                    if key not in {"family_id", "actor_id"}
+                    if key not in {"tenant_id", "family_id", "actor_id"}
                 }
                 if feedback
                 else None
@@ -462,7 +474,7 @@ class FakeAssessmentRepository:
                 {
                     key: value
                     for key, value in checkin.items()
-                    if key not in {"family_id", "actor_id"}
+                    if key not in {"tenant_id", "family_id", "actor_id"}
                 }
                 if checkin
                 else None
@@ -528,6 +540,7 @@ class FakeAssessmentRepository:
     async def persist_support_card_feedback(
         self,
         *,
+        tenant_id: str,
         family_id: str,
         session_id: str,
         actor_id: str,
@@ -544,36 +557,43 @@ class FakeAssessmentRepository:
             "boundary": "FEEDBACK_REFINES_PERSPECTIVE_NOT_FACT",
         }
         self.support_card_feedback.append(
-            {"family_id": family_id, "actor_id": actor_id, **feedback}
+            {"tenant_id": tenant_id, "family_id": family_id, "actor_id": actor_id, **feedback}
         )
         return feedback
 
     async def load_small_step(
-        self, family_id: str, session_id: str, action_ref: str
+        self, tenant_id: str, family_id: str, session_id: str, action_ref: str
     ) -> dict | None:
-        return self.small_steps.get((family_id, session_id, action_ref))
+        step = self.small_steps.get((family_id, session_id, action_ref))
+        if step is None or step.get("tenant_id") != tenant_id:
+            return None
+        return step
 
     async def persist_small_step(
         self,
         *,
+        tenant_id: str,
         family_id: str,
         session_id: str,
         actor_id: str,
         action_ref: str,
         action_text: str,
     ) -> dict:
+        now = datetime.now(UTC)
         step = {
             "small_step_id": str(uuid.uuid4()),
             "session_id": session_id,
             "action_ref": action_ref,
             "action_text": action_text,
             "status": "STARTED",
-            "started_at": datetime.now(UTC).isoformat(),
+            "started_at": now.isoformat(),
             "available_for_checkin": "NEXT_DAY",
+            "available_for_checkin_at": (now + timedelta(days=1)).isoformat(),
             "visibility": "FAMILY_PRIVATE",
             "boundary": "FAMILY_CHOSEN_ACTION_NOT_OUTCOME",
         }
         self.small_steps[(family_id, session_id, action_ref)] = {
+            "tenant_id": tenant_id,
             "actor_id": actor_id,
             **step,
         }
@@ -582,6 +602,7 @@ class FakeAssessmentRepository:
     async def persist_assessment_checkin(
         self,
         *,
+        tenant_id: str,
         family_id: str,
         session_id: str,
         actor_id: str,
@@ -598,6 +619,6 @@ class FakeAssessmentRepository:
             "boundary": "FAMILY_FEEDBACK_NOT_OUTCOME_PROOF",
         }
         self.assessment_checkins.append(
-            {"family_id": family_id, "actor_id": actor_id, **checkin}
+            {"tenant_id": tenant_id, "family_id": family_id, "actor_id": actor_id, **checkin}
         )
         return checkin
