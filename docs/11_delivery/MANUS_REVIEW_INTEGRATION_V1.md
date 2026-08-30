@@ -68,7 +68,7 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 
 ### 3.4 AAIR-6 Durable Deletion 返工复核
 
-- **证据**：新增 `backend/intelligence/context_engine/durable_deletion.py` 和 `tests/intelligence/context_engine/test_durable_deletion.py`；定向测试 6 项通过，Ruff 通过。契约覆盖 lease、retryable/dead-letter、租户幂等、五类 projection receipt 和未确认回执拒绝。
+- **证据**：新增 `backend/intelligence/context_engine/durable_deletion.py` 和 `tests/intelligence/context_engine/test_durable_deletion.py`；durable 子集 6 项通过，整个 `tests/intelligence/context_engine` 当前 Fresh 结果为 18 passed（旧 worker 7 + 其它 context 契约 5 + durable 6），Ruff 通过。此前敏捷计划记录的“13 passed”已过时，不改变能力等级。契约覆盖 lease、retryable/dead-letter、租户幂等、五类 projection receipt 和未确认回执拒绝。
 - **状态**：`CONTRACTED / adapter-only`，不是 `INTEGRATED` 或 `PRODUCTION`。`InMemoryDurableDeletionStore.production_ready = False`，job/audit/dead-letter 仍在内存；没有 Postgres/outbox、跨进程抢占、真实文本/媒体/向量/缓存/derived adapters，也没有生产 wiring。
 - **风险与验收**：重启仍会丢队列状态，外部删除只能由注入 port 自行保证。AAIR 必须提供 SQLAlchemy/Postgres store、事务 outbox、lease/重试/DLQ、每类 projection 的真实删除回执和审计关联，或在发布清单中保持 `RELEASE BLOCKED`。在此之前不能把 6 项测试通过描述为删除能力已上线。
 
