@@ -39,6 +39,7 @@ superseded_by: null
 统一见 [`ARCHITECTURE_ALIGNMENT_CHANGELOG_V2.md`](ARCHITECTURE_ALIGNMENT_CHANGELOG_V2.md)。该文档仍是
 `draft/canonical:false` 的变更控制输入；在治理登记、ADR、Registry、owner sign-off 和契约测试完成前，
 本计划的当前真相和 NO-GO 发布判定不变。
+逐域五层执行矩阵和退出条件见 [`BLUEPRINT_ARCHITECTURE_EXECUTION_PLAN_V2.md`](BLUEPRINT_ARCHITECTURE_EXECUTION_PLAN_V2.md)。
 
 ### 总控责任与初心
 
@@ -93,7 +94,7 @@ superseded_by: null
 
 - 以当前总控分支、默认分支和各 worktree 的提交 SHA 分层记录证据；不把旧 `CURRENT_SYSTEM_BASELINE` 快照、默认分支测试结果或并发 WIP 汇报混成当前事实。
 - `CURRENT_PROGRAM_PLAN.md` 与 `TASK_BACKLOG.md` owner 为 chief-architect；`FAMILY_GROWTH_PLATFORM_EXECUTION_BOARD_V1.md` 是独立 draft WIP，未授权 Agent 不得修改。
-- 当前总控分支本轮实测：文档真相专项 `4 passed`；全架构 `109 passed / 1 skipped / 1 failed`，唯一失败为并发 WIP 造成的 Ruff debt ratchet，不能抬高基线掩盖。
+- 当前总控分支本轮实测：文档真相专项 `4 passed`；全架构 `109 passed / 1 skipped / 1 failed`，失败为 Ruff debt ratchet（当前 3 errors：1 E501 + 2 I001），不能抬高基线掩盖。
 - 任何“完成”必须提交文件清单、实际命令输出、提交 SHA、未解决阻断和 ownership 说明；Fake 只替换外部依赖，不替换业务规则。
 
 退出条件：每个 P0-P6 任务都能找到唯一 owner、非重叠文件范围、依赖关系和反向验收人；共享 WIP、真实 PostgreSQL、远端 CI 或治理登记未完成的部分保持 `OPEN`。
@@ -119,7 +120,7 @@ P0 任一任务没有真实 PostgreSQL 或 HTTP 证据，Sprint 保持 `NOT_DONE
 | Thread/标题 | Scope | Owner / commit | PASS 证据 | 当前状态 | 未闭合阻断与下一动作 |
 |---|---|---|---|---|---|
 | APLT-2 / security gate | 环境 fail-closed、Experience 401/403/Consent 错误码 | APLT / `cbc055e`、`736ae19`、`d2196bc` | 定向 7 passed/1 expected-red；非法环境与错误映射通过 | `PARTIAL/BLOCKED (P0)` | unset `AIFAMILY_ENV` 仍默认为 development；真实 auth/session/tenant/consent 未接线。原 WIP owner 收口后补三环境 TestClient 和 OpenAPI/404/401/403 |
-| ADOM-5 / DB-01 migration | Alembic baseline/head、ORM/Manifest/ADR | ADOM/ARCH / `5a67a1b`；0011–0017 WIP | FGCN chain 2 passed；baseline PG 分层 8 passed/1 failed/1 skipped | `PARTIAL/BLOCKED (P1)` | `alembic heads=0017`，未知 head 失败；0011–0017 未形成 tracked/审批链。补对象清单、可逆 Fresh PG、单 head 后才 allow-list |
+| ADOM-5 / DB-01 migration | Alembic baseline/head、ORM/Manifest/ADR | ADOM/ARCH / `5a67a1b`；0011–0023 WIP | FGCN chain 2 passed；baseline PG 分层 8 passed/1 failed/1 skipped | `PARTIAL/BLOCKED (P1)` | `alembic heads=0023`，未知 head 失败；0011–0023 未形成 tracked/审批链。补对象清单、可逆 Fresh PG、单 head 后才 allow-list |
 | AAIR-6 / durable deletion | deletion queue、lease/retry/DLQ、五类回执 | AAIR / durable deletion slice | durable 子集 6 项；context-engine 25 passed | `CONTRACTED/adapter-only` | InMemory store、无 PG/outbox/跨进程 lease/真实 receipts；补 durable worker 与审计删除证明 |
 | AFE-4 / UI experience | 34 UI 语义图标、成就、多模态、跨端 | AFE / UI slice、Web `4b9a4b4` | 专项 5 passed、mobile `pnpm check` passed；Web clientFactory 26 passed/typecheck 0 | `PARTIAL` | mobile 全量 249 passed/1 skipped/5 failed；修 UI-02、registry/service contract 与四端视觉/无障碍/locale parity；生产 `DEV:false + VITE_EXPERIENCE_CLIENT=fake` 必须 fail-closed/强制 HTTP |
 | GROWTH / S05→S08 | Action→Outcome→Story→Recommendation→Annual/Renewal | growth_action_loop / `b431eda`、`78cb9c1`、`dcc0802` | journey 40/4；Fresh PG 44 | `GO (测试契约)/CONTRACTED-PARTIAL` | 无 Journey HTTP/ORM/常驻 worker/真实 sink；补 Audit/Outbox、consent/replay/deletion 与 UI e2e |
@@ -132,7 +133,7 @@ P0 任一任务没有真实 PostgreSQL 或 HTTP 证据，Sprint 保持 `NOT_DONE
 | 运营 Chat / 运营可观测性（只读回传） | S21/S24/O13 运营触达、S22/S23/O12/O14 运营服务与事故闭环 | 运营 Chat（未提供 commit/owner） | 79 passed/1 skipped/1 warning；唯一 skip 为真实 PG WORM；Onboarding 35/11 skipped | `PARTIAL/DESIGN_ONLY` | 主动欢迎/SLA/补救/回访、可信分享/组队、机构运营、发布/事故闭环均未实现；指派 owner，补真实 PG WORM、HTTP/租户/审计/删除/通知 worker 后再评估 |
 
 **总闸门（快照）**：architecture `109 passed/1 skipped/1 failed`（Ruff ratchet）、全量 Ruff
-`1 E501`、Alembic unknown 0017、mobile `249/1/5`，因此当前测试候选只能在受控环境继续；
+`3 errors (1 E501 + 2 I001)`、Alembic unknown 0023、mobile `249/1/5`，因此当前测试候选只能在受控环境继续；
 生产发布明确 `NO-GO`。远端当前为 `2e80ad2`（包含 FGCN `e7cbb0b` 与 PMA 文档）；
 工作树仍有其它 Agent WIP，禁止将其一并推送。
 

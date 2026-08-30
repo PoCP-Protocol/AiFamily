@@ -19,6 +19,9 @@ superseded_by: null
 > `status: draft`、`canonical: false`，且尚未全部登记到 `SYSTEM_MANIFEST`；在完成文档治理、ADR、
 > Registry、契约测试和 owner 签字前，不得用本日志把目标态表述为已实现。
 
+逐域的业务→流程→数据→应用→AI→测试→Sprint 执行拆解见
+[`BLUEPRINT_ARCHITECTURE_EXECUTION_PLAN_V2.md`](BLUEPRINT_ARCHITECTURE_EXECUTION_PLAN_V2.md)。
+
 ## 0. 评审范围、证据和状态语义
 
 ### 0.1 本轮对照文件
@@ -61,7 +64,8 @@ superseded_by: null
 
 - `uv run pytest tests/architecture -q`：109 passed、1 skipped、1 failed；失败为 Ruff debt ratchet（基线 0，
   当前 `backend/domains/family/domain/entities.py:331` 有 1 个 E501）。
-- `uv run ruff check .`：1 个 E501（同一位置）。
+- `uv run ruff check .`：3 个错误（`backend/domains/family/domain/entities.py:331` 的 E501，
+  以及 `backend/domains/service/fgcn/api/requests.py:9`、`routes.py:14` 的 I001）；另有临时目录权限告警。
 - `uv run pytest tests/intelligence/observability tests/intelligence/memory tests/intelligence/evaluation -q`：23 passed。
 - `uv run pytest tests/apps/family_api/test_production_agent_wiring.py tests/intelligence/agent_runtime tests/intelligence/model_gateway tests/intelligence/evaluation/test_release_persistence.py -q`：162 passed；这些是契约/局部组合证据，不等于生产闭环。
 - FGCN：无数据库 112 passed/1 skipped；设置 `AIFAMILY_TEST_DATABASE_URL` 后 113 passed、无 skip（含 e7cbb0b S-01 场景门）；仍有 replay、语言和 canonical fact 绑定缺口。
@@ -329,6 +333,6 @@ AI 只写 Draft/Recommendation/Perspective/ActionProposal/HumanTask；家庭确�
 5. eval/release 双 gate 和 report registry 未统一；
 6. B2B2C/C2C、内容/直播/社区、运营事故/申诉/机构交付未完成；
 7. 多语言、多租户、四端 parity、容量/灾备和 Web lint 尚无全量证据；
-8. architecture/Ruff 有 1 个真实失败，不能以缓存或 skip 关闭。
+8. architecture/Ruff 有 3 个真实错误（1 E501 + 2 I001），不能以缓存或 skip 关闭。
 
 本日志没有修改代码、Registry 或其他 Agent 文件；它只把新蓝图的变更、证据边界和下一步责任落盘。下一次架构复审必须重新运行上述测试，不得复用缓存输出。

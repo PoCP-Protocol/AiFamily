@@ -51,10 +51,10 @@ superseded_by: null
 
 | 检查 | 实测结果 | 解释 |
 |---|---|---|
-| `uv run pytest tests/architecture -q` | **109 passed, 1 skipped, 1 failed** | 当前唯一失败为 Ruff debt ratchet（Ruff 当前 1 E501）；PIPL auto-promotion 闸门已通过，但总闸门仍红，不能把 WIP 清单当成已完成 |
-| `uv run ruff check . --output-format concise` | **1 error** | `backend/domains/family/domain/entities.py:E501`；另有临时目录拒绝访问告警，质量闸门仍未清零 |
-| `uv run alembic heads` | `0017_ai_model_attempts (head)` | 0011-0017 revision 均有未跟踪/WIP 变更；未知/未审批 head 必须阻断，不能沿用旧 allow-list |
-| Postgres `tests/database/test_alembic_baseline_applies.py`（`AIFAMILY_TEST_DATABASE_URL`） | **8 passed, 1 failed, 1 skipped** | 失败为未知 0017 head；0010 已登记跳过，说明“不跳过未知 head”有效，不能报全绿 |
+| `uv run pytest tests/architecture -q` | **109 passed, 1 skipped, 1 failed** | 当前唯一失败为 Ruff debt ratchet（Ruff 当前 3 errors：1 E501 + 2 I001）；PIPL auto-promotion 闸门已通过，但总闸门仍红，不能把 WIP 清单当成已完成 |
+| `uv run ruff check . --output-format concise` | **3 errors** | `backend/domains/family/domain/entities.py:E501`、`backend/domains/service/fgcn/api/requests.py:I001`、`backend/domains/service/fgcn/api/routes.py:I001`；另有临时目录拒绝访问告警，质量闸门仍未清零 |
+| `uv run alembic heads` | `0023_ai_growth_graph_projection (head)` | 0011-0023 revision 均有未跟踪/WIP 变更；未知/未审批 head 必须阻断，不能沿用旧 allow-list |
+| Postgres `tests/database/test_alembic_baseline_applies.py`（`AIFAMILY_TEST_DATABASE_URL`） | **8 passed, 1 failed, 1 skipped** | 失败为未知 0023 head；0010 已登记跳过，说明“不跳过未知 head”有效，不能报全绿 |
 | `uv run pytest tests/intelligence/experience -q` | **220 passed, 1 warning** | P4 media/share/achievement runtime contract 已通过 synthetic/in-memory 测试；仍不能把契约测试当 production wiring |
 | `uv run pytest tests/intelligence/evaluation tests/intelligence/experience -q` | **220 passed, 1 warning** | P4 contract 测试绿，但两套 gate 尚有职责重叠、registry/生产接线缺失，不能视为唯一准入真相 |
 | `uv run pytest tests/domains/journey -q`（无 DB） | **40 passed, 4 skipped** | Growth S05→S08→Annual/Renewal 契约通过；Postgres URL 下 **44 passed**，仍为内存应用闭环，无 HTTP/审计/outbox |
@@ -423,7 +423,7 @@ Principal/Context/Memory、FGCN、测试/生产同构、数据权利和运营指
 
 本轮代码没有证据表明这些目标已整体落地：S07 行动、FGCN 质量/结算、会员/支付、社区/运营、
 家庭记忆、生产 AI composition 仍为 PARTIAL/DESIGN_ONLY；当前 109/1/1 architecture、Ruff
-1 error、mobile 249/1/5、Alembic head=0017 未通过总闸门。该工作稿不应被 Registry 或应用 ledger
+3 errors（1 E501 + 2 I001）、mobile 249/1/5、Alembic head=0023 未通过总闸门。该工作稿不应被 Registry 或应用 ledger
 引用为“已实现”依据；每个目标必须回链到 L4/L5 命令、数据对象/表、API、AI/人工闸门、UI/运营
 入口及 Fresh 测试证据。
 
@@ -617,7 +617,8 @@ Points ledger 的测试环境完整状态机；补 O01-O12 的最小运营队列
 全球多租户、多语言和 Principal 统一编排）与本 V1 评审的增量、冲突、当前证据及分阶段落地，集中记录在
 [`ARCHITECTURE_ALIGNMENT_CHANGELOG_V2.md`](ARCHITECTURE_ALIGNMENT_CHANGELOG_V2.md)。该日志仍为
 `draft/canonical:false`；在 `SYSTEM_MANIFEST`、ADR、Registry、owner sign-off 和 contract tests 完成前，
-不改变本评审的 NO-GO 判定。
+不改变本评审的 NO-GO 判定。逐域执行拆解和 Sprint 依赖见
+[`BLUEPRINT_ARCHITECTURE_EXECUTION_PLAN_V2.md`](BLUEPRINT_ARCHITECTURE_EXECUTION_PLAN_V2.md)。
 
 ## 12. 发布判定和持续检查
 
