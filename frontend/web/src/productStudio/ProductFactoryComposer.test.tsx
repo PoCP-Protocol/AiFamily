@@ -14,6 +14,11 @@ const draft: ProductDraftResponse = {
   demand_id: "demand-001",
 };
 
+const draftWithCompilerReport: ProductDraftResponse = {
+  ...draft,
+  compiler_report: { passed: false, checks: {} },
+};
+
 const fillForm = async () => {
   const user = userEvent.setup();
   await user.type(screen.getByLabelText("需求陈述"), "家庭需要更容易开始的小行动。");
@@ -54,6 +59,15 @@ describe("ProductFactoryComposer", () => {
     expect(screen.getByText(/model-draft:demand-001/)).toBeInTheDocument();
     expect(client.createDemandFrame).toHaveBeenCalledWith(expect.objectContaining({ evidence_refs: ["voc:001"], assumptions: ["家长愿意尝试"] }), expect.any(String));
     expect(screen.getByText(/不能作为已验证市场事实/)).toBeInTheDocument();
+  });
+
+  it("renders the server compiler report without inventing a local result", async () => {
+    const client = clientWith(draftWithCompilerReport);
+    render(<ProductFactoryComposer client={client} />);
+    await fillForm();
+    await userEvent.setup().click(screen.getByRole("button", { name: "提交需求草案" }));
+    expect(await screen.findByRole("region", { name: "Product Compiler Report" })).toBeInTheDocument();
+    expect(screen.getByText("不可进入 Human Gate")).toBeInTheDocument();
   });
 
   it("shows INVALID_INPUT without calling the client for incomplete form", async () => {

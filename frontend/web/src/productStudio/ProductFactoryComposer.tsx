@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { CompilerReportPanel } from "./CompilerReportPanel";
 import {
   HttpProductStudioApiClient,
   ProductStudioApiError,
@@ -146,6 +147,7 @@ export function ProductFactoryComposer({ client = new HttpProductStudioApiClient
           <code>provenance_ref: {draft.provenance_ref}</code>
         </output>
       ) : null}
+      {draft?.compiler_report ? <CompilerReportPanel report={draft.compiler_report} /> : null}
     </section>
   );
 }

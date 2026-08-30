@@ -37,12 +37,24 @@ export type ProductAiProvenance = {
   model_attempt_ref?: string;
 };
 
+export type ProductCompilerCheck = {
+  passed: boolean;
+  detail: string;
+  check_name?: string;
+};
+
+export type ProductCompilerReport = {
+  checks?: Record<string, ProductCompilerCheck | null | undefined>;
+  passed?: boolean;
+};
+
 export type ProductDraftResponse = {
   status: "DRAFT";
   provenance_ref: string;
   draft_id?: string;
   product_definition_id?: string | null;
   ai_provenance?: ProductAiProvenance;
+  compiler_report?: ProductCompilerReport;
   [key: string]: unknown;
 };
 
