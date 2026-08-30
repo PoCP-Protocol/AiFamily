@@ -459,4 +459,4 @@ PostgreSQL WORM 场景，另有 Onboarding **35 passed、11 skipped**。这只�
 1 skipped**，Fresh PostgreSQL **4 passed**，ORM drift **2 passed**，Alembic
 upgrade→downgrade(0010)→upgrade 全通过。状态为 `PARTIAL/候选测试切片`；family_api provenance、
 Audit flush、常驻 worker/DLQ、FGCN bridge、真实身份/租户/同意/删除和 Commerce 冻结边界仍未
-闭合。远端推送待网络恢复，未将该切片升为生产能力。
+闭合。`e99d499` 已推送到 `codex/p1-service-vertical-slice`；即使远端可追踪，也未将该切片升为生产能力。

@@ -122,15 +122,14 @@ P0 任一任务没有真实 PostgreSQL 或 HTTP 证据，Sprint 保持 `NOT_DONE
 | AAIR/PLT / Context | Async/SQL Context、scope/replay/delete | AAIR / `02a80c4`、`6a88625`、`6150169`、`9b10d2d` | context 25 passed；disposable PG probe 1 passed | `CONTRACTED-PARTIAL` | PG probe 仍 create_all/同 engine，无 Alembic/restart/production resolver；补 durable Consent、migration、Audit/Outbox、删除 receipts |
 | AAIR/EVAL / Experience | SQL ledger/session、benchmark、唯一 AI gate | AAIR/API / `941feae`、`a11f643`、`96905db`、`69f6508`、`674b764`、`050361f`、`b3fffbb`、`5df865e`、`eb33c06` | evaluation+experience 220 passed/1 warning | `CONTRACTED-PARTIAL` | 双 gate、EvalReport registry、trusted ActorContext/Consent、PG transaction/Audit/Outbox 缺；冻结扩张并合并 canonical gate |
 | MEMBERSHIP-01 / 三账 | entitlement、contribution、settlement | DOM / `0ca62d2` | Fresh PG membership 50 passed/1 warning | `CONTRACTED-PARTIAL` | 生产 API/身份/consent/退款争议/删除审计缺；保持贡献/权益/现金分账、无总分排名 |
-| P1 服务垂直切片 / B2C service | ServiceOffering→Slot→预约→履约→反馈与 provenance | P1 service owner / `e99d499`（`codex/p1-service-vertical-slice`，远端待推） | SQLite/HTTP/ORM 59 passed/26 skipped；HTTP 10/1 skipped；Fresh PG 4 passed；ORM drift 2；Alembic roundtrip 通过 | `PARTIAL/候选测试切片` | family_api provenance、Audit flush、worker/DLQ、FGCN bridge、Commerce 冻结边界未闭；补真实 auth/tenant/consent/deletion/audit 后再评估生产 |
-| FGCN / service collaboration | admission→Human Gate→Named Action→TaskAssignment→delivery/quality/contribution | FGCN / `41ad120` | 定向 77 passed/1 skipped/2 warnings；PG persistence+routes 45 passed/2 warnings | `GO (测试契约)/NO-GO (生产)` | reviewer/worker/action context 默认 RuntimeError；one-shot worker 无 queue/通知/DLQ；capacity reservation 非原子；gate/assignment 双事务 crash/retry；assignment 后续 COMPLETED/REVOKED 时同 request replay 可能误判 mismatch；生产 identity/consent/duplicate operationId 待补 |
+| P1 服务垂直切片 / B2C service | ServiceOffering→Slot→预约→履约→反馈与 provenance | P1 service owner / `e99d499`（`codex/p1-service-vertical-slice`，已推送） | SQLite/HTTP/ORM 59 passed/26 skipped；HTTP 10/1 skipped；Fresh PG 4 passed；ORM drift 2；Alembic roundtrip 通过 | `PARTIAL/候选测试切片` | family_api provenance、Audit flush、worker/DLQ、FGCN bridge、Commerce 冻结边界未闭；补真实 auth/tenant/consent/deletion/audit 后再评估生产 |
+| FGCN / service collaboration | admission→Human Gate→Named Action→TaskAssignment→delivery/quality/contribution | FGCN / `41ad120`→`e7cbb0b` | Fresh `uv run pytest tests/domains/service/fgcn -q`（Postgres URL）113 passed；S-01 family-request/self-help gate 与 provenance 已绑定 | `GO (测试契约)/NO-GO (生产)` | reviewer/worker/action context 默认 RuntimeError；one-shot worker 无 queue/通知/DLQ；capacity reservation 非原子；gate/assignment 双事务 crash/retry；assignment 后续 COMPLETED/REVOKED 时同 request replay 可能误判 mismatch；生产 identity/consent/duplicate operationId 待补 |
 | 运营 Chat / 运营可观测性（只读回传） | S21/S24/O13 运营触达、S22/S23/O12/O14 运营服务与事故闭环 | 运营 Chat（未提供 commit/owner） | 79 passed/1 skipped/1 warning；唯一 skip 为真实 PG WORM；Onboarding 35/11 skipped | `PARTIAL/DESIGN_ONLY` | 主动欢迎/SLA/补救/回访、可信分享/组队、机构运营、发布/事故闭环均未实现；指派 owner，补真实 PG WORM、HTTP/租户/审计/删除/通知 worker 后再评估 |
 
 **总闸门（快照）**：architecture `109 passed/1 skipped/1 failed`（Ruff ratchet）、全量 Ruff
 `1 E501`、Alembic unknown 0017、mobile `249/1/5`，因此当前测试候选只能在受控环境继续；
-生产发布明确 `NO-GO`。本地总控在 `41ad120` 之上包含 Web `4b9a4b4` 及 PMA 文档提交
-`4e50883`、`eccdb1b`、`bffe2a8`、`2f5aedc`、`b8f0eea`；远端同步状态需以
-`git status -sb` 为准，禁止将其它 Agent WIP 一并推送。
+生产发布明确 `NO-GO`。远端当前为 `dd7051b`（包含 FGCN `e7cbb0b` 与 PMA 文档）；
+工作树仍有其它 Agent WIP，禁止将其一并推送。
 
 ### P1-P6 的首个可实现任务
 

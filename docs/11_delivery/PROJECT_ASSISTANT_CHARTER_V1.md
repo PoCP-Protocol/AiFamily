@@ -129,8 +129,8 @@ P0 发现后立即通知 Lead，不等待下一次站会；P1 必须有本 Sprin
 
 ## 8. 本轮审查记录（2026-08-30）
 
-截至本轮远端可见为 `d2196bc` 测试候选；本地总控另有 FGCN `41ad120`、PMA 文档
-`4e50883`/`eccdb1b`/`bffe2a8` 和 Web client-mode `4b9a4b4`，工作树仍有其他 Agent 的 WIP，发布判定仍为 **NO-GO**：推送只证明版本可追踪，
+截至本轮远端可见为 `dd7051b` 测试候选（已含 FGCN `e7cbb0b`、Web `4b9a4b4` 和
+PMA 文档），工作树仍有其他 Agent 的 WIP，发布判定仍为 **NO-GO**：推送只证明版本可追踪，
 不代表 production composition、身份/同意、迁移或 AI 准入红线已通过。所有未关闭 P0/P1
 仍必须按 owner、commit 和验收命令复测，不得因远端绿色或测试数量增加而自动升阶。
 
@@ -164,5 +164,9 @@ P0 发现后立即通知 Lead，不等待下一次站会；P1 必须有本 Sprin
 23. Web `4b9a4b4` 的 `clientFactory` 专项 **26 passed、typecheck 0**，但在 `DEV:false` 下仍
 接受 `VITE_EXPERIENCE_CLIENT=fake`，存在生产注入 synthetic client 的配置旁路；状态 `P1
 返工`，必须生产 fail-closed/强制 HTTP 并补负向测试，不能因默认生产为 HTTP 而关闭红线。
+24. FGCN `e7cbb0b` 已绑定 S-01 家庭主动请求/自助失败门槛与场景 provenance；Fresh Postgres
+定向 **113 passed**。该数字不改变生产判定：四个依赖仍由 RuntimeError/DenyAll 占位，
+常驻 worker、Audit/Outbox、迁移接线和真实身份/同意缺失，且 assignment 终态 replay 语义
+需按 canonical request hash 修正后再验收。
 
 这些记录是可追溯的审查输入，不是对 owner 的替代实现。返工完成后必须重新读取文件并运行新鲜命令，才能更新状态。

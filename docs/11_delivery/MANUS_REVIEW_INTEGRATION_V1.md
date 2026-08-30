@@ -18,9 +18,8 @@ superseded_by: null
 
 Manus 报告指出的主风险仍然有效，但报告中的历史数字不能作为当前现状。当前代码已经形成若干可测试的垂直切片（包括 FGCN 迁移链、Principal/Context/Human Gate 契约、语义化移动端体验列表），但还没有形成可以安全发布的生产闭环。
 
-本轮结论：**NO-GO**。当前远端可见为 `d2196bc` 测试候选；本地总控另有待推送的
-FGCN `41ad120`、Web client-mode `4b9a4b4` 和 PMA 文档 `4e50883`/`eccdb1b`/`bffe2a8`/
-`2f5aedc`/`b8f0eea`，工作树仍包含其他
+本轮结论：**NO-GO**。当前远端可见为 `dd7051b` 测试候选（已包含 FGCN `e7cbb0b`、
+Web client-mode `4b9a4b4` 和 PMA 文档）；工作树仍包含其他
 Agent 的 WIP。提交可追踪不代表生产就绪。以下 P0 必须先清零：生产环境仍可暴露开发登录；
 缺少环境变量时会默认开发 wiring；身份、租户、家庭绑定和同意存储仍未持久化；测试闸门当前
 红灯。任何 synthetic adapter 通过测试都不等于生产能力。
@@ -232,7 +231,18 @@ Experience 401/403/CONSENT_REQUIRED 语义；`736ae19` 允许不安全环境在�
 Fresh PostgreSQL **4 passed**，ORM drift **2 passed**，Alembic upgrade→downgrade(0010)→
 upgrade 全通过。该结果仍是 `PARTIAL/候选测试切片`：family_api provenance、Audit flush、
 常驻 worker/DLQ、FGCN bridge、真实身份/租户/同意/删除及 Commerce 冻结边界未闭合；远端
-推送待网络恢复，不能将局部绿测升为生产服务能力。
+已推送且可追踪，但不能将局部绿测升为生产服务能力。
+
+### 3.17 e7cbb0b FGCN S-01 绑定复核
+
+`e7cbb0b` 将 FGCN 建案前置条件绑定到家庭主动请求、至少两次自助失败、确认的
+GrowthIntent 与有效同意，并把 S-01 场景/结果观察写入 blueprint 与 delivery snapshot。
+Fresh `uv run pytest tests/domains/service/fgcn -q`（设置 Postgres URL）为 **113 passed**，
+但测试仍主要通过 adapter/fixture；`get_repository`、`get_actor_context`、`get_action_context`
+和 `get_consent_query` 未接生产组合根，迁移/审计/outbox/常驻 worker 仍缺。此前独立复核还发现
+`_assignment_matches` 把当前 `ACCEPTED` 状态纳入 replay identity，assignment 后续进入
+`COMPLETED`/`REVOKED` 时相同 request 可能误判 mismatch；已发 P1 返工，故状态仍
+`GO（测试契约）/PARTIAL（候选）/NO-GO（生产）`。
 
 ## 4. P0/P1/P2 执行清单
 

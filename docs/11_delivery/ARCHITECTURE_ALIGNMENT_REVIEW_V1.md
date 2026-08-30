@@ -21,9 +21,8 @@ superseded_by: null
 > 适配器，不能因为是 test/dev 而删能力。
 
 **分支状态（2026-08-30）**：远端已推送的版本仍为测试候选，发布判定为 **NO-GO**；
-`origin/codex/cleanup-superseded` 当前可见为 `d2196bc`，本地总控在其上包含 FGCN
-`41ad120`、Web client-mode 提交 `4b9a4b4` 及 PMA 文档提交 `4e50883`、`eccdb1b`、
-`bffe2a8`、`2f5aedc`、`b8f0eea`；工作树仍包含
+`origin/codex/cleanup-superseded` 当前可见为 `dd7051b`（已包含 `e7cbb0b` FGCN S-01
+绑定和 PMA 文档）；本地总控与远端同步。工作树仍包含
 其他 Agent 的 WIP，不能将这些提交视为远端已发布。
 最近提交链含 0cd53fb、9b10d2d、6b4a8e9、cbc055e、736ae19、d2196bc、02a80c4、
 6a88625、6150169、573a86d、a91ad3a、0ca62d2、f8ee917。提交可追踪不等于生产接线完成；生产与 dev/test 仍须功能同构，
@@ -527,12 +526,12 @@ tenant/consent。状态为 **CONTRACTED/PARTIAL，P0 BLOCKED**，生产仍 NO-GO
 | AAIR-6（durable deletion） | deletion queue/lease/retry/DLQ/五类回执 | AAIR；durable deletion slice | `CONTRACTED/adapter-only`；context-engine 25 passed，内存 store；无真实 PG/outbox/外部 receipts | durable Postgres/outbox、跨进程 lease、projection cascade 和审计回执；未完成保持 RELEASE BLOCKED |
 | AFE-4（UI experience） | 34 UI 语义图标、成就、多模态、跨端契约 | AFE；UI slice、Web `4b9a4b4` | `PARTIAL`；mobile 249 passed/1 skipped/5 failed，Web clientFactory 26 passed/typecheck0 | 修复 UI-02、registry/service contract 五失败；禁止 production 显式 fake client（`DEV:false` fail-closed/强制 HTTP）；四端视觉/无障碍/locale parity |
 | GROWTH（S05→S08） | Action→Outcome→Story→Recommendation→Annual/Renewal | growth_action_loop；`b431eda`、`78cb9c1`、`dcc0802` | 测试分支 `GO`；journey 无 DB 40/4、PG 44；无 HTTP/worker/真实 sink | Journey ORM/API、常驻 worker、Audit/Outbox、consent/replay/deletion、UI vertical e2e |
-| FGCN / service collaboration | Human Gate→Named Action→TaskAssignment→delivery/quality/contribution | FGCN；`41ad120` | 定向 77 passed/1 skipped/2 warnings；PG persistence+routes 45 passed/2 warnings | `GO（测试契约）/NO-GO（生产）`；reviewer/worker/action context 默认 RuntimeError，one-shot worker 无 queue/通知/DLQ，capacity reservation 非原子，gate/assignment 双事务 crash/retry；同一 request replay 在 assignment 已 COMPLETED/REVOKED 时可能误判 mismatch；补 canonical request hash replay、生产 identity/consent/duplicate operationId |
+| FGCN / service collaboration | Human Gate→Named Action→TaskAssignment→delivery/quality/contribution | FGCN；`41ad120`→`e7cbb0b` | Fresh `uv run pytest tests/domains/service/fgcn -q` **113 passed**（Postgres URL）；S-01 family-request/self-help gate 与场景 provenance 已绑定 | `GO（测试契约）/NO-GO（生产）`；reviewer/worker/action context 默认 RuntimeError，one-shot worker 无 queue/通知/DLQ，capacity reservation 非原子，gate/assignment 双事务 crash/retry；同一 request replay 在 assignment 已 COMPLETED/REVOKED 时可能误判 mismatch；补 canonical request hash replay、生产 identity/consent/duplicate operationId |
 | GROWTH-ONBOARDING | Confirmed Intent→Onboarding HTTP/PG | growth owner；`0cd53fb`、`6b4a8e9` | `CONTRACTED/PARTIAL`；route/domain tests 29 passed；PG 13 passed后重复 12/1 fail；0016/0017 untracked | 修复时钟/search_path flake；非法 UUID=400、跨租户/撤回同意；migration 登记后再升级 |
 | AAIR/PLT（Context） | Async/SQL Context Broker、scope/replay/delete | AAIR；`02a80c4`、`6a88625`、`6150169`、`9b10d2d` | `CONTRACTED/PARTIAL`；context 25 passed，PG probe 1 passed（create_all/同 engine）；无 Alembic/restart | Alembic/ORM/Consent durable、真正重启/并发/删除 receipts、production resolver |
 | AAIR/EVAL（Experience/评测） | SQL ledger/session、benchmark ref、唯一 AI gate | AAIR/API；`941feae`、`a11f643`、`96905db`、`69f6508`、`674b764`、`050361f`、`b3fffbb`、`5df865e`、`eb33c06` | `CONTRACTED/PARTIAL`；eval+experience 220 passed/1 warning；双 gate、registry lookup、真实 auth/PG/audit/outbox 缺 | 冻结扩张；合并唯一 `AiReleaseGate`+EvalReport registry；接可信 ActorContext/Consent/PG transaction |
 | MEMBERSHIP-01 | Entitlement/Contribution/Settlement 合同 | DOM；`0ca62d2` | `CONTRACTED/PARTIAL`；Fresh PG membership 50 passed/1 warning；生产 API/身份/consent/结算审计缺 | 真实 HTTP+PG、退款/争议/删除回执；账本分离、无家庭总分/排名 |
-| P1 服务垂直切片（B2C service） | ServiceOffering→Slot→预约→履约→反馈与 provenance | P1 service owner；`e99d499`（分支 `codex/p1-service-vertical-slice`，远端推送待网络恢复） | `PARTIAL/测试候选`；SQLite/HTTP/ORM 59 passed/26 skipped，HTTP 10/1 skipped，Fresh PG 4 passed，ORM drift 2 passed，Alembic upgrade→downgrade 0010→upgrade 全通过 | family_api provenance、Audit flush、常驻 worker/DLQ、FGCN bridge 和 Commerce 边界仍缺；补真实身份/同意/租户/删除/审计后才可进生产候选 |
+| P1 服务垂直切片（B2C service） | ServiceOffering→Slot→预约→履约→反馈与 provenance | P1 service owner；`e99d499`（分支 `codex/p1-service-vertical-slice`，已推送） | `PARTIAL/测试候选`；SQLite/HTTP/ORM 59 passed/26 skipped，HTTP 10/1 skipped，Fresh PG 4 passed，ORM drift 2 passed，Alembic upgrade→downgrade 0010→upgrade 全通过 | family_api provenance、Audit flush、常驻 worker/DLQ、FGCN bridge 和 Commerce 边界仍缺；补真实身份/同意/租户/删除/审计后才可进生产候选 |
 | 运营 Chat（只读回传，标题/commit 未提供） | S21/S24/O13 运营触达、S22/S23/O12/O14 运营服务与事故闭环 | 运营 Chat；无可追踪 commit（只读证据） | `PARTIAL/DESIGN_ONLY`；79 passed/1 skipped/1 warning；唯一 skip 为真实 PG WORM；Onboarding 35/11 skipped；未证明主动欢迎、SLA/补救/回访、可信分享/组队、机构运营或发布事故闭环 | 指派运营 owner；补真实 PG WORM、HTTP/权限/租户/审计/删除和通知 worker；将 DESIGN_ONLY 场景拆成 L4/L5→对象/API/UI/运营队列验收，未完成不得升生产 |
 
 ## 8. 纠偏后的迭代设计
