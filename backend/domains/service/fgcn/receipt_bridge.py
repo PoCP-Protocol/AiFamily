@@ -23,6 +23,7 @@ from backend.domains.service.domain.errors import (
     ServiceForbiddenError,
     ServiceValidationError,
 )
+from backend.platform.audit import AuditRecorder
 
 from .contracts import (
     CaseStatus,
@@ -32,6 +33,7 @@ from .contracts import (
     ServiceTask,
     TaskStatus,
 )
+from .delivery_application import FGCNDeliveryRepository, submit_service_delivery
 
 
 class CanonicalServiceRecordReader(Protocol):
@@ -108,10 +110,6 @@ async def build_service_delivery_from_record(
     _assert_scope(case, scope)
     if task.case_id != case.case_id:
         raise ServiceForbiddenError("fgcn_receipt_task_case_mismatch")
-    if case.status in {CaseStatus.COMPLETED, CaseStatus.CANCELLED}:
-        raise ServiceConflictError("fgcn_receipt_case_is_terminal")
-    if task.status is not TaskStatus.ACCEPTED:
-        raise ServiceConflictError("fgcn_receipt_requires_accepted_task")
     if task.responsible_ref is None:
         raise ServiceValidationError("fgcn_receipt_provider_binding_missing")
 
@@ -152,6 +150,14 @@ async def build_service_delivery_from_record(
     # not treated as FamilyFeedback/QualityDecision; the human S-01 outcome
     # evidence and the separate FGCN reviewer gate remain mandatory.
     receipt_ref = f"service-record:{record.booking_service_record_id}"
+    exact_replay = (
+        task.status in {TaskStatus.DELIVERED, TaskStatus.VERIFIED, TaskStatus.CLOSED}
+        and task.deliverable_ref == receipt_ref
+    )
+    if case.status in {CaseStatus.COMPLETED, CaseStatus.CANCELLED} and not exact_replay:
+        raise ServiceConflictError("fgcn_receipt_case_is_terminal")
+    if task.status is not TaskStatus.ACCEPTED and not exact_replay:
+        raise ServiceConflictError("fgcn_receipt_requires_accepted_task")
     return ServiceDelivery(
         delivery_id=receipt_ref,
         case_id=case.case_id,
@@ -164,4 +170,54 @@ async def build_service_delivery_from_record(
     )
 
 
-__all__ = ["CanonicalServiceRecordReader", "build_service_delivery_from_record"]
+async def submit_service_delivery_from_record(
+    reader: CanonicalServiceRecordReader,
+    repository: FGCNDeliveryRepository,
+    *,
+    case: ServiceCase,
+    task: ServiceTask,
+    service_record_id: str,
+    scope: GateServiceScope,
+    outcome_observation: str,
+    actor_id: str,
+    recorder: AuditRecorder,
+    idempotency_key: str | None = None,
+) -> ServiceDelivery:
+    """Submit one canonical service receipt through the existing FGCN writer.
+
+    The canonical service repository remains read-only to this seam.  The
+    actual FGCN mutation is delegated to ``submit_service_delivery``, which
+    owns the durable idempotency claim, task transition, Audit/Outbox
+    transaction, and commit.  The authenticated actor must be the admitted
+    task provider; an operator or AI cannot silently impersonate delivery.
+    """
+
+    candidate = await build_service_delivery_from_record(
+        reader,
+        case=case,
+        task=task,
+        service_record_id=service_record_id,
+        scope=scope,
+        outcome_observation=outcome_observation,
+    )
+    if not isinstance(actor_id, str) or actor_id.strip() != candidate.assignee_ref:
+        raise ServiceForbiddenError("fgcn_receipt_delivery_actor_mismatch")
+    return await submit_service_delivery(
+        repository,
+        task_id=candidate.task_id,
+        delivery_id=candidate.delivery_id,
+        evidence_ref=candidate.evidence_ref,
+        outcome_observation=candidate.outcome_observation,
+        actor_id=actor_id,
+        scope=scope,
+        recorder=recorder,
+        delivered_at=candidate.delivered_at,
+        idempotency_key=idempotency_key,
+    )
+
+
+__all__ = [
+    "CanonicalServiceRecordReader",
+    "build_service_delivery_from_record",
+    "submit_service_delivery_from_record",
+]
