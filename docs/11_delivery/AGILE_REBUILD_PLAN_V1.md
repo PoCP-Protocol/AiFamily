@@ -283,3 +283,21 @@ pnpm check                                  passed
 - 本轮复测：全量 `819 passed, 44 skipped, 2 known gate failures`；架构 `108 passed, 1 skipped,
   2 failures`；AI `229 passed`；Family API `17 passed, 1 skipped`；移动端 `pnpm check` 通过。
   两个闸门失败均为并发 WIP 的 Ruff 债务和未登记 `product_management` 目录，不由本 Sprint 越界吸收。
+
+## 16. Sprint 2.1：可观测闭环与删除安全（进行中）
+
+本微迭代只增加只读投影、删除编排和体验状态模型，不改变既有事实模型：
+
+| 任务 | Owner | 独占战场 | 验收目标 |
+|---|---|---|---|
+| ADOM-4 / FGCN 进度投影 | ADOM-2 | 新增 `backend/domains/service/fgcn/read_model.py` 及专项测试 | 只读展示任务、交付、质量和已验证贡献；跨租户拒绝；无家庭总分/排名/金额结算 |
+| AAIR-5 / Context 删除 Worker | AAIR-2 | 新增 `backend/intelligence/context_engine/deletion.py` 及专项测试 | 删除命令可重试、幂等、有审计状态；级联观测和快照；不伪造外部删除完成 |
+| AFE-3 / 能力健康 ViewModel | AFE-1 | 新增 `frontend/mobile/lib/platform-capabilities/health-view-model.ts` 及专项测试 | 将四端 capability 状态映射为可访问、多语言 UI 状态；保留 retryable/externalEffect |
+| Lead / 迁移与生产接线 | ARCH-1 | 测试数据库、migration、Family Need durable wiring | 执行 0004/0005/0006；验证真实 ORM/UoW；清除 R3/Ruff 闸门债务 |
+
+### Sprint 2.1 完成定义
+
+- 三个新增切片均通过成功、失败、重放、租户隔离和删除/降级测试；
+- 所有投影不写 canonical 事实，不产生家庭总分、排名或未经验证的贡献；
+- 删除状态必须能回放并留下审计链，外部存储未确认时只能标记待处理；
+- 测试数据库执行 migration 后，dev/test/prod 使用同一 API 与状态机，仅适配器和数据来源不同。

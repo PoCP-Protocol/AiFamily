@@ -48,6 +48,15 @@ A<角色码>-<序号>
 | **AFE-2** | 体验工程 | 四端 capability adapter contracts | `frontend/mobile/lib/platform-capabilities/`、专项测试 | ✅ 已交付（原生桥接待实现） |
 | **ARCH-1** | 总设计/集成 | 阶段复盘、闸门复测、治理登记与推送 | `docs/11_delivery/`、集成检查 | 🔄 在途 |
 
+### 7.2 Sprint 2.1 微迭代派工（2026-08-30）
+
+| 编号 | 角色 | 当前任务 | 独占战场 | 状态 |
+|---|---|---|---|---|
+| **ADOM-4** | 领域建模 | FGCN 进度/贡献只读投影 | 新增 `backend/domains/service/fgcn/read_model.py` 及专项测试 | 🔄 在途 |
+| **AAIR-5** | AI Runtime | Context 删除 Worker 契约 | 新增 `backend/intelligence/context_engine/deletion.py` 及专项测试 | 🔄 在途 |
+| **AFE-3** | 体验工程 | 跨端能力健康 ViewModel | 新增 `frontend/mobile/lib/platform-capabilities/health-view-model.ts` 及专项测试 | 🔄 在途 |
+| **ARCH-1** | 总设计/集成 | migration/ORM/环境闸门验证 | 测试数据库与 `docs/11_delivery/` | 🔄 在途 |
+
 ## 3. 已完成 Agent 履历
 
 按角色归档，便于查该角色的历史交付与教训。
