@@ -123,6 +123,10 @@ class AssessmentRepositoryPort(Protocol):
         self, family_id: str, tenant_id: str, session_id: str | None = None
     ) -> GrowthHypothesisEvidence | None: ...
 
+    async def load_support_loop_state(
+        self, family_id: str, session_id: str
+    ) -> dict: ...
+
     async def load_or_create_growth_intent(
         self,
         family_id: str,
@@ -157,6 +161,40 @@ class AssessmentRepositoryPort(Protocol):
         receipt: dict,
         correlation_id: str,
     ) -> None: ...
+
+    async def persist_support_card_feedback(
+        self,
+        *,
+        family_id: str,
+        session_id: str,
+        actor_id: str,
+        feedback_type: str,
+        supplement_text: str | None,
+    ) -> dict: ...
+
+    async def load_small_step(
+        self, family_id: str, session_id: str, action_ref: str
+    ) -> dict | None: ...
+
+    async def persist_small_step(
+        self,
+        *,
+        family_id: str,
+        session_id: str,
+        actor_id: str,
+        action_ref: str,
+        action_text: str,
+    ) -> dict: ...
+
+    async def persist_assessment_checkin(
+        self,
+        *,
+        family_id: str,
+        session_id: str,
+        actor_id: str,
+        outcome: str,
+        note: str | None,
+    ) -> dict: ...
 
 
 class AssessmentInterpretationPort(Protocol):

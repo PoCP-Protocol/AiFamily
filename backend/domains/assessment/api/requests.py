@@ -26,3 +26,20 @@ class DecideGrowthHypothesisRequestBody(BaseModel):
     assessment_session_id: str
     hypothesis_ref: str
     decision_type: Literal["CONFIRM", "DISMISS"]
+
+
+class SupportCardFeedbackRequestBody(BaseModel):
+    assessment_session_id: str
+    feedback_type: Literal["LIKE", "NOT_LIKE", "ADD_CONTEXT"]
+    supplement_text: str | None = None
+
+
+class AssessmentSmallStepRequestBody(BaseModel):
+    assessment_session_id: str
+    action_ref: str
+
+
+class AssessmentCheckinRequestBody(BaseModel):
+    assessment_session_id: str
+    outcome: Literal["HELPED", "NO_CHANGE", "NOT_TRIED"]
+    note: str | None = None

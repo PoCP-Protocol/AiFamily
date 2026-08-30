@@ -32,6 +32,13 @@ class GetAssessmentResultProjectionQuery:
     actor_id: str
 
 
+@dataclass(frozen=True)
+class GetSupportLoopProjectionQuery:
+    family_id: str
+    tenant_id: str
+    actor_id: str
+
+
 class AssessmentQueryHandler:
     def __init__(
         self, repository: AssessmentRepositoryPort, interpretation: AssessmentInterpretationPort
@@ -152,6 +159,45 @@ class AssessmentQueryHandler:
             _map_assessment_result(evidence, interpretation),
         )
 
+    async def get_support_loop_projection(
+        self, query: GetSupportLoopProjectionQuery
+    ) -> dict:
+        """Read the family's chosen step and latest reflection without side effects."""
+        await self._repository.assert_tenant_family_scope(
+            query.tenant_id, query.family_id, query.actor_id
+        )
+        if not await self._repository.tenant_allows_page(query.tenant_id, "UI-03"):
+            return _support_loop_projection(
+                query.tenant_id, query.family_id, "POLICY_BLOCKED", None, None
+            )
+
+        evidence = await self._repository.load_hypothesis_evidence(
+            query.family_id, query.tenant_id
+        )
+        if evidence is None:
+            return _support_loop_projection(
+                query.tenant_id, query.family_id, "NO_RESULT", None, None
+            )
+        try:
+            await self._repository.assert_subject_consent(
+                query.family_id, evidence.subject_person_id, "ASSESSMENT"
+            )
+        except AssessmentForbiddenError:
+            return _support_loop_projection(
+                query.tenant_id, query.family_id, "CONSENT_REQUIRED", None, None
+            )
+
+        state = await self._repository.load_support_loop_state(
+            query.family_id, evidence.assessment_session_id
+        )
+        return _support_loop_projection(
+            query.tenant_id,
+            query.family_id,
+            "READY",
+            evidence.assessment_session_id,
+            state,
+        )
+
 
 def _ui03_projection(
     tenant_id: str,
@@ -238,6 +284,25 @@ def _assessment_result_projection(
     }
 
 
+def _support_loop_projection(
+    tenant_id: str,
+    family_id: str,
+    status: str,
+    assessment_session_id: str | None,
+    state: dict | None,
+) -> dict:
+    return {
+        "projection_version": "ASSESSMENT_SUPPORT_LOOP_V1",
+        "tenant_id": tenant_id,
+        "family_id": family_id,
+        "status": status,
+        "assessment_session_id": assessment_session_id,
+        "small_step": state.get("small_step") if state else None,
+        "latest_feedback": state.get("latest_feedback") if state else None,
+        "latest_checkin": state.get("latest_checkin") if state else None,
+    }
+
+
 def _map_assessment_result(evidence, interpretation: dict) -> dict:
     """Map submitted evidence into a bounded, explainable result projection."""
     draft = interpretation.get("interpretation", {}).get("draft", {})
@@ -248,6 +313,7 @@ def _map_assessment_result(evidence, interpretation: dict) -> dict:
     ]
     recommendations = [
         {
+            "action_ref": "TRY_TONIGHT",
             "text": evidence.description,
             "source": "DETERMINISTIC_TEST_BASELINE",
             "status": "DRAFT",
@@ -255,6 +321,7 @@ def _map_assessment_result(evidence, interpretation: dict) -> dict:
     ]
     return {
         "result_id": f"ASSESSMENT_RESULT:{evidence.assessment_session_id}",
+        "assessment_session_id": evidence.assessment_session_id,
         "subject": {
             "person_id": evidence.subject_person_id,
             "display_name": evidence.subject_display_name,

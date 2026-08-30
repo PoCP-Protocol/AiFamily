@@ -98,14 +98,15 @@ describe("UI-02/UI-03 conversation scenario", () => {
     expect(ui02Result).not.toContain("查看可解释结果");
   });
 
-  it("fails closed when connected feedback or action contracts are unavailable", () => {
+  it("persists the support-card loop only through explicit contracts", () => {
     expect(ui03).not.toContain("recordDevFlowEvent");
-    expect(ui03).toContain("No canonical feedback contract exists");
-    expect(ui03).toContain("No canonical action contract exists");
+    expect(ui03).toContain("submitAssessmentSupportFeedback");
+    expect(ui03).toContain("startAssessmentSmallStep");
+    expect(ui03).toContain("recordAssessmentCheckin");
+    expect(ui03).toContain("assessment-next-day-checkin");
     expect(ui03).toContain("暂时无法保存反馈，请稍后重试");
     expect(ui03).toContain("不会自动触发其他行动");
     expect(ui03).toContain("const saveForLater");
-    expect(ui03).toContain('if (connected) {\n      setSmallStepState("retry")');
     expect(ui03).toContain("SANDBOX/LOCAL");
   });
 

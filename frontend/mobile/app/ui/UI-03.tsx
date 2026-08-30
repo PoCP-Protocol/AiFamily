@@ -1,6 +1,6 @@
 import type { Href } from "expo-router";
 import { Stack, router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -13,12 +13,16 @@ import {
 
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
-import { familyApi } from "@/lib/family/family-api-client";
+import {
+  createMobileRequestId,
+  familyApi,
+} from "@/lib/family/family-api-client";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
 import { useFamilyMobile } from "@/lib/family/family-state";
 
 type AssessmentResult = {
   result_id: string;
+  assessment_session_id: string;
   subject: { person_id: string; display_name: string };
   focus_ref: string;
   family_need_ref: string;
@@ -32,7 +36,12 @@ type AssessmentResult = {
       kind: string;
     }[];
     hypothesis: string;
-    recommendations: { text: string; source: string; status: "DRAFT" }[];
+    recommendations: {
+      action_ref: string;
+      text: string;
+      source: string;
+      status: "DRAFT";
+    }[];
   };
   evidence_lineage: {
     source_refs: string[];
@@ -62,6 +71,19 @@ type AssessmentResultProjection = {
   result: AssessmentResult | null;
 };
 
+type SupportLoopProjection = {
+  projection_version: "ASSESSMENT_SUPPORT_LOOP_V1";
+  status: "READY" | "NO_RESULT" | "CONSENT_REQUIRED" | "POLICY_BLOCKED";
+  assessment_session_id: string | null;
+  small_step: { status: "STARTED"; action_ref: string } | null;
+  latest_feedback: {
+    feedback_type: "LIKE" | "NOT_LIKE" | "ADD_CONTEXT";
+  } | null;
+  latest_checkin: {
+    outcome: "HELPED" | "NO_CHANGE" | "NOT_TRIED";
+  } | null;
+};
+
 export default function GrowthExplanationScreen() {
   const colors = useColors();
   const session = useFamilyApiSession();
@@ -82,6 +104,13 @@ export default function GrowthExplanationScreen() {
   const [smallStepState, setSmallStepState] = useState<
     "idle" | "saving" | "saved" | "retry"
   >("idle");
+  const [checkinState, setCheckinState] = useState<
+    "idle" | "saving" | "saved" | "retry"
+  >("idle");
+  const [checkinOutcome, setCheckinOutcome] = useState<
+    "HELPED" | "NO_CHANGE" | "NOT_TRIED" | null
+  >(null);
+  const mutationKeys = useRef<Record<string, string>>({});
 
   const connected =
     session.status === "connected" &&
@@ -89,8 +118,14 @@ export default function GrowthExplanationScreen() {
     !!session.selectedFamily;
   const result = remote?.result;
 
-  const submitPerspectiveFeedback = (
+  const idempotencyKey = (name: string) => {
+    mutationKeys.current[name] ??= createMobileRequestId(`ui03-${name}`);
+    return mutationKeys.current[name];
+  };
+
+  const submitPerspectiveFeedback = async (
     feedback: "LIKE" | "NOT_LIKE" | "ADD_CONTEXT",
+    supplementText?: string,
   ) => {
     setPerspectiveFeedback(feedback);
     if (!connected) {
@@ -98,8 +133,28 @@ export default function GrowthExplanationScreen() {
       setFeedbackState("saved");
       return;
     }
-    setFeedbackState("retry");
-    // No canonical feedback contract exists in this slice. Fail closed.
+    if (!result?.assessment_session_id) {
+      setFeedbackState("retry");
+      return;
+    }
+    setFeedbackState("saving");
+    try {
+      await familyApi.submitAssessmentSupportFeedback(
+        session.token!,
+        session.selectedFamily!.family_id,
+        {
+          assessment_session_id: result.assessment_session_id,
+          feedback_type: feedback,
+          ...(supplementText?.trim()
+            ? { supplement_text: supplementText.trim() }
+            : {}),
+        },
+        idempotencyKey(`feedback:${result.assessment_session_id}:${feedback}`),
+      );
+      setFeedbackState("saved");
+    } catch {
+      setFeedbackState("retry");
+    }
   };
 
   const submitSupplement = () => {
@@ -107,17 +162,62 @@ export default function GrowthExplanationScreen() {
       setFeedbackState("retry");
       return;
     }
-    submitPerspectiveFeedback("ADD_CONTEXT");
+    void submitPerspectiveFeedback("ADD_CONTEXT", supplementText);
   };
 
-  const startSmallStep = () => {
+  const startSmallStep = async () => {
     if (!connected) {
       setSmallStepState("saving");
       setSmallStepState("saved");
       return;
     }
-    setSmallStepState("retry");
-    // No canonical action contract exists in this slice. Fail closed.
+    if (!result?.assessment_session_id) {
+      setSmallStepState("retry");
+      return;
+    }
+    setSmallStepState("saving");
+    try {
+      await familyApi.startAssessmentSmallStep(
+        session.token!,
+        session.selectedFamily!.family_id,
+        {
+          assessment_session_id: result.assessment_session_id,
+          action_ref:
+            result.explanation.recommendations[0]?.action_ref ?? "TRY_TONIGHT",
+        },
+        idempotencyKey(`small-step:${result.assessment_session_id}`),
+      );
+      setSmallStepState("saved");
+    } catch {
+      setSmallStepState("retry");
+    }
+  };
+
+  const recordCheckin = async (
+    outcome: "HELPED" | "NO_CHANGE" | "NOT_TRIED",
+  ) => {
+    setCheckinOutcome(outcome);
+    if (!connected) {
+      setCheckinState("saving");
+      setCheckinState("saved");
+      return;
+    }
+    if (!result?.assessment_session_id) {
+      setCheckinState("retry");
+      return;
+    }
+    setCheckinState("saving");
+    try {
+      await familyApi.recordAssessmentCheckin(
+        session.token!,
+        session.selectedFamily!.family_id,
+        { assessment_session_id: result.assessment_session_id, outcome },
+        idempotencyKey(`checkin:${result.assessment_session_id}:${outcome}`),
+      );
+      setCheckinState("saved");
+    } catch {
+      setCheckinState("retry");
+    }
   };
 
   const saveForLater = () => {
@@ -144,10 +244,28 @@ export default function GrowthExplanationScreen() {
         session.token,
         session.selectedFamily.family_id,
       )
-      .then((result) => {
+      .then((nextResult) => {
         if (active) {
-          setRemote(result);
+          setRemote(nextResult);
           setState("ready");
+        }
+        return familyApi
+          .getLatestAssessmentSupportLoop<SupportLoopProjection>(
+            session.token!,
+            session.selectedFamily!.family_id,
+          )
+          .catch(() => null);
+      })
+      .then((loop) => {
+        if (!active || !loop) return;
+        if (loop.small_step) setSmallStepState("saved");
+        if (loop.latest_feedback) {
+          setPerspectiveFeedback(loop.latest_feedback.feedback_type);
+          setFeedbackState("saved");
+        }
+        if (loop.latest_checkin) {
+          setCheckinOutcome(loop.latest_checkin.outcome);
+          setCheckinState("saved");
         }
       })
       .catch(() => {
@@ -399,10 +517,12 @@ export default function GrowthExplanationScreen() {
                   ]}
                 >
                   {feedbackState === "saving"
-                    ? "SANDBOX/LOCAL：这次反馈只保存在当前页面。"
+                    ? "正在保存这次反馈…"
                     : feedbackState === "retry"
-                      ? "暂时无法保存反馈，请稍后重试；当前没有写入服务端。"
-                      : "SANDBOX/LOCAL：这次反馈只保存在当前页面。你也可以返回修改刚才那句话。"}
+                      ? "暂时无法保存反馈，请稍后重试；不会改写家庭事实。"
+                      : connected
+                        ? "已记下这次反馈，下一次理解会更贴近你们家。"
+                        : "SANDBOX/LOCAL：这次反馈只保存在当前页面。"}
                 </Text>
               ) : null}
             </View>
@@ -422,15 +542,15 @@ export default function GrowthExplanationScreen() {
               >
                 <Text style={styles.primaryButtonText}>
                   {smallStepState === "saving"
-                    ? "SANDBOX/LOCAL：准备试试这一步"
+                    ? "正在记下这一步…"
                     : smallStepState === "saved"
-                      ? "SANDBOX/LOCAL：今晚这一步已在当前页面标记"
+                      ? "今晚这一步已记下"
                       : "开始尝试这一步"}
                 </Text>
               </Pressable>
               {smallStepState === "saved" ? (
                 <Text style={[styles.actionStatus, { color: colors.muted }]}>
-                  明天可以重新打开这张家庭理解卡；本次标记尚未写入服务端。
+                  明天回来告诉我们有没有变化，不需要重新做一遍测评。
                 </Text>
               ) : smallStepState === "retry" ? (
                 <Text style={styles.actionError}>
@@ -448,6 +568,53 @@ export default function GrowthExplanationScreen() {
                 </Text>
               </Pressable>
             </View>
+
+            {smallStepState === "saved" ? (
+              <View testID="assessment-next-day-checkin" style={styles.checkinCard}>
+                <Text style={styles.sectionLabel}>明天回来告诉我们</Text>
+                <Text style={[styles.checkinIntro, { color: colors.text }]}>
+                  不评价做得好不好，只告诉我们这一步对你们有没有帮助。
+                </Text>
+                <View style={styles.checkinRow}>
+                  {([
+                    ["HELPED", "有一点帮助"],
+                    ["NO_CHANGE", "还没变化"],
+                    ["NOT_TRIED", "还没试"],
+                  ] as const).map(([outcome, label]) => (
+                    <Pressable
+                      testID={`assessment-checkin-${outcome.toLowerCase()}`}
+                      accessibilityRole="button"
+                      key={outcome}
+                      onPress={() => void recordCheckin(outcome)}
+                      style={({ pressed }) => [
+                        styles.checkinButton,
+                        checkinOutcome === outcome && styles.feedbackSelected,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <Text style={styles.feedbackButtonText}>{label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                {checkinState !== "idle" ? (
+                  <Text
+                    accessibilityRole="alert"
+                    style={[
+                      styles.feedbackStatus,
+                      { color: checkinState === "retry" ? "#B42318" : colors.muted },
+                    ]}
+                  >
+                    {checkinState === "saving"
+                      ? "正在记录…"
+                      : checkinState === "retry"
+                        ? "暂时无法记录，请稍后重试。"
+                        : connected
+                          ? "已记录。下一次我们会从这次反馈继续。"
+                          : "SANDBOX/LOCAL：本次反馈只保存在当前页面。"}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
 
             <Pressable
               accessibilityRole="button"
@@ -711,6 +878,26 @@ const styles = StyleSheet.create({
   },
   actionStatus: { fontSize: 12, lineHeight: 18 },
   actionError: { color: "#B42318", fontSize: 12, lineHeight: 18 },
+  checkinCard: {
+    borderRadius: 17,
+    backgroundColor: "#FFFDF7",
+    borderWidth: 1,
+    borderColor: "#F1E1B8",
+    padding: 16,
+    gap: 9,
+  },
+  checkinIntro: { fontSize: 13, lineHeight: 20 },
+  checkinRow: { flexDirection: "row", gap: 8, marginTop: 2 },
+  checkinButton: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: "#D6C99D",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 5,
+  },
   detailsToggle: {
     minHeight: 42,
     flexDirection: "row",

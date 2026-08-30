@@ -425,6 +425,72 @@ export class FamilyApiClient {
     return this.request<T>(`/families/${familyId}/assessments/results/latest`, { token });
   }
 
+  getLatestAssessmentSupportLoop<T>(token: string, familyId: string) {
+    return this.request<T>(`/families/${familyId}/assessments/support-card/latest`, { token });
+  }
+
+  submitAssessmentSupportFeedback<T>(
+    token: string,
+    familyId: string,
+    body: {
+      assessment_session_id: string;
+      feedback_type: "LIKE" | "NOT_LIKE" | "ADD_CONTEXT";
+      supplement_text?: string;
+    },
+    idempotencyKey: string,
+  ) {
+    return this.request<T>(`/families/${familyId}/assessments/support-card/feedback`, {
+      method: "POST",
+      token,
+      body,
+      headers: {
+        "idempotency-key": idempotencyKey,
+        "x-correlation-id": createMobileRequestId("ui03-support-card-feedback"),
+        "x-source": "family-ai-mobile",
+      },
+    });
+  }
+
+  startAssessmentSmallStep<T>(
+    token: string,
+    familyId: string,
+    body: { assessment_session_id: string; action_ref: string },
+    idempotencyKey: string,
+  ) {
+    return this.request<T>(`/families/${familyId}/assessments/support-card/small-step`, {
+      method: "POST",
+      token,
+      body,
+      headers: {
+        "idempotency-key": idempotencyKey,
+        "x-correlation-id": createMobileRequestId("ui03-support-card-small-step"),
+        "x-source": "family-ai-mobile",
+      },
+    });
+  }
+
+  recordAssessmentCheckin<T>(
+    token: string,
+    familyId: string,
+    body: {
+      assessment_session_id: string;
+      outcome: "HELPED" | "NO_CHANGE" | "NOT_TRIED";
+      note?: string;
+    },
+    idempotencyKey: string,
+  ) {
+    return this.request<T>(`/families/${familyId}/assessments/support-card/checkins`, {
+      method: "POST",
+      token,
+      body,
+      headers: {
+        "idempotency-key": idempotencyKey,
+        "x-correlation-id": createMobileRequestId("ui03-support-card-checkin"),
+        "x-source": "family-ai-mobile",
+      },
+    });
+  }
+
   generateGrowthHypothesis<T>(token: string, familyId: string, sessionId: string, idempotencyKey: string) {
     return this.request<T>(`/families/${familyId}/assessments/${sessionId}/growth-hypothesis`, {
       method: "POST", token, body: {},

@@ -118,6 +118,9 @@ class FakeAssessmentRepository:
     growth_intents: dict[str, dict] = field(default_factory=dict)  # source_ref -> intent
     hypothesis_decisions: dict[tuple[str, str, str, str], dict] = field(default_factory=dict)
     need_types: dict[str, dict] = field(default_factory=dict)  # focus_ref -> need type row
+    support_card_feedback: list[dict] = field(default_factory=list)
+    small_steps: dict[tuple[str, str, str], dict] = field(default_factory=dict)
+    assessment_checkins: list[dict] = field(default_factory=list)
 
     def seed_family(self, tenant_id: str, family_id: str) -> None:
         self.families.add(family_id)
@@ -422,6 +425,50 @@ class FakeAssessmentRepository:
             ],
         )
 
+    async def load_support_loop_state(self, family_id: str, session_id: str) -> dict:
+        step = self.small_steps.get((family_id, session_id, "TRY_TONIGHT"))
+        feedback = next(
+            (
+                item
+                for item in reversed(self.support_card_feedback)
+                if item["family_id"] == family_id and item["session_id"] == session_id
+            ),
+            None,
+        )
+        checkin = next(
+            (
+                item
+                for item in reversed(self.assessment_checkins)
+                if item["family_id"] == family_id and item["session_id"] == session_id
+            ),
+            None,
+        )
+        return {
+            "small_step": (
+                {key: value for key, value in step.items() if key not in {"family_id", "actor_id"}}
+                if step
+                else None
+            ),
+            "latest_feedback": (
+                {
+                    key: value
+                    for key, value in feedback.items()
+                    if key not in {"family_id", "actor_id"}
+                }
+                if feedback
+                else None
+            ),
+            "latest_checkin": (
+                {
+                    key: value
+                    for key, value in checkin.items()
+                    if key not in {"family_id", "actor_id"}
+                }
+                if checkin
+                else None
+            ),
+        }
+
     async def load_or_create_growth_intent(
         self,
         *,
@@ -477,3 +524,80 @@ class FakeAssessmentRepository:
             "request_hash": request_hash,
             "response_body": receipt,
         }
+
+    async def persist_support_card_feedback(
+        self,
+        *,
+        family_id: str,
+        session_id: str,
+        actor_id: str,
+        feedback_type: str,
+        supplement_text: str | None,
+    ) -> dict:
+        feedback = {
+            "feedback_id": str(uuid.uuid4()),
+            "session_id": session_id,
+            "feedback_type": feedback_type,
+            "supplement_text": supplement_text,
+            "recorded_at": datetime.now(UTC).isoformat(),
+            "visibility": "FAMILY_PRIVATE",
+            "boundary": "FEEDBACK_REFINES_PERSPECTIVE_NOT_FACT",
+        }
+        self.support_card_feedback.append(
+            {"family_id": family_id, "actor_id": actor_id, **feedback}
+        )
+        return feedback
+
+    async def load_small_step(
+        self, family_id: str, session_id: str, action_ref: str
+    ) -> dict | None:
+        return self.small_steps.get((family_id, session_id, action_ref))
+
+    async def persist_small_step(
+        self,
+        *,
+        family_id: str,
+        session_id: str,
+        actor_id: str,
+        action_ref: str,
+        action_text: str,
+    ) -> dict:
+        step = {
+            "small_step_id": str(uuid.uuid4()),
+            "session_id": session_id,
+            "action_ref": action_ref,
+            "action_text": action_text,
+            "status": "STARTED",
+            "started_at": datetime.now(UTC).isoformat(),
+            "available_for_checkin": "NEXT_DAY",
+            "visibility": "FAMILY_PRIVATE",
+            "boundary": "FAMILY_CHOSEN_ACTION_NOT_OUTCOME",
+        }
+        self.small_steps[(family_id, session_id, action_ref)] = {
+            "actor_id": actor_id,
+            **step,
+        }
+        return step
+
+    async def persist_assessment_checkin(
+        self,
+        *,
+        family_id: str,
+        session_id: str,
+        actor_id: str,
+        outcome: str,
+        note: str | None,
+    ) -> dict:
+        checkin = {
+            "checkin_id": str(uuid.uuid4()),
+            "session_id": session_id,
+            "outcome": outcome,
+            "note": note,
+            "recorded_at": datetime.now(UTC).isoformat(),
+            "visibility": "FAMILY_PRIVATE",
+            "boundary": "FAMILY_FEEDBACK_NOT_OUTCOME_PROOF",
+        }
+        self.assessment_checkins.append(
+            {"family_id": family_id, "actor_id": actor_id, **checkin}
+        )
+        return checkin

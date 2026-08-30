@@ -31,9 +31,12 @@ from fastapi.responses import JSONResponse
 from ..application.commands import (
     AssessmentCommandHandler,
     MutationMeta,
+    RecordAssessmentCheckinCommand,
     SaveAssessmentResponseCommand,
     StartAssessmentCommand,
+    StartAssessmentSmallStepCommand,
     SubmitAssessmentCommand,
+    SubmitSupportCardFeedbackCommand,
 )
 from ..application.growth_hypothesis_commands import (
     DecideGrowthHypothesisCommand,
@@ -42,6 +45,7 @@ from ..application.growth_hypothesis_commands import (
 from ..application.queries import (
     AssessmentQueryHandler,
     GetAssessmentResultProjectionQuery,
+    GetSupportLoopProjectionQuery,
     GetUi02ProjectionQuery,
     GetUi03ProjectionQuery,
 )
@@ -60,9 +64,12 @@ from .dependencies import (
     get_query_handler,
 )
 from .requests import (
+    AssessmentCheckinRequestBody,
+    AssessmentSmallStepRequestBody,
     DecideGrowthHypothesisRequestBody,
     SaveAssessmentResponseRequestBody,
     StartAssessmentRequestBody,
+    SupportCardFeedbackRequestBody,
 )
 from .responses import (
     AssessmentMutationReceiptResponse,
@@ -233,6 +240,98 @@ async def get_latest_assessment_result(
     _assert_path_family(context, family_id)
     return await handler.get_assessment_result_projection(
         GetAssessmentResultProjectionQuery(family_id, context.tenant_id, context.person_id)
+    )
+
+
+@router.get("/{family_id}/assessments/support-card/latest")
+async def get_latest_support_loop(
+    family_id: str,
+    context: FamilyContext = Depends(get_family_context),
+    handler: AssessmentQueryHandler = Depends(get_query_handler),
+) -> dict:
+    """Re-open the chosen step and latest reflection for this family."""
+    _assert_path_family(context, family_id)
+    return await handler.get_support_loop_projection(
+        GetSupportLoopProjectionQuery(family_id, context.tenant_id, context.person_id)
+    )
+
+
+@router.post("/{family_id}/assessments/support-card/feedback")
+async def submit_support_card_feedback(
+    family_id: str,
+    body: SupportCardFeedbackRequestBody,
+    context: FamilyContext = Depends(get_family_context),
+    handler: AssessmentCommandHandler = Depends(get_command_handler),
+    x_correlation_id: str | None = Header(default=None),
+    idempotency_key: str | None = Header(default=None),
+    x_source: str | None = Header(default=None),
+) -> dict:
+    """Record whether the support card sounds like this family.
+
+    This is feedback on an AI perspective, never an update to family facts.
+    The endpoint is intentionally attached to the assessment domain so the
+    submitted session, consent and evidence lineage remain one scope.
+    """
+    _assert_path_family(context, family_id)
+    return await handler.submit_support_card_feedback(
+        SubmitSupportCardFeedbackCommand(
+            family_id,
+            context.tenant_id,
+            context.person_id,
+            body.assessment_session_id,
+            body.feedback_type,
+            body.supplement_text,
+            MutationMeta(x_correlation_id or "", idempotency_key or "", x_source or ""),
+        )
+    )
+
+
+@router.post("/{family_id}/assessments/support-card/small-step")
+async def start_assessment_small_step(
+    family_id: str,
+    body: AssessmentSmallStepRequestBody,
+    context: FamilyContext = Depends(get_family_context),
+    handler: AssessmentCommandHandler = Depends(get_command_handler),
+    x_correlation_id: str | None = Header(default=None),
+    idempotency_key: str | None = Header(default=None),
+    x_source: str | None = Header(default=None),
+) -> dict:
+    """Let the family choose one bounded action from its support card."""
+    _assert_path_family(context, family_id)
+    return await handler.start_assessment_small_step(
+        StartAssessmentSmallStepCommand(
+            family_id,
+            context.tenant_id,
+            context.person_id,
+            body.assessment_session_id,
+            body.action_ref,
+            MutationMeta(x_correlation_id or "", idempotency_key or "", x_source or ""),
+        )
+    )
+
+
+@router.post("/{family_id}/assessments/support-card/checkins")
+async def record_assessment_checkin(
+    family_id: str,
+    body: AssessmentCheckinRequestBody,
+    context: FamilyContext = Depends(get_family_context),
+    handler: AssessmentCommandHandler = Depends(get_command_handler),
+    x_correlation_id: str | None = Header(default=None),
+    idempotency_key: str | None = Header(default=None),
+    x_source: str | None = Header(default=None),
+) -> dict:
+    """Record the family's next-day reflection on its chosen small step."""
+    _assert_path_family(context, family_id)
+    return await handler.record_assessment_checkin(
+        RecordAssessmentCheckinCommand(
+            family_id,
+            context.tenant_id,
+            context.person_id,
+            body.assessment_session_id,
+            body.outcome,
+            body.note,
+            MutationMeta(x_correlation_id or "", idempotency_key or "", x_source or ""),
+        )
     )
 
 

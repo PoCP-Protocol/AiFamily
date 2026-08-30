@@ -11,7 +11,9 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from typing import Literal
 
+from ..domain.entities import GrowthHypothesisEvidence
 from ..domain.errors import (
     AssessmentConflictError,
     AssessmentNotFoundError,
@@ -32,6 +34,11 @@ def _is_uuid(value: str) -> bool:
 
 def _hash_request(value: dict) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+SupportFeedbackType = Literal["LIKE", "NOT_LIKE", "ADD_CONTEXT"]
+CheckinOutcome = Literal["HELPED", "NO_CHANGE", "NOT_TRIED"]
+SMALL_STEP_ACTION_REF = "TRY_TONIGHT"
 
 
 @dataclass(frozen=True)
@@ -75,6 +82,38 @@ class SubmitAssessmentCommand:
     tenant_id: str
     actor_id: str
     session_id: str
+    meta: MutationMeta
+
+
+@dataclass(frozen=True)
+class SubmitSupportCardFeedbackCommand:
+    family_id: str
+    tenant_id: str
+    actor_id: str
+    session_id: str
+    feedback_type: SupportFeedbackType
+    supplement_text: str | None
+    meta: MutationMeta
+
+
+@dataclass(frozen=True)
+class StartAssessmentSmallStepCommand:
+    family_id: str
+    tenant_id: str
+    actor_id: str
+    session_id: str
+    action_ref: str
+    meta: MutationMeta
+
+
+@dataclass(frozen=True)
+class RecordAssessmentCheckinCommand:
+    family_id: str
+    tenant_id: str
+    actor_id: str
+    session_id: str
+    outcome: CheckinOutcome
+    note: str | None
     meta: MutationMeta
 
 
@@ -345,3 +384,256 @@ class AssessmentCommandHandler:
             command.meta.source,
         )
         return receipt
+
+    async def submit_support_card_feedback(
+        self, command: SubmitSupportCardFeedbackCommand
+    ) -> dict:
+        command.meta.require()
+        if not _is_uuid(command.session_id):
+            raise AssessmentValidationError("valid_assessment_session_id_required")
+        if command.feedback_type not in ("LIKE", "NOT_LIKE", "ADD_CONTEXT"):
+            raise AssessmentValidationError("valid_support_card_feedback_required")
+        supplement = (command.supplement_text or "").strip() or None
+        if command.feedback_type == "ADD_CONTEXT" and supplement is None:
+            raise AssessmentValidationError("support_card_context_required")
+        if supplement and len(supplement) > 1000:
+            raise AssessmentValidationError("support_card_context_too_long")
+
+        request_hash = _hash_request(
+            {
+                "session_id": command.session_id,
+                "feedback_type": command.feedback_type,
+                "supplement_text": supplement,
+            }
+        )
+        action = "SUBMIT_SUPPORT_CARD_FEEDBACK"
+        await self._repository.lock_operation(
+            command.tenant_id, command.family_id, action, command.meta.idempotency_key
+        )
+        replay = await self._repository.load_operation_replay(
+            command.tenant_id,
+            command.family_id,
+            action,
+            command.meta.idempotency_key,
+            request_hash,
+        )
+        if replay is not None:
+            return {**replay, "replayed": True}
+
+        evidence = await self._load_support_evidence(command)
+        feedback = await self._repository.persist_support_card_feedback(
+            family_id=command.family_id,
+            session_id=evidence.assessment_session_id,
+            actor_id=command.actor_id,
+            feedback_type=command.feedback_type,
+            supplement_text=supplement,
+        )
+        receipt = {
+            "action": action,
+            "replayed": False,
+            "feedback": feedback,
+            "boundary": "FEEDBACK_REFINES_PERSPECTIVE_NOT_FACT",
+        }
+        await self._repository.persist_operation(
+            command.tenant_id,
+            command.family_id,
+            command.session_id,
+            command.actor_id,
+            action,
+            request_hash,
+            receipt,
+            command.meta.correlation_id,
+            command.meta.idempotency_key,
+        )
+        await self._repository.write_audit_and_outbox(
+            command.family_id,
+            command.actor_id,
+            command.session_id,
+            action,
+            "AssessmentSupportCardFeedbackSubmitted",
+            receipt,
+            command.meta.correlation_id,
+            command.meta.idempotency_key,
+            command.meta.source,
+        )
+        return receipt
+
+    async def start_assessment_small_step(
+        self, command: StartAssessmentSmallStepCommand
+    ) -> dict:
+        command.meta.require()
+        if not _is_uuid(command.session_id):
+            raise AssessmentValidationError("valid_assessment_session_id_required")
+        if command.action_ref != SMALL_STEP_ACTION_REF:
+            raise AssessmentValidationError("unsupported_assessment_small_step")
+
+        request_hash = _hash_request(
+            {"session_id": command.session_id, "action_ref": command.action_ref}
+        )
+        action = "START_ASSESSMENT_SMALL_STEP"
+        await self._repository.lock_operation(
+            command.tenant_id, command.family_id, action, command.meta.idempotency_key
+        )
+        replay = await self._repository.load_operation_replay(
+            command.tenant_id,
+            command.family_id,
+            action,
+            command.meta.idempotency_key,
+            request_hash,
+        )
+        if replay is not None:
+            return {**replay, "replayed": True}
+
+        evidence = await self._load_support_evidence(command)
+        existing = await self._repository.load_small_step(
+            command.family_id, evidence.assessment_session_id, command.action_ref
+        )
+        if existing is None:
+            step = await self._repository.persist_small_step(
+                family_id=command.family_id,
+                session_id=evidence.assessment_session_id,
+                actor_id=command.actor_id,
+                action_ref=command.action_ref,
+                action_text=_small_step_text(evidence.focus_ref),
+            )
+        else:
+            step = existing
+        receipt = {
+            "action": action,
+            "replayed": existing is not None,
+            "small_step": step,
+            "boundary": "FAMILY_CHOSEN_ACTION_NOT_OUTCOME",
+        }
+        await self._repository.persist_operation(
+            command.tenant_id,
+            command.family_id,
+            command.session_id,
+            command.actor_id,
+            action,
+            request_hash,
+            receipt,
+            command.meta.correlation_id,
+            command.meta.idempotency_key,
+        )
+        if existing is None:
+            await self._repository.write_audit_and_outbox(
+                command.family_id,
+                command.actor_id,
+                command.session_id,
+                action,
+                "AssessmentSmallStepStarted",
+                receipt,
+                command.meta.correlation_id,
+                command.meta.idempotency_key,
+                command.meta.source,
+            )
+        return receipt
+
+    async def record_assessment_checkin(
+        self, command: RecordAssessmentCheckinCommand
+    ) -> dict:
+        command.meta.require()
+        if not _is_uuid(command.session_id):
+            raise AssessmentValidationError("valid_assessment_session_id_required")
+        if command.outcome not in ("HELPED", "NO_CHANGE", "NOT_TRIED"):
+            raise AssessmentValidationError("valid_assessment_checkin_required")
+        note = (command.note or "").strip() or None
+        if note and len(note) > 1000:
+            raise AssessmentValidationError("assessment_checkin_note_too_long")
+
+        request_hash = _hash_request(
+            {
+                "session_id": command.session_id,
+                "outcome": command.outcome,
+                "note": note,
+            }
+        )
+        action = "RECORD_ASSESSMENT_CHECKIN"
+        await self._repository.lock_operation(
+            command.tenant_id, command.family_id, action, command.meta.idempotency_key
+        )
+        replay = await self._repository.load_operation_replay(
+            command.tenant_id,
+            command.family_id,
+            action,
+            command.meta.idempotency_key,
+            request_hash,
+        )
+        if replay is not None:
+            return {**replay, "replayed": True}
+
+        evidence = await self._load_support_evidence(command)
+        step = await self._repository.load_small_step(
+            command.family_id, evidence.assessment_session_id, SMALL_STEP_ACTION_REF
+        )
+        if step is None:
+            raise AssessmentConflictError("assessment_small_step_not_started")
+        checkin = await self._repository.persist_assessment_checkin(
+            family_id=command.family_id,
+            session_id=evidence.assessment_session_id,
+            actor_id=command.actor_id,
+            outcome=command.outcome,
+            note=note,
+        )
+        receipt = {
+            "action": action,
+            "replayed": False,
+            "checkin": checkin,
+            "boundary": "FAMILY_FEEDBACK_NOT_OUTCOME_PROOF",
+        }
+        await self._repository.persist_operation(
+            command.tenant_id,
+            command.family_id,
+            command.session_id,
+            command.actor_id,
+            action,
+            request_hash,
+            receipt,
+            command.meta.correlation_id,
+            command.meta.idempotency_key,
+        )
+        await self._repository.write_audit_and_outbox(
+            command.family_id,
+            command.actor_id,
+            command.session_id,
+            action,
+            "AssessmentCheckinRecorded",
+            receipt,
+            command.meta.correlation_id,
+            command.meta.idempotency_key,
+            command.meta.source,
+        )
+        return receipt
+
+    async def _load_support_evidence(
+        self,
+        command: (
+            SubmitSupportCardFeedbackCommand
+            | StartAssessmentSmallStepCommand
+            | RecordAssessmentCheckinCommand
+        ),
+    ) -> GrowthHypothesisEvidence:
+        await self._repository.assert_tenant_family_scope(
+            command.tenant_id, command.family_id, command.actor_id
+        )
+        evidence = await self._repository.load_hypothesis_evidence(
+            command.family_id, command.tenant_id, command.session_id
+        )
+        if evidence is None:
+            raise AssessmentNotFoundError("assessment_support_card_not_found")
+        await self._repository.assert_subject_consent(
+            command.family_id, evidence.subject_person_id, "ASSESSMENT"
+        )
+        return evidence
+
+
+def _small_step_text(focus_ref: str) -> str:
+    return {
+        "LEARNING_HABITS": "今晚先只处理“开始”这一刻：给彼此十分钟缓冲，再问最难的是哪一小段。",
+        "EMOTION_REGULATION": "今晚先停下来听见情绪，不急着讲道理，只一起说出现在最难的那一刻。",
+        "PARENT_CHILD_COMMUNICATION": (
+            "今晚先留出十分钟，只听孩子把这件事说完，再一起选一个小约定。"
+        ),
+        "DEVICE_USE_CONTEXT": "今晚先约定一个可以停下来的时刻，停下后先听孩子说完为什么还想继续。",
+        "SELF_REGULATION": "今晚只选一个容易做到的时刻，把这一步做完，不要求一次改变全部。",
+    }.get(focus_ref, "今晚先留出十分钟，只听孩子把这件事说完，再一起选一个最小的下一步。")
