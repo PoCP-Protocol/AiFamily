@@ -128,7 +128,7 @@ P0 任一任务没有真实 PostgreSQL 或 HTTP 证据，Sprint 保持 `NOT_DONE
 
 **总闸门（快照）**：architecture `109 passed/1 skipped/1 failed`（Ruff ratchet）、全量 Ruff
 `1 E501`、Alembic unknown 0017、mobile `249/1/5`，因此当前测试候选只能在受控环境继续；
-生产发布明确 `NO-GO`。远端当前为 `dd7051b`（包含 FGCN `e7cbb0b` 与 PMA 文档）；
+生产发布明确 `NO-GO`。远端当前为 `2e80ad2`（包含 FGCN `e7cbb0b` 与 PMA 文档）；
 工作树仍有其它 Agent WIP，禁止将其一并推送。
 
 ### P1-P6 的首个可实现任务

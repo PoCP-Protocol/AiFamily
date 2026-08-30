@@ -21,7 +21,7 @@ superseded_by: null
 > 适配器，不能因为是 test/dev 而删能力。
 
 **分支状态（2026-08-30）**：远端已推送的版本仍为测试候选，发布判定为 **NO-GO**；
-`origin/codex/cleanup-superseded` 当前可见为 `dd7051b`（已包含 `e7cbb0b` FGCN S-01
+`origin/codex/cleanup-superseded` 当前可见为 `2e80ad2`（已包含 `e7cbb0b` FGCN S-01
 绑定和 PMA 文档）；本地总控与远端同步。工作树仍包含
 其他 Agent 的 WIP，不能将这些提交视为远端已发布。
 最近提交链含 0cd53fb、9b10d2d、6b4a8e9、cbc055e、736ae19、d2196bc、02a80c4、
