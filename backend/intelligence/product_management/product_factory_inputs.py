@@ -101,6 +101,9 @@ class _DraftEnvelope:
     next_validation: str
     version: str = "1.0.0"
     provenance_ref: str | None = None
+    model_ref: str | None = None
+    prompt_use_case_version: str | None = None
+    confidence: float | None = None
     expires_at: datetime | None = None
     expiry: datetime | None = None
     status: DraftStatus | str = DraftStatus.DRAFT
@@ -130,6 +133,25 @@ class _DraftEnvelope:
                 self,
                 "provenance_ref",
                 _text(self.provenance_ref, f"{prefix}_PROVENANCE_REF_INVALID"),
+            )
+        ai_fields = (self.model_ref, self.prompt_use_case_version, self.confidence)
+        if any(value is not None for value in ai_fields):
+            if self.provenance_ref is None or any(value is None for value in ai_fields):
+                raise ProductFactoryInputError(f"{prefix}_AI_PROVENANCE_INCOMPLETE")
+            if not 0.0 <= self.confidence <= 1.0:
+                raise ProductFactoryInputError(f"{prefix}_CONFIDENCE_INVALID")
+            object.__setattr__(
+                self,
+                "model_ref",
+                _text(self.model_ref, f"{prefix}_MODEL_REF_INVALID"),
+            )
+            object.__setattr__(
+                self,
+                "prompt_use_case_version",
+                _text(
+                    self.prompt_use_case_version,
+                    f"{prefix}_PROMPT_USE_CASE_VERSION_INVALID",
+                ),
             )
         resolved_expiry = _expiry(expires_at=self.expires_at, expiry=self.expiry)
         object.__setattr__(self, "expires_at", resolved_expiry)

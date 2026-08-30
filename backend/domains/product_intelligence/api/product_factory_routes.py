@@ -88,6 +88,9 @@ def _demand_response(frame: DemandFrame) -> DemandFrameDraftResponse:
         next_validation=frame.next_validation,
         expires_at=frame.expires_at,
         provenance_ref=frame.provenance_ref,
+        model_ref=frame.model_ref,
+        prompt_use_case_version=frame.prompt_use_case_version,
+        confidence=frame.confidence,
     )
 
 
@@ -107,6 +110,9 @@ def _insight_response(insight: MarketInsightDraft) -> MarketInsightDraftResponse
         next_validation=insight.next_validation,
         expires_at=insight.expires_at,
         provenance_ref=insight.provenance_ref,
+        model_ref=insight.model_ref,
+        prompt_use_case_version=insight.prompt_use_case_version,
+        confidence=insight.confidence,
     )
 
 
@@ -128,6 +134,9 @@ def _competitor_response(card: CompetitorEvidenceCard) -> CompetitorEvidenceCard
         next_validation=card.next_validation,
         expires_at=card.expires_at,
         provenance_ref=card.provenance_ref,
+        model_ref=card.model_ref,
+        prompt_use_case_version=card.prompt_use_case_version,
+        confidence=card.confidence,
     )
 
 
@@ -160,6 +169,9 @@ async def create_demand_frame(
             next_validation=body.next_validation,
             expires_at=body.expires_at,
             provenance_ref=body.provenance_ref,
+            model_ref=body.model_ref,
+            prompt_use_case_version=body.prompt_use_case_version,
+            confidence=body.confidence,
         )
     except ProductIntelligenceDomainError as exc:
         _raise_domain_http(exc)
@@ -200,6 +212,9 @@ async def create_market_insight(
             next_validation=body.next_validation,
             expires_at=body.expires_at,
             provenance_ref=body.provenance_ref,
+            model_ref=body.model_ref,
+            prompt_use_case_version=body.prompt_use_case_version,
+            confidence=body.confidence,
         )
     except ProductIntelligenceDomainError as exc:
         _raise_domain_http(exc)
@@ -235,6 +250,9 @@ async def create_competitor_evidence(
             next_validation=body.next_validation,
             expires_at=body.expires_at,
             provenance_ref=body.provenance_ref,
+            model_ref=body.model_ref,
+            prompt_use_case_version=body.prompt_use_case_version,
+            confidence=body.confidence,
         )
     except ProductFactoryInputError as exc:
         _raise_contract_http(exc)

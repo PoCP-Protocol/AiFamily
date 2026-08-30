@@ -54,6 +54,9 @@ export type ProductDraftResponse = {
   draft_id?: string;
   product_definition_id?: string | null;
   ai_provenance?: ProductAiProvenance;
+  model_ref?: string;
+  prompt_use_case_version?: string;
+  confidence?: number | null;
   compiler_report?: ProductCompilerReport;
   [key: string]: unknown;
 };

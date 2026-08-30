@@ -24,6 +24,9 @@ class DraftEnvelopeResponse(BaseModel):
     next_validation: str
     expires_at: datetime
     provenance_ref: str | None = None
+    model_ref: str | None = None
+    prompt_use_case_version: str | None = None
+    confidence: float | None = None
     requires_human_confirmation: Literal[True] = True
     may_mutate_business_state: Literal[False] = False
 

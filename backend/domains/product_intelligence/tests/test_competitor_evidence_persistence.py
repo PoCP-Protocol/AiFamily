@@ -26,6 +26,9 @@ async def test_sqlalchemy_repository_persists_scoped_competitor_draft(sqlalchemy
         next_validation="复核原始页面并记录日期",
         expires_at=datetime.now(UTC) + timedelta(days=7),
         provenance_ref="research-draft:test-001",
+        model_ref="model:research:test",
+        prompt_use_case_version="competitor.evidence.extract@1",
+        confidence=0.74,
     )
 
     await sqlalchemy_repo.save_competitor_evidence(
@@ -45,9 +48,13 @@ async def test_sqlalchemy_repository_persists_scoped_competitor_draft(sqlalchemy
     assert row.created_by == "human:reviewer"
     assert row.evidence_status == "UNKNOWN"
     assert row.source_refs == ["source:public:one"]
+    assert row.model_ref == "model:research:test"
+    assert row.prompt_use_case_version == "competitor.evidence.extract@1"
+    assert row.confidence == 0.74
 
     loaded = await sqlalchemy_repo.load_competitor_evidence(
         card.evidence_id, "tenant-a"
     )
     assert loaded.claim == card.claim
     assert loaded.status == "DRAFT"
+    assert loaded.model_ref == card.model_ref

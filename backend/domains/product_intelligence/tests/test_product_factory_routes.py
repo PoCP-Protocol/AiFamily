@@ -69,6 +69,33 @@ def test_demand_frame_route_reuses_market_signal_and_returns_draft(repo, human_c
     assert body["source_refs"] == ["source:interview:one"]
 
 
+def test_ai_demand_draft_returns_complete_provenance(repo) -> None:
+    context = ActorContext(
+        actor_id="ai:discovery",
+        actor_type="AI",
+        tenant_scope="tenant-a",
+    )
+    response = _client(repo, context).post(
+        "/product-intelligence/product-factory/demand-frames",
+        json=_payload(
+            statement="AI 生成的需求草案",
+            scenario="家庭沟通",
+            source_refs=["source:one"],
+            target_segment="家长",
+            provenance_ref="model-draft:one",
+            model_ref="model:gateway:test",
+            prompt_use_case_version="demand.frame.generate@1",
+            confidence=0.82,
+        ),
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["provenance_ref"] == "model-draft:one"
+    assert body["model_ref"] == "model:gateway:test"
+    assert body["prompt_use_case_version"] == "demand.frame.generate@1"
+    assert body["confidence"] == 0.82
+
+
 def test_market_insight_route_reuses_customer_insight_and_is_tenant_scoped(
     repo, human_context
 ) -> None:
