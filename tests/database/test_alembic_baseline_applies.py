@@ -26,16 +26,20 @@ changing the baseline constant.
 from __future__ import annotations
 
 import os
+import pathlib
 import subprocess
 import sys
 import uuid
 
 import pytest
+import yaml
 from sqlalchemy import make_url, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from backend.platform.persistence.session import DATABASE_URL_ENV_VAR
 from tests.support.postgres import SKIP_REASON, postgres_test_url
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 # Measured by applying the 62 linearised files with psql on an empty Postgres 16.
 EXPECTED_LEGACY_TABLES = 151
@@ -59,8 +63,8 @@ EXPECTED_0008_COUNTS = {
     "enums": EXPECTED_ENUM_TYPES,
 }
 
-# 0009 is a concurrent WIP migration.  It is recognized explicitly when it
-# remains in the checkout, but is not silently folded into the 0004-0008
+# 0009 and 0010 are additive AI-runtime migrations. They are recognized
+# explicitly when present, but are not silently folded into the 0004-0008
 # responsibility boundary.
 EXPECTED_HEAD_COUNTS_BY_REVISION = {
     "0008_experience_runs": EXPECTED_0008_COUNTS,
@@ -69,7 +73,20 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
+    "0010_experience_run_interactions": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 2,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
 }
+
+_MODEL_DRAFTS_ADR = (
+    REPO_ROOT / "governance" / "ADR" / "ADR-0045-durable-model-draft-provenance-registry.md"
+)
+_EXPERIENCE_INTERACTIONS_ADR = (
+    REPO_ROOT / "governance" / "ADR" / "ADR-0047-async-sql-experience-run-ledger.md"
+)
+_MIGRATION_MANIFEST = REPO_ROOT / "governance" / "MIGRATION_MANIFEST.yaml"
 
 
 @pytest.fixture
@@ -125,19 +142,86 @@ def _run_alembic(*args: str, database_url: str) -> subprocess.CompletedProcess[s
     )
 
 
-def _single_head(database_url: str) -> str:
-    """Return the one accepted migration head, failing on unknown branches."""
-
-    result = _run_alembic("heads", database_url=database_url)
-    assert result.returncode == 0, f"alembic heads failed:\n{result.stdout}\n{result.stderr}"
+def _head_from_result(result: subprocess.CompletedProcess[str]) -> str:
     lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     assert len(lines) == 1, f"migration graph must have exactly one head, got: {lines!r}"
-    head = lines[0].split(maxsplit=1)[0]
+    return lines[0].split(maxsplit=1)[0]
+
+
+def _model_drafts_head_is_approved() -> bool:
+    """Require both the exact ADR and an approved manifest entry for 0009."""
+
+    if not _MODEL_DRAFTS_ADR.is_file() or not _MIGRATION_MANIFEST.is_file():
+        return False
+    try:
+        manifest = yaml.safe_load(_MIGRATION_MANIFEST.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        return False
+    entries = manifest.get("entries", []) if isinstance(manifest, dict) else []
+    if not isinstance(entries, list):
+        return False
+    approved_statuses = {"APPROVED", "ACCEPTED", "DONE", "MIGRATED", "MIGRATED_TESTED"}
+    return any(
+        isinstance(entry, dict)
+        and "0009_ai_model_drafts" in repr(entry)
+        and str(entry.get("status", "")).upper() in approved_statuses
+        for entry in entries
+    )
+
+
+def _experience_interactions_head_is_approved() -> bool:
+    """Require ADR-0047 and its explicit migration-manifest registration."""
+
+    if not _EXPERIENCE_INTERACTIONS_ADR.is_file() or not _MIGRATION_MANIFEST.is_file():
+        return False
+    try:
+        manifest = yaml.safe_load(_MIGRATION_MANIFEST.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        return False
+    entries = manifest.get("entries", []) if isinstance(manifest, dict) else []
+    approved_statuses = {"APPROVED", "ACCEPTED", "DONE", "MIGRATED", "MIGRATED_TESTED"}
+    return any(
+        isinstance(entry, dict)
+        and "experience_run_http_sql_ledger" in repr(entry)
+        and str(entry.get("status", "")).upper() in approved_statuses
+        for entry in entries
+    )
+
+
+def _assert_accepted_head(head: str) -> str:
+    """Validate one registered head and reject unregistered concurrent WIP."""
+
     assert head in EXPECTED_HEAD_COUNTS_BY_REVISION, (
         "unknown migration head; update the explicit object-owner map and review the chain: "
         f"{head!r}"
     )
+    if head == "0009_ai_model_drafts":
+        assert _model_drafts_head_is_approved(), (
+            "0009_ai_model_drafts is present as head but is not approved: require "
+            "governance/ADR/ADR-0045-durable-model-draft-provenance-registry.md and an approved "
+            "MIGRATION_MANIFEST entry"
+        )
+    if head == "0010_experience_run_interactions":
+        assert _experience_interactions_head_is_approved(), (
+            "0010_experience_run_interactions is present as head but is not approved: require "
+            "governance/ADR/ADR-0047-async-sql-experience-run-ledger.md and an approved "
+            "MIGRATION_MANIFEST entry"
+        )
     return head
+
+
+def _discovered_single_head(database_url: str) -> str:
+    """Read the one graph head without applying the approval policy."""
+
+    result = _run_alembic("heads", database_url=database_url)
+    assert result.returncode == 0, f"alembic heads failed:\n{result.stdout}\n{result.stderr}"
+    return _head_from_result(result)
+
+
+def _single_head(database_url: str) -> str:
+    """Return the one approved migration head, failing on unknown/unapproved WIP."""
+
+    return _assert_accepted_head(_discovered_single_head(database_url))
 
 
 async def _count_objects(database_url: str) -> dict[str, int]:
@@ -212,6 +296,31 @@ async def test_upgrade_0008_applies_fgcn_human_gate_additive_revisions(
     assert "0008_experience_runs" in current.stdout
 
 
+def test_unregistered_0009_head_is_blocked() -> None:
+    """A concurrent 0009 file must not become an accepted head by presence alone."""
+
+    model_drafts_migration = (
+        REPO_ROOT / "database" / "migrations" / "versions" / "0009_ai_model_drafts.py"
+    )
+    if not model_drafts_migration.is_file():
+        pytest.skip("0009_ai_model_drafts is not present in this checkout")
+    assert _MODEL_DRAFTS_ADR.is_file(), (
+        "0009 approval requires the canonical ADR file: "
+        "governance/ADR/ADR-0045-durable-model-draft-provenance-registry.md"
+    )
+    if _model_drafts_head_is_approved():
+        pytest.skip("0009_ai_model_drafts is registered and approved in this checkout")
+    with pytest.raises(AssertionError, match="0009_ai_model_drafts.*not approved"):
+        _assert_accepted_head("0009_ai_model_drafts")
+
+
+def test_unknown_migration_head_is_blocked() -> None:
+    """An unreviewed future head cannot silently change the head object count."""
+
+    with pytest.raises(AssertionError, match="unknown migration head"):
+        _assert_accepted_head("0011_unreviewed_future")
+
+
 async def test_downgrade_then_upgrade_is_repeatable(throwaway_database_url: str) -> None:
     """Guards the failure mode that `DROP SCHEMA public CASCADE` caused.
 
@@ -221,7 +330,8 @@ async def test_downgrade_then_upgrade_is_repeatable(throwaway_database_url: str)
     the database in a state no command reported correctly. Asserting a full
     up -> down -> up cycle is what makes that class of bug visible.
     """
-    head = _single_head(throwaway_database_url)
+    discovered_head = _discovered_single_head(throwaway_database_url)
+    head = _assert_accepted_head(discovered_head)
     expected_head_counts = EXPECTED_HEAD_COUNTS_BY_REVISION[head]
 
     up = _run_alembic("upgrade", "head", database_url=throwaway_database_url)
