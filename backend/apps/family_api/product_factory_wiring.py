@@ -13,7 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.domains.product_intelligence.api import product_factory_routes
 from backend.domains.product_intelligence.api.dependencies import (
+    ActorResolver,
+    clear_actor_resolver,
     clear_session_factory,
+    configure_actor_resolver,
     configure_session_factory,
 )
 
@@ -55,8 +58,24 @@ def clear_product_factory_session_factory() -> None:
     clear_session_factory()
 
 
+def install_product_factory_actor_resolver(
+    resolver: ActorResolver,
+) -> None:
+    """Install the owning app's trusted request-to-actor bridge."""
+
+    configure_actor_resolver(resolver)
+
+
+def clear_product_factory_actor_resolver() -> None:
+    """Clear identity wiring between app instances/tests."""
+
+    clear_actor_resolver()
+
+
 __all__ = [
+    "clear_product_factory_actor_resolver",
     "clear_product_factory_session_factory",
+    "install_product_factory_actor_resolver",
     "install_product_factory_session_factory",
     "mount_product_factory_router",
 ]
