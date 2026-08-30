@@ -1,0 +1,21 @@
+import { expect, test } from "@playwright/test";
+
+test("Xiao Ju Deng homepage card opens the H-LIVE-01 read-only detail", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "发现专家直播" })).toBeVisible();
+  await expect(page.getByRole("article")).toContainText("小橘灯：家庭沟通中的温柔练习");
+  await expect(page.getByRole("article")).toContainText("家长与照护者");
+  await page.getByRole("button", { name: "查看直播详情" }).click();
+
+  await expect(page.getByText("H-LIVE-01 · 只读详情")).toBeVisible();
+  await expect(page.getByRole("article")).toContainText("APPROVED");
+  await expect(page.getByRole("article")).toContainText("UNEXPIRED");
+  await expect(page.getByRole("article")).toContainText("FAMILY");
+  await expect(page.getByRole("article")).toContainText("true · DEV_ONLY");
+  await expect(page.getByRole("article")).not.toContainText("token");
+  await expect(page.getByRole("article")).not.toContainText("预约");
+
+  await page.getByRole("button", { name: "返回直播发现" }).click();
+  await expect(page.getByRole("button", { name: "查看直播详情" })).toBeVisible();
+});
