@@ -10,6 +10,7 @@ import {
   type HumanReviewInput,
   type HumanReviewReceipt,
   type DeletionReceipt,
+  type MediaInput,
   type ReplaySnapshot,
 } from "./client";
 
@@ -108,7 +109,7 @@ export class HttpExperienceApiClient implements ExperienceApiClient {
       },
     );
     this.familyByRun.set(input.run_id, input.scope.family_id);
-    return mapDraftResponse((await response.json()) as DraftResponse);
+    return mapDraftResponse((await response.json()) as DraftResponse, input.media_inputs);
   }
 
   async decide(input: DraftDecisionInput, idempotencyKey: string): Promise<DecisionReceipt> {
@@ -213,7 +214,7 @@ function estimateInputTokens(expression: string): number {
   return Math.max(1, Math.ceil(expression.length / 4));
 }
 
-function mapDraftResponse(response: DraftResponse): ExperienceDraft {
+function mapDraftResponse(response: DraftResponse, mediaInputs: MediaInput[]): ExperienceDraft {
   const understanding = response.output.understanding;
   const nextStep = response.output.next_step;
   const limitations = response.output.limitations;
@@ -246,7 +247,7 @@ function mapDraftResponse(response: DraftResponse): ExperienceDraft {
       generated_at: response.provenance.generated_at,
     },
     requires_human_confirmation: true,
-    media_inputs: [],
+    media_inputs: mediaInputs,
     correlation_id: response.run_id,
   };
 }

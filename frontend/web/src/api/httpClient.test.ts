@@ -65,6 +65,7 @@ describe("HttpExperienceApiClient", () => {
     expect(body).not.toHaveProperty("context_snapshot_ref");
     expect(body).not.toHaveProperty("data_class");
     expect(draft).toMatchObject({ run_id: "run-1", status: "DRAFT", draft_version: "experience-draft.v1" });
+    expect(draft.media_inputs).toEqual(input.media_inputs);
     expect(draft.provenance).toMatchObject({ provider_id: "approved-provider", model_version: "model-v1", latency_ms: 420 });
     expect(draft.provenance.model_attempt_ref).toBeNull();
   });
