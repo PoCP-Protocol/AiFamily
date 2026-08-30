@@ -396,7 +396,7 @@ uv run pytest tests/architecture -q                 106 passed, 1 skipped, 4 fai
 uv run ruff check . --output-format concise          1 E501（并发 WIP family/entities.py）
 uv run pytest tests/database/test_alembic_baseline_applies.py -q  3 passed
 uv run pytest tests/database/test_fgcn_migration_chain.py -q      2 passed
-cd frontend/mobile; pnpm test -- --run              247 passed, 1 skipped, 5 failed
+cd frontend/mobile; pnpm test -- --run              249 passed, 1 skipped, 5 failed（55 files）
 cd frontend/mobile; pnpm check                       passed
 ```
 
