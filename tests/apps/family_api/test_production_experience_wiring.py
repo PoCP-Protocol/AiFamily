@@ -167,6 +167,36 @@ async def test_production_resolver_commits_draft_and_replays_without_provider_ca
     assert len(provider.invocations) == 1
 
 
+@pytest.mark.asyncio
+async def test_provider_failure_releases_preflight_for_same_key_retry(
+    production_runtime,
+) -> None:
+    resolver, provider, scope = production_runtime
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_multimodal_draft_runtime_resolver] = lambda: resolver
+    provider._fail_with = "NETWORK_ERROR"  # type: ignore[assignment]
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        failed = await client.post(
+            f"/families/{scope.family_id}/experience/multimodal/drafts",
+            json=_body("run-production-retry"),
+            headers={"Idempotency-Key": "production-retry-1"},
+        )
+        provider._fail_with = None
+        retried = await client.post(
+            f"/families/{scope.family_id}/experience/multimodal/drafts",
+            json=_body("run-production-retry"),
+            headers={"Idempotency-Key": "production-retry-1"},
+        )
+
+    assert failed.status_code == 503, failed.text
+    assert retried.status_code == 200, retried.text
+    assert retried.json()["draft_id"] == "draft:run-production-retry"
+    assert len(provider.invocations) == 2
+
+
 def test_production_resolver_rejects_test_environment() -> None:
     with pytest.raises(ValueError, match="test environment"):
         ProductionExperienceRuntimeResolver(
