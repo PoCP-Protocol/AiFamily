@@ -8,6 +8,7 @@ from decimal import Decimal
 
 import pytest
 import pytest_asyncio
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -24,9 +25,14 @@ from backend.domains.service.fgcn.contracts import (
     ServiceTask,
     TaskQualityState,
     TaskStatus,
+    rework_task_id_for,
 )
 from backend.domains.service.fgcn.delivery_application import submit_service_delivery
-from backend.domains.service.fgcn.persistence import FGCNBase, SqlAlchemyFGCNRepository
+from backend.domains.service.fgcn.persistence import (
+    FGCNBase,
+    ServiceTaskRow,
+    SqlAlchemyFGCNRepository,
+)
 from backend.domains.service.fgcn.quality_contribution_application import (
     record_service_contribution,
     verify_service_delivery,
@@ -34,6 +40,7 @@ from backend.domains.service.fgcn.quality_contribution_application import (
 from backend.domains.service.fgcn.scenario import (
     S01_OUTCOME_OBSERVATION,
     S01_QUALITY_VERIFICATION_MARKER,
+    S01_REWORK_QUALITY_MARKER,
     S01_SCENARIO,
     S01_TASK_ACCEPTANCE_CRITERION,
 )
@@ -282,17 +289,34 @@ async def test_quality_rejects_self_review_non_pass_and_ai_reviewer(session_fact
                 scope=_scope(),
                 recorder=AuditRecorder(),
             )
-        with pytest.raises(
-            ServiceConflictError,
-            match="fgcn_non_pass_quality_requires_rework_flow",
-        ):
-            await verify_service_delivery(
+        review = await verify_service_delivery(
+            repo,
+            task_id=TASK,
+            quality_review_id=REVIEW_REWORK,
+            reviewer_ref="reviewer-quality",
+            review_note=S01_REWORK_QUALITY_MARKER,
+            quality_state=TaskQualityState.REWORK_REQUIRED,
+            scope=_scope(),
+            recorder=AuditRecorder(),
+            reviewed_at=NOW + timedelta(hours=2),
+        )
+        rework_task = await repo.load_task(rework_task_id_for(TASK, REVIEW_REWORK))
+        assert review.quality_state is TaskQualityState.REWORK_REQUIRED
+        assert (await repo.load_task(TASK)).status is TaskStatus.REWORK_REQUESTED
+        assert rework_task.status is TaskStatus.PENDING
+        assert rework_task.responsible_ref is None
+        assert rework_task.rework_of_task_id == TASK
+        assert rework_task.rework_attempt == 1
+        with pytest.raises(ServiceConflictError, match="fgcn_contribution_requires_verified_task"):
+            await record_service_contribution(
                 repo,
                 task_id=TASK,
-                quality_review_id=REVIEW_REWORK,
-                reviewer_ref="reviewer-quality",
-                review_note="needs rework",
-                quality_state=TaskQualityState.REWORK_REQUIRED,
+                contribution_id=CONTRIBUTION_BEFORE_REVIEW,
+                delivery_id="delivery-quality-1",
+                provider_ref="expert-quality",
+                role_key="DELIVERY_RESOURCE",
+                started_at=NOW,
+                completed_at=NOW + timedelta(hours=1),
                 scope=_scope(),
                 recorder=AuditRecorder(),
             )
@@ -306,7 +330,95 @@ async def test_quality_rejects_self_review_non_pass_and_ai_reviewer(session_fact
                 scope=_scope(),
                 recorder=AuditRecorder(),
             )
+        assert (await repo.load_task(TASK)).status is TaskStatus.REWORK_REQUESTED
+        events = await read_all_events(session, tenant_id=TENANT)
+        assert [event.action for event in events] == [
+            "SUBMIT_SERVICE_DELIVERY",
+            "DELIVER_SERVICE_TASK",
+            "PROGRESS_SERVICE_CASE",
+            "REQUEST_SERVICE_REWORK",
+            "CREATE_SERVICE_REWORK_TASK",
+        ]
+
+
+@pytest.mark.asyncio
+async def test_rework_quality_replay_across_sessions_has_one_follow_up_and_no_new_audit(
+    session_factory,
+):
+    await _seed_delivered(session_factory)
+    async with session_factory() as session:
+        first = await verify_service_delivery(
+            SqlAlchemyFGCNRepository(session),
+            task_id=TASK,
+            quality_review_id=REVIEW_REWORK,
+            reviewer_ref="reviewer-quality",
+            review_note=S01_REWORK_QUALITY_MARKER,
+            quality_state=TaskQualityState.REWORK_REQUIRED,
+            scope=_scope(),
+            recorder=AuditRecorder(),
+            reviewed_at=NOW + timedelta(hours=2),
+        )
+
+    async with session_factory() as session:
+        replay = await verify_service_delivery(
+            SqlAlchemyFGCNRepository(session),
+            task_id=TASK,
+            quality_review_id=REVIEW_REWORK,
+            reviewer_ref="reviewer-quality",
+            review_note=S01_REWORK_QUALITY_MARKER,
+            quality_state=TaskQualityState.REWORK_REQUIRED,
+            scope=_scope(),
+            recorder=AuditRecorder(),
+            reviewed_at=NOW + timedelta(hours=8),
+        )
+        follow_up_rows = (
+            (
+                await session.execute(
+                    sa.select(ServiceTaskRow).where(ServiceTaskRow.rework_of_task_id == TASK)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        events = await read_all_events(session, tenant_id=TENANT)
+
+    assert replay == first
+    assert len(follow_up_rows) == 1
+    assert follow_up_rows[0].task_id == rework_task_id_for(TASK, REVIEW_REWORK)
+    assert [event.action for event in events].count("REQUEST_SERVICE_REWORK") == 1
+    assert [event.action for event in events].count("CREATE_SERVICE_REWORK_TASK") == 1
+
+
+@pytest.mark.asyncio
+async def test_rework_quality_and_follow_up_roll_back_together_when_audit_fails(session_factory):
+    await _seed_delivered(session_factory)
+
+    class FailingAuditRecorder(AuditRecorder):
+        async def flush(self, session):
+            raise RuntimeError("audit store unavailable")
+
+    async with session_factory() as session:
+        with pytest.raises(RuntimeError, match="audit store unavailable"):
+            await verify_service_delivery(
+                SqlAlchemyFGCNRepository(session),
+                task_id=TASK,
+                quality_review_id=REVIEW_REWORK,
+                reviewer_ref="reviewer-quality",
+                review_note=S01_REWORK_QUALITY_MARKER,
+                quality_state=TaskQualityState.REWORK_REQUIRED,
+                scope=_scope(),
+                recorder=FailingAuditRecorder(),
+                reviewed_at=NOW + timedelta(hours=2),
+            )
+        await session.rollback()
+
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
         assert (await repo.load_task(TASK)).status is TaskStatus.DELIVERED
+        with pytest.raises(ServiceNotFoundError):
+            await repo.load_quality_review(REVIEW_REWORK)
+        with pytest.raises(ServiceNotFoundError):
+            await repo.load_task(rework_task_id_for(TASK, REVIEW_REWORK))
         events = await read_all_events(session, tenant_id=TENANT)
         assert [event.action for event in events] == [
             "SUBMIT_SERVICE_DELIVERY",

@@ -17,15 +17,18 @@ from backend.domains.service.fgcn.contracts import (
     BlueprintSnapshot,
     CaseStatus,
     GateServiceScope,
+    ServiceDelivery,
     ServiceTask,
     TaskAssignmentStatus,
     TaskQualityState,
     TaskStatus,
+    rework_task_id_for,
 )
 from backend.domains.service.fgcn.engine import FGCNEngine
 from backend.domains.service.fgcn.scenario import (
     S01_OUTCOME_OBSERVATION,
     S01_QUALITY_VERIFICATION_MARKER,
+    S01_REWORK_QUALITY_MARKER,
     S01_SCENARIO,
     S01_TASK_ACCEPTANCE_CRITERION,
 )
@@ -463,16 +466,6 @@ async def test_delivery_quality_contribution_and_shadow_allocation_are_gated():
             review_note="same person",
             reviewed_at=NOW + timedelta(hours=2),
         )
-    with pytest.raises(ServiceConflictError, match="fgcn_non_pass_quality_requires_rework_flow"):
-        engine.verify_delivery(
-            quality_review_id="review-rework",
-            task_id="task-1",
-            reviewer_ref="quality-1",
-            review_note="needs rework",
-            quality_state=TaskQualityState.REWORK_REQUIRED,
-            reviewed_at=NOW + timedelta(hours=2),
-        )
-
     engine.verify_delivery(
         quality_review_id="review-1",
         task_id="task-1",
@@ -520,6 +513,105 @@ async def test_delivery_quality_contribution_and_shadow_allocation_are_gated():
             actor_id="operator-1",
             allocation_run_id="allocation-run-2",
         )
+
+
+@pytest.mark.asyncio
+async def test_rework_quality_creates_an_unassigned_follow_up_and_blocks_contribution():
+    engine = _engine()
+    engine.execute_named_action(await _assignment_request()())
+    engine.submit_delivery(
+        delivery_id="delivery-rework",
+        task_id="task-1",
+        assignee_ref="expert-1",
+        evidence_ref="evidence:rework",
+        outcome_observation=S01_OUTCOME_OBSERVATION,
+        submitted_at=NOW + timedelta(hours=1),
+    )
+
+    review = engine.verify_delivery(
+        quality_review_id="review-rework",
+        task_id="task-1",
+        reviewer_ref="quality-1",
+        review_note=S01_REWORK_QUALITY_MARKER,
+        quality_state=TaskQualityState.REWORK_REQUIRED,
+        reviewed_at=NOW + timedelta(hours=2),
+    )
+
+    follow_up = engine.tasks[rework_task_id_for("task-1", "review-rework")]
+    assert review.quality_state is TaskQualityState.REWORK_REQUIRED
+    assert engine.tasks["task-1"].status is TaskStatus.REWORK_REQUESTED
+    assert follow_up.status is TaskStatus.PENDING
+    assert follow_up.responsible_ref is None
+    assert follow_up.rework_of_task_id == "task-1"
+    assert follow_up.rework_attempt == 1
+    with pytest.raises(ServiceConflictError, match="fgcn_contribution_requires_verified_task"):
+        engine.record_contribution(
+            contribution_id="contribution-rework-blocked",
+            task_id="task-1",
+            delivery_id="delivery-rework",
+            provider_ref="expert-1",
+            role_key="DELIVERY_RESOURCE",
+            started_at=NOW,
+            completed_at=NOW + timedelta(hours=1),
+        )
+
+    replay = engine.verify_delivery(
+        quality_review_id="review-rework",
+        task_id="task-1",
+        reviewer_ref="quality-1",
+        review_note=S01_REWORK_QUALITY_MARKER,
+        quality_state=TaskQualityState.REWORK_REQUIRED,
+        reviewed_at=NOW + timedelta(hours=8),
+    )
+    assert replay == review
+    assert list(engine.tasks).count(follow_up.task_id) == 1
+    assert [event.action for event in engine.audit.all_events()].count(
+        "CREATE_SERVICE_REWORK_TASK"
+    ) == 1
+
+
+def test_rework_parent_is_history_after_verified_follow_up_and_case_can_close():
+    engine = _engine()
+    follow_up_id = rework_task_id_for("task-1", "review-rework-close")
+    engine.tasks["task-1"] = replace(
+        engine.tasks["task-1"],
+        status=TaskStatus.REWORK_REQUESTED,
+        responsible_ref="expert-1",
+        deliverable_ref="evidence:failed-first-attempt",
+    )
+    engine.tasks[follow_up_id] = replace(
+        engine.tasks["task-1"],
+        task_id=follow_up_id,
+        task_key="AI_GUIDANCE_DELIVERY:REWORK:1",
+        title="Rework: Guidance delivery",
+        status=TaskStatus.VERIFIED,
+        deliverable_ref="evidence:rework-success",
+        verified_at=NOW + timedelta(hours=3),
+        rework_of_task_id="task-1",
+        rework_attempt=1,
+    )
+    engine.deliveries["delivery-rework-success"] = ServiceDelivery(
+        delivery_id="delivery-rework-success",
+        case_id="case-1",
+        task_id=follow_up_id,
+        assignee_ref="expert-1",
+        evidence_ref="evidence:rework-success",
+        outcome_observation=S01_OUTCOME_OBSERVATION,
+        delivered_at=NOW + timedelta(hours=2),
+    )
+    engine._delivery_by_task[follow_up_id] = "delivery-rework-success"
+    engine.record_contribution(
+        contribution_id="contribution-rework-success",
+        task_id=follow_up_id,
+        delivery_id="delivery-rework-success",
+        provider_ref="expert-1",
+        role_key="DELIVERY_RESOURCE",
+        started_at=NOW,
+        completed_at=NOW + timedelta(hours=1),
+    )
+
+    closed = engine.close_case(case_id="case-1", actor_id="quality-1")
+    assert closed.status is CaseStatus.COMPLETED
 
 
 def test_scope_and_idempotency_replay_are_fail_closed():

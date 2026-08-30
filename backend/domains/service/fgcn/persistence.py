@@ -492,6 +492,10 @@ def _task_status_transition_is_valid(existing: str, incoming: TaskStatus) -> boo
         return False
     if incoming is TaskStatus.CANCELLED:
         return True
+    if incoming is TaskStatus.REWORK_REQUESTED:
+        return existing == TaskStatus.DELIVERED.value
+    if existing == TaskStatus.REWORK_REQUESTED.value:
+        return False
     order = {
         TaskStatus.PENDING.value: 0,
         TaskStatus.ACCEPTED.value: 1,
@@ -905,6 +909,18 @@ class SqlAlchemyFGCNRepository:
             case_status = CaseStatus(case.status)
         except (TypeError, ValueError) as exc:
             raise ServiceValidationError("fgcn_case_status_invalid") from exc
+        if task.rework_of_task_id is not None:
+            parent = await self._get(
+                ServiceTaskRow,
+                task.rework_of_task_id,
+                "fgcn_rework_source_task_not_found",
+            )
+            if parent.case_ref != task.case_id:
+                raise ServiceForbiddenError("fgcn_rework_source_case_mismatch")
+            if task.rework_attempt < 1:
+                raise ServiceValidationError("fgcn_rework_attempt_invalid")
+        elif task.rework_attempt != 0:
+            raise ServiceValidationError("fgcn_rework_attempt_without_parent")
         if (
             case_status in {CaseStatus.COMPLETED, CaseStatus.CANCELLED}
             and task_status
@@ -940,6 +956,8 @@ class SqlAlchemyFGCNRepository:
                 or existing.role_key != task.role_key
                 or tuple(existing.acceptance_criteria or ()) != task.acceptance_criteria
                 or existing.task_weight != task.task_weight
+                or existing.rework_of_task_id != task.rework_of_task_id
+                or existing.rework_attempt != task.rework_attempt
             ):
                 raise ServiceConflictError("fgcn_task_id_reuse_mismatch")
             if not _task_status_transition_is_valid(existing.status, task_status):
@@ -978,8 +996,8 @@ class SqlAlchemyFGCNRepository:
                 role_key=task.role_key,
                 required_capability_keys=list(task.required_capability_keys),
                 task_weight=task.task_weight,
-                rework_of_task_id=None,
-                rework_attempt=0,
+                rework_of_task_id=task.rework_of_task_id,
+                rework_attempt=task.rework_attempt,
                 acceptance_criteria=list(task.acceptance_criteria),
             )
         )
@@ -1011,8 +1029,29 @@ class SqlAlchemyFGCNRepository:
             raise ServiceConflictError("fgcn_task_blueprint_snapshot_mismatch")
         if status is TaskStatus.VERIFIED and row.verified_at is None:
             raise ServiceValidationError("fgcn_verified_task_time_required")
-        if status in {TaskStatus.DELIVERED, TaskStatus.VERIFIED} and deliverable_ref is None:
+        if (
+            status
+            in {
+                TaskStatus.DELIVERED,
+                TaskStatus.REWORK_REQUESTED,
+                TaskStatus.VERIFIED,
+            }
+            and deliverable_ref is None
+        ):
             raise ServiceValidationError("fgcn_delivered_task_evidence_required")
+        rework_of_task_id = row.rework_of_task_id
+        if rework_of_task_id is not None:
+            parent = await self._get(
+                ServiceTaskRow,
+                rework_of_task_id,
+                "fgcn_rework_source_task_not_found",
+            )
+            if parent.case_ref != row.case_ref:
+                raise ServiceValidationError("fgcn_rework_source_case_mismatch")
+            if row.rework_attempt < 1:
+                raise ServiceValidationError("fgcn_rework_attempt_invalid")
+        elif row.rework_attempt != 0:
+            raise ServiceValidationError("fgcn_rework_attempt_without_parent")
         return ServiceTask(
             task_id=row.task_id,
             case_id=row.case_ref,
@@ -1031,6 +1070,8 @@ class SqlAlchemyFGCNRepository:
             verified_at=_utc(row.verified_at),
             created_at=_required_utc(row.created_at, "fgcn_task_created_at_required"),
             locale=_blueprint_from_row(case).scenario.locale,
+            rework_of_task_id=rework_of_task_id,
+            rework_attempt=row.rework_attempt,
         )
 
     async def save_assignment(self, assignment: TaskAssignment) -> None:
@@ -1125,6 +1166,7 @@ class SqlAlchemyFGCNRepository:
         task = await self._get(ServiceTaskRow, task_id, "fgcn_service_task_not_found")
         if task.status not in {
             TaskStatus.DELIVERED.value,
+            TaskStatus.REWORK_REQUESTED.value,
             TaskStatus.VERIFIED.value,
             TaskStatus.CLOSED.value,
         }:
@@ -1161,6 +1203,7 @@ class SqlAlchemyFGCNRepository:
                 TaskStatus.DELIVERED.value,
                 TaskStatus.VERIFIED.value,
                 TaskStatus.CLOSED.value,
+                TaskStatus.REWORK_REQUESTED.value,
             }
             or task.responsible_ref != row.assignee_ref
         ):
@@ -1216,12 +1259,20 @@ class SqlAlchemyFGCNRepository:
             quality_state = TaskQualityState(row.quality_state)
         except (TypeError, ValueError) as exc:
             raise ServiceValidationError("fgcn_quality_persisted_shape_invalid") from exc
-        if quality_state is not TaskQualityState.PASSED:
+        if quality_state not in {
+            TaskQualityState.PASSED,
+            TaskQualityState.REWORK_REQUIRED,
+        }:
             raise ServiceValidationError("fgcn_non_pass_quality_requires_rework_flow")
         task = await self._get(ServiceTaskRow, row.task_id, "fgcn_service_task_not_found")
         if task.case_ref is None:
             raise ServiceValidationError("fgcn_quality_review_case_required")
-        if task.status != TaskStatus.VERIFIED.value:
+        expected_task_status = (
+            TaskStatus.VERIFIED.value
+            if quality_state is TaskQualityState.PASSED
+            else TaskStatus.REWORK_REQUESTED.value
+        )
+        if task.status != expected_task_status:
             raise ServiceValidationError("fgcn_quality_review_task_state_invalid")
         delivery = _delivery_from_payload(task)
         if delivery is None:
@@ -1280,7 +1331,10 @@ class SqlAlchemyFGCNRepository:
             quality_state = TaskQualityState(review.quality_state)
         except ValueError as exc:
             raise ServiceValidationError("fgcn_quality_state_invalid") from exc
-        if quality_state is not TaskQualityState.PASSED:
+        if quality_state not in {
+            TaskQualityState.PASSED,
+            TaskQualityState.REWORK_REQUIRED,
+        }:
             raise ServiceConflictError("fgcn_non_pass_quality_requires_rework_flow")
         delivery = _delivery_from_payload(task)
         if delivery is None:
@@ -1316,8 +1370,12 @@ class SqlAlchemyFGCNRepository:
                 created_at=review.reviewed_at,
             )
         )
-        task.status = TaskStatus.VERIFIED.value
-        task.verified_at = review.reviewed_at
+        if quality_state is TaskQualityState.PASSED:
+            task.status = TaskStatus.VERIFIED.value
+            task.verified_at = review.reviewed_at
+        else:
+            task.status = TaskStatus.REWORK_REQUESTED.value
+            task.verified_at = None
         task.updated_at = datetime.now(UTC)
         # `case` is intentionally loaded above even though no case mutation is
         # needed: a quality fact must never be accepted for a dangling task.

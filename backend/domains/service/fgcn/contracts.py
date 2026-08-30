@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
+from uuid import NAMESPACE_URL, uuid5
 
 from backend.domains.service.domain.errors import ServiceValidationError
 
@@ -14,6 +15,7 @@ from .scenario import (
     ServiceScenario,
     validate_s01_outcome_observation,
     validate_s01_quality_note,
+    validate_s01_rework_note,
     validate_s01_scenario,
     validate_s01_task_acceptance,
 )
@@ -53,6 +55,7 @@ class TaskStatus(StrEnum):
     ACCEPTED = "ACCEPTED"
     IN_PROGRESS = "IN_PROGRESS"
     DELIVERED = "DELIVERED"
+    REWORK_REQUESTED = "REWORK_REQUESTED"
     VERIFIED = "VERIFIED"
     CLOSED = "CLOSED"
     CANCELLED = "CANCELLED"
@@ -79,6 +82,14 @@ class TaskQualityState(StrEnum):
     PASSED = "PASSED"
     REWORK_REQUIRED = "REWORK_REQUIRED"
     REJECTED = "REJECTED"
+
+
+def rework_task_id_for(task_id: str, quality_review_id: str) -> str:
+    """Return the stable UUID for one review's follow-up task."""
+
+    source = _text(task_id, "rework_source_task_id")
+    review = _text(quality_review_id, "rework_quality_review_id")
+    return str(uuid5(NAMESPACE_URL, f"aifamily:fgcn:s01:rework:{source}:{review}"))
 
 
 class ContributionQualityState(StrEnum):
@@ -252,6 +263,8 @@ class ServiceTask:
     verified_at: datetime | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     locale: str = "en"
+    rework_of_task_id: str | None = None
+    rework_attempt: int = 0
 
     def __post_init__(self) -> None:
         for value, name in (
@@ -323,6 +336,17 @@ class ServiceTask:
         _aware(self.created_at, "task_created_at")
         if self.verified_at is not None:
             _aware(self.verified_at, "task_verified_at")
+        if self.rework_of_task_id is not None:
+            parent_id = _text(self.rework_of_task_id, "rework_of_task_id")
+            if parent_id == self.task_id:
+                raise ServiceValidationError("fgcn_rework_parent_self_reference")
+            object.__setattr__(self, "rework_of_task_id", parent_id)
+            if type(self.rework_attempt) is not int or self.rework_attempt < 1:
+                raise ServiceValidationError("fgcn_rework_attempt_invalid")
+        elif self.rework_attempt != 0:
+            raise ServiceValidationError("fgcn_rework_attempt_without_parent")
+        if status is TaskStatus.REWORK_REQUESTED and self.deliverable_ref is None:
+            raise ServiceValidationError("fgcn_rework_requires_delivery_evidence")
 
 
 @dataclass(frozen=True, slots=True)
@@ -420,11 +444,18 @@ class TaskQualityReview:
             raise ServiceValidationError("fgcn_quality_locale_required")
         locale = self.locale.strip().casefold()
         object.__setattr__(self, "locale", locale)
-        object.__setattr__(
-            self,
-            "review_note",
-            validate_s01_quality_note(self.review_note, locale=locale),
-        )
+        try:
+            quality_state = TaskQualityState(self.quality_state)
+        except (TypeError, ValueError) as exc:
+            raise ServiceValidationError("fgcn_quality_state_invalid") from exc
+        object.__setattr__(self, "quality_state", quality_state)
+        if quality_state is TaskQualityState.PASSED:
+            note = validate_s01_quality_note(self.review_note, locale=locale)
+        elif quality_state is TaskQualityState.REWORK_REQUIRED:
+            note = validate_s01_rework_note(self.review_note, locale=locale)
+        else:
+            raise ServiceValidationError("fgcn_quality_state_not_supported")
+        object.__setattr__(self, "review_note", note)
         _aware(self.reviewed_at, "quality_reviewed_at")
 
 
@@ -574,4 +605,5 @@ __all__ = [
     "TaskQualityReview",
     "TaskQualityState",
     "TaskStatus",
+    "rework_task_id_for",
 ]
