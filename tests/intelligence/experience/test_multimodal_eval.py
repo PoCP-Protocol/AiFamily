@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 
 from backend.intelligence.experience.multimodal_eval import (
+    EvaluationGatePolicy,
+    EvaluationReleaseGate,
     GoldCase,
     MultimodalAdapterResult,
     MultimodalEvalError,
@@ -98,6 +100,37 @@ def test_runner_aggregates_provider_model_version_without_media() -> None:
     assert report.report_ref.startswith("benchmark:multimodal:gold.v1:")
     duplicate = MultimodalEvalRunner().run(cases, {"qwen": adapter})
     assert duplicate.report_ref == report.report_ref
+    gate = EvaluationReleaseGate().evaluate(report)
+    assert gate.status == "ELIGIBLE"
+    assert gate.reasons == ()
+    assert gate.education_outcome_status == "NOT_MEASURED"
+    projection = report.to_ledger_payload(gate)
+    assert projection["report_ref"] == report.report_ref
+    assert projection["release_gate"] == {"status": "ELIGIBLE", "reasons": []}
+    assert projection["education_outcome_status"] == "NOT_MEASURED"
+
+
+def test_release_gate_blocks_failed_contracts_and_enforces_limits() -> None:
+    case = _case()
+
+    def adapter(_: GoldCase) -> MultimodalAdapterResult:
+        return _result(case, output={"answer": "ok"}, safety_passed=False, latency_ms=500)
+
+    report = MultimodalEvalRunner().run((case,), {"qwen": adapter})
+    decision = EvaluationReleaseGate(
+        EvaluationGatePolicy(max_latency_ms_p95=200)
+    ).evaluate(report)
+
+    assert decision.status == "BLOCKED"
+    assert "qwen:qwen-omni:2026-08:safety_rate_below_threshold" in decision.reasons
+    assert "qwen:qwen-omni:2026-08:latency_p95_exceeded" in decision.reasons
+
+
+def test_release_gate_rejects_invalid_policy_limits() -> None:
+    with pytest.raises(MultimodalEvalError, match="between 0 and 1"):
+        EvaluationGatePolicy(min_pass_rate=1.1)
+    with pytest.raises(MultimodalEvalError, match="non-negative"):
+        EvaluationGatePolicy(max_latency_ms_p95=-1)
 
 
 def test_runner_fails_closed_for_schema_safety_and_provenance() -> None:

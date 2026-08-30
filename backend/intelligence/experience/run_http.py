@@ -736,6 +736,17 @@ def _validate_evaluation_payload(payload: Mapping[str, Any]) -> None:
         or any(not isinstance(summary, Mapping) for summary in summaries)
     ):
         raise RunHttpError("EVALUATION_SUMMARIES_INVALID")
+    release_gate = payload.get("release_gate")
+    if release_gate is not None:
+        if not isinstance(release_gate, Mapping):
+            raise RunHttpError("EVALUATION_RELEASE_GATE_INVALID")
+        if release_gate.get("status") not in {"ELIGIBLE", "BLOCKED"}:
+            raise RunHttpError("EVALUATION_RELEASE_GATE_INVALID")
+        reasons = release_gate.get("reasons", ())
+        if not isinstance(reasons, (list, tuple)) or any(
+            not isinstance(reason, str) or not reason.strip() for reason in reasons
+        ):
+            raise RunHttpError("EVALUATION_RELEASE_GATE_INVALID")
 
 
 def _fingerprint(value: Mapping[str, Any]) -> str:

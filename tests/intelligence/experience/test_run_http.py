@@ -265,6 +265,7 @@ def test_evaluation_projection_is_append_only_and_never_an_education_outcome() -
         idempotency_key="evaluation-1",
         payload={
             "summaries": [{"provider_id": "qwen", "quality_score": 0.9}],
+            "release_gate": {"status": "ELIGIBLE", "reasons": []},
         },
     )
     assert receipt.interaction.interaction_type is InteractionType.EVALUATION
@@ -278,6 +279,15 @@ def test_evaluation_projection_is_append_only_and_never_an_education_outcome() -
             case_version="gold.v1",
             idempotency_key="evaluation-2",
             payload={"education_outcome_status": "MEASURED"},
+        )
+    with pytest.raises(RunHttpError, match="EVALUATION_RELEASE_GATE_INVALID"):
+        ledger.record_evaluation(
+            scope=_scope(),
+            run_id="run-1",
+            report_ref="benchmark:multimodal:gold.v1:other-2",
+            case_version="gold.v1",
+            idempotency_key="evaluation-3",
+            payload={"release_gate": {"status": "APPROVED", "reasons": []}},
         )
 
 

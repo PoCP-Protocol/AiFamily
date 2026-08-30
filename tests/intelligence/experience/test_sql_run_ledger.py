@@ -168,6 +168,7 @@ async def test_sql_evaluation_projection_replays_after_a_new_session(session_fac
             idempotency_key="evaluation-sql-1",
             payload={
                 "summaries": [{"provider_id": "qwen", "quality_score": 0.9}],
+                "release_gate": {"status": "ELIGIBLE", "reasons": []},
             },
         )
         assert receipt.status == "recorded"
