@@ -25,7 +25,7 @@ from ..domain.value_objects import (
 )
 
 if TYPE_CHECKING:
-    from .service import CaptureSignalResult
+    from .service import CaptureSignalResult, SolutionDraftResult
 
 
 @dataclass(frozen=True)
@@ -200,7 +200,7 @@ class FamilyNeedApplicationPort(Protocol):
 
     async def profile_need(self, command: NeedProfileInput) -> NeedProfile: ...
 
-    async def draft_solution(self, command: SolutionDraftInput) -> SolutionDraft: ...
+    async def draft_solution(self, command: SolutionDraftInput) -> SolutionDraftResult: ...
 
     async def resource_gap(
         self, *, context: NeedContext, need_id: str, reason: ResourceGapReason, detail: str

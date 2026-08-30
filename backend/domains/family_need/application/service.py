@@ -56,6 +56,28 @@ class CaptureSignalResult:
 
 
 @dataclass(frozen=True)
+class ClarifyNeedResult:
+    """Transport-safe result for N1 confirmation with replay metadata.
+
+    ``clarify_need`` keeps returning the aggregate for existing domain callers;
+    HTTP/worker adapters that need to expose idempotency use
+    ``clarify_need_result`` instead.  Replay state is deliberately kept out of
+    the FamilyNeed fact itself.
+    """
+
+    need: FamilyNeed
+    replayed: bool = False
+
+
+@dataclass(frozen=True)
+class ProfileNeedResult:
+    """Transport-safe result for N1→N2 profiling with replay metadata."""
+
+    profile: NeedProfile
+    replayed: bool = False
+
+
+@dataclass(frozen=True)
 class SolutionDraftResult:
     """N2 output: a draft and, when applicable, an explicit resource gap."""
 
@@ -95,16 +117,20 @@ class FamilyNeedApplicationService:
         self._solution_replays: dict[tuple[str, str, str], tuple[str, SolutionDraftResult]] = {}
 
     async def clarify_need(self, command: NeedClarificationInput) -> FamilyNeed:
+        """Confirm an explicit need and return its aggregate for domain callers."""
+
+        return (await self.clarify_need_result(command)).need
+
+    async def clarify_need_result(self, command: NeedClarificationInput) -> ClarifyNeedResult:
         """N1 activity: family/guardian confirms an explicit need statement."""
 
         context = command.context
-        subject_ids = command.subject_person_ids or context.subject_person_ids
-        actor_id = await self._authorize(context, subject_ids)
         need = await self._required_need(context, command.need_id)
-        assert_family_scope(need.context, context)
+        subject_ids = command.subject_person_ids or need.context.subject_person_ids
+        authorization_context = replace(context, subject_person_ids=tuple(subject_ids))
+        actor_id = await self._authorize(authorization_context, subject_ids)
+        assert_family_scope(need.context, authorization_context)
         assert_subjects_in_family(subject_ids, need.context.subject_person_ids)
-        if need.version != command.expected_version:
-            raise FamilyNeedConflictError("family_need_version_stale")
         key = self._replay_key(context, command.idempotency_key)
         fingerprint = _clarification_fingerprint(command)
         if key is not None:
@@ -112,7 +138,9 @@ class FamilyNeedApplicationService:
             if previous is not None:
                 if previous[0] != fingerprint:
                     raise FamilyNeedConflictError("family_need_idempotency_payload_mismatch")
-                return previous[1]
+                return ClarifyNeedResult(previous[1], replayed=True)
+        if need.version != command.expected_version:
+            raise FamilyNeedConflictError("family_need_version_stale")
         if need.status not in {NeedStatus.CAPTURED, NeedStatus.CLARIFYING}:
             raise FamilyNeedConflictError("family_need_not_clarifiable")
         if not command.statement.strip() or not command.desired_outcome.strip():
@@ -141,17 +169,22 @@ class FamilyNeedApplicationService:
         )
         if key is not None:
             self._clarification_replays[key] = (fingerprint, confirmed)
-        return confirmed
+        return ClarifyNeedResult(confirmed)
 
     async def profile_need(self, command: NeedProfileInput) -> NeedProfile:
+        """Create a profile and return its aggregate for domain callers."""
+
+        return (await self.profile_need_result(command)).profile
+
+    async def profile_need_result(self, command: NeedProfileInput) -> ProfileNeedResult:
         """N2 activity: classify urgency/complexity/risk without a family score."""
 
         context = command.context
-        await self._authorize(context, context.subject_person_ids)
         need = await self._required_need(context, command.need_id)
-        assert_family_scope(need.context, context)
-        if need.version != command.expected_need_version:
-            raise FamilyNeedConflictError("family_need_version_stale")
+        subject_ids = context.subject_person_ids or need.context.subject_person_ids
+        authorization_context = replace(context, subject_person_ids=tuple(subject_ids))
+        await self._authorize(authorization_context, subject_ids)
+        assert_family_scope(need.context, authorization_context)
         key = self._replay_key(context, command.idempotency_key)
         fingerprint = _profile_fingerprint(command)
         if key is not None:
@@ -159,7 +192,9 @@ class FamilyNeedApplicationService:
             if previous is not None:
                 if previous[0] != fingerprint:
                     raise FamilyNeedConflictError("family_need_idempotency_payload_mismatch")
-                return previous[1]
+                return ProfileNeedResult(previous[1], replayed=True)
+        if need.version != command.expected_need_version:
+            raise FamilyNeedConflictError("family_need_version_stale")
         try:
             urgency = NeedUrgency(command.urgency)
             complexity = NeedComplexity(command.complexity)
@@ -188,27 +223,26 @@ class FamilyNeedApplicationService:
         )
         if key is not None:
             self._profile_replays[key] = (fingerprint, profile)
-        return profile
+        return ProfileNeedResult(profile)
 
     async def draft_solution(self, command: SolutionDraftInput) -> SolutionDraftResult:
         """N2/N3 activity: compose Product/Service/Solution references only."""
 
         context = command.context
-        await self._authorize(context, context.subject_person_ids)
         need = await self._required_need(context, command.need_id)
+        subject_ids = context.subject_person_ids or need.context.subject_person_ids
+        authorization_context = replace(context, subject_person_ids=tuple(subject_ids))
+        await self._authorize(authorization_context, subject_ids)
         profile = await self._repository.get_profile(
             tenant_id=context.tenant_id, family_id=context.family_id, profile_id=command.profile_id
         )
         if profile is None:
             raise FamilyNeedConflictError("need_profile_not_found")
-        assert_family_scope(need.context, context)
+        assert_family_scope(need.context, authorization_context)
         assert_family_scope(need.context, profile.context)
         assert_subjects_in_family(
             profile.context.subject_person_ids, need.context.subject_person_ids
         )
-        profile.ensure_current(need)
-        if profile.version != command.expected_profile_version:
-            raise FamilyNeedConflictError("need_profile_version_stale")
         key = self._replay_key(context, command.idempotency_key)
         fingerprint = _solution_fingerprint(command)
         if key is not None:
@@ -217,6 +251,9 @@ class FamilyNeedApplicationService:
                 if previous[0] != fingerprint:
                     raise FamilyNeedConflictError("family_need_idempotency_payload_mismatch")
                 return replace(previous[1], replayed=True)
+        profile.ensure_current(need)
+        if profile.version != command.expected_profile_version:
+            raise FamilyNeedConflictError("need_profile_version_stale")
 
         if self._supply_port is None:
             gap = ResourceGap.now(
@@ -570,4 +607,10 @@ def _hash_payload(payload: dict) -> str:
     ).hexdigest()
 
 
-__all__ = ["CaptureSignalResult", "FamilyNeedApplicationService"]
+__all__ = [
+    "CaptureSignalResult",
+    "ClarifyNeedResult",
+    "FamilyNeedApplicationService",
+    "ProfileNeedResult",
+    "SolutionDraftResult",
+]

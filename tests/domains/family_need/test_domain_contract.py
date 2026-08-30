@@ -6,12 +6,16 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from backend.domains.family_need.application.ports import (
+    FamilyNeedApplicationPort,
     NeedClarificationInput,
     NeedProfileInput,
     NeedSignalInput,
     SolutionDraftInput,
 )
-from backend.domains.family_need.application.service import FamilyNeedApplicationService
+from backend.domains.family_need.application.service import (
+    FamilyNeedApplicationService,
+    SolutionDraftResult,
+)
 from backend.domains.family_need.domain.entities import (
     FamilyNeed,
     NeedProfile,
@@ -580,3 +584,12 @@ async def test_application_service_rejects_stale_profile_before_matching_resourc
                 component_refs=(component,),
             )
         )
+
+
+def test_application_port_declares_solution_draft_result_contract() -> None:
+    annotation = FamilyNeedApplicationPort.draft_solution.__annotations__["return"]
+    assert annotation == "SolutionDraftResult"
+    assert SolutionDraftResult.__annotations__["draft"] == "SolutionDraft | None"
+    assert SolutionDraftResult.__annotations__["resource_gap"] == "ResourceGap | None"
+    assert SolutionDraftResult.__annotations__["replayed"] == "bool"
+    assert hasattr(SolutionDraftResult, "resolved_components")

@@ -86,10 +86,7 @@ def assert_family_scope(expected: NeedContext, supplied: NeedContext) -> None:
         raise FamilyNeedForbiddenError("purpose_scope_denied")
     if not set(supplied.subject_person_ids).issubset(expected.subject_person_ids):
         raise FamilyNeedForbiddenError("subject_scope_denied")
-    if (
-        expected.data_class is DataClass.MINOR_PERSONAL_DATA
-        and supplied.data_class is not expected.data_class
-    ):
+    if expected.data_class is not supplied.data_class:
         raise FamilyNeedForbiddenError("data_class_scope_denied")
 
 
