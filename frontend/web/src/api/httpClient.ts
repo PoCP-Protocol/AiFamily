@@ -14,7 +14,7 @@ import {
 } from "./client";
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-type ClientOptions = { baseUrl?: string; fetchImpl?: FetchLike };
+type ClientOptions = { baseUrl?: string; familyId?: string; fetchImpl?: FetchLike };
 
 type DraftResponse = {
   run_id: string;
@@ -37,6 +37,30 @@ type DraftResponse = {
   };
 };
 
+type InteractionResponse = {
+  run_id: string;
+  status: "recorded" | "replayed" | "deleted";
+  interaction_ref: string;
+  idempotency_replayed: boolean;
+};
+
+type ReplayResponse = {
+  run_id: string;
+  status: "DRAFT";
+  state: string;
+  event_sequence: number;
+  deletion_state: "active" | "deleted";
+  draft_payload: Record<string, unknown> | null;
+  artifact_refs: string[];
+  entries: Array<{
+    event_id: string;
+    interaction_type: string;
+    sequence: number;
+    payload: Record<string, unknown>;
+    occurred_at: string;
+  }>;
+};
+
 const defaultOutputSchema = {
   type: "object",
   properties: {
@@ -50,9 +74,12 @@ const defaultOutputSchema = {
 export class HttpExperienceApiClient implements ExperienceApiClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: FetchLike;
+  private readonly defaultFamilyId?: string;
+  private readonly familyByRun = new Map<string, string>();
 
   constructor(options: ClientOptions = {}) {
     this.baseUrl = options.baseUrl ?? "";
+    this.defaultFamilyId = options.familyId;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
   }
 
@@ -76,31 +103,98 @@ export class HttpExperienceApiClient implements ExperienceApiClient {
       `/families/${encodeURIComponent(input.scope.family_id)}/experience/multimodal/drafts`,
       {
         method: "POST",
-        headers: { "content-type": "application/json", "x-idempotency-key": idempotencyKey },
+        headers: { "content-type": "application/json", "Idempotency-Key": idempotencyKey },
         body: JSON.stringify(body),
       },
     );
+    this.familyByRun.set(input.run_id, input.scope.family_id);
     return mapDraftResponse((await response.json()) as DraftResponse);
   }
 
-  decide(_input: DraftDecisionInput, _idempotencyKey: string): Promise<DecisionReceipt> {
-    return Promise.reject(this.unavailable());
+  async decide(input: DraftDecisionInput, idempotencyKey: string): Promise<DecisionReceipt> {
+    const familyId = this.familyForRun(input.run_id, input.family_id);
+    const body = {
+      decision: input.decision,
+      ...(input.draft_version ? { draft_version: input.draft_version } : {}),
+      ...(input.replacement_text ? { replacement_text: input.replacement_text } : {}),
+      ...(input.reason ? { reason: input.reason } : {}),
+    };
+    const response = await this.mutate<InteractionResponse>(
+      `/families/${encodeURIComponent(familyId)}/experience/multimodal/runs/${encodeURIComponent(input.run_id)}/decisions`,
+      body,
+      idempotencyKey,
+    );
+    return mapInteractionResponse(response);
   }
 
-  submitFeedback(_input: FeedbackInput, _idempotencyKey: string): Promise<FeedbackReceipt> {
-    return Promise.reject(this.unavailable());
+  async submitFeedback(input: FeedbackInput, idempotencyKey: string): Promise<FeedbackReceipt> {
+    const familyId = this.familyForRun(input.run_id, input.family_id);
+    const body = {
+      signal: input.signal,
+      ...(input.reason ? { reason: input.reason } : {}),
+      ...(input.draft_version ? { draft_version: input.draft_version } : {}),
+      ...(input.attempt_id ? { attempt_id: input.attempt_id } : {}),
+      ...(input.candidate_id ? { candidate_id: input.candidate_id } : {}),
+      ...(input.model_version ? { model_version: input.model_version } : {}),
+      ...(input.benchmark_report_ref ? { benchmark_report_ref: input.benchmark_report_ref } : {}),
+      ...(input.event_refs?.length ? { real_event_refs: input.event_refs } : {}),
+    };
+    const response = await this.mutate<InteractionResponse>(
+      `/families/${encodeURIComponent(familyId)}/experience/multimodal/runs/${encodeURIComponent(input.run_id)}/feedback`,
+      body,
+      idempotencyKey,
+    );
+    return { ...mapInteractionResponse(response), recorded: response.status === "recorded" };
   }
 
-  requestHuman(_input: HumanReviewInput, _idempotencyKey: string): Promise<HumanReviewReceipt> {
-    return Promise.reject(this.unavailable());
+  async requestHuman(input: HumanReviewInput, idempotencyKey: string): Promise<HumanReviewReceipt> {
+    const familyId = this.familyForRun(input.run_id, input.family_id);
+    const body = {
+      reason: input.reason,
+      ...(input.impact_scope ? { impact_scope: input.impact_scope } : {}),
+    };
+    const response = await this.mutate<InteractionResponse>(
+      `/families/${encodeURIComponent(familyId)}/experience/multimodal/runs/${encodeURIComponent(input.run_id)}/human-review`,
+      body,
+      idempotencyKey,
+    );
+    return mapInteractionResponse(response);
   }
 
-  deleteRun(_runId: string, _idempotencyKey: string): Promise<DeletionReceipt> {
-    return Promise.reject(this.unavailable());
+  async deleteRun(runId: string, idempotencyKey: string): Promise<DeletionReceipt> {
+    const familyId = this.familyForRun(runId);
+    const response = await this.mutate<InteractionResponse>(
+      `/families/${encodeURIComponent(familyId)}/experience/multimodal/runs/${encodeURIComponent(runId)}`,
+      {},
+      idempotencyKey,
+      "DELETE",
+    );
+    return mapInteractionResponse(response);
   }
 
-  replayRun(_runId: string): Promise<ReplaySnapshot> {
-    return Promise.reject(this.unavailable());
+  async replayRun(runId: string): Promise<ReplaySnapshot> {
+    const familyId = this.familyForRun(runId);
+    const response = await this.request(
+      `/families/${encodeURIComponent(familyId)}/experience/multimodal/runs/${encodeURIComponent(runId)}/replay`,
+      { method: "GET", headers: { accept: "application/json" } },
+    );
+    return mapReplayResponse((await response.json()) as ReplayResponse);
+  }
+
+  private familyForRun(runId: string, familyId?: string): string {
+    const resolved = familyId ?? this.familyByRun.get(runId) ?? this.defaultFamilyId;
+    if (!resolved) throw new ExperienceApiError("INVALID_INPUT", "refused", "缺少家庭范围，无法访问体验运行记录。");
+    return resolved;
+  }
+
+  private async mutate<T>(path: string, body: Record<string, unknown>, idempotencyKey: string, method = "POST"): Promise<T> {
+    if (!idempotencyKey.trim()) throw new ExperienceApiError("INVALID_INPUT", "refused", "缺少幂等键，无法提交体验动作。");
+    const response = await this.request(path, {
+      method,
+      headers: { "content-type": "application/json", "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify(body),
+    });
+    return (await response.json()) as T;
   }
 
   private async request(path: string, init: RequestInit): Promise<Response> {
@@ -114,13 +208,6 @@ export class HttpExperienceApiClient implements ExperienceApiClient {
     return response;
   }
 
-  private unavailable(): ExperienceApiError {
-    return new ExperienceApiError(
-      "PROVIDER_NOT_ADMITTED",
-      "refused",
-      "该体验动作尚未接入 Experience API，当前不会在浏览器直接调用模型。",
-    );
-  }
 }
 function estimateInputTokens(expression: string): number {
   return Math.max(1, Math.ceil(expression.length / 4));
@@ -164,6 +251,35 @@ function mapDraftResponse(response: DraftResponse): ExperienceDraft {
   };
 }
 
+function mapInteractionResponse(response: InteractionResponse): InteractionResponse {
+  return {
+    run_id: response.run_id,
+    status: response.status,
+    interaction_ref: response.interaction_ref,
+    idempotency_replayed: response.idempotency_replayed,
+  };
+}
+
+function mapReplayResponse(response: ReplayResponse): ReplaySnapshot {
+  return {
+    run_id: response.run_id,
+    status: response.status,
+    state: response.state,
+    event_sequence: response.event_sequence,
+    deletion_state: response.deletion_state,
+    draft_payload: response.draft_payload,
+    artifact_refs: response.artifact_refs,
+    entries: response.entries.map((entry) => ({
+      label: entry.interaction_type,
+      at: entry.occurred_at,
+      event_id: entry.event_id,
+      interaction_type: entry.interaction_type,
+      sequence: entry.sequence,
+      payload: entry.payload,
+    })),
+  };
+}
+
 async function mapHttpError(response: Response): Promise<ExperienceApiError> {
   let detail = "Experience API 请求被拒绝。";
   try {
@@ -177,6 +293,15 @@ async function mapHttpError(response: Response): Promise<ExperienceApiError> {
   }
   if (response.status === 403) {
     return new ExperienceApiError("SCOPE_MISMATCH", "refused", "当前家庭无权访问这次体验。");
+  }
+  if (response.status === 404) {
+    return new ExperienceApiError("RUN_NOT_FOUND", "refused", "找不到这次体验运行记录。");
+  }
+  if (response.status === 409) {
+    return new ExperienceApiError("CONFLICT", "refused", "请求幂等键与既有体验动作冲突。");
+  }
+  if (response.status === 410) {
+    return new ExperienceApiError("MEDIA_DELETED", "deleted", "这次体验已删除，无法继续访问。");
   }
   if (response.status === 503) {
     return new ExperienceApiError("PROVIDER_NOT_ADMITTED", "refused", "当前模型尚未完成家庭数据准入。");

@@ -58,7 +58,7 @@ describe("HttpExperienceApiClient", () => {
     const body = JSON.parse(String(init?.body));
 
     expect(url).toBe("https://api.example.test/families/family-1/experience/multimodal/drafts");
-    expect(init?.headers).toMatchObject({ "content-type": "application/json", "x-idempotency-key": "idem-1" });
+    expect(init?.headers).toMatchObject({ "content-type": "application/json", "Idempotency-Key": "idem-1" });
     expect(body).toMatchObject({ run_id: "run-1", modalities: ["TEXT", "IMAGE"], estimated_input_tokens: 3 });
     expect(body).not.toHaveProperty("scope");
     expect(body).not.toHaveProperty("provider_id");
@@ -83,5 +83,64 @@ describe("HttpExperienceApiClient", () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => { throw new Error("provider secret"); });
     await expect(new HttpExperienceApiClient({ fetchImpl }).createDraft(input, "idem-1"))
       .rejects.toMatchObject({ code: "TIMEOUT", status: "timeout" });
+  });
+
+  it("uses the run interaction routes and maps receipts/replay without provider calls", async () => {
+    const interaction = (status = "recorded") => ({
+      run_id: "run-1",
+      status,
+      interaction_ref: `event:${status}`,
+      idempotency_replayed: status === "replayed",
+    });
+    const fetchImpl = vi.fn<typeof fetch>(async (url, init) => {
+      const path = String(url);
+      if (path.endsWith("/drafts")) return new Response(JSON.stringify(responseBody), { status: 200 });
+      if (path.endsWith("/decisions")) return new Response(JSON.stringify(interaction()), { status: 200 });
+      if (path.endsWith("/feedback")) return new Response(JSON.stringify(interaction("replayed")), { status: 200 });
+      if (path.endsWith("/human-review")) return new Response(JSON.stringify(interaction()), { status: 200 });
+      if (path.endsWith("/runs/run-1") && init?.method === "DELETE") return new Response(JSON.stringify({ ...interaction(), status: "deleted" }), { status: 200 });
+      return new Response(JSON.stringify({
+        run_id: "run-1", status: "DRAFT", state: "SUCCEEDED", event_sequence: 2,
+        deletion_state: "active", draft_payload: { understanding: "draft" }, artifact_refs: [],
+        entries: [{ event_id: "event:feedback", interaction_type: "feedback", sequence: 2, payload: { signal: "helpful" }, occurred_at: "2026-08-30T00:00:00Z" }],
+      }), { status: 200 });
+    });
+    const client = new HttpExperienceApiClient({ baseUrl: "https://api.example.test", fetchImpl });
+    await client.createDraft(input, "idem-create");
+
+    const decision = await client.decide({ run_id: "run-1", decision: "confirm" }, "idem-decision");
+    expect(decision).toMatchObject({ status: "recorded", interaction_ref: "event:recorded", idempotency_replayed: false });
+    const feedback = await client.submitFeedback({ run_id: "run-1", signal: "helpful", event_refs: ["event:real"] }, "idem-feedback");
+    expect(feedback).toMatchObject({ status: "replayed", recorded: false, idempotency_replayed: true });
+    await client.requestHuman({ run_id: "run-1", reason: "需要人工" }, "idem-human");
+    const deleted = await client.deleteRun("run-1", "idem-delete");
+    expect(deleted.status).toBe("deleted");
+    const replay = await client.replayRun("run-1");
+    expect(replay).toMatchObject({ status: "DRAFT", state: "SUCCEEDED", event_sequence: 2 });
+    expect(replay.entries[0]).toMatchObject({ label: "feedback", event_id: "event:feedback", sequence: 2 });
+
+    const calls = fetchImpl.mock.calls;
+    expect(String(calls[1][0])).toContain("/runs/run-1/decisions");
+    expect(calls[1][1]?.headers).toMatchObject({ "Idempotency-Key": "idem-decision" });
+    expect(String(calls[2][0])).toContain("/runs/run-1/feedback");
+    expect(calls[2][1]?.headers).toMatchObject({ "Idempotency-Key": "idem-feedback" });
+    expect(calls[2][1]?.body).toContain("real_event_refs");
+    expect(String(calls[3][0])).toContain("/runs/run-1/human-review");
+    expect(calls[3][1]?.headers).toMatchObject({ "Idempotency-Key": "idem-human" });
+    expect(String(calls[4][0])).toContain("/runs/run-1");
+    expect(calls[4][1]?.headers).toMatchObject({ "Idempotency-Key": "idem-delete" });
+    expect(calls[5][1]?.method).toBe("GET");
+    expect(calls[5][1]?.headers).not.toHaveProperty("Idempotency-Key");
+  });
+
+  it.each([
+    [404, "RUN_NOT_FOUND", "refused"],
+    [409, "CONFLICT", "refused"],
+    [410, "MEDIA_DELETED", "deleted"],
+    [422, "INVALID_INPUT", "refused"],
+  ] as const)("maps run HTTP %s errors fail-closed", async (status, code, runStatus) => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ detail: "run_error" }), { status }));
+    const client = new HttpExperienceApiClient({ fetchImpl, familyId: "family-1" });
+    await expect(client.replayRun("run-1")).rejects.toMatchObject({ code, status: runStatus });
   });
 });

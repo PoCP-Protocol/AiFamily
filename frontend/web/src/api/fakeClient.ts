@@ -74,21 +74,39 @@ export class FakeExperienceApiClient implements ExperienceApiClient {
     const receipt: DecisionReceipt = {
       run_id: input.run_id,
       status: input.decision === "reject" ? "rejected" : "pending_human_confirmation",
+      interaction_ref: `synthetic-interaction:${input.run_id}:decision`,
+      idempotency_replayed: false,
     };
     this.decisions.set(input.run_id, receipt);
     return receipt;
   }
 
   async submitFeedback(input: FeedbackInput, _idempotencyKey: string): Promise<FeedbackReceipt> {
-    return { run_id: input.run_id, recorded: true };
+    return {
+      run_id: input.run_id,
+      status: "recorded",
+      interaction_ref: `synthetic-interaction:${input.run_id}:feedback`,
+      idempotency_replayed: false,
+      recorded: true,
+    };
   }
 
   async requestHuman(input: HumanReviewInput, _idempotencyKey: string): Promise<HumanReviewReceipt> {
-    return { run_id: input.run_id, status: "human_review" };
+    return {
+      run_id: input.run_id,
+      status: "human_review",
+      interaction_ref: `synthetic-interaction:${input.run_id}:human-review`,
+      idempotency_replayed: false,
+    };
   }
 
   async deleteRun(runId: string, _idempotencyKey: string): Promise<DeletionReceipt> {
-    return { run_id: runId, status: "deleted" };
+    return {
+      run_id: runId,
+      status: "deleted",
+      interaction_ref: `synthetic-interaction:${runId}:delete`,
+      idempotency_replayed: false,
+    };
   }
 
   async replayRun(runId: string): Promise<ReplaySnapshot> {
@@ -97,10 +115,16 @@ export class FakeExperienceApiClient implements ExperienceApiClient {
     }
     return {
       run_id: runId,
+      status: "DRAFT",
+      state: "SUCCEEDED",
+      event_sequence: 3,
+      deletion_state: "active",
+      draft_payload: null,
+      artifact_refs: [],
       entries: [
-        { label: "表达已接收（仅保存引用）", at: "N0" },
-        { label: "AI 理解草案生成（DRAFT）", at: "N1" },
-        { label: "等待家庭确认或人工闸门", at: "N2" },
+        { label: "表达已接收（仅保存引用）", at: "N0", event_id: `synthetic-event:${runId}:0`, sequence: 1 },
+        { label: "AI 理解草案生成（DRAFT）", at: "N1", event_id: `synthetic-event:${runId}:1`, sequence: 2 },
+        { label: "等待家庭确认或人工闸门", at: "N2", event_id: `synthetic-event:${runId}:2`, sequence: 3 },
       ],
     };
   }

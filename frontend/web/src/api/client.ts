@@ -21,6 +21,8 @@ export type ExperienceErrorCode =
   | "PROVIDER_NOT_ADMITTED"
   | "TIMEOUT"
   | "MEDIA_DELETED"
+  | "RUN_NOT_FOUND"
+  | "CONFLICT"
   | "SCOPE_MISMATCH"
   | "INVALID_INPUT";
 
@@ -112,13 +114,18 @@ export type ExperienceDraft = {
 
 export type DraftDecisionInput = {
   run_id: string;
+  family_id?: string;
   decision: "confirm" | "reject" | "rewrite";
+  draft_version?: string;
   replacement_text?: string;
+  reason?: string;
 };
 
 export type FeedbackInput = {
   run_id: string;
+  family_id?: string;
   signal: "helpful" | "not_helpful" | "request_human";
+  reason?: string;
   draft_version?: string;
   candidate_id?: string;
   model_version?: string;
@@ -127,14 +134,38 @@ export type FeedbackInput = {
   event_refs?: string[];
 };
 
-export type HumanReviewInput = { run_id: string; reason: string };
-export type DecisionReceipt = { run_id: string; status: "pending_human_confirmation" | "rejected" };
-export type FeedbackReceipt = { run_id: string; recorded: true };
-export type HumanReviewReceipt = { run_id: string; status: "human_review" };
-export type DeletionReceipt = { run_id: string; status: "deleted" };
+export type HumanReviewInput = { run_id: string; family_id?: string; reason: string; impact_scope?: string };
+export type InteractionStatus = "recorded" | "replayed" | "deleted";
+export type InteractionReceipt = {
+  run_id: string;
+  status: InteractionStatus;
+  interaction_ref: string;
+  idempotency_replayed: boolean;
+};
+export type DecisionReceipt = Omit<InteractionReceipt, "status"> & {
+  // Kept for the development fake's explicit human-gate wording.
+  status: InteractionStatus | "pending_human_confirmation" | "rejected";
+};
+export type FeedbackReceipt = InteractionReceipt & { recorded: boolean };
+export type HumanReviewReceipt = Omit<InteractionReceipt, "status"> & { status: InteractionStatus | "human_review" };
+export type DeletionReceipt = InteractionReceipt;
+export type ReplayEntry = {
+  label: string;
+  at: string;
+  event_id?: string;
+  interaction_type?: string;
+  sequence?: number;
+  payload?: Record<string, unknown>;
+};
 export type ReplaySnapshot = {
   run_id: string;
-  entries: Array<{ label: string; at: string }>;
+  status: "DRAFT";
+  state: string;
+  event_sequence: number;
+  deletion_state: "active" | "deleted";
+  draft_payload: Record<string, unknown> | null;
+  artifact_refs: string[];
+  entries: ReplayEntry[];
   benchmark?: Pick<BenchmarkMetadata, "benchmark_report_ref" | "benchmark_case_version" | "model_version" | "benchmark_gate_status">;
 };
 
