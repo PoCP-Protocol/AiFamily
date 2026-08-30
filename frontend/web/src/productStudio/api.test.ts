@@ -21,6 +21,8 @@ const demand: DemandFrameInput = {
 };
 
 const draft = {
+  draft_id: "draft-001",
+  product_definition_id: null,
   demand_id: "demand-001",
   statement: demand.statement,
   version: "1.0.0",
@@ -44,6 +46,7 @@ describe("HttpProductStudioApiClient", () => {
     expect(init?.method).toBe("POST");
     expect(init?.headers).toMatchObject({ "content-type": "application/json", "Idempotency-Key": "product-idem-1" });
     expect(result).toMatchObject({ status: "DRAFT", provenance_ref: "model-draft:demand-001" });
+    expect(result.draft_id).toBe("draft-001");
   });
 
   it("rejects non-DRAFT or provenance-less responses fail-closed", async () => {

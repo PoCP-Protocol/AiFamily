@@ -40,6 +40,8 @@ export type ProductAiProvenance = {
 export type ProductDraftResponse = {
   status: "DRAFT";
   provenance_ref: string;
+  draft_id?: string;
+  product_definition_id?: string | null;
   ai_provenance?: ProductAiProvenance;
   [key: string]: unknown;
 };
