@@ -33,15 +33,15 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 
 | Manus 结论 | 当前状态 | 当前证据与判断 | 后续动作 |
 |---|---|---|---|
-| dev_auth 无条件挂载、可任意签发会话 | **仍成立，P0** | `backend/apps/family_api/main.py` 无条件 `include_router(dev_auth_router)`。设置 `AIFAMILY_ENV=production` 后，OpenAPI 仍有 `/auth/account-session`，POST 任意 `external_ref` 返回 200，令牌过期时间为 2099 哨兵值。 | APLT/ARCH：生产 OpenAPI 删除 dev route；生产请求 404/403；使用真实身份会话和负向测试。 |
+| dev_auth 无条件挂载、可任意签发会话 | **部分成立，P0 仍阻断** | APLT-2 已在 `backend/apps/family_api/main.py` 用 `is_dev_environment()` 保护挂载；`AIFAMILY_ENV=production` 的 OpenAPI 已无 `/auth/account-session`，请求 404，test 环境仍 200。可是 `dev_wiring.py:current_environment()` 缺省仍为 `development`，unset 环境仍暴露 synthetic auth；生产也没有真实 auth/session 等价替代。 | APLT/ARCH：缺失/拼写错误环境必须 fail-closed；补真实身份会话与负向测试，保持三环境功能集合一致。 |
 | 环境默认 development、APP_ENV 与 AIFAMILY_ENV 不一致 | **仍成立，P0** | `backend/apps/family_api/dev_wiring.py:115-120` 缺少 `AIFAMILY_ENV` 时返回 `development`；仅设置 `APP_ENV=production` 仍为开发环境。 | APLT/ARCH：统一变量；缺失、拼写错误或未允许值必须 fail-closed；启动和路由负向测试。 |
-| Ruff 398、CI 红、无分支保护 | **仍成立（历史数字已过时），P1** | 当前 `uv run ruff check .` 仍失败（本地 E501 1 项）；`uv run pytest tests/architecture -q` 为 106 passed、1 skipped、4 failed；远端最新 CI run `33291355462` 仍有 I001；GitHub main branch protection 返回 404。历史“398”不再是当前计数。 | AQA/GOV/ARCH：修复 YAML、lint debt、登记漂移；CI 必跑并启用分支保护。 |
+| Ruff 398、CI 红、无分支保护 | **仍成立（历史数字已过时），P1** | 当前 `uv run ruff check . --output-format concise` 为 **3 errors**（family E501、prompt_registry SIM102/E501）；`uv run pytest tests/architecture -q` 为 106 passed、1 skipped、4 failed；远端最新 CI run `33291355462` 仍有 I001；GitHub main branch protection 返回 404。历史“398”不再是当前计数。 | AQA/GOV/ARCH：修复 YAML、lint debt、登记漂移；CI 必跑并启用分支保护。 |
 | 文档、Registry 与代码漂移 | **仍成立，P1** | `governance/DOMAIN_REGISTRY.yaml:452-453` 当前 YAML 缩进错误；`product_management` 和 `__pycache__` 触发未登记检查；`CURRENT_SYSTEM_BASELINE.md` 仍写“zero business APIs”，与当前 FastAPI 55 条路径不符。 | GOV/ARCH：修复语法和登记，建立源代码/Registry/文档快照校验；历史文档降级为非事实来源。 |
-| 移动端 46 API 与后端契约不一致 | **仍成立（46/11 数字已过时），P1** | 当前 FastAPI OpenAPI 有 55 条路径；移动端 client 仍包含 dev/test 路径。`pnpm check` 通过，但全量 Vitest 为 2 个文件、5 个失败（Registry 数量、旧 service query/body、UI-02 旧文案）。尚无 OpenAPI 导出与 client 方法、路径、JSON schema 的持续兼容检查。 | API/AFE/ARCH：生成规范并在 CI 对比 client；更新或删除陈旧库存；全量移动端绿灯。 |
+| 移动端 46 API 与后端契约不一致 | **仍成立（46/11 数字已过时），P1** | 当前 FastAPI OpenAPI 有 **61（unset/test）/57（production）** 条路径；移动端 client 仍包含 dev/test 路径。`pnpm check` 通过，但全量 Vitest **249 passed、1 skipped、5 failed**（Registry 数量、旧 service query/body、UI-02 旧文案）。尚无 OpenAPI 导出与 client 方法、路径、JSON schema 的持续兼容检查。 | API/AFE/ARCH：生成规范并在 CI 对比 client；更新或删除陈旧库存；全量移动端绿灯。 |
 | AI 只有基础设施、没有业务能力 | **已过时代码描述，风险仍成立** | 当前已有 `backend/intelligence/principal`、`human_gate`、`experience`、`knowledge` 和多项契约测试；Principal 仍输出 `DRAFT`，Model Gateway 没有获准外部 provider，`AI_USE_CASE_REGISTRY.yaml` 全部为 `PLANNED`，Context/Memory 与 Human Gate 尚未形成生产持久化和正式 HTTP 闭环。 | AAIR/ARCH：先完成一个低风险、可回放、人工确认的生产候选闭环，再把 registry 状态改为 evidence-backed。 |
 | Node/Express/tRPC/MySQL 模板越过 Python 后端边界 | **仍成立，P2** | `frontend/mobile/package.json` 和 `server/_core` 仍有 Express、tRPC、Drizzle、mysql2。它们是否是可删除模板尚未有 ADR 和边界测试；R1 规定正式业务后端为 Python/FastAPI/PostgreSQL。 | ARCH/API：做 ADR；删除或明确仅本地 UI 工具，禁止承载正式业务事实。 |
 | 公共仓库缺许可证 | **仍成立，P2** | 根目录没有 LICENSE/COPYING/SPDX，`pyproject.toml` 无许可证字段；公开远端仓库仍可访问。 | GOV/LEGAL：补 SPDX/许可证与第三方资产清单，或在发布前改私有并记录授权。 |
-| Alembic 基线/迁移链失败 | **部分成立，当前有新增 WIP** | 原报告的 `0005` 长度问题已由 `0005_fgcn_assignment_idempotency` 修复；Fresh Postgres 下 0004→0008 `test_fgcn_migration_chain.py` 2 passed，upgrade/downgrade/re-upgrade 成功且单 head。当前工作区又出现未跟踪 `database/migrations/versions/0009_ai_model_drafts.py`（0008→0009），head 变为 0009、160 表；0009 尚未登记/提交，不得视为完成。 | ADOM/AAIR/ARCH：保留 0004-0008 的固定边界（159 表），head 只允许显式映射 0008→159 或已登记 0009→160；未知 head 必须失败。维护 ORM/迁移对象清单，不得只改数字掩盖漂移。 |
+| Alembic 基线/迁移链失败 | **部分成立，当前有新增 WIP** | 原报告的 `0005` 长度问题已由 `0005_fgcn_assignment_idempotency` 修复；Fresh Postgres 下 0004→0008 `test_fgcn_migration_chain.py` 2 passed。当前工作区出现未跟踪 `0009_ai_model_drafts.py`、`0010_experience_run_interactions.py` 及 ADR-0047，`alembic heads` 为 0010；Fresh Postgres `test_alembic_baseline_applies.py` 当前 5 passed、1 failed（0010 追踪/审批拒绝），不得视为完成。 | ADOM/AAIR/ARCH：保留 0004-0008=159 固定边界；0009/0010 仅在 migration/ADR/Manifest/ORM/对象清单已提交且 Fresh Postgres 可逆后 allow-list；未知 head 必须失败。 |
 | 身份、同意、租户/家庭绑定及持久化不完整 | **仍成立，P0/P1** | service/membership/commerce production dependencies 仍在 session factory、actor/context、tenant directory 或 repository 未配置时拒绝；identity 只有 `DenyAllTenantDirectory`/`InMemoryTenantDirectory`；consent 只有无状态 gate，没有 grant store；family_need 仅 fake repository。 | PLT/DOM/DATA：实现 Account→TenantMembership→Family、Consent store、审计和真实 UoW；任何生产路由不得落到 fake。 |
 
 ## 3. 本轮独立反向审查（已发 owner，等待返工）
@@ -56,7 +56,7 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 
 ### 3.2 ADOM-5 FGCN 迁移链
 
-- **证据**：DB-01 提交 `981343b` 后 Fresh Postgres 下 `tests/database/test_alembic_baseline_applies.py` 3 passed、`tests/database/test_fgcn_migration_chain.py` 2 passed；0001 baseline、0008 固定边界与动态 head 已分层，0008=159 表。当前工作区新出现未跟踪 `database/migrations/versions/0009_ai_model_drafts.py`，head=0009、160 表；`governance/ADR/ADR-0045-durable-model-draft-provenance-registry.md` 与该 migration 均未正式提交，`MIGRATION_MANIFEST` 尚无 0009 capability 条目。
+- **证据**：DB-01 的 Fresh Postgres baseline/head 分层与 FGCN chain 曾分别 3/2 项通过；当前复测 `tests/database/test_alembic_baseline_applies.py` 为 **5 passed、1 failed**（0010 追踪/审批闸门拒绝未提交 head）。0001 baseline、0008 固定边界与动态 head 已分层，0008=159 表；当前工作区未跟踪 `0009_ai_model_drafts.py`、`0010_experience_run_interactions.py` 和 ADR-0047，head=0010，不能把 manifest 工作树行视为已完成。
 - **缺口/风险**：迁移测试显式允许 0008→159 或 0009→160，未知 head 会失败；但当前 allow-list 本身不验证 migration 文件是否已提交、ADR 是否已登记或 `MIGRATION_MANIFEST` 是否有 capability 条目，未登记的 0009 仍会改变动态 head，不能把测试通过或 WIP 文件当成发布能力。ORM、迁移对象、AI draft 数据保留/删除和生产 wiring 尚未完成。
 - **下一步与验收**：ADOM/AAIR/ARCH 必须二选一并留证：①补 ADR、`governance/MIGRATION_MANIFEST.yaml`、ORM/表/索引/CHECK 对象清单、Fresh Postgres upgrade/downgrade/re-upgrade 后再纳入 0009→160；或 ②在批准前移出/隔离 0009，恢复 0008=159 责任边界。两种路径都要求单 head、未知 head 失败，不能简单改常数。
 
@@ -82,7 +82,7 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 ### 3.6 DB-01 最新 head 漂移：0010 Experience Run Interactions
 
 - **证据**：当前 `uv run alembic heads` 输出 `0010_experience_run_interactions (head)`；未跟踪 `0009_ai_model_drafts.py` 与 `0010_experience_run_interactions.py` 均未在 `governance/MIGRATION_MANIFEST.yaml` 建立 capability 登记。0010 会给 `experience_runs` 加创建幂等/删除字段并新建 append-only interaction 表，属于 AI Runtime 数据所有权和删除语义变化。
-- **当前闸门**：DB-01 测试已显式允许 0008→159，0009 只有通过 ADR/manifest 审批才可→160；对 0010 走 unknown-head 失败，不能 skip。测试中的 `_MODEL_DRAFTS_ADR` 仍指向不存在的 `ADR-0045-ai-model-drafts.md`，真实文件名为 `ADR-0045-durable-model-draft-provenance-registry.md`，这是未来批准 0009 时会阻塞 allow-list 的测试缺陷。
+- **当前闸门**：DB-01 测试已显式允许 0008→159，0009/0010 只有 migration 文件已 tracked 且 ADR/manifest 审批完成才可 allow-list；对未追踪或未知 head 必须失败，不能 skip。`_MODEL_DRAFTS_ADR` 已修正为真实的 `ADR-0045-durable-model-draft-provenance-registry.md`；当前 0010 仍因未提交链在 downgrade/upcycle 闸门失败。
 - **风险与验收**：不能把当前 head=0010 或测试通过描述为 schema 完成。ADOM/AAIR/ARCH 必须完成 ADR、manifest capability、ORM/表/索引/CHECK/回滚/留存删除对象清单和 Fresh Postgres upgrade/downgrade/re-upgrade；或在批准前移出/隔离 0009/0010。修正 ADR path，并让 allow-list 同时验证 tracked 文件和 registry 状态；未知 head 必须失败。
 
 ### 3.7 Web Experience Client 身份契约复核
