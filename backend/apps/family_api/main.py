@@ -94,13 +94,17 @@ def create_app() -> FastAPI:
     # not-found.
     application.include_router(assessment_router, prefix="/families")
     register_assessment_exception_handlers(application)
-    # Dev-only session issuance. Mounted without a prefix because the mobile
-    # client calls `/auth/*` at the root. These four endpoints are the only way
-    # the app obtains a bearer token, so every one of the 34 UI screens depends
-    # on them — they were dropped by the four-layer refactor and restored here.
-    # Their placement in the assessment domain is a recorded architectural debt,
-    # not a design choice: see ADR-0010.
-    application.include_router(dev_auth_router)
+    # Dev/test-only session issuance. Mounted without a prefix because the
+    # synthetic mobile client calls `/auth/*` at the root. These endpoints are
+    # deliberately absent from a production app: `dev_auth` exchanges an
+    # arbitrary external_ref for a process-local bearer token and therefore is
+    # not an authentication capability. Keeping the guard at the composition
+    # root also removes the routes from production OpenAPI, rather than merely
+    # making them fail after they have been advertised. Their placement in the
+    # assessment domain is a recorded architectural debt, not a design choice:
+    # see ADR-0010.
+    if is_dev_environment():
+        application.include_router(dev_auth_router)
     # Mounting membership does NOT make it callable in production: its
     # get_repository / get_action_context / get_actor_context dependencies raise
     # by design (no session factory, and the Account → TenantMembership → Family
