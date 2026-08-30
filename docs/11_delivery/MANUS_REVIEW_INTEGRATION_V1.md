@@ -85,6 +85,12 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 - **当前闸门**：DB-01 测试已显式允许 0008→159，0009 只有通过 ADR/manifest 审批才可→160；对 0010 走 unknown-head 失败，不能 skip。测试中的 `_MODEL_DRAFTS_ADR` 仍指向不存在的 `ADR-0045-ai-model-drafts.md`，真实文件名为 `ADR-0045-durable-model-draft-provenance-registry.md`，这是未来批准 0009 时会阻塞 allow-list 的测试缺陷。
 - **风险与验收**：不能把当前 head=0010 或测试通过描述为 schema 完成。ADOM/AAIR/ARCH 必须完成 ADR、manifest capability、ORM/表/索引/CHECK/回滚/留存删除对象清单和 Fresh Postgres upgrade/downgrade/re-upgrade；或在批准前移出/隔离 0009/0010。修正 ADR path，并让 allow-list 同时验证 tracked 文件和 registry 状态；未知 head 必须失败。
 
+### 3.7 Web Experience Client 身份契约复核
+
+- **证据**：`frontend/web/src/api/httpClient.ts` 的 `ClientOptions` 只有 `baseUrl/familyId/fetchImpl`，create/decision/feedback/human/delete 请求没有 Authorization/Bearer 或 session 参数；`frontend/web/src/App.tsx` 的 production default client 也未注入 token。后端 dev resolver（`backend/apps/family_api/dev_wiring.py:_dev_experience_runtime_resolver`）从 Bearer 解析账户/家庭，production resolver 应同样完成身份、租户和同意校验。
+- **缺口/风险**：现有 Web tests 只用 fake fetch，未断言 Authorization；真实受保护运行时会 401/503。请求 body 正确剥离 scope/provider 控制字段，但仅靠 URL family_id 不能证明调用者身份，当前纵向切片与功能同构/租户红线未闭合。
+- **补测与验收**：用 synthetic app dependency + TestClient 验证无 token=401、有 token=成功、跨 family=403；Web client 注入统一 session/token，并在测试中断言 Authorization；OpenAPI/client schema parity 通过。不能恢复把 tenant/provider/scope 放回客户端 body 的旧做法。
+
 这些意见已分别发送给 ADOM-2、AFE-1，并由 Lead 转交 APLT-1、AQA-1、AGOV-1、AAIR-5。未收到返工命令和新鲜输出前，不更新为 DONE。
 
 ## 4. P0/P1/P2 执行清单
@@ -105,7 +111,7 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 | ID / owner | 任务与前置条件 | 验收证据 | 架构层 |
 |---|---|---|---|
 | QA-01 / AQA + GOV | 修 DOMAIN_REGISTRY YAML、lint debt、未登记源目录；CI 加 architecture/ruff/migration gate。 | `uv run pytest tests/architecture -q`、`uv run ruff check .` 绿；CI required checks 绿；main branch protection 生效。 | 治理、质量 |
-| CONTRACT-01 / API + AFE | 从 FastAPI 生成 OpenAPI，校验移动端方法/路径/参数/错误 schema；重建 endpoint inventory。 | CI 兼容检查；55 条路径与 client 逐项有 owner/状态；移动端全量 Vitest 0 failures。 | API、应用、体验 |
+| CONTRACT-01 / API + AFE | 从 FastAPI 生成 OpenAPI，校验移动端/Web client 方法、路径、认证头、参数/错误 schema；重建 endpoint inventory。 | CI 兼容检查；55 条路径与 client 逐项有 owner/状态，受保护请求含统一 session/token；移动端全量 Vitest 0 failures。 | API、应用、体验、安全 |
 | PERSIST-01 / DOM + DATA | service/membership/commerce/family_need repository/UoW 接入 Postgres、同意、actor、tenant 解析。 | 每域成功/拒绝/重放/删除/审计 Fresh Postgres 测试；生产路径无 fake fallback。 | 数据、领域、应用 |
 | AI-01 / AAIR + PLT | Principal→reviewed knowledge→Model Gateway→Draft→Human Gate 完成一个低风险用例；持久化 run/context/gate。 | 不直接写事实；draft/review/approve/reject/replay 可追踪；provider admission 和成本/质量记录；registry 仅凭证据升阶。 | AI、平台、合规 |
 | DATA-01 / AAIR + DATA | 将 AAIR-6 的 adapter-only durable deletion 升级为 Postgres/outbox durable job；定义文本、媒体、向量、缓存、derived projection 的级联回执。 | 重启恢复、租户隔离、幂等、租约重试、DLQ、审计 correlation 的集成测试；未完成项显式阻断。当前 `InMemoryDurableDeletionStore` 仅 CONTRACTED。 | 数据、AI、合规 |

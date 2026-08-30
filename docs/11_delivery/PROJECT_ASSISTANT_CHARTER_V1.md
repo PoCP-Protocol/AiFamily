@@ -128,5 +128,6 @@ P0 发现后立即通知 Lead，不等待下一次站会；P1 必须有本 Sprin
 4. 平台闸门（复核前）：生产 dev_auth probe 返回 200，环境缺失默认 development；结论为 `P0 NO-GO`，已立即通知 Lead 并要求 APLT/ARCH 负向测试。
 5. APLT-2 SEC-01：显式 production 负向与 test 正向测试 2 项通过；生产 dev_auth 已不在 OpenAPI，但缺失环境变量仍默认 development，且生产没有真实 auth 替代契约，结论为 `CONTRACTED / PARTIAL`，ENV-01 仍 `P0 NO-GO`。
 6. DB-01 head 复核：`uv run alembic heads` 最新为 `0010_experience_run_interactions (head)`；0009/0010 未登记，unknown head 必须阻断。测试 `_MODEL_DRAFTS_ADR` 当前文件名错误，须修正为真实 ADR 后才可能批准 0009；状态 `PARTIAL / schema drift`。
+7. Web Experience client：`httpClient.ts` 与 `App.tsx` 未注入 Authorization/session；fake fetch 测试未覆盖 401/403。后端 resolver 需要 Bearer 身份和家庭绑定，状态 `PARTIAL / P1 contract blocker`，已通知 Lead。
 
 这些记录是可追溯的审查输入，不是对 owner 的替代实现。返工完成后必须重新读取文件并运行新鲜命令，才能更新状态。
