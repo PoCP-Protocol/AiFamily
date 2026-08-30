@@ -38,10 +38,13 @@ def _app(resolver: ProductFactoryBearerActorResolver) -> FastAPI:
     app.get("/actor")(actor)
     from backend.apps.family_api.product_factory_wiring import (
         clear_product_factory_actor_resolver,
-        install_product_factory_actor_resolver,
+        install_product_factory_bearer_identity,
     )
 
-    install_product_factory_actor_resolver(resolver)
+    install_product_factory_bearer_identity(
+        resolver.session_port,
+        resolver.tenant_scope_resolver,
+    )
     app.state.clear_product_factory_actor_resolver = clear_product_factory_actor_resolver
     return app
 

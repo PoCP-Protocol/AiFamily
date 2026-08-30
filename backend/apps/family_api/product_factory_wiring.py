@@ -11,6 +11,10 @@ from __future__ import annotations
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from backend.apps.family_api.product_factory_identity import (
+    ProductFactoryBearerActorResolver,
+    TenantScopeResolver,
+)
 from backend.domains.product_intelligence.api import product_factory_routes
 from backend.domains.product_intelligence.api.dependencies import (
     ActorResolver,
@@ -19,6 +23,7 @@ from backend.domains.product_intelligence.api.dependencies import (
     configure_actor_resolver,
     configure_session_factory,
 )
+from backend.platform.identity.session_port import IdentitySessionPort
 
 
 def mount_product_factory_router(application: FastAPI) -> None:
@@ -72,10 +77,25 @@ def clear_product_factory_actor_resolver() -> None:
     clear_actor_resolver()
 
 
+def install_product_factory_bearer_identity(
+    session_port: IdentitySessionPort,
+    tenant_scope_resolver: TenantScopeResolver,
+) -> None:
+    """Compose the standard Bearer-to-ActorContext bridge for the app."""
+
+    install_product_factory_actor_resolver(
+        ProductFactoryBearerActorResolver(
+            session_port=session_port,
+            tenant_scope_resolver=tenant_scope_resolver,
+        )
+    )
+
+
 __all__ = [
     "clear_product_factory_actor_resolver",
     "clear_product_factory_session_factory",
     "install_product_factory_actor_resolver",
+    "install_product_factory_bearer_identity",
     "install_product_factory_session_factory",
     "mount_product_factory_router",
 ]
