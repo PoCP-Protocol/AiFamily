@@ -132,6 +132,26 @@ class CompilerReport(Mapping[str, CompilerCheckResult]):
     def __len__(self) -> int:
         return len(self.checks)
 
+    def to_payload(self) -> dict[str, object]:
+        """Return a stable JSON-compatible read-only-report projection.
+
+        The mapping is rebuilt in insertion order and contains only primitive
+        values. Callers may serialize it for the Web boundary without
+        exposing dataclass internals or mutating the compiler result.
+        """
+
+        return {
+            "passed": self.passed,
+            "checks": {
+                name: {
+                    "check_name": result.check_name or name,
+                    "passed": result.passed,
+                    "detail": result.detail,
+                }
+                for name, result in self.checks.items()
+            },
+        }
+
 
 CompilerResult = CompilerReport
 

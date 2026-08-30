@@ -82,6 +82,20 @@ def test_empty_catalog_fails_closed_and_aggregates_all_twelve_checks() -> None:
     assert report["check_component"].passed is False
 
 
+def test_report_to_payload_is_stable_json_projection() -> None:
+    report = ProductCompiler().compile(_product())
+    payload = report.to_payload()
+
+    assert payload["passed"] is False
+    assert list(payload["checks"]) == list(ProductCompiler.CHECKS)
+    first = payload["checks"]["check_schema"]
+    assert first["check_name"] == "check_schema"
+    assert isinstance(first["passed"], bool)
+    assert isinstance(first["detail"], str)
+    payload["checks"]["check_schema"]["detail"] = "caller mutation"
+    assert report["check_schema"].detail != "caller mutation"
+
+
 def test_complete_catalog_compiles_product_without_side_effects() -> None:
     catalog = _catalog()
     context = CompilerContext(catalog=catalog, max_cost_microusd=500, max_latency_ms=1000)
