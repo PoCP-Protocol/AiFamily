@@ -442,3 +442,12 @@ cd frontend/web; pnpm test -- --run; pnpm typecheck   22 passed；typecheck 0
 
 上述失败必须被项目助理逐轮复核；不得用抬高基线、删除测试、把 0009 WIP 偷换为已完成或将
 synthetic adapter 当真实依赖来“修绿”。
+
+### 18.2 运营 Chat 只读证据（2026-08-30）
+
+运营 Chat 回传的只读实证为 **79 passed、1 skipped、1 warning**；唯一 skip 是真实
+PostgreSQL WORM 场景，另有 Onboarding **35 passed、11 skipped**。这只能证明局部合同，
+不能覆盖平台运营闭环：S21/S24/O13 保持 `DESIGN_ONLY`，S22/S23/O12/O14 为 `PARTIAL`；
+主动欢迎、SLA/补救/回访、可信分享/组队、机构运营、发布与事故闭环均未实现。必须指派
+运营 owner，补真实 PG WORM、HTTP/权限/租户、审计/删除、通知 worker 和三环境 parity，
+再将每个场景拆为 L4/L5 输入—活动—输出—规则—异常验收；在此之前不进入生产候选。

@@ -530,6 +530,7 @@ tenant/consent。状态为 **CONTRACTED/PARTIAL，P0 BLOCKED**，生产仍 NO-GO
 | AAIR/PLT（Context） | Async/SQL Context Broker、scope/replay/delete | AAIR；`02a80c4`、`6a88625`、`6150169`、`9b10d2d` | `CONTRACTED/PARTIAL`；context 25 passed，PG probe 1 passed（create_all/同 engine）；无 Alembic/restart | Alembic/ORM/Consent durable、真正重启/并发/删除 receipts、production resolver |
 | AAIR/EVAL（Experience/评测） | SQL ledger/session、benchmark ref、唯一 AI gate | AAIR/API；`941feae`、`a11f643`、`96905db`、`69f6508`、`674b764`、`050361f`、`b3fffbb`、`5df865e`、`eb33c06` | `CONTRACTED/PARTIAL`；eval+experience 220 passed/1 warning；双 gate、registry lookup、真实 auth/PG/audit/outbox 缺 | 冻结扩张；合并唯一 `AiReleaseGate`+EvalReport registry；接可信 ActorContext/Consent/PG transaction |
 | MEMBERSHIP-01 | Entitlement/Contribution/Settlement 合同 | DOM；`0ca62d2` | `CONTRACTED/PARTIAL`；Fresh PG membership 50 passed/1 warning；生产 API/身份/consent/结算审计缺 | 真实 HTTP+PG、退款/争议/删除回执；账本分离、无家庭总分/排名 |
+| 运营 Chat（只读回传，标题/commit 未提供） | S21/S24/O13 运营触达、S22/S23/O12/O14 运营服务与事故闭环 | 运营 Chat；无可追踪 commit（只读证据） | `PARTIAL/DESIGN_ONLY`；79 passed/1 skipped/1 warning；唯一 skip 为真实 PG WORM；Onboarding 35/11 skipped；未证明主动欢迎、SLA/补救/回访、可信分享/组队、机构运营或发布事故闭环 | 指派运营 owner；补真实 PG WORM、HTTP/权限/租户/审计/删除和通知 worker；将 DESIGN_ONLY 场景拆成 L4/L5→对象/API/UI/运营队列验收，未完成不得升生产 |
 
 ## 8. 纠偏后的迭代设计
 
