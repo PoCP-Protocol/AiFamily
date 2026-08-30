@@ -43,7 +43,7 @@ superseded_by: null
 - 扫描 P0 红线（dev_auth、环境 fail-closed、fake production wiring、身份/同意/租户绑定）；
 - 运行 `uv run pytest tests/architecture -q`、`uv run ruff check .` 及受影响专项测试；
 - 对迁移运行 upgrade/downgrade/re-upgrade 和 `alembic heads`；
-- 对迁移维护显式 head allow-list：当前责任边界为 0004-0008（159 表）；任何 0009+ revision 必须先完成 ADR、Migration Manifest、ORM/对象清单和 Fresh Postgres 证据，未知 head 直接失败；
+- 对迁移维护显式 head allow-list：当前责任边界为 0004-0008（159 表）；任何 0009+ revision（当前已发现 0009/0010）必须先完成 ADR、Migration Manifest、ORM/对象清单和 Fresh Postgres 证据，allow-list 还必须验证 migration 文件已 tracked 且 ADR 路径真实存在，未知或未登记 head 直接失败；
 - 抽查 OpenAPI、移动端 client、Registry 和文档是否漂移；
 - 对新 AI 能力检查 Model Gateway、draft、human gate、审计、评测和删除回执。
 
@@ -127,5 +127,6 @@ P0 发现后立即通知 Lead，不等待下一次站会；P1 必须有本 Sprin
 3. AAIR-5/6：删除 worker 7 项、durable deletion 契约 6 项通过；Fresh `tests/intelligence/context_engine` 为 18 passed，敏捷计划旧记录“13 passed”已校正。`InMemoryDurableDeletionStore.production_ready=False`，无 Postgres/outbox 和真实 projection cascade，结论为 `CONTRACTED / adapter-only / RELEASE BLOCKED`，已通知 AAIR/Lead。
 4. 平台闸门（复核前）：生产 dev_auth probe 返回 200，环境缺失默认 development；结论为 `P0 NO-GO`，已立即通知 Lead 并要求 APLT/ARCH 负向测试。
 5. APLT-2 SEC-01：显式 production 负向与 test 正向测试 2 项通过；生产 dev_auth 已不在 OpenAPI，但缺失环境变量仍默认 development，且生产没有真实 auth 替代契约，结论为 `CONTRACTED / PARTIAL`，ENV-01 仍 `P0 NO-GO`。
+6. DB-01 head 复核：`uv run alembic heads` 最新为 `0010_experience_run_interactions (head)`；0009/0010 未登记，unknown head 必须阻断。测试 `_MODEL_DRAFTS_ADR` 当前文件名错误，须修正为真实 ADR 后才可能批准 0009；状态 `PARTIAL / schema drift`。
 
 这些记录是可追溯的审查输入，不是对 owner 的替代实现。返工完成后必须重新读取文件并运行新鲜命令，才能更新状态。

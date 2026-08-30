@@ -79,6 +79,12 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 - **功能同构风险**：生产现在返回 404，而 dev/test 使用 `/auth/account-session`，尚无真实认证替代端点。安全负向测试正确，但必须由 ARCH/PLT 明确同路径真实认证契约或 ADR 记录端点差异；“删除生产功能”不能作为测试/生产阉割。
 - **附带质量债**：创建 app 时仍出现 service journey duplicate operation ID warning，应由 API/ARCH 纳入 OpenAPI 契约闸门。
 
+### 3.6 DB-01 最新 head 漂移：0010 Experience Run Interactions
+
+- **证据**：当前 `uv run alembic heads` 输出 `0010_experience_run_interactions (head)`；未跟踪 `0009_ai_model_drafts.py` 与 `0010_experience_run_interactions.py` 均未在 `governance/MIGRATION_MANIFEST.yaml` 建立 capability 登记。0010 会给 `experience_runs` 加创建幂等/删除字段并新建 append-only interaction 表，属于 AI Runtime 数据所有权和删除语义变化。
+- **当前闸门**：DB-01 测试已显式允许 0008→159，0009 只有通过 ADR/manifest 审批才可→160；对 0010 走 unknown-head 失败，不能 skip。测试中的 `_MODEL_DRAFTS_ADR` 仍指向不存在的 `ADR-0045-ai-model-drafts.md`，真实文件名为 `ADR-0045-durable-model-draft-provenance-registry.md`，这是未来批准 0009 时会阻塞 allow-list 的测试缺陷。
+- **风险与验收**：不能把当前 head=0010 或测试通过描述为 schema 完成。ADOM/AAIR/ARCH 必须完成 ADR、manifest capability、ORM/表/索引/CHECK/回滚/留存删除对象清单和 Fresh Postgres upgrade/downgrade/re-upgrade；或在批准前移出/隔离 0009/0010。修正 ADR path，并让 allow-list 同时验证 tracked 文件和 registry 状态；未知 head 必须失败。
+
 这些意见已分别发送给 ADOM-2、AFE-1，并由 Lead 转交 APLT-1、AQA-1、AGOV-1、AAIR-5。未收到返工命令和新鲜输出前，不更新为 DONE。
 
 ## 4. P0/P1/P2 执行清单
@@ -92,7 +98,7 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 | SEC-01 / APLT-1 + ARCH-1 | 移除生产 dev_auth；先统一真实会话/身份端口，再保留 dev/test synthetic 适配器。 | production `app.openapi()` 无 `/auth/account-session`；POST 返回 404/403；任意 external_ref 不可换 token；dev/test 功能路径仍同构。 | 平台安全、应用、数据治理 |
 | ENV-01 / APLT-1 | 统一 `AIFAMILY_ENV`（或 ADR 指定唯一变量），缺失/拼写错误/非法值 fail-closed，启动时拒绝错误 wiring。 | 未设置或 `APP_ENV` 单独设置时启动失败；production wiring 不含 fake；dev/test 明确 synthetic data_class；环境 parity 测试通过。 | 平台、部署、治理 |
 | ID-01 / PLT + DOM | 实现 Account→TenantMembership→Family 绑定、会话撤销、tenant 状态和主体授权；接入 Consent grant store、withdraw/expiry 即时生效。 | Fresh Postgres CRUD、跨租户负向测试、撤销/过期测试、审计记录；所有生产依赖不再 RuntimeError/DenyAll。 | 身份、租户、业务数据、合规 |
-| DB-01 / ADOM + DATA + AAIR | 处理 migration 0004-0008 与未跟踪 0009 的边界；补 ORM/迁移清单和回滚契约。 | upgrade/downgrade/re-upgrade、单 head；baseline/0008 测试全绿（0008=159）；0009 只有在 manifest/ADR/模型清单登记后才可作为 head（0009=160），未知 head 失败。 | 数据、领域、交付、AI |
+| DB-01 / ADOM + DATA + AAIR | 处理 migration 0004-0008 与未跟踪 0009/0010 的边界；补 ORM/迁移清单和回滚契约。 | upgrade/downgrade/re-upgrade、单 head；baseline/0008 测试全绿（0008=159）；0009=160 或 0010 新计数只有在 manifest/ADR/模型清单登记后才可作为 head，未知/未登记 head 失败。 | 数据、领域、交付、AI |
 
 ### P1（本迭代必须完成）
 
@@ -120,7 +126,7 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 
 1. SEC-01、ENV-01：生产负向 OpenAPI/404/启动测试，P0 每日复验。
 2. QA-01：修 Registry 语法和登记，清零 Ruff/architecture 红灯，启用 CI required checks。
-3. DB-01：明确 baseline/0008/head，Fresh Postgres 迁移可逆；冻结未经登记的 schema 改动，特别是 `0009_ai_model_drafts.py`。
+3. DB-01：明确 baseline/0008/head，Fresh Postgres 迁移可逆；冻结未经登记的 schema 改动，特别是 `0009_ai_model_drafts.py` 与 `0010_experience_run_interactions.py`。
 4. ID-01 起步：会话、tenant、family、consent 数据模型和审计事件；禁止用 fake 结果替代接口。
 5. AFE/AAIR 返工验收：全量移动端测试和删除 worker adapter-only 声明。
 
