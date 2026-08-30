@@ -227,25 +227,6 @@ pnpm check                                  passed
 - 当前分支的测试数量与并发 WIP 会随工作区写入变化，所有数字以本轮实际命令输出为准，不能把
   缓存报告当成验收证据。
 
-## 15. Sprint 2：平台能力与服务协作 P0（进行中）
-
-本 Sprint 仍以“可验证的闭环能力”为单位，不以目录数量或 UI 数量作为完成标准：
-
-| 任务 | Owner | 独占战场 | 验收目标 |
-|---|---|---|---|
-| ADOM-3 / FGCN 持久化 | ADOM-2 | `backend/domains/service/fgcn/**`、`tests/domains/service/fgcn/**`、P0 migration | ServiceCase/Task/Delivery/Quality/Contribution 可持久化；终态不可逆；贡献只来自已验证交付 |
-| AAIR-3 / Context Broker | AAIR-2 | `backend/intelligence/context_engine/**` 及其测试 | 租户/家庭/主体/用途/同意/数据分类/来源/过期/删除约束；最小只读投影；拒绝越权和撤回数据 |
-| AFE-2 / 跨端能力适配 | AFE-1 | `frontend/mobile/lib/platform-capabilities/**`、专项 Vitest | Android/iOS/HarmonyOS/小程序共享 capability contract；媒体、通知、分享、支付、存储通过 adapter 隔离平台差异 |
-| Lead / 集成与治理 | ARCH-1 | `docs/11_delivery/**`、集成测试、发布脚本 | 不吞并并发 WIP；复测全量闸门；补登记/债务；提交并推送功能分支 |
-
-### Sprint 2 完成定义
-
-- FGCN 通过成功、拒绝、重放、幂等和终态不可逆测试；
-- Context Broker 通过跨租户、过期、撤回、删除和不可变投影测试；
-- 移动端 capability contract 通过四平台矩阵和不可用/拒绝/降级状态测试；
-- dev/test/prod 接口、错误码、状态机和安全闸门相同，只有数据和外部适配器配置可不同；
-- 全量架构测试与 Ruff 不新增错误；所有未解决债务进入本计划，不以“fixture 有数据”宣称完成。
-
 ## 14. Sprint 1 并行开发评审（2026-08-30）
 
 ### 已交付的三条战线
@@ -266,3 +247,22 @@ pnpm check                                  passed
   Outbox；当前只能标记 `PARTIAL`，不能宣称“法咪莉校长已上线”。
 - 架构测试另发现并发 WIP 新增 `backend/intelligence/product_management/` 尚未在
   `MIGRATION_MANIFEST.yaml` 登记；该目录不属于本 Sprint 三条战线，待其 owner 处理。
+
+## 15. Sprint 2：平台能力与服务协作 P0（进行中）
+
+本 Sprint 仍以“可验证的闭环能力”为单位，不以目录数量或 UI 数量作为完成标准：
+
+| 任务 | Owner | 独占战场 | 验收目标 |
+|---|---|---|---|
+| ADOM-3 / FGCN 持久化 | ADOM-2 | `backend/domains/service/fgcn/**`、`tests/domains/service/fgcn/**`、P0 migration | ServiceCase/Task/Delivery/Quality/Contribution 可持久化；终态不可逆；贡献只来自已验证交付 |
+| AAIR-3 / Context Broker | AAIR-2 | `backend/intelligence/context_engine/**` 及其测试 | 租户/家庭/主体/用途/同意/数据分类/来源/过期/删除约束；最小只读投影；拒绝越权和撤回数据 |
+| AFE-2 / 跨端能力适配 | AFE-1 | `frontend/mobile/lib/platform-capabilities/**`、专项 Vitest | Android/iOS/HarmonyOS/小程序共享 capability contract；媒体、通知、分享、支付、存储通过 adapter 隔离平台差异 |
+| Lead / 集成与治理 | ARCH-1 | `docs/11_delivery/**`、集成测试、发布脚本 | 不吞并并发 WIP；复测全量闸门；补登记/债务；提交并推送功能分支 |
+
+### Sprint 2 完成定义
+
+- FGCN 通过成功、拒绝、重放、幂等和终态不可逆测试；
+- Context Broker 通过跨租户、过期、撤回、删除和不可变投影测试；
+- 移动端 capability contract 通过四平台矩阵和不可用/拒绝/降级状态测试；
+- dev/test/prod 接口、错误码、状态机和安全闸门相同，只有数据和外部适配器配置可不同；
+- 全量架构测试与 Ruff 不新增错误；所有未解决债务进入本计划，不以“fixture 有数据”宣称完成。
