@@ -389,7 +389,7 @@ export default function GrowthExplanationScreen() {
         ) : null}
         {!result ? (
           <View style={styles.emptyPage}>
-            <Text style={styles.emptyKicker}>AI 家庭理解</Text>
+            <Text style={styles.emptyKicker}>家庭理解</Text>
             <Text style={[styles.emptyTitle, { color: colors.text }]}>
               {unavailableText}
             </Text>
@@ -421,7 +421,7 @@ export default function GrowthExplanationScreen() {
                   今晚，先让这件事轻一点
                 </Text>
                 <Text style={styles.heroText}>
-                  {result.subject.display_name} · {result.title} · 先试一小步，再看有没有变化
+                  {result.subject.display_name} · 围绕这件家庭小事，先试一小步，再看有没有变化
                 </Text>
               </View>
             </View>
@@ -485,7 +485,7 @@ export default function GrowthExplanationScreen() {
               <Text style={styles.sectionLabel}>今天可以尝试的一小步</Text>
               <Text style={styles.nextStepTitle}>{firstRecommendation}</Text>
               <Text style={styles.nextStepText}>
-                先做这一步，之后再由你决定要不要继续。
+                先做这一步，由你确认后再继续。
               </Text>
             </View>
 
