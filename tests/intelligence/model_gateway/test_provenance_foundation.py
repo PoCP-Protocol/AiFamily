@@ -9,6 +9,7 @@ import pytest
 
 from backend.intelligence.model_gateway.contracts import AiProvenance, TokenUsage
 from backend.intelligence.model_gateway.provenance import (
+    ModelDraftIdentity,
     ModelGatewayProvenance,
     build_provenance,
 )
@@ -30,6 +31,19 @@ def _required_kwargs() -> dict[str, object]:
 
 def test_facade_reuses_the_canonical_gateway_type() -> None:
     assert ModelGatewayProvenance is AiProvenance
+
+
+def test_model_draft_identity_derives_stable_refs_from_run_id() -> None:
+    identity = ModelDraftIdentity.from_run_id(" run-42 ")
+
+    assert identity.draft_id == "draft:run-42"
+    assert identity.provenance_ref == "model-draft:run-42"
+
+
+@pytest.mark.parametrize("run_id", ["", " ", "x" * 129])
+def test_model_draft_identity_rejects_invalid_run_id(run_id: str) -> None:
+    with pytest.raises(ValueError):
+        ModelDraftIdentity.from_run_id(run_id)
 
 
 def test_factory_builds_the_canonical_complete_record() -> None:
