@@ -47,6 +47,7 @@ from backend.intelligence.model_gateway.provenance import (
 
 ScopeResolver = Callable[[str], ContextScope | Awaitable[ContextScope]]
 DraftSubjectResolver = Callable[[ContextScope], str | None]
+PRODUCTION_ENVIRONMENTS = frozenset({"staging", "production"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,8 +137,15 @@ class ProductionExperienceRuntimeResolver(MultimodalDraftRuntimeResolver):
             raise TypeError("gateway must be a ModelGateway")
         if not isinstance(self.router, MultimodalRouter):
             raise TypeError("router must be a MultimodalRouter")
-        if not isinstance(self.context_broker, ContextBroker):
-            raise TypeError("context_broker must be a ContextBroker")
+        if not all(
+            callable(getattr(self.context_broker, method_name, None))
+            for method_name in ("snapshot", "read")
+        ):
+            raise TypeError("context_broker must implement snapshot() and read()")
+        if self.environment not in PRODUCTION_ENVIRONMENTS:
+            raise ValueError(
+                "production experience resolver environment must be staging or production"
+            )
         if self.model_draft_subject_resolver is not None and not callable(
             self.model_draft_subject_resolver
         ):

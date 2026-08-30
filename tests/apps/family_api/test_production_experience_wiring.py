@@ -30,7 +30,7 @@ from backend.intelligence.model_gateway.providers.fake import FakeProvider
 
 @pytest.fixture
 async def production_runtime():
-    environment = "development"
+    environment = "staging"
     provider_id = "fake-production-contract"
     provider = FakeProvider(
         {"family-image-summary": {"headline": "已生成", "next_step": "请确认"}},

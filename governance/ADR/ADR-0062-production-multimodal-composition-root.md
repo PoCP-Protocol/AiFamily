@@ -33,8 +33,9 @@ session 放进全局 resolver，会造成连接泄漏；若每个请求重新构
 3. 每次生成使用短生命周期 `AsyncSession`，在同一事务中保存 SQL ModelDraft
    与 provenance；ExperienceRun 使用 `SessionPerCallExperienceRunLedger`，并
    通过 `AsyncExperienceRunLedgerBridge` 暴露给 HTTP。
-4. 组合根拒绝 `test` 环境、synthetic scope、跨家庭 scope 和缺失的多主体
-   ModelDraft subject；生产配置缺失仍由 HTTP resolver 返回 503。
+4. 组合根只接受 `staging` / `production` 环境，拒绝 `test` 和其他未声明环境、
+   synthetic scope、跨家庭 scope 和缺失的多主体 ModelDraft subject；生产配置缺失
+   仍由 HTTP resolver 返回 503。
 5. 所有结果保持 `DRAFT`，人工确认和 Named Action 仍是后续边界，不因生产 wiring
    而自动写入任何领域事实。
 
@@ -78,7 +79,8 @@ session 放进全局 resolver，会造成连接泄漏；若每个请求重新构
 ### 需要接受的风险
 
 - ContextBroker 当前仍由注入实现决定是否持久化；生产部署必须提供满足保留/删除要求
-  的实现，不能把进程内 broker 当作跨进程事实库。
+  的实现，不能把进程内 broker 当作跨进程事实库。组合根只依赖 `snapshot()` /
+  `read()` 端口，不会偷偷替换成内存实现。
 
 ## Enforcement
 
