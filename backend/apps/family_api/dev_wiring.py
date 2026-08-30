@@ -61,7 +61,7 @@ from __future__ import annotations
 import os
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from fastapi import FastAPI, Header, HTTPException
 
@@ -122,6 +122,32 @@ _repository = FakeServiceRepository()
 # necessary but never presentable as an AI capability.
 _assessment_repository = FakeAssessmentRepository()
 _assessment_interpretation = DeterministicInterpretationAdapter()
+
+
+def _dev_subject_person_id(family_id: str) -> str:
+    """Return the stable synthetic child id for one dev family."""
+    return str(uuid5(NAMESPACE_URL, f"dev-child:{family_id}"))
+
+
+def _seed_dev_subject(family_id: str) -> None:
+    """Seed one consented, explicitly synthetic child per dev family.
+
+    The deterministic id makes repeated authenticated requests idempotent and
+    keeps subjects isolated between families.  The child is never selected from
+    request data: it is derived only from the already-authenticated family.
+    """
+    subject_person_id = _dev_subject_person_id(family_id)
+    subjects = _assessment_repository.subjects.setdefault(family_id, [])
+    if any(subject["person_id"] == subject_person_id for subject in subjects):
+        return
+
+    _assessment_repository.seed_subject(
+        family_id,
+        subject_person_id,
+        "Synthetic Child (fixture_only)",
+        consent_granted=True,
+    )
+    subjects[-1].update({"data_class": "SYNTHETIC", "fixture_only": True})
 
 
 class _DevConsentQuery:
@@ -290,6 +316,7 @@ async def _dev_family_context(
     _assessment_repository.grant_family_manage_permission(
         family_id, person_id, role="OWNER_GUARDIAN"
     )
+    _seed_dev_subject(family_id)
 
     return assessment_deps.FamilyContext(
         tenant_id=tenant_id,
