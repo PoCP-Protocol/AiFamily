@@ -198,9 +198,9 @@ Sprint 1 未完成前，不宣称“法咪莉校长已上线”或“家庭需�
 ### 验证记录（阶段复盘复测）
 
 ```text
-uv run pytest -q                         810 passed, 44 skipped, 2 known gate failures
+uv run pytest -q                         819 passed, 44 skipped, 2 known gate failures
 uv run pytest tests/architecture -v       108 passed, 1 skipped, 2 known gate failures
-uv run pytest tests/intelligence -q        225 passed
+uv run pytest tests/intelligence -q        229 passed
 uv run pytest tests/apps/family_api -q      17 passed, 1 skipped
 pnpm exec vitest run（UI-03/05/09）          27 passed
 pnpm check                                  passed
@@ -280,6 +280,6 @@ pnpm check                                  passed
 - **AAIR-4 Principal 上下文接线：PARTIAL**。注入 ContextBroker 时已按路由决定构造完整作用域，
   只读 projection 在模型调用前完成边界校验；未注入 broker 的兼容路径显式返回
   `CONTEXT_PROJECTION_UNAVAILABLE`，真实持久化 Broker、Human Gate 和删除 Worker 仍待接入。
-- 本轮复测：全量 `810 passed, 44 skipped, 2 known gate failures`；架构 `108 passed, 1 skipped,
-  2 failures`；AI `225 passed`；Family API `17 passed, 1 skipped`；移动端 `pnpm check` 通过。
+- 本轮复测：全量 `819 passed, 44 skipped, 2 known gate failures`；架构 `108 passed, 1 skipped,
+  2 failures`；AI `229 passed`；Family API `17 passed, 1 skipped`；移动端 `pnpm check` 通过。
   两个闸门失败均为并发 WIP 的 Ruff 债务和未登记 `product_management` 目录，不由本 Sprint 越界吸收。
