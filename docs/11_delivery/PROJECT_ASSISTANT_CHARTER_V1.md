@@ -130,5 +130,6 @@ P0 发现后立即通知 Lead，不等待下一次站会；P1 必须有本 Sprin
 6. DB-01 head 复核：`uv run alembic heads` 最新为 `0010_experience_run_interactions (head)`；0009/0010/ADR-0047 尚未 git-tracked，unknown 或未提交 head 必须阻断。当前 Fresh Postgres 迁移测试 5 passed、1 failed，失败正是 0010 审批闸门；0009/0010 只有完成 ADR、Manifest、ORM/对象清单和可逆实证后才允许 allow-list，状态 `PARTIAL / schema drift`。
 7. Web Experience client：`httpClient.ts` 与 `App.tsx` 未注入 Authorization/session；fake fetch 测试未覆盖 401/403。后端 resolver 需要 Bearer 身份和家庭绑定，状态 `PARTIAL / P1 contract blocker`，已通知 Lead。
 8. async Experience ledger bridge（b74b29f）：同步/异步 dispatch、durable lifecycle delegation 与 SQLite 幂等/删除/重放定向测试当前 14 passed；但 `AsyncExperienceRunLedgerBridge`/`SqlAlchemyExperienceRunLedger` 尚未接入生产 composition root，production resolver 仍 503，故状态 `CONTRACTED / PARTIAL / P1`。必须补 AsyncSession+事务 outbox/audit wiring、HTTP 401/403/跨租户/并发/restart replay 和外部删除回执后，才可提升集成等级。
+9. FGCN a031007：Human Gate accepted Named Action→TaskAssignment 唯一写入者、scope/consent/correlation/human actor、request-id 幂等和同事务审计已通过真实 Postgres `test_persistence.py` + `test_workflow_worker.py` **23 passed**，迁移链 0004-0006 **2 passed**。但当前只是 one-shot worker，缺常驻 queue/lease/通知/DLQ、生产 identity/consent/session 接线及资源/质量/贡献结算，故 `GO（测试切片）/NO-GO（生产）`，不升级 FGCN 为完整商业能力。
 
 这些记录是可追溯的审查输入，不是对 owner 的替代实现。返工完成后必须重新读取文件并运行新鲜命令，才能更新状态。

@@ -56,7 +56,7 @@ superseded_by: null
 
 | 层 | 商业/设计目标 | 当前实现与证据 | 偏移、严重度、判定 |
 |---|---|---|---|
-| 业务架构 | 家庭教育为入口，拓展家庭需求服务/产品/方案；家庭拥有数据、AI 不替人；六引擎形成情绪→成长→经济价值闭环；S01-S24/O01-O14 有唯一边界 | 业务文档已完整定义 Fact/Perspective/Recommendation/Action/Outcome、FGCN、三层价值网络和 24+14 场景；代码只形成 S04 测评、N0-N1 Need 首片及部分服务/商品读写 | **业务设计完整，运行兑现不足，P1**。S07/S08/S09、FGCN 完整交付、支付/社区/运营大部分未实现；不能以 34 UI 或路由存在代替闭环 |
+| 业务架构 | 家庭教育为入口，拓展家庭需求服务/产品/方案；家庭拥有数据、AI 不替人；六引擎形成情绪→成长→经济价值闭环；S01-S24/O01-O14 有唯一边界 | 业务文档已完整定义 Fact/Perspective/Recommendation/Action/Outcome、FGCN、三层价值网络和 24+14 场景；代码形成 S04 测评、N0-N1 Need 首片及 FGCN Named Action→Assignment 片段 | **业务设计完整，运行兑现不足，P1**。S07/S08/S09、FGCN 常驻交付/质量、支付/社区/运营大部分未实现；不能以 34 UI 或路由存在代替闭环 |
 | 流程架构 | L0 VS-01…VS-05 → L1 P01…P06 → L2 S/O → L3 子流程 → L4 节点 → L5 API/Command/Event/Job/Human Task，异常可退出、可重放、可接管 | 目录已列出 L0-L5；S04 节点有 Handler/SQL/fake/幂等；S05/S06 只有部分；S07 action worker、S14 dispute、S20 deletion、O05/O09/O12/O14 等仍无完整执行器 | **流程“画出来”多于“跑起来”，P1**。每个 L4 必须绑定输入/活动/输出/规则/异常/owner/API/数据/测试，缺一只能 PARTIAL |
 | 数据架构 | 主数据与业务数据分离；租户/locale/主体/同意/删除/审计贯穿；Postgres 事实、事件和投影可重放；Family Context/Growth Graph 让平台长期懂家庭 | Alembic baseline、Assessment/Growth/Journey/FGCN 部分表及 outbox 存在；数据目录覆盖目标对象和关系；Family Context、三类记忆、embedding、删除证明仍无 durable production runtime；当前 head 0010 WIP 未追踪 | **P0/P1**：家庭记忆与跨会话图谱为独占区空白；0009/0010 未提交且 manifest 变更未形成可信链；`product_intelligence` ORM/迁移漂移及公共 schema 目标态未落地 |
 | 应用架构 | A0-A6 分层，唯一应用服务和写入者；Family API、Web、Android/iOS/Harmony/小程序同一契约；dev/test/prod 功能同构 | FastAPI 已挂 assessment、journey、service、commerce、membership、family-need、FGCN、experience；OpenAPI 生产 57 paths；Web client 21 tests；mobile 34 UI 可渲染 | **P0/P1**：生产身份/同意/租户链未完整接线；experience 默认 resolver 503；Web 请求无 Authorization；mobile 五个失败；service journey duplicate operationId；多端 parity 尚无一套 CI 闸门 |
@@ -69,7 +69,7 @@ superseded_by: null
 | 拼多多式增长 | 低门槛测评、挑战/裂变、让用户带来用户 | UI-01/15/16、部分邀请/商城 fixture | 体验入口存在；真实邀请、单层激励、反伪造进度和归因账本未闭环，不能生成虚假拼团数字 |
 | 字节式算法分发 | 用户画像、行为反馈、内容/服务精准匹配 | deterministic assessment、部分 recommendations、feature/experiment 契约 | 跨会话 Family Context/Growth Graph 尚空白；无生产检索、事件指标和可解释推荐链 |
 | 海底捞式服务 | 情绪价值优先、即时响应、真人兜底、复购 | service booking/records、FGCN Human Gate 契约、UI-05/19-24 | 预约子链和控制面是 PARTIAL；客服队列、SLA、质量恢复、常驻 worker、真实身份/资源未完成 |
-| 贝壳式 ACN/FGCN | 一客一案、一案一管家、一任务一责任、验收贡献 | FGCN schema/one-shot worker/Named Action 测试 | 业务设计正确，内存编排和缺生产 session/worker/贡献结算；应与挂牌预约模型做 ADR 融合，不得两套写入者并存 |
+| 贝壳式 ACN/FGCN | 一客一案、一案一管家、一任务一责任、验收贡献 | FGCN schema、a031007 durable Named Action→TaskAssignment、one-shot worker、Postgres chain 测试 | P0 assignment writer 已形成；仍缺常驻 queue/lease/通知/DLQ、生产 session/consent、返工/质量/贡献结算；应与挂牌预约模型做 ADR 融合，不得两套写入者并存 |
 | 教育长期陪伴 | 21 天→90 天→年度服务，结果沉淀和复购 | Journey plan/phase 部分，UI-04/05/08 | 今日任务、结项、Outcome、年度回读和会员续购未闭环；不能将静态文案当长期陪伴 |
 | 游戏化体验 | 情绪价值、节奏、成就、反馈，非家庭排名 | mobile achievement/view-model 契约、部分 UI 美化 | 有成就轨道和多模态接口，但 UI-03 score/peer_reference、Lv.3/伪造进度等历史债仍需清除；应使用证据绑定成就，不做总分/排名 |
 
@@ -201,8 +201,39 @@ lifecycle 的 adapter 直接委托 preflight/finalize，避免原先仅靠进程
 4. PMA-1 的历史文档已记录 dev_auth、Ruff、Registry、mobile/Web gaps；本评审新增了应用/
    AI/商业/流程/数据的交叉断点，不得只修一个测试而忽略链路。
 5. WIP `backend/intelligence/product_management`、`prompt_registry`、多项 ADR/迁移、
-   frontend/mobile 新目录大量未登记/未提交；任何“完成”必须同时更新 owner、Manifest、ADR、
-   测试和可回滚证据，不能靠目录出现推断完成。
+frontend/mobile 新目录大量未登记/未提交；任何“完成”必须同时更新 owner、Manifest、ADR、
+测试和可回滚证据，不能靠目录出现推断完成。
+
+### 7.1 a031007 FGCN Human Gate→durable worker 复核
+
+`a031007 feat: connect human gate actions to durable FGCN worker` 的范围是窄而正确的：
+`execute_task_assignment_named_action` 成为唯一将 accepted `NamedActionRequest` 转为
+`TaskAssignment` 的应用命令；它重新校验 tenant/family/subject/purpose/consent/correlation
+scope、真人 actor、任务/案件终态和单责任人约束，以 source request id 幂等，并把 Assignment、
+Task/Case 状态和 AuditRecorder 放进同一个 repository commit。`consume_accepted_human_task`
+只消费 `DECIDED + action_request`，不直连模型或支付。
+
+实测证据：`uv run pytest tests/domains/service/fgcn/test_persistence.py
+tests/domains/service/fgcn/test_workflow_worker.py -q` 在真实
+`AIFAMILY_TEST_DATABASE_URL` 下 **23 passed**（无 DB 时为 22 passed/1 skipped）；
+`uv run pytest tests/database/test_fgcn_migration_chain.py -q` 为 **2 passed**，且 0004/0005/0006
+revision 文件已 tracked。这证明了 P0 Named Action 写入边界和 SQLite/Postgres repository
+契约，不证明 FGCN 服务交付闭环已生产化。
+
+仍有四个架构断点：
+
+1. worker 是 one-shot handler，没有常驻 queue、lease/claim、通知、超时调度或 DLQ；进程崩溃
+   的安全重试依赖调用方再次提交，不能当作 workflow worker；
+2. `family_api` production composition 仍未绑定真实 identity/consent/session/reviewer role，
+   FGCN routes 默认 fail-closed，dev/test 仅 synthetic adapter；三环境功能集合尚未同构；
+3. 0004 已进入链，但 0009/0010 未追踪的 migration head 仍使总迁移发布 NO-GO；不能以 FGCN
+   23 项测试掩盖全局 schema 漂移；
+4. 资源准入、交付/返工、质量/争议、贡献与资金结算尚未由该命令实现，不能把 TaskAssignment
+   事实等同于完整 ACN/FGCN 商业引擎。
+
+结论：a031007 **GO（可进入测试分支的 P0 纵切片）/NO-GO（生产发布）**。下一步必须由
+workflow owner 补持久队列与 lease/retry/DLQ、生产身份/同意接线、生产-like HTTP+Postgres
+并发/重启/回滚/撤权测试，并保持 AI draft→human gate→Named Action→domain fact 单向边界。
 
 ## 8. 纠偏后的迭代设计
 
