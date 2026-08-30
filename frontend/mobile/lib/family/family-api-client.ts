@@ -94,6 +94,10 @@ export function createMobileRequestId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function accountSessionIdempotencyKey(externalRef: string) {
+  return `account-session:${externalRef}`;
+}
+
 export class FamilyApiClient {
   readonly baseUrl: string;
 
@@ -161,6 +165,9 @@ export class FamilyApiClient {
     return this.request<AccountSessionResponse>("/auth/account-session", {
       method: "POST",
       body: { external_ref: externalRef },
+      headers: {
+        "idempotency-key": accountSessionIdempotencyKey(externalRef),
+      },
     });
   }
 
