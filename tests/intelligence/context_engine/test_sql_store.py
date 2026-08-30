@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -112,3 +113,17 @@ async def test_sql_context_duplicate_observation_is_rejected(broker) -> None:
 
     with pytest.raises(ValueError, match="ALREADY_EXISTS"):
         await broker.append(_observation())
+
+
+@pytest.mark.asyncio
+async def test_sql_context_concurrent_duplicate_append_has_one_winner(broker) -> None:
+    results = await asyncio.gather(
+        broker.append(_observation()),
+        broker.append(_observation()),
+        return_exceptions=True,
+    )
+
+    assert sum(result is None for result in results) == 1
+    errors = [result for result in results if isinstance(result, ValueError)]
+    assert len(errors) == 1
+    assert str(errors[0]) == "OBSERVATION_ID_ALREADY_EXISTS"
