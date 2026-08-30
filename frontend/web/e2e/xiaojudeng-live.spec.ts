@@ -9,7 +9,9 @@ test("Xiao Ju Deng homepage card opens the H-LIVE-01 read-only detail", async ({
   await expect(page.getByText("直播中")).toBeVisible();
   await expect(page.getByText("即将开始")).toBeVisible();
   await expect(page.getByText("已结束 / 回看受限")).toBeVisible();
-  await expect(page.getByPlaceholder("例如：家庭沟通、冲突后的复盘")).toBeVisible();
+  await expect(page.getByPlaceholder("例如：家庭沟通")).toBeVisible();
+  await expect(page.getByText("家庭理解工作台（次级入口）")).toBeVisible();
+  await expect(page.getByText("家庭成长 · AI 原生体验")).not.toBeVisible();
   await page.getByRole("button", { name: "查看直播详情" }).click();
 
   await expect(page.getByText("H-LIVE-01 · 只读详情")).toBeVisible();

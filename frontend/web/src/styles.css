@@ -99,6 +99,10 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .live-empty-search p { font-size: 0.84rem; margin: 0; }
 .live-scope-badge, .live-status-badge, .live-pill, .live-readonly { border-radius: 999px; font-size: 0.72rem; font-weight: 800; padding: 6px 10px; }
 .live-scope-badge { background: #ffedd5; color: #7c2d12; }
+.live-status-chip, .live-audit-chip, .live-sandbox-mark { border-radius: 999px; font-size: 0.68rem; font-weight: 800; padding: 5px 8px; }
+.live-status-chip { background: #fed7aa; color: #7c2d12; }
+.live-audit-chip { background: #fff7ed; border: 1px solid #fdba74; color: #9a3412; }
+.live-sandbox-mark { background: #7c2d12; color: #fff7ed; }
 .live-discovery-card, .live-detail-page, .live-state { background: #fff; border: 1px solid #fdba74; border-radius: 18px; margin: 0 auto; max-width: 1240px; padding: 22px clamp(20px, 3vw, 30px); }
 .live-card-topline { align-items: center; display: flex; gap: 9px; }
 .live-pill { background: #f97316; color: #fff; }
@@ -125,6 +129,9 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .live-state-backend-missing, .live-state-denied, .live-state-forbidden, .live-state-unauthorized { border-color: #fdba74; }
 .live-locked-action { background: #fff7ed; border: 1px solid #fdba74; border-radius: 999px; color: #9a3412; display: inline-block; font-size: 0.78rem; font-weight: 800; padding: 9px 13px; }
 .live-back-button { margin-top: 4px; }
+.secondary-experience { border-top: 1px solid #e7eee8; margin: 28px auto 0; max-width: 1240px; padding: 0 clamp(20px, 5vw, 72px); }
+.secondary-experience summary { color: #557168; cursor: pointer; font-size: 0.86rem; font-weight: 750; padding: 18px 0; }
+.secondary-experience[open] { background: #fbfdfb; }
 
 @media (max-width: 620px) {
   .live-card-summary, .live-detail-grid { grid-template-columns: 1fr; }

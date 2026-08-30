@@ -17,7 +17,7 @@ describe("Xiao Ju Deng read-only live UI", () => {
     expect(screen.getByText("直播中")).toBeInTheDocument();
     expect(screen.getByText("即将开始")).toBeInTheDocument();
     expect(screen.getByText("已结束 / 回看受限")).toBeInTheDocument();
-    expect(screen.getByText("围绕家庭沟通中的具体场景，练习可核对、可暂停的表达方式。")).toBeInTheDocument();
+    expect(screen.queryByText("围绕家庭沟通中的具体场景，练习可核对、可暂停的表达方式。")).not.toBeInTheDocument();
 
     await userEvent.setup().click(screen.getByRole("button", { name: "查看直播详情" }));
 
@@ -50,7 +50,7 @@ describe("Xiao Ju Deng read-only live UI", () => {
 
   it("shows a local empty result when the problem search has no match", async () => {
     render(<LiveExperience environment={{ DEV: true }} />);
-    await userEvent.setup().type(screen.getByRole("searchbox", { name: "按家庭问题寻找" }), "不存在的问题");
+    await userEvent.setup().type(screen.getByRole("searchbox", { name: "问题搜索" }), "不存在的问题");
     expect(screen.getByText("没有匹配的直播场次")).toBeInTheDocument();
     expect(screen.getAllByText("暂无可展示场次。", { exact: true })).toHaveLength(3);
   });

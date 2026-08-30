@@ -38,7 +38,7 @@ if (
   !bundle.includes("LOCKED") ||
   !bundle.includes("WAITING_AUTHORIZATION") ||
   !bundle.includes("视频暂不可用") ||
-  !bundle.includes("按家庭问题寻找") ||
+  !bundle.includes("问题搜索") ||
   !bundle.includes("直播中") ||
   !bundle.includes("已结束 / 回看受限")
 ) {

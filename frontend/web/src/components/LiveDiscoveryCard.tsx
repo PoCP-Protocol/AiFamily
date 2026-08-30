@@ -11,11 +11,12 @@ export function LiveDiscoveryCard({ record, onOpenDetail }: Props) {
       <div className="live-card-topline">
         <span className="live-pill">专家直播</span>
         <span className="live-readonly">只读信息</span>
+        <span className="live-status-chip">{record.approval_status} · {record.expiry_state}</span>
+        <span className="live-audit-chip">{record.review_ref}</span>
         <span className="live-sandbox-mark">DEV_ONLY</span>
       </div>
       <h3>{record.title}</h3>
       <p className="live-card-speaker">主讲人 · {record.speaker}</p>
-      <p className="live-card-summary-copy">{record.expert_summary}</p>
       <dl className="live-card-summary">
         <div>
           <dt>适用范围</dt>

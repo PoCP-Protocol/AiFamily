@@ -160,22 +160,25 @@ export default function App({ client = defaultClient }: Props) {
         <span className="environment-tag">SANDBOX · DEV_ONLY</span>
       </header>
       <LiveExperience environment={import.meta.env} />
-      <div className="page-grid">
-        <div className="intro-column">
-          <p className="eyebrow">家庭成长 · AI 原生体验</p>
-          <h1>先被理解，再一起决定。</h1>
-          <p className="intro-copy">把一次真实表达变成一份可核对、可暂停、可请求人工的理解草案。AI 只提出建议，家庭保留决定权。</p>
-          <RunStatus status={state.status} message={state.error?.message ?? state.message} />
-          {state.error?.code === "TIMEOUT" ? <button className="secondary-button retry-button" type="button" onClick={retry}>使用同一请求重试</button> : null}
-          {state.status === "deleted" ? <button className="secondary-button retry-button" type="button" onClick={reset}>开始新的体验</button> : null}
+      <details className="secondary-experience">
+        <summary>家庭理解工作台（次级入口）</summary>
+        <div className="page-grid">
+          <div className="intro-column">
+            <p className="eyebrow">家庭成长 · AI 原生体验</p>
+            <h1>先被理解，再一起决定。</h1>
+            <p className="intro-copy">把一次真实表达变成一份可核对、可暂停、可请求人工的理解草案。AI 只提出建议，家庭保留决定权。</p>
+            <RunStatus status={state.status} message={state.error?.message ?? state.message} />
+            {state.error?.code === "TIMEOUT" ? <button className="secondary-button retry-button" type="button" onClick={retry}>使用同一请求重试</button> : null}
+            {state.status === "deleted" ? <button className="secondary-button retry-button" type="button" onClick={reset}>开始新的体验</button> : null}
+          </div>
+          <div className="studio-column">
+            <ExpressionInput value={form} disabled={state.status === "running" || state.status === "retrying"} onChange={setForm} onSubmit={createDraft} />
+            <DraftResult draft={state.draft} onDelete={deleteRun} onReplay={() => void replayRun()} onHelpful={() => void submitFeedback("helpful")} onNotHelpful={() => void submitFeedback("not_helpful")} feedbackDisabled={state.status !== "success"} />
+            <ReplayTimeline replay={state.replay} />
+            <DecisionActions disabled={!canAct} onConfirm={() => void decide("confirm")} onRewrite={() => void decide("rewrite")} onReject={() => void decide("reject")} onHuman={() => void requestHuman()} />
+          </div>
         </div>
-        <div className="studio-column">
-          <ExpressionInput value={form} disabled={state.status === "running" || state.status === "retrying"} onChange={setForm} onSubmit={createDraft} />
-          <DraftResult draft={state.draft} onDelete={deleteRun} onReplay={() => void replayRun()} onHelpful={() => void submitFeedback("helpful")} onNotHelpful={() => void submitFeedback("not_helpful")} feedbackDisabled={state.status !== "success"} />
-          <ReplayTimeline replay={state.replay} />
-          <DecisionActions disabled={!canAct} onConfirm={() => void decide("confirm")} onRewrite={() => void decide("rewrite")} onReject={() => void decide("reject")} onHuman={() => void requestHuman()} />
-        </div>
-      </div>
+      </details>
       <footer className="footer-note">DRAFT 输出带有 provenance；不会自动写入 Family、Journey、Service 或 Commerce 事实。</footer>
     </main>
   );

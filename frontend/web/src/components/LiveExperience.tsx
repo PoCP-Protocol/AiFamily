@@ -16,9 +16,9 @@ type Props = {
 };
 
 const SECTION_COPY: Record<LiveSectionKey, { title: string; subtitle: string }> = {
-  "live-now": { title: "直播中", subtitle: "当前正在进行的场次" },
-  upcoming: { title: "即将开始", subtitle: "适合家庭的下一场只读信息" },
-  ended: { title: "已结束 / 回看受限", subtitle: "状态可见，回看能力仍受门控" },
+  "live-now": { title: "直播中", subtitle: "当前进行" },
+  upcoming: { title: "即将开始", subtitle: "下一场" },
+  ended: { title: "已结束 / 回看受限", subtitle: "回看受限" },
 };
 
 const SECTION_ORDER: LiveSectionKey[] = ["live-now", "upcoming", "ended"];
@@ -60,7 +60,6 @@ export function LiveExperience({ environment = import.meta.env, viewModel }: Pro
           <div>
             <p className="live-kicker">小橘灯 · 专家直播</p>
             <h2 id="live-discovery-heading">为家庭问题找到合适的专家场次</h2>
-            <p className="live-hero-copy">只展示审核状态、适用范围和时间等只读信息，帮助成人先做知情选择。</p>
           </div>
           <div className="live-hero-badges">
             <span className="live-scope-badge">family-private</span>
@@ -68,13 +67,13 @@ export function LiveExperience({ environment = import.meta.env, viewModel }: Pro
           </div>
         </div>
         <label className="live-question-search" htmlFor="live-question-search">
-          <span>按家庭问题寻找</span>
+          <span>问题搜索</span>
           <input
             id="live-question-search"
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="例如：家庭沟通、冲突后的复盘"
+            placeholder="例如：家庭沟通"
           />
         </label>
       </div>
