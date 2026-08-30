@@ -44,6 +44,7 @@ A<角色码>-<序号>
 |---|---|---|---|---|
 | **ADOM-3** | 领域建模 | FGCN P0 持久化与终态不变量 | `backend/domains/service/fgcn/`、对应测试、P0 migration | 🔄 在途 |
 | **AAIR-3** | AI Runtime | Context Broker 最小只读投影 | `backend/intelligence/context_engine/` 及对应测试 | 🔄 在途 |
+| **AAIR-4** | AI Runtime | Principal 接入 Context Broker 只读投影 | `backend/intelligence/principal/runtime.py`、上下文集成测试 | ✅ 已交付 |
 | **AFE-2** | 体验工程 | 四端 capability adapter contracts | `frontend/mobile/lib/platform-capabilities/`、专项测试 | 🔄 在途 |
 | **ARCH-1** | 总设计/集成 | 阶段复盘、闸门复测、治理登记与推送 | `docs/11_delivery/`、集成检查 | 🔄 在途 |
 

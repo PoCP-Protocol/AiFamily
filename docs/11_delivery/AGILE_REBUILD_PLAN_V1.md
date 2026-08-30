@@ -198,9 +198,9 @@ Sprint 1 未完成前，不宣称“法咪莉校长已上线”或“家庭需�
 ### 验证记录（阶段复盘复测）
 
 ```text
-uv run pytest -q                         786 passed, 44 skipped, 2 known gate failures
+uv run pytest -q                         810 passed, 44 skipped, 2 known gate failures
 uv run pytest tests/architecture -v       108 passed, 1 skipped, 2 known gate failures
-uv run pytest tests/intelligence -q        208 passed
+uv run pytest tests/intelligence -q        225 passed
 uv run pytest tests/apps/family_api -q      17 passed, 1 skipped
 pnpm exec vitest run（UI-03/05/09）          27 passed
 pnpm check                                  passed
@@ -257,6 +257,7 @@ pnpm check                                  passed
 |---|---|---|---|
 | ADOM-3 / FGCN 持久化 | ADOM-2 | `backend/domains/service/fgcn/**`、`tests/domains/service/fgcn/**`、P0 migration | ServiceCase/Task/Delivery/Quality/Contribution 可持久化；终态不可逆；贡献只来自已验证交付 |
 | AAIR-3 / Context Broker | AAIR-2 | `backend/intelligence/context_engine/**` 及其测试 | 租户/家庭/主体/用途/同意/数据分类/来源/过期/删除约束；最小只读投影；拒绝越权和撤回数据 |
+| AAIR-4 / Principal 上下文接线 | AAIR-2 | `backend/intelligence/principal/runtime.py`、上下文集成测试 | 路由→Context Broker→知识→Model Gateway 链路；只读投影入模；越权/过期/删除在模型调用前拒绝 |
 | AFE-2 / 跨端能力适配 | AFE-1 | `frontend/mobile/lib/platform-capabilities/**`、专项 Vitest | Android/iOS/HarmonyOS/小程序共享 capability contract；媒体、通知、分享、支付、存储通过 adapter 隔离平台差异 |
 | Lead / 集成与治理 | ARCH-1 | `docs/11_delivery/**`、集成测试、发布脚本 | 不吞并并发 WIP；复测全量闸门；补登记/债务；提交并推送功能分支 |
 
@@ -276,6 +277,9 @@ pnpm check                                  passed
   删除约束和只读投影已通过 14 条测试；尚未接入 Principal、持久化表和删除 Worker。
 - **AFE-2 跨端能力：PARTIAL**。Android/iOS/HarmonyOS/小程序共用六项 capability contract，
   合成适配器覆盖不可用、拒绝、低带宽、回退和宿主确认；真实原生桥接仍按平台单独实现。
-- 本轮复测：全量 `786 passed, 44 skipped, 2 known gate failures`；架构 `108 passed, 1 skipped,
-  2 failures`；AI `208 passed`；Family API `17 passed, 1 skipped`；移动端 `pnpm check` 通过。
+- **AAIR-4 Principal 上下文接线：PARTIAL**。注入 ContextBroker 时已按路由决定构造完整作用域，
+  只读 projection 在模型调用前完成边界校验；未注入 broker 的兼容路径显式返回
+  `CONTEXT_PROJECTION_UNAVAILABLE`，真实持久化 Broker、Human Gate 和删除 Worker 仍待接入。
+- 本轮复测：全量 `810 passed, 44 skipped, 2 known gate failures`；架构 `108 passed, 1 skipped,
+  2 failures`；AI `225 passed`；Family API `17 passed, 1 skipped`；移动端 `pnpm check` 通过。
   两个闸门失败均为并发 WIP 的 Ruff 债务和未登记 `product_management` 目录，不由本 Sprint 越界吸收。
