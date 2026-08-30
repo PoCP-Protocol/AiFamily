@@ -719,6 +719,61 @@ class SqlAlchemyExperienceRunLedger:
             raise RunHttpError("DELETION_STATUS_INVALID")
 
 
+class CommittedExperienceRunLedger:
+    """Commit the durable ledger at HTTP lifecycle boundaries.
+
+    ``SqlAlchemyExperienceRunLedger`` deliberately owns no transaction.  That
+    is the right primitive for a larger unit of work, but the draft HTTP flow
+    has one boundary that must be durable before model invocation: the
+    preflight reservation.  This small composition-root adapter makes that
+    boundary explicit and commits after every mutating operation.  It never
+    commits reads and rolls back a failed commit so the request cannot reuse a
+    tainted session.
+
+    The wrapped ledger remains provider-neutral; this class only coordinates
+    the caller-owned ``AsyncSession`` and therefore is safe to use with the
+    ``AsyncExperienceRunLedgerBridge``.
+    """
+
+    def __init__(self, ledger: AsyncExperienceRunLedger, session: AsyncSession) -> None:
+        self._ledger = ledger
+        self._session = session
+
+    async def _commit(self) -> None:
+        try:
+            await self._session.commit()
+        except Exception:
+            await self._session.rollback()
+            raise
+
+    async def preflight_create(self, **kwargs: Any) -> DraftPreflight:
+        result = await self._ledger.preflight_create(**kwargs)
+        await self._commit()
+        return result
+
+    async def finalize_create(self, **kwargs: Any) -> RunReplaySnapshot:
+        result = await self._ledger.finalize_create(**kwargs)
+        await self._commit()
+        return result
+
+    async def release_create(self, **kwargs: Any) -> None:
+        await self._ledger.release_create(**kwargs)
+        await self._commit()
+
+    async def create_draft(self, **kwargs: Any) -> RunReplaySnapshot:
+        result = await self._ledger.create_draft(**kwargs)
+        await self._commit()
+        return result
+
+    async def append_interaction(self, **kwargs: Any) -> InteractionReceipt:
+        result = await self._ledger.append_interaction(**kwargs)
+        await self._commit()
+        return result
+
+    async def replay(self, **kwargs: Any) -> RunReplaySnapshot:
+        return await self._ledger.replay(**kwargs)
+
+
 def _jsonable(value: Any) -> Any:
     if isinstance(value, Mapping):
         return {str(key): _jsonable(item) for key, item in value.items()}
@@ -733,6 +788,7 @@ def _jsonable(value: Any) -> Any:
 
 __all__ = [
     "AsyncExperienceRunLedger",
+    "CommittedExperienceRunLedger",
     "ExperienceRunInteractionRow",
     "SqlAlchemyExperienceRunLedger",
 ]

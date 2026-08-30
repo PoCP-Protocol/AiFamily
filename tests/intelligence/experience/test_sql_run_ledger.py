@@ -20,6 +20,7 @@ from backend.intelligence.experience.run_store import (
     ExperienceRunRow,
 )
 from backend.intelligence.experience.sql_run_ledger import (
+    CommittedExperienceRunLedger,
     ExperienceRunInteractionRow,
     SqlAlchemyExperienceRunLedger,
 )
@@ -381,3 +382,53 @@ async def test_sql_adapter_through_async_bridge_replays_response_in_new_session(
         # The bridge must remain provider-free on replay; this is a pure SQL
         # read and returns the same immutable run projection.
         assert await new_bridge.replay(scope=scope, run_id="run-bridge-sql") == snapshot
+
+
+@pytest.mark.asyncio
+async def test_committed_adapter_persists_preflight_before_provider_boundary(
+    session_factory,
+) -> None:
+    """The composition-root adapter makes reservations visible to new sessions."""
+
+    scope = _scope()
+    async with session_factory() as writer:
+        ledger = CommittedExperienceRunLedger(
+            SqlAlchemyExperienceRunLedger(writer), writer
+        )
+        reservation = await ledger.preflight_create(
+            scope=scope,
+            run_id="run-committed-boundary",
+            request_ref="request-committed-boundary",
+            request_fingerprint="fingerprint-committed-boundary",
+            idempotency_key="idem-committed-boundary",
+        )
+        assert reservation.status == "reserved"
+        assert writer.in_transaction() is False
+
+    async with session_factory() as concurrent_reader:
+        reader = CommittedExperienceRunLedger(
+            SqlAlchemyExperienceRunLedger(concurrent_reader), concurrent_reader
+        )
+        in_progress = await reader.preflight_create(
+            scope=scope,
+            run_id="run-committed-boundary",
+            request_ref="request-committed-boundary",
+            request_fingerprint="fingerprint-committed-boundary",
+            idempotency_key="idem-committed-boundary",
+        )
+        assert in_progress.status == "in_progress"
+        await reader.release_create(reservation=reservation)
+        assert concurrent_reader.in_transaction() is False
+
+    async with session_factory() as retry:
+        retry_ledger = CommittedExperienceRunLedger(
+            SqlAlchemyExperienceRunLedger(retry), retry
+        )
+        retried = await retry_ledger.preflight_create(
+            scope=scope,
+            run_id="run-committed-boundary",
+            request_ref="request-committed-boundary",
+            request_fingerprint="fingerprint-committed-boundary",
+            idempotency_key="idem-committed-boundary",
+        )
+        assert retried.status == "reserved"
