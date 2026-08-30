@@ -6,7 +6,7 @@ status: current
 version: 1.0
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-08-29
+updated: 2026-08-30
 canonical: true
 supersedes: null
 superseded_by: null
@@ -148,7 +148,7 @@ PRODUCTION                0
 | **Upstream** | action、journey |
 | **Downstream** | 家庭私有回顾视图 |
 | **Status** | `NOT_STARTED` |
-| **依据** | 对应 UI-08/11/12/29 全部 `GATE_BOUNDARY`。`MIGRATION_PLAN_V2.md` §3 处置为 **不迁移、不重建**，§8 列为待人类裁决项 —— 这是产品边界问题，不是技术迁移问题。**本域在产品侧裁决前不得开工** |
+| **依据** | UI-11 的跨家庭排名、家庭总分和等级化比较属于禁止的正向行为；UI-08/12/29 的私有回顾、证据绑定成果和经同意分享属于允许能力，应在测试环境完整实现。`MIGRATION_PLAN_V2.md` 的批次只决定生产验证顺序，不得据此阻止允许的 outcome 读模型、分享和审计路径建设 |
 
 ### 3.7 service
 
@@ -158,7 +158,7 @@ PRODUCTION                0
 | **Canonical Code Path** | `backend/domains/service` |
 | **Canonical Doc Path** | `docs/04_domains/service/`（尚未建立） |
 | **Owns** | `ServiceBlueprintVersion`（DRAFT→REVIEWED→PUBLISHED→RETIRED，发布后冻结）、`ServiceCase`、`ServiceTask`、`TaskAssignment`、`ServiceRecord`、`BookingRequest`、`AvailabilitySlot`、`ServiceOffering`、`ServiceContribution`、`AllocationStatement` |
-| **Does Not Own** | 教师个人档案与资质（→ teacher）；机构主体（→ institution）；真实资金结算（P0 阶段为"影子贡献单位"，不接真实支付）。**蓝图与家庭 primary_contradiction 的匹配推理不属本域**（→ intelligence，输出仍是 Recommendation） |
+| **Does Not Own** | 教师个人档案与资质（→ teacher）；机构主体（→ institution）；外部资金渠道适配器（→ payment/settlement adapter）。贡献与结算业务流程仍由本域完整维护：测试环境用影子贡献单位和 fake payout adapter 验证，生产再接真实渠道。**蓝图与家庭 primary_contradiction 的匹配推理不属本域**（→ intelligence，输出仍是 Recommendation） |
 | **Upstream** | family、consent（SERVICE 同意）、journey |
 | **Downstream** | commerce（若涉付费）、outcome |
 | **Status** | `NOT_STARTED` |
@@ -204,7 +204,7 @@ PRODUCTION                0
 | **Upstream** | identity、family、service |
 | **Downstream** | 无（终端） |
 | **Status** | `NOT_STARTED` |
-| **依据** | `MIGRATION_PLAN_V2.md` Batch 6，且带**前置条件**：迁移前必须先清理 UI-17 的硬编码积分兜底值 `?? 1280`，并明确未成年人商业场景权限规则。价格/权益必须服务端派生，客户端不得传价格 |
+| **依据** | `MIGRATION_PLAN_V2.md` Batch 6。测试环境必须完整实现商品、会员、订单、支付 sandbox、权益、积分、退款和续购流程；先清理 UI-17 的硬编码积分兜底值 `?? 1280`，并由服务端派生价格/权益。生产阶段再按真实商品、支付渠道和商业权限准入切换外部适配器 |
 
 ### 3.11 community
 
@@ -214,11 +214,11 @@ PRODUCTION                0
 | **Canonical Code Path** | `backend/domains/community` |
 | **Canonical Doc Path** | `docs/04_domains/community/`（尚未建立） |
 | **Owns** | `Post`、`Feed`、`CommunityProfile` |
-| **Does Not Own** | **不拥有公开画像、等级事实、跨家庭排序**（R9）；不拥有真实外发能力（当前受控为零外发） |
+| **Does Not Own** | **不拥有公开画像、等级事实、跨家庭排序**（R9）；不拥有外部通知/传播供应商，外发通过平台 adapter 受控执行，测试环境使用 fake adapter 验证完整流程 |
 | **Upstream** | family、identity |
 | **Downstream** | 无 |
 | **Status** | `NOT_STARTED` |
-| **依据** | `MIGRATION_PLAN_V2.md` Batch 7。排期靠后但依 `SYSTEM_MANIFEST.md` §2 的"家庭与家庭之间的关系"定位**不是可砍功能**；`MIGRATION_PLAN_V2.md` §8 列为待裁决项（是否在 Batch 7 前先开始调研） |
+| **依据** | `MIGRATION_PLAN_V2.md` Batch 7。排期靠后但依 `SYSTEM_MANIFEST.md` §2 的"家庭与家庭之间的关系"定位**不是可砍功能**；测试环境应使用合成家庭完整验证发布、互动、审核、举报、申诉和撤回，生产再接真实用户与获准外部通知 |
 
 ### 3.12 product_intelligence
 

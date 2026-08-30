@@ -6,7 +6,7 @@ status: current
 version: 1.0
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-08-29
+updated: 2026-08-30
 canonical: true
 supersedes: null
 superseded_by: null
@@ -128,7 +128,7 @@ baseline 里 `DROP COLUMN`。
 | assessment | `growth_profiles`（含1.2节提到的两代列技术债）、测评Tool/Session/Response/Evidence相关表 |
 | service（服务预约子链，已在源仓库以 `0032_family_service_booking_objects.sql` 落地） | `ProviderProfile`/`ServiceOffering`/`AvailabilitySlot`/`BookingRequest`/`BookingServiceRecord`/`ProductEvent`（矩阵001"服务预约对象链实现记录"一节列出的实体） |
 | 页面对象投影（`0023_family_growth_page_objects.sql`） | `family_profile_snapshots`、`family_support_report_snapshots`、`family_page_task_items`、`family_service_records` |
-| commerce（层3，大部分GATE_BOUNDARY/GAP） | `family_product_offerings`、`family_order_intents`、`family_entitlements`（矩阵001确认这套DTO和后端服务"比预想成熟"，但被 `requireDevSyntheticTestLoop()`/`fixture_only=true` 限定在DEV/TEST合成环境，不接真实支付） |
+| commerce（层3，部分业务仍有GAP） | `family_product_offerings`、`family_order_intents`、`family_entitlements`（矩阵001确认这套DTO和后端服务"比预想成熟"；开发/测试使用 `fixture_only=true` 合成数据与支付 sandbox，完整功能契约与生产一致，真实支付适配器仍待接入） |
 | principal（AI Runtime侧） | `principal_*` 表群（源仓库 `principal_core`，2337行，disposition=MIGRATE） |
 
 **排除声明**：本节列出的是"代表性表名"，不是全量清单。全量清单应在 `database_schema` 能力从 `PLANNED` 转 `IN_PROGRESS` 时，随 Alembic baseline 生成过程一并产出为附件，本文档不预先枚举58个SQL文件里的全部表（那是考古工作的产出，不是架构设计文档该做的事）。
@@ -174,7 +174,7 @@ Family ─┬─ Parent ─┬─ Relationship ─── Child
 
 任何 schema 设计中，**禁止出现**以下字段模式：`family_score`、`ranking`、`rank`、`level`（作为家庭/成长的排序值）、跨家庭比较的聚合分数列。这不是命名建议，是硬性禁止——源仓库 `membership` 域的 `FORBIDDEN_TIER_FIELD_TOKENS` 不变量（`policies.py:24-28`，禁止 `score`/`rank`/`level` 字段）已经尝试用代码强制这条规则，但该不变量的 guardrail test 在源仓库不存在（`MIGRATION_MANIFEST.yaml` 条目 `membership` 明确指出这一缺口）。**AiFamily 侧的对应架构测试必须先补上这个 guardrail test，才能让 membership 域的迁移真正兑现"不复刻这条红线"的承诺，不能只在文档里写禁止**。
 
-**会员积分体系不得复刻UI-17硬编码兜底值这个反面案例**——`FAMILY_UI_BACKEND_SCENARIO_CONSISTENCY_AUDIT_V1.md` §3b 核实的具体事实：源仓库 UI-17 积分商城页面里 `pointsBalance = membership?.dev_points?.balance ?? 1280` 有硬编码兜底值1280，且 `DAILY_TASKS`/`REWARDS` 数组的积分数值（`+50`/`99积分`/`200积分`）是页面内硬编码常量。这个反面案例说明的问题不是"1280这个数字不对"，是**积分/权益这类涉及真实价值的字段，一旦允许"没有真实ledger时用一个看起来合理的默认值顶上"，这个默认值就会在生产环境里被当成真实数据消费**——矩阵001已把UI-17标为`GATE_BOUNDARY`（"尚无积分ledger/兑换DTO"、"不得写真实权益/兑换"），本文档在数据架构层面的对应约束是：
+**会员积分体系不得复刻UI-17硬编码兜底值这个反面案例**——`FAMILY_UI_BACKEND_SCENARIO_CONSISTENCY_AUDIT_V1.md` §3b 核实的具体事实：源仓库 UI-17 积分商城页面里 `pointsBalance = membership?.dev_points?.balance ?? 1280` 有硬编码兜底值1280，且 `DAILY_TASKS`/`REWARDS` 数组的积分数值（`+50`/`99积分`/`200积分`）是页面内硬编码常量。这个反面案例说明的问题不是"1280这个数字不对"，是**积分/权益这类涉及真实价值的字段，一旦允许"没有真实ledger时用一个看起来合理的默认值顶上"，这个默认值就会在生产环境里被当成真实数据消费**——矩阵001将UI-17标为`GATE_BOUNDARY`的含义应限定为"当前没有正式积分ledger/兑换DTO，不能用硬编码冒充业务数据"，而不是禁止在测试环境建设完整积分能力。本文档在数据架构层面的对应约束是：
 
 - 积分/权益余额**没有真实ledger表支撑之前，API层不允许返回任何非null的默认余额**——宁可返回"暂无数据"的显式状态，也不允许 `?? 1280` 这类静默兜底值模式进入 Python 侧的任何 schema 或查询代码。
 - 积分ledger落地时（Batch 6前置条件，见 `MIGRATION_PLAN_V2.md` §3 COMMERCE闭环处理），必须是独立的 `commerce.point_ledger_entries` 事件流表（每次积分变动一行，可追溯来源），不是一个可以被直接 `UPDATE` 的余额字段——余额永远是ledger的聚合结果，不是权威存储本身，这样才能杜绝"硬编码兜底值"这种问题的数据结构根源（可变余额字段天然诱使开发者在没有真实数据时填一个默认值；不可变事件流天然没有"默认值"这个选项，没有事件就是零，没有例外）。

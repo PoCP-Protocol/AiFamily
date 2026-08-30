@@ -6,7 +6,7 @@ status: current
 version: 1.0
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-08-29
+updated: 2026-08-30
 canonical: true
 supersedes: null
 superseded_by: null
@@ -23,7 +23,7 @@ superseded_by: null
 
 ## 0. 本文件的性质
 
-本文件不新造场景。所有场景/流程/组件的完成度判断，一律回指矩阵001的34页UI状态或审计V1的代码级核实结果，不使用"预计"、"应该能"这类无证据表述。凡是标注为`GATE_BOUNDARY`的场景，本文件如实呈现其"当前不能做"的状态，不描述成"即将上线"。
+本文件不新造场景。所有场景/流程/组件的完成度判断，一律回指矩阵001的34页UI状态或审计V1的代码级核实结果，不使用"预计"、"应该能"这类无证据表述。`GATE_BOUNDARY`仅表示某个正向行为受到明确的法律或产品边界约束，不表示测试环境可以删除功能；禁止行为必须有与生产一致的拒绝、审计和人工处理路径。未被禁止的场景，即使生产尚未接入真实数据或外部供应商，也必须在测试环境使用合成数据和等价适配器完成完整流程。
 
 ---
 
@@ -37,10 +37,10 @@ superseded_by: null
 | 2. 觉醒 | 想找到问题原因 | 温和呈现家庭互动影响 | AI诊断与父母成长报告 | UI-02测评→UI-03假设解读 | UI-02→UI-03已端到端验证：真实版本化测评会话+`CONFIRM_GROWTH_HYPOTHESIS`/`DISMISS_GROWTH_HYPOTHESIS` Named Action+E2E。注意："AI诊断"在实现层不是诊断，是`GrowthHypothesis`（假设），确认后才成`GrowthIntent`，这正是R9约束在此场景的落地 |
 | 3. 行动 | 愿意尝试改变 | 把学习变成每日小行动 | 21天挑战、每日任务 | UI-09今日任务 | `COMMERCIAL_SLICE_IMPLEMENTED_TESTED_DEV`：GrowthAction持久化生命周期，开始/暂停/继续/取消/完成均幂等并写Audit/Outbox，真实PostgreSQL状态机与重启回读已测 |
 | 4. 改变 | 希望看到真实效果 | 提供系统陪跑与反馈 | 90天计划、顾问、社群 | UI-04/05计划、UI-06陪跑服务 | UI-04/05=`UI_READY_BACKEND_GAP`（原图和路由完成，正式API/DTO未接入；pause入口连客户端SDK都没有，见审计V1 3a节）；UI-06=`UI_READY_BACKEND_GAP` |
-| 5. 长期 | 需要持续支持 | 沉淀会员、档案和关系 | 年度会员、活动、AI管家 | UI-07会员中心、UI-30年度会员 | 均为`GATE_BOUNDARY`：无正式会员/权益读模型，不接真实支付/权益 |
-| 6. 传播 | 愿意展示成长成果 | 生成可分享的身份与结果 | 成长报告、社区、邀请权益 | UI-12成果海报、UI-15邀请有礼 | UI-12=`GATE_BOUNDARY`（无成果事实DTO，不得生成效果证明）；UI-15=`E2E_READY`（邀请机制本身已打通，`CREATE_INVITE` Named Action） |
+| 5. 长期 | 需要持续支持 | 沉淀会员、档案和关系 | 年度会员、活动、AI管家 | UI-07会员中心、UI-30年度会员 | `UI_READY_BACKEND_GAP`：正式会员/权益读模型仍需补齐；测试环境使用支付 sandbox 验证完整购买、续购、退款和权益失效 |
+| 6. 传播 | 愿意展示成长成果 | 生成可分享的身份与结果 | 成长报告、社区、邀请权益 | UI-12成果海报、UI-15邀请有礼 | UI-12=`UI_READY_BACKEND_GAP`（允许分享事实绑定、已确认成果和家庭故事，不生成效果证明）；UI-15=`E2E_READY`（邀请机制本身已打通，`CREATE_INVITE` Named Action） |
 
-**结论**（沿用V2战略第1节）：七阶段里只有"触发→觉醒→行动"这一段（阶段1-3，对应UI-02→UI-03→UI-09）是端到端真实打通的商业闭环。"改变"阶段部分打通（服务预约子链，见第2节SERVICE闭环）。"长期"和"传播"阶段的大部分场景仍受宪法边界限制或存在前后端缺口。
+**结论**（沿用V2战略第1节）：七阶段里只有"触发→觉醒→行动"这一段（阶段1-3，对应UI-02→UI-03→UI-09）是端到端真实打通的商业闭环。"改变"阶段部分打通（服务预约子链，见第2节SERVICE闭环）。"长期"和"传播"阶段仍有前后端缺口或明确的正向行为边界。上述完成度是当前证据状态，不是测试环境功能范围；允许的流程必须继续补齐测试环境的完整实现。
 
 ---
 
@@ -63,11 +63,11 @@ superseded_by: null
   - UI-04整体仍是`UI_READY_BACKEND_GAP`（仅LLM draft/说明，无报告事实DTO）；UI-05因pause缺口整体标注`UI_READY_BACKEND_GAP`，但phase-review子功能已验证。
 - **下一步**：`MIGRATION_PLAN_V2.md`第3节明确"不把补齐前端pause按钮作为Python迁移的前置阻塞项——那是独立的前端任务"。
 
-### 2.3 GROWTH（成长效果类页面）
+### 2.3 GROWTH（成长过程、回顾与分享）
 
 - **对应UI**：UI-08成长报告、UI-11成长榜单、UI-12成长成果海报、UI-29成长成果。
-- **当前状态**：**全部`GATE_BOUNDARY`**。不是技术缺口，是产品边界主动限制：不得计算跨家庭排名（UI-11永久禁止跨家庭统计/排序）、不得生成成果证明或效果断言（UI-12/29）、不得把静态分值视为事实（UI-08）。UI-29的`BADGES`核实为页面内硬编码数组（审计V1 3b节）。
-- **下一步**：`MIGRATION_PLAN_V2.md`第3节明确判断——**不迁移，不重建**，"这类UI本身处于产品边界不允许的状态，Python重写只会把违规语义带过去。需要产品侧先决定这些UI要不要存在，不是技术迁移问题"（本文件不擅自建议方向，留作待人类裁决项，见文末）。
+- **当前状态**：本闭环不能一概标为`GATE_BOUNDARY`。UI-11的跨家庭排名、家庭总分和等级化比较属于禁止的正向行为；UI-08、UI-12、UI-29可以在事实、Perspective、Outcome和分享同意边界内实现，例如家庭私有过程回顾、已确认行动记录和可撤回的家庭故事。所有允许的页面和接口必须在测试环境完整实现，测试数据使用合成数据，不得用硬编码结果冒充能力。
+- **下一步**：分别建设允许的成长回顾、成果分享和社区互动流程；对禁止行为建设统一拒绝、审计和人工处理路径。UI-11的违规设计只影响该页面的禁止语义，不影响整个GROWTH闭环继续迁移和重建。
 
 ### 2.4 SERVICE（专家咨询预约子链）
 
@@ -79,15 +79,15 @@ superseded_by: null
 ### 2.5 COMMERCE（商城目录/积分）
 
 - **对应UI**：UI-13商城首页、UI-14商品详情、UI-15邀请有礼、UI-16拼团专区、UI-17积分商城、UI-18我的资产。
-- **当前状态**：UI-15/16=`E2E_READY`（`CREATE_INVITE`/`CREATE_GROUP` Named Action，0022表，PostgreSQL+Web已测，无扣款）；UI-13/14=`UI_READY_BACKEND_GAP`（尚无正式catalog DTO，客户端不得传价格）；UI-17=`GATE_BOUNDARY`——核实代码确认`DAILY_TASKS`/`REWARDS`数组积分数值（`+50`/`99积分`/`200积分`）是硬编码常量，且`pointsBalance = membership?.dev_points?.balance ?? 1280`有硬编码兜底值1280（审计V1 3b节）。
-- **技术骨架实际比预想扎实**：`family-commerce-intent.service.ts`是真实SQL服务，含幂等重放、乐观锁、consent校验，`family_product_offerings`/`family_order_intents`/`family_entitlements`等表结构完备，但被`requireDevSyntheticTestLoop()`限定在DEV/TEST合成环境（`fixture_only=true`的CHECK约束），价格是前端展示层派生文案，不接真实支付（V2战略第2节层3）。
-- **下一步**：`MIGRATION_PLAN_V2.md`要求迁移前先解决UI-17硬编码积分和"未成年人商业场景权限规则不明确"的Stop Condition，不得把硬编码常量原样搬进Python。
+- **当前状态**：UI-15/16=`E2E_READY`（`CREATE_INVITE`/`CREATE_GROUP` Named Action，0022表，PostgreSQL+Web已测，无扣款）；UI-13/14=`UI_READY_BACKEND_GAP`（尚无正式catalog DTO，客户端不得传价格）；UI-17不应标为业务`GATE_BOUNDARY`——当前问题是积分账本、积分来源和权益回读尚未完整接线，且存在`DAILY_TASKS`/`REWARDS`硬编码数值和`pointsBalance = membership?.dev_points?.balance ?? 1280`兜底值（审计V1 3b节），应修复为正式业务数据并在测试环境完成完整兑换、退款和幂等流程。
+- **技术骨架实际比预想扎实**：`family-commerce-intent.service.ts`是真实SQL服务，含幂等重放、乐观锁、consent校验，`family_product_offerings`/`family_order_intents`/`family_entitlements`等表结构完备。当前差异是 DEV/TEST 使用合成目录和支付 sandbox（`fixture_only=true` 数据标记），不是业务功能差异；价格是前端展示层派生文案，真实支付适配器仍待接入（V2战略第2节层3）。
+- **下一步**：先清理硬编码积分，建立正式积分账本、兑换、订单、权益、退款和审计路径；测试环境使用合成目录和支付 sandbox，生产再接真实商品、库存和支付适配器。不得把“真实支付尚未接入”解释为“测试功能不实现”。
 
 ### 2.6 COMMUNITY（社区流）
 
 - **对应UI**：UI-25家长社区、UI-26发布动态、UI-27动态详情、UI-28我的社区。
-- **当前状态**：UI-26=`E2E_READY`（`PUBLISH_TEMPLATE` Named Action，模板白名单，零外发）；其余（UI-25/27/28）为`GATE_BOUNDARY`/`UI_READY_BACKEND_GAP`（禁止真实外发/跨家庭推荐，不得显示真实社区数据，禁止公开画像/等级事实）。
-- **重要定性**：V2战略0.1节明确——这条线不是可以随意砍掉的边缘功能，是"家庭与家庭的关系"这一顶层定位（`BUSINESS_ARCHITECTURE.md`第1.1节）在产品上的直接承载，只是当前证据不足以支撑现在投入，`MIGRATION_PLAN_V2.md`排在Batch 7，"排期靠后≠产品价值判断为低"。
+- **当前状态**：UI-26=`E2E_READY`（`PUBLISH_TEMPLATE` Named Action，模板白名单）；其余（UI-25/27/28）仍有`UI_READY_BACKEND_GAP`。测试环境应使用合成家庭和 fake notification/moderation adapter 完整验证社区读取、发布、审核、互动、举报、申诉和撤回；生产再接真实用户与获准的外部通知。公开敏感画像、家庭排名和儿童端自动化商业推荐仍属于禁止行为，应保留拒绝和审计路径。
+- **重要定性**：V2战略0.1节明确——这条线不是可以随意砍掉的边缘功能，是"家庭与家庭的关系"这一顶层定位（`BUSINESS_ARCHITECTURE.md`第1.1节）在产品上的直接承载。商业推广和真实用户接入可以排在后面，但测试环境不得删除功能；应先用合成家庭和 fake 外部适配器完成完整流程与安全验证。
 
 ---
 
@@ -162,11 +162,11 @@ step 8  产生争议 → 先由运营复核事实凭证，再由独立质量负�
 |---|---|---|---|
 | 90天计划生成/阶段复盘（journey-plan） | 优势区（真人+AI协同） | phase-review已接线；pause无前端入口且客户端SDK缺失 | 未登记；`MIGRATION_PLAN_V2.md`归入Batch 4 GrowthIntent/GrowthPlan（REIMPLEMENT） |
 
-### 4.3 GROWTH闭环（GATE_BOUNDARY）
+### 4.3 GROWTH闭环（按业务语义分路径治理）
 
 | 组件 | 所属层 | 当前完成度 | 对应Python domain |
 |---|---|---|---|
-| 成长报告/榜单/海报/成果（UI-08/11/12/29） | 不适用三区分类——处于产品边界禁止状态 | 全部`GATE_BOUNDARY`，部分含硬编码假数据（UI-29的BADGES） | 不迁移不重建，待产品侧裁决存续 |
+| 成长报告/榜单/海报/成果（UI-08/11/12/29） | 允许的成长回顾与分享属于优势区候选；跨家庭排名属于禁止行为 | UI-11正向排名路径禁止；UI-08/12/29按事实、Outcome、分享同意和撤回规则完整建设 | 测试环境实现允许路径及禁止行为的拒绝/审计路径，不因单个违规设计放弃整个GROWTH闭环 |
 
 ### 4.4 SERVICE闭环
 
@@ -181,7 +181,7 @@ step 8  产生争议 → 先由运营复核事实凭证，再由独立质量负�
 |---|---|---|---|
 | 邀请有礼/拼团（CREATE_INVITE/CREATE_GROUP） | 同质区 | `E2E_READY` | 未登记；Batch 6 |
 | 商城目录/商品详情 | 同质区 | `UI_READY_BACKEND_GAP` | 同上 |
-| 积分商城 | 同质区（但含GATE_BOUNDARY约束） | `GATE_BOUNDARY`，硬编码1280兜底值需先清理 | 同上，前置条件见3.5节 |
+| 积分商城 | 同质区 | `PARTIAL`/`UI_READY_BACKEND_GAP`，硬编码1280兜底值需先清理 | 测试环境完整实现积分账本、兑换、订单、权益、退款和幂等；生产再切换真实商品、库存和支付 |
 | 商城意图服务（family-commerce-intent.service.ts） | 优势区（技术骨架比预想扎实） | DEV/TEST合成环境闭环，未接生产支付 | 未登记 |
 
 ### 4.6 COMMUNITY闭环
@@ -189,7 +189,7 @@ step 8  产生争议 → 先由运营复核事实凭证，再由独立质量负�
 | 组件 | 所属层 | 当前完成度 | 对应Python domain |
 |---|---|---|---|
 | 发布动态（PUBLISH_TEMPLATE） | 独占区候选（"家庭与家庭的关系"定位承载者） | `E2E_READY` | 未登记；Batch 7（REIMPLEMENT） |
-| 家长社区/动态详情/我的社区 | 同上 | `GATE_BOUNDARY`/`UI_READY_BACKEND_GAP` | 同上 |
+| 家长社区/动态详情/我的社区 | 独占区候选（家庭与家庭的关系） | `UI_READY_BACKEND_GAP`，应使用合成家庭和 fake 外部适配器完成完整流程 | 测试环境完整实现读取、发布、审核、互动、举报、申诉、撤回；生产再接真实用户和外部通知 |
 
 ### 4.7 FGCN协作组件
 
@@ -197,7 +197,7 @@ step 8  产生争议 → 先由运营复核事实凭证，再由独立质量负�
 |---|---|---|---|
 | ServiceBlueprintVersion/ServiceCase/ServiceTask/TaskAssignment/ServiceContribution/AllocationStatement状态机 | 优势区（核心运行对象设计完整） | 设计文档层面完整，代码层面未落地（除SERVICE子链薄切片外） | 未登记独立domain，需在Batch 5-7涉及Resource/Organization时补建 |
 | 资源准入匹配（硬门槛+排序） | 优势区 | 设计完整，代码未落地 | 同上 |
-| 贡献确认/分配池释放 | 优势区 | 设计完整，代码未落地（P0阶段本就不接真实支付） | 同上 |
+| 贡献确认/分配池释放 | 优势区 | 设计完整，测试环境应完整落地并使用模拟结算适配器 | 测试环境验证验收、质量冻结、释放、退款和争议；生产再接真实结算渠道 |
 
 ### 4.8 独占区候选组件（当前基本是空白，恰恰因此才最值得投入——V2战略8.2节原话）
 

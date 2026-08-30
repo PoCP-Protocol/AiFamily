@@ -258,7 +258,7 @@ import 已指向 `product_intelligence` 域；重复的 `contracts/product_facto
 | registry 登记 | ❌ **`DOMAIN_REGISTRY.yaml` 与 `CAPABILITY_REGISTRY.yaml` 均无此域**（`grep -n loyalty` 双双 0 命中）→ R2 登记缺口 |
 | ORM/schema | ❌ **5 张表全部无 SQL**：`family_loyalty_points_{earn_rules,redemption_items,accounts,ledger,redemptions}` 在 `database/` 全 0 命中 |
 | 是否挂载 | ❌ `api/` 目录**只有 `__init__.py`**（manifest 称"后又新增 api 层"不实）；router 未挂载 |
-| 批次顺序 | ❌ 属 COMMERCE 闭环（`MIGRATION_PLAN_V2` Batch 6），在 Batch 1 阶段出现 1,984 行 |
+| 批次顺序 | ⚠️ 属 COMMERCE 闭环（`MIGRATION_PLAN_V2` Batch 6），在 Batch 1 阶段提前出现 1,984 行；批次偏离要求补齐治理与验收，不构成禁止继续建设的理由 |
 
 **合规缺口的具体证据**：`backend/domains/loyalty_points/domain/policies.py:63-73`
 的 `assert_human_actor` 只检查 `actor.startswith(AI_ACTOR_PREFIX)`——它防的是"AI 悄悄改余额"，
@@ -267,7 +267,7 @@ import 已指向 `product_intelligence` 域；重复的 `contracts/product_facto
 测试侧 `grep -rn "child"` 仅命中 `helpers.py:20` 的一个未被断言使用的常量 `CHILD`。
 
 《未成年人网络保护条例》第 24 条第 3 款是**绝对禁止**（无例外、不限 14 岁以下）。
-`FREEZE-001` 的 Stop Condition 至今未解决（`PROJECT_MANAGEMENT_CHARTER.md` §6 阶段三第 1 项）。
+原 `FREEZE-001` 把 Batch 6 的顺序与未成年人营销 guardrail 混成了全局开发冻结，现已撤销。未成年人营销 guardrail、正式积分 ledger、真实失败测试和生产外部适配器仍是必须补齐的质量与准入项，但不阻止测试环境按生产形状建设完整 COMMERCE 流程。
 
 ### 4.2 `database/migrations/versions/`（3文件/677行）
 
@@ -400,7 +400,7 @@ backend/packages/contracts/product_factory.py     → 已删除
 | B2 | **必须有第二人复核记录**（另一 agent 或 owner），复核意见写入 PR 或 ADR。移植类可以拿源仓库当"第二双眼"，自研类没有 | loyalty_points 无任何第二人复核；`backend/apps/family_api` 同样无 |
 | B3 | **开工前必须在三份 registry 全部登记**：`MIGRATION_MANIFEST`（R3）+ `DOMAIN_REGISTRY`（R2）+ `CAPABILITY_REGISTRY`。**当前只有 R3 有机械强制** | loyalty_points 在 MIGRATION_MANIFEST 有条目，但 `DOMAIN_REGISTRY.yaml` 与 `CAPABILITY_REGISTRY.yaml` **均无此域**——因为 R3 检查器只看 manifest 的 `target`，另两份没有等价的"backend 目录必须登记"检查 |
 | B4 | **合规相关的 `blocking_action` 必须转成检查器才算关闭**，散文承诺不算 | loyalty_points 的 blocking_action (1) 台账不可变性已有测试；(2)「积分流程无法以孩子为营销对象」**没有**——而 (2) 是《未成年人网络保护条例》第 24 条第 3 款的绝对禁止，不是可选项 |
-| B5 | **自研模块若属于更晚批次，必须显式取得批次例外授权**，否则默认冻结 | loyalty_points 属 COMMERCE（Batch 6），在 Batch 1 阶段出现 1,984 行，与既定批次顺序不符（manifest 的 `review_required` 已提出，至今未裁决） |
+| B5 | **自研模块若提前于计划批次，必须登记批次偏离并补齐验收**；不得把批次顺序解释为功能冻结 | loyalty_points 属 COMMERCE（Batch 6），在 Batch 1 阶段出现 1,984 行，与既定顺序不符；应补 ADR/registry、账本 schema、合规 guardrail 和完整测试，而不是禁止建设 |
 
 ### 7.4 建议无条件立即执行的三条（与类别无关）
 

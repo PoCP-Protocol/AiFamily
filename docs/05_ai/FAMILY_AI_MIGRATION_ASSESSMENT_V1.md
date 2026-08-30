@@ -32,7 +32,9 @@ Action → Outcome → Learning”写成了可以检查的结构。它对当前 
 ```
 
 迁移原则：**迁移语义和测试意图，重写运行时和数据适配器；不迁移第二套 canonical
-模型，不迁移供应商耦合，不迁移只在 Dev fixture 中成立的产品能力。**
+模型，不迁移供应商耦合，也不把 Dev fixture 的实现当成生产实现。凡属于产品范围且未被
+法律或产品红线禁止的能力，都要在当前 Python 目标态重建，并在测试环境使用等价的
+synthetic data、sandbox 或 fake adapter 完整验证。**
 
 ## 2. 设计思想评估
 
@@ -171,8 +173,10 @@ SPD-AI 的 KnowledgeSource/DocumentVersion/Claim/Binding；不要直接把 YAML 
 - `REWORK_REQUIRED` 创建新的返工任务，保留原任务的审核历史，不静默重置状态。
 - 贡献单位与支付/佣金/结算明确隔离，避免把质量记录误当财务事实。
 
-迁移落点：与 SPD-AI 的 `ServiceBlueprintVersion` 对接，但先落“设计蓝图 + 质量状态”
-而不是分配结算；当前仓库的 commerce 轴继续遵守冻结，不从这批代码扩展交易能力。
+迁移落点：与 SPD-AI 的 `ServiceBlueprintVersion` 对接，并完整建设蓝图、质量状态、任务
+分配、贡献确认、退款/争议和结算状态机；测试环境使用影子贡献单位与 fake payout adapter
+验证全链路，生产再切换真实结算渠道。旧代码的实现不直接迁移，commerce 业务能力也不因
+外部支付或返佣尚未接入而删除。
 
 ### M6：Draft → Review → Release 的运营操作模型
 
@@ -192,7 +196,7 @@ SPD-AI 的 KnowledgeSource/DocumentVersion/Claim/Binding；不要直接把 YAML 
 迁移落点：为 SPD-AI 的 CompileRun、SimulationRun、HumanReviewTask、BlueprintRelease
 提供操作表和回放投影；发布仍由业务域 Named Action 完成。
 
-## 4. 只迁移设计意图，不迁移实现
+## 4. 旧实现不直接迁移，设计意图按目标态重建
 
 | 资产 | 原因 | 当前处理 |
 |---|---|---|
@@ -202,7 +206,7 @@ SPD-AI 的 KnowledgeSource/DocumentVersion/Claim/Binding；不要直接把 YAML 
 | `family-llm-gateway.service.ts` 业务层直连 provider | 违反单一模型边界，且是旧架构反例 | 重写为当前 `backend/intelligence/model_gateway` Port |
 | 旧 monorepo apps/packages/modules 目录 | 语言和部署形态不同，且当前宪章已冻结 Python-only | 迁移 bounded context 和测试意图，不搬目录 |
 | Kafka/GraphDB/World Model 预留 | 旧规格自己也要求 M2 不提前引入；当前没有真实流量/Outcome | 保留演进条件，暂不实现 |
-| 商城/会员/支付/返佣代码 | 与当前 commerce freeze、未成年人商业边界和当前任务无关 | 不迁移；如需重启另开 ADR 与任务 |
+| 商城/会员/支付/返佣代码 | 旧实现不能直接成为第二套 canonical 后端；未成年人营销仍受绝对禁止约束 | 不直接搬运旧实现；在当前 Python commerce/service 域按完整状态机重建，测试使用 sandbox/fake 适配器，生产再接真实支付、返佣和结算渠道 |
 
 ## 5. 迁移映射到当前仓库
 

@@ -6,7 +6,7 @@ status: current
 version: 1.0
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-08-29
+updated: 2026-08-30
 canonical: true
 supersedes: null
 superseded_by: null
@@ -152,7 +152,7 @@ Service Blueprint层的呼应（同样来自V2战略8.3节）：如果一个21�
 
 ### 4.2 R9：不做家庭总分/排名
 
-`AiFamily不计算、不存储、不暴露家庭总分与家庭排行`——这条约束对AI生成的任何"评分/排名"倾向输出同样适用：即便某个模型偏好输出一个分数，落地层也不得将其持久化为权威状态（`CURRENT_AI_ARCHITECTURE.md`第4节原话）。这也是`BUSINESS_SCENARIOS_AND_PROCESSES.md`第2.3节GROWTH闭环全部标注`GATE_BOUNDARY`的直接原因——不是技术缺口，是这条红线主动限制的结果。
+`AiFamily不计算、不存储、不暴露家庭总分与家庭排行`——这条约束对AI生成的任何"评分/排名"倾向输出同样适用：即便某个模型偏好输出一个分数，落地层也不得将其持久化为权威状态（`CURRENT_AI_ARCHITECTURE.md`第4节原话）。这条红线只禁止家庭总分、跨家庭排名和无依据的效果断言，不禁止基于事实和同意的家庭私有回顾、过程记录与分享。GROWTH闭环的允许部分仍需在测试环境以完整路径建设，禁止部分则必须有统一拒绝、审计和人工处理路径。
 
 ### 4.3 R7 + R10：AI Runtime不得直接import业务域repository，只能经Named Action写入canonical状态
 
