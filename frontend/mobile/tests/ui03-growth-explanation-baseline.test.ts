@@ -27,6 +27,9 @@ describe("UI-03 family assessment result contract", () => {
     expect(source).toContain("家庭理解卡");
     expect(source).toContain("assessment-observation-toggle");
     expect(source).toContain("assessment-observation-layer");
+    expect(source).toContain("readableSecondary");
+    expect(source).toContain("gatePrimaryConfirmed");
+    expect(source).toContain("gateSecondaryDismissed");
     expect(source).toContain("依据");
     expect(source).toContain("可能的方向");
     expect(source).toContain("还未知");

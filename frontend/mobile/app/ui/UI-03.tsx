@@ -138,6 +138,7 @@ type SupportLoopProjection = {
 
 export default function GrowthExplanationScreen() {
   const colors = useColors();
+  const readableSecondary = colors.background === "#0F1620" ? "#C5D2E4" : "#40556D";
   const session = useFamilyApiSession();
   const { assessmentNeedText, restartAssessment } = useFamilyMobile();
   const [remote, setRemote] = useState<AssessmentResultProjection | null>(null);
@@ -430,7 +431,7 @@ export default function GrowthExplanationScreen() {
           <Text style={[styles.emptyTitle, { color: colors.text }]}>
             正在整理这次家庭测评
           </Text>
-          <Text style={[styles.emptyText, { color: colors.muted }]}>
+          <Text style={[styles.emptyText, { color: readableSecondary }]}>
             只根据本次已提交的少量回答整理支持参考。
           </Text>
         </View>
@@ -476,7 +477,7 @@ export default function GrowthExplanationScreen() {
             <Text style={[styles.emptyTitle, { color: colors.text }]}>
               {unavailableText}
             </Text>
-            <Text style={[styles.emptyText, { color: colors.muted }]}>
+            <Text style={[styles.emptyText, { color: readableSecondary }]}>
               先从一个真实家庭场景开始，完成后你会得到一张五维家庭观察画像和一份可继续修订的成长方案。
             </Text>
             <Pressable
@@ -520,18 +521,18 @@ export default function GrowthExplanationScreen() {
               <Text style={[styles.cardTitle, { color: colors.text }]}>
                 {assessmentNeedText.trim() || result.explanation.headline}
               </Text>
-              <Text style={[styles.cardText, { color: colors.muted }]}>
+              <Text style={[styles.cardText, { color: readableSecondary }]}>
                 {result.explanation.summary}
               </Text>
-              <Text style={[styles.boundaryText, { color: colors.muted }]}>
+              <Text style={[styles.boundaryText, { color: readableSecondary }]}>
                 这是一段家庭视角的整理，不是给孩子下结论。
               </Text>
               <Text style={styles.narrativeLabel}>依据</Text>
-              <Text style={[styles.cardText, { color: colors.muted }]}>本次整理只使用本次测评的回答和已标注的知识参考。</Text>
+              <Text style={[styles.cardText, { color: readableSecondary }]}>本次整理只使用本次测评的回答和已标注的知识参考。</Text>
               <Text style={styles.narrativeLabel}>可能的方向</Text>
-              <Text style={[styles.cardText, { color: colors.muted }]}>以下是可继续验证的理解草案，不是诊断或事实结论。</Text>
+              <Text style={[styles.cardText, { color: readableSecondary }]}>以下是可继续验证的理解草案，不是诊断或事实结论。</Text>
               <Text style={styles.narrativeLabel}>还未知</Text>
-              <Text style={[styles.cardText, { color: colors.muted }]}>还需要把这份理解带回几次真实家庭时刻，才能知道哪些贴近你们家。</Text>
+              <Text style={[styles.cardText, { color: readableSecondary }]}>还需要把这份理解带回几次真实家庭时刻，才能知道哪些贴近你们家。</Text>
             </View>
 
             <View
@@ -580,7 +581,7 @@ export default function GrowthExplanationScreen() {
             >
               <Text style={styles.sectionLabel}>家庭成长解读</Text>
               <Text style={[styles.interpretationTitle, { color: colors.text }]}>先提出几种可能，再由你来判断</Text>
-              <Text style={[styles.cardText, { color: colors.muted }]}>
+              <Text style={[styles.cardText, { color: readableSecondary }]}>
                 {result.ai.model_gateway_status === "DRAFT"
                   ? "AI 已根据本次回答和知识参考整理出一份初稿。"
                   : "这份解读先根据你的回答和知识参考整理出来，哪些贴近你们家，由你来判断。"}
@@ -595,12 +596,12 @@ export default function GrowthExplanationScreen() {
                 </View>
               ))}
               {result.explanation.mechanism ? (
-                <Text style={[styles.cardText, { color: colors.muted }]}>可能的关系机制：{result.explanation.mechanism}</Text>
+                <Text style={[styles.cardText, { color: readableSecondary }]}>可能的关系机制：{result.explanation.mechanism}</Text>
               ) : null}
-              <Text style={[styles.boundaryText, { color: colors.muted }]}>你可以确认、补充或否定这份理解；不贴近你们家的部分，就停在这里。</Text>
+              <Text style={[styles.boundaryText, { color: readableSecondary }]}>你可以确认、补充或否定这份理解；不贴近你们家的部分，就停在这里。</Text>
               <View testID="assessment-human-gate" style={styles.humanGate}>
                 <Text style={styles.humanGateTitle}>由你决定要不要把它带回家庭</Text>
-                <Text style={[styles.humanGateText, { color: colors.muted }]}>
+                <Text style={[styles.humanGateText, { color: readableSecondary }]}>
                   确认后才会记录为这次家庭关注；拒绝不会创建后续方案。
                 </Text>
                 <View style={styles.feedbackRow}>
@@ -611,6 +612,8 @@ export default function GrowthExplanationScreen() {
                     onPress={() => decideInterpretation("CONFIRM")}
                     style={({ pressed }) => [
                       styles.gatePrimary,
+                      interpretationDecision === "confirmed" && styles.gatePrimaryConfirmed,
+                      interpretationDecision === "saving" && styles.gatePrimaryDisabled,
                       pressed && styles.pressed,
                     ]}
                   >
@@ -625,6 +628,8 @@ export default function GrowthExplanationScreen() {
                     onPress={() => decideInterpretation("DISMISS")}
                     style={({ pressed }) => [
                       styles.gateSecondary,
+                      interpretationDecision === "dismissed" && styles.gateSecondaryDismissed,
+                      interpretationDecision === "saving" && styles.gateSecondaryDisabled,
                       pressed && styles.pressed,
                     ]}
                   >
@@ -636,7 +641,7 @@ export default function GrowthExplanationScreen() {
                     accessibilityRole="alert"
                     style={[
                       styles.feedbackStatus,
-                      { color: interpretationDecision === "retry" ? "#B42318" : colors.muted },
+                      { color: interpretationDecision === "retry" ? "#B42318" : readableSecondary },
                     ]}
                   >
                     {interpretationDecision === "confirmed"
@@ -662,7 +667,7 @@ export default function GrowthExplanationScreen() {
               <Text style={[styles.cardText, { color: colors.text }]}>
                 一次测评只能照见此刻的一个切面；真正重要的，是把它带回几次真实的家庭时刻里继续看。
               </Text>
-              <Text style={[styles.cardText, { color: colors.muted }]}>
+              <Text style={[styles.cardText, { color: readableSecondary }]}>
                 如果上面的理解不准确，可以返回修改；你也可以先停在这里，不必急着做决定。
               </Text>
             </View>
@@ -812,7 +817,7 @@ export default function GrowthExplanationScreen() {
             <View testID="assessment-result-action" style={styles.actionCard}>
               <Text style={styles.sectionLabel}>家庭决定 · 进入 21 天计划</Text>
               <Text style={[styles.actionTitle, { color: colors.text }]}>确认这份理解后，再一起走过三个家庭机制阶段</Text>
-              <Text style={[styles.cardText, { color: colors.muted }]}>关系机制、共同决策、冲突修复都以家庭自己的观察和复盘为依据；不会自动创建行动。</Text>
+              <Text style={[styles.cardText, { color: readableSecondary }]}>关系机制、共同决策、冲突修复都以家庭自己的观察和复盘为依据；不会自动创建行动。</Text>
               {interpretationDecision === "confirmed" ? (
                 <Pressable
                   accessibilityRole="button"
@@ -835,7 +840,7 @@ export default function GrowthExplanationScreen() {
                   先保存，明天再看
                 </Text>
               </Pressable>
-              {saveState === "saved" ? <Text style={[styles.actionStatus, { color: colors.muted }]}>已保存当前理解，回来后仍可修改或确认。</Text> : null}
+              {saveState === "saved" ? <Text style={[styles.actionStatus, { color: readableSecondary }]}>已保存当前理解，回来后仍可修改或确认。</Text> : null}
             </View>
 
             {supportState === "error" ? (
@@ -861,7 +866,7 @@ export default function GrowthExplanationScreen() {
                   回到真实生活里，看见发生了什么，再决定方案是否需要调整。
                 </Text>
                 {supportRemote.latest_checkin ? (
-                  <Text style={[styles.actionStatus, { color: colors.muted }]}>
+                  <Text style={[styles.actionStatus, { color: readableSecondary }]}>
                     已记录：
                     {supportRemote.latest_checkin.outcome === "HELPED"
                       ? "有一点帮助"
@@ -990,7 +995,7 @@ export default function GrowthExplanationScreen() {
             pressed && styles.pressed,
           ]}
         >
-          <Text style={[styles.exitText, { color: colors.muted }]}>退出</Text>
+          <Text style={[styles.exitText, { color: readableSecondary }]}>退出</Text>
         </Pressable>
       </ScrollView>
     </ScreenContainer>
@@ -1164,8 +1169,12 @@ const styles = StyleSheet.create({
   humanGateTitle: { color: "#2A245B", fontSize: 14, lineHeight: 20, fontWeight: "900" },
   humanGateText: { fontSize: 12, lineHeight: 18 },
   gatePrimary: { flex: 1, minHeight: 40, borderRadius: 13, backgroundColor: "#7665D8", alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  gatePrimaryConfirmed: { backgroundColor: "#2E7D61" },
+  gatePrimaryDisabled: { backgroundColor: "#8293A6", opacity: 1 },
   gatePrimaryText: { color: "#FFFFFF", fontSize: 12, lineHeight: 17, fontWeight: "900" },
   gateSecondary: { flex: 1, minHeight: 40, borderRadius: 13, borderWidth: 1, borderColor: "#C9C2EE", alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  gateSecondaryDismissed: { backgroundColor: "#E8EDF3", borderColor: "#9EADBD" },
+  gateSecondaryDisabled: { backgroundColor: "#F0F3F6", borderColor: "#AAB7C5", opacity: 1 },
   gateSecondaryText: { color: "#5C4DB0", fontSize: 12, lineHeight: 17, fontWeight: "900" },
   planCard: {
     borderRadius: 19,
