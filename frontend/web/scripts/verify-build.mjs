@@ -42,6 +42,8 @@ if (
   !bundle.includes("直播中") ||
   !bundle.includes("已结束 / 回看受限") ||
   !bundle.includes("NO_MEDIA") ||
+  !bundle.includes("MEDIA_READY") ||
+  !bundle.includes("PLAYBACK_AUTHORIZED") ||
   !bundle.includes("SCHEDULED") ||
   !bundle.includes("ENDED")
 ) {
@@ -78,9 +80,18 @@ if (
   !catalogSource.includes('audience_scope: "FAMILY"') ||
   !catalogSource.includes('favorite: "LOCKED"') ||
   !catalogSource.includes('replay: "LOCKED"') ||
-  !catalogSource.includes('playback_state: "WAITING_AUTHORIZATION"')
+  !catalogSource.includes('playback_state: "WAITING_AUTHORIZATION"') ||
+  !catalogSource.includes('VITE_MEDIA_PLAYBACK_DTO') ||
+  !catalogSource.includes('playback_url')
 ) {
   fail("artifact source map does not retain sandbox-only fixture provenance");
+}
+
+const detailIndex = sourceMap.sources.findIndex((source) => source.endsWith("src/components/LiveDetailPage.tsx"));
+const detailSource = sourceMap.sourcesContent?.[detailIndex];
+if (!detailSource) fail("detail page source is not traceable from the production artifact");
+if (!detailSource.includes("<video") || !detailSource.includes("playback.playback_url") || !detailSource.includes("playsInline")) {
+  fail("artifact source map does not retain the authorized video surface");
 }
 
 console.log(`build audit: PASS (${relativeScriptPath}; sandbox fixture explicit; DEV:false resolves HTTP; fake guarded)`);

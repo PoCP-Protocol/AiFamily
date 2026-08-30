@@ -7,13 +7,14 @@ type Props = {
 
 export function LiveDiscoveryCard({ record, onOpenDetail }: Props) {
   const runtimeStatus = record.section === "live-now" ? "LIVE" : record.section === "upcoming" ? "SCHEDULED" : "ENDED";
+  const mediaReady = record.playback?.state === "LIVE";
 
   return (
     <article className="live-discovery-card">
-      <div className="live-card-visual" role="img" aria-label="视频暂不可用 · 等待授权">
-        <span className="live-visual-badge">NO_MEDIA</span>
-        <strong>视频暂不可用</strong>
-        <span>WAITING_AUTHORIZATION</span>
+      <div className={`live-card-visual${mediaReady ? " live-card-visual-ready" : ""}`} role="img" aria-label={mediaReady ? "视频播放区域已授权" : "视频暂不可用 · 等待授权"}>
+        <span className="live-visual-badge">{mediaReady ? "MEDIA_READY" : "NO_MEDIA"}</span>
+        <strong>{mediaReady ? "视频播放区域已授权" : "视频暂不可用"}</strong>
+        <span>{mediaReady ? "PLAYBACK_AUTHORIZED" : "WAITING_AUTHORIZATION"}</span>
       </div>
       <div className="live-card-topline">
         <span className="live-pill">专家直播</span>

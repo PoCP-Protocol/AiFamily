@@ -2,12 +2,22 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { LiveExperience } from "./LiveExperience";
+import { LiveDetailPage } from "./LiveDetailPage";
 import {
   LIVE_STATE_COPY,
   XIAO_JU_DENG_FIXTURE,
   resolveLiveView,
   type LiveViewState,
 } from "../live/liveCatalog";
+
+const SYNTHETIC_PLAYBACK_DTO = JSON.stringify({
+  source: "synthetic",
+  fixture_only: true,
+  state: "LIVE",
+  media_session_ref: "media.synthetic.1",
+  playback_url: "http://127.0.0.1:43123/media/media.synthetic.1.mp4?token=test-only",
+  sha256: "synthetic-test-digest",
+});
 
 describe("Xiao Ju Deng read-only live UI", () => {
   it("shows the discovery card and the H-LIVE-01 detail fields", async () => {
@@ -51,6 +61,42 @@ describe("Xiao Ju Deng read-only live UI", () => {
     expect(screen.getByText("后端未接入")).toBeInTheDocument();
     expect(screen.queryByText(XIAO_JU_DENG_FIXTURE.title)).not.toBeInTheDocument();
   });
+
+  it("renders a video surface only for a local synthetic playback DTO", async () => {
+    const { container } = render(<LiveExperience environment={{ DEV: true, VITE_MEDIA_PLAYBACK_DTO: SYNTHETIC_PLAYBACK_DTO }} />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "查看直播详情" }));
+
+    const video = container.querySelector("video");
+    expect(video).not.toBeNull();
+    expect(video?.getAttribute("aria-label")).toBe("小橘灯合成视频播放区域");
+    expect(video?.getAttribute("src")).toBe("http://127.0.0.1:43123/media/media.synthetic.1.mp4?token=test-only");
+    expect(video?.hasAttribute("controls")).toBe(true);
+    expect(video?.hasAttribute("playsinline")).toBe(true);
+    expect(screen.getByText("SANDBOX_SYNTHETIC · FIXTURE_ONLY")).toBeInTheDocument();
+    expect(container.querySelector(".live-video-state")?.textContent).toBe("LIVE");
+    expect(screen.queryByText("视频暂不可用")).not.toBeInTheDocument();
+  });
+
+  it("rejects a non-local playback URL and keeps the sandbox surface fail-closed", () => {
+    const externalDto = SYNTHETIC_PLAYBACK_DTO.replace("http://127.0.0.1:43123", "https://unverified.example");
+    const view = resolveLiveView({ DEV: true, VITE_MEDIA_PLAYBACK_DTO: externalDto });
+    expect(view.record?.playback).toBeUndefined();
+    expect(view.record?.playback_state).toBe("WAITING_AUTHORIZATION");
+  });
+
+  it.each(["DISCONNECTED", "RESTARTED", "STOPPED", "REVOKED", "FAILED"] as const)(
+    "keeps the video surface fail-closed for %s",
+    (state) => {
+      const record = {
+        ...XIAO_JU_DENG_FIXTURE,
+        playback_state: state,
+        playback: { ...JSON.parse(SYNTHETIC_PLAYBACK_DTO), state },
+      } as typeof XIAO_JU_DENG_FIXTURE;
+      render(<LiveDetailPage record={record} onBack={() => undefined} />);
+      expect(screen.queryByRole("video")).not.toBeInTheDocument();
+      expect(screen.getByText(state)).toBeInTheDocument();
+    },
+  );
 
   it("shows a local empty result when the problem search has no match", async () => {
     render(<LiveExperience environment={{ DEV: true }} />);

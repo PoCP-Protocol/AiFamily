@@ -15,9 +15,21 @@ export type LiveViewState =
 
 export type LiveEnvironment = {
   DEV?: boolean;
+  VITE_MEDIA_PLAYBACK_DTO?: string;
 };
 
 export type LiveSectionKey = "live-now" | "upcoming" | "ended";
+
+export type MediaPlaybackState = "LIVE" | "DISCONNECTED" | "RESTARTED" | "ENDED" | "STOPPED" | "REVOKED" | "FAILED";
+
+export type MediaPlaybackDto = {
+  source: "synthetic";
+  fixture_only: true;
+  state: MediaPlaybackState;
+  media_session_ref: string;
+  playback_url: string;
+  sha256?: string;
+};
 
 export type LiveRecord = {
   title: string;
@@ -38,7 +50,8 @@ export type LiveRecord = {
     favorite: "LOCKED";
     replay: "LOCKED";
   };
-  playback_state: "WAITING_AUTHORIZATION";
+  playback_state: "WAITING_AUTHORIZATION" | MediaPlaybackState;
+  playback?: MediaPlaybackDto;
   section: LiveSectionKey;
   as_of: string;
   source: "SANDBOX_SYNTHETIC" | "BACKEND";
@@ -111,10 +124,54 @@ export const LIVE_SANDBOX_SECTIONS: LiveSections = {
   ended: [XIAO_JU_DENG_ENDED_FIXTURE],
 };
 
-export const resolveLiveView = (environment: LiveEnvironment): LiveViewModel =>
-  environment.DEV === true
-    ? { state: "success", record: XIAO_JU_DENG_FIXTURE, sections: LIVE_SANDBOX_SECTIONS }
-    : { state: "backend-missing", record: null };
+const MEDIA_STATES: MediaPlaybackState[] = ["LIVE", "DISCONNECTED", "RESTARTED", "ENDED", "STOPPED", "REVOKED", "FAILED"];
+
+const parseMediaPlaybackDto = (environment: LiveEnvironment): MediaPlaybackDto | null => {
+  if (environment.DEV !== true || !environment.VITE_MEDIA_PLAYBACK_DTO) return null;
+  try {
+    const value = JSON.parse(environment.VITE_MEDIA_PLAYBACK_DTO) as Partial<MediaPlaybackDto>;
+    if (
+      value.source !== "synthetic" ||
+      value.fixture_only !== true ||
+      typeof value.media_session_ref !== "string" ||
+      typeof value.playback_url !== "string" ||
+      !MEDIA_STATES.includes(value.state as MediaPlaybackState)
+    ) {
+      return null;
+    }
+    const playbackUrl = new URL(value.playback_url);
+    if (!["localhost", "127.0.0.1"].includes(playbackUrl.hostname)) return null;
+    return {
+      source: "synthetic",
+      fixture_only: true,
+      state: value.state as MediaPlaybackState,
+      media_session_ref: value.media_session_ref,
+      playback_url: value.playback_url,
+      ...(typeof value.sha256 === "string" ? { sha256: value.sha256 } : {}),
+    };
+  } catch {
+    return null;
+  }
+};
+
+export const resolveLiveView = (environment: LiveEnvironment): LiveViewModel => {
+  if (environment.DEV !== true) return { state: "backend-missing", record: null };
+  const playback = parseMediaPlaybackDto(environment);
+  if (!playback) return { state: "success", record: XIAO_JU_DENG_FIXTURE, sections: LIVE_SANDBOX_SECTIONS };
+  const liveRecord: LiveRecord = {
+    ...XIAO_JU_DENG_FIXTURE,
+    status: playback.state === "ENDED" ? "EXPIRED" : "LIVE",
+    expiry_state: playback.state === "ENDED" ? "EXPIRED" : "UNEXPIRED",
+    playback_state: playback.state,
+    playback,
+    section: "live-now",
+  };
+  return {
+    state: "success",
+    record: liveRecord,
+    sections: { "live-now": [liveRecord], upcoming: [], ended: LIVE_SANDBOX_SECTIONS.ended },
+  };
+};
 
 export const LIVE_STATE_COPY: Record<LiveViewState, { label: string; message: string }> = {
   loading: { label: "正在读取", message: "正在读取可展示的专家直播信息。" },

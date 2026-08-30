@@ -108,6 +108,7 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .live-pill { background: #f97316; color: #fff; }
 .live-readonly { background: #ffedd5; color: #9a3412; }
 .live-card-visual { align-items: center; aspect-ratio: 16 / 8; background: radial-gradient(circle at 22% 20%, #fb923c 0, transparent 28%), linear-gradient(135deg, #431407, #9a3412 48%, #f97316); border-radius: 14px; color: #fff7ed; display: flex; flex-direction: column; gap: 6px; justify-content: center; margin-bottom: 16px; overflow: hidden; position: relative; text-align: center; }
+.live-card-visual-ready { background: radial-gradient(circle at 22% 20%, #fdba74 0, transparent 28%), linear-gradient(135deg, #14532d, #166534 48%, #f97316); }
 .live-card-visual::after { border: 1px solid rgb(255 247 237 / 35%); border-radius: 50%; content: ""; height: 180px; position: absolute; right: -48px; top: -76px; width: 180px; }
 .live-card-visual strong { font-size: 1rem; position: relative; z-index: 1; }
 .live-card-visual > span:not(.live-visual-badge) { color: #fed7aa; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.7rem; position: relative; z-index: 1; }
@@ -123,7 +124,12 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .live-video-frame { align-items: center; aspect-ratio: 16 / 9; color: #ffedd5; display: grid; gap: 8px; justify-items: center; padding: 28px; text-align: center; }
 .live-video-frame h4 { color: #fff7ed; font-size: 1.2rem; margin: 0; }
 .live-video-frame p { color: #fed7aa; font-size: 0.86rem; margin: 0; }
+.live-video-authorized { align-items: stretch; display: grid; gap: 0; padding: 0; }
+.live-video-authorized video { aspect-ratio: 16 / 9; background: #120a06; display: block; min-height: 240px; object-fit: contain; width: 100%; }
+.live-video-caption { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; padding: 12px 18px 16px; }
+.live-video-caption p { flex-basis: 100%; text-align: center; }
 .live-video-state { border: 1px solid #fb923c; border-radius: 999px; color: #fed7aa; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.72rem; padding: 5px 8px; }
+.visually-hidden { clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
 .live-card-summary, .live-detail-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 20px 0; }
 .live-card-summary dt, .live-detail-grid dt { color: #9a3412; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; }
 .live-card-summary dd, .live-detail-grid dd { color: #431407; font-size: 0.86rem; margin: 4px 0 0; overflow-wrap: anywhere; }
