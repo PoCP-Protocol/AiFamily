@@ -433,7 +433,7 @@ migration head。测试环境必须保留生产同样的路由、权限、状态
 `AIFAMILY_TEST_DATABASE_URL` 的成功都只能记作 `CONTRACTED`，不得关闭 DATA-01/LEDGER-01。
 **远端 push 443 失败也是交付阻断证据**：提交未出现在 remote 前不能称“已推送”，必须记录 local SHA、
 remote SHA、命令和 exact error；本轮复测前远端曾为 `bd59c91`，随后远端已出现
-`9eeb19a`、`b37b1b6` 和 `e0c16d0`，当前推送后为 `70eda7d`。这些 SHA 进入分支只证明提交可追踪，
+`9eeb19a`、`b37b1b6` 和 `e0c16d0`，当前远端为 `origin/codex/cleanup-superseded=82f038c`。这些 SHA 进入分支只证明提交可追踪，
 不等于生产完成：`b37b1b6` 仍是内存 CONTRACTED/PARTIAL，需 HTTP+PG+outbox+deletion/replay；
 `e0c16d0` 仅为场景计划。任何未出现在 remote 的 SHA 仍保持 `LOCAL_ONLY`，必须记录 exact error。
 

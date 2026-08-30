@@ -160,7 +160,7 @@ P0 任一任务没有真实 PostgreSQL 或 HTTP 证据，Sprint 保持 `NOT_DONE
 | ADOM-5 / DB-01 migration | Alembic baseline/head、ORM/Manifest/ADR | ADOM/ARCH / `5a67a1b`；0011–0023 WIP | FGCN chain 2 passed；baseline PG 分层 8 passed/1 failed/1 skipped | `PARTIAL/BLOCKED (P1)` | `alembic heads=0023`，未知 head 失败；0011–0023 未形成 tracked/审批链。补对象清单、可逆 Fresh PG、单 head 后才 allow-list |
 | AAIR-6 / durable deletion | deletion queue、lease/retry/DLQ、五类回执 | AAIR / durable deletion slice | durable 子集 6 项；context-engine 25 passed | `CONTRACTED/adapter-only` | InMemory store、无 PG/outbox/跨进程 lease/真实 receipts；补 durable worker 与审计删除证明 |
 | AFE-4 / UI experience | 34 UI 语义图标、成就、多模态、跨端 | AFE / UI slice、Web `4b9a4b4` | 专项 5 passed、mobile `pnpm check` passed；Web clientFactory 26 passed/typecheck 0 | `PARTIAL` | mobile 全量 249 passed/1 skipped/5 failed；修 UI-02、registry/service contract 与四端视觉/无障碍/locale parity；生产 `DEV:false + VITE_EXPERIENCE_CLIENT=fake` 必须 fail-closed/强制 HTTP |
-| GROWTH / S-01 主线 | `UI-03→UI-05→UI-09`：assessment signal→Perspective/Hypothesis draft→家庭确认→GrowthIntent/ActionTask→回读/ChallengeReview | growth owner / `b37b1b6`（local only，未推送） | narrow 9 tests；journey 64 passed/15 PG skipped；architecture 109/1/1 | `CONTRACTED/PARTIAL (P0 业务主线)` | 仅内存，无 HTTP/PG/outbox/durable deletion/replay；下一阶段必须接真实 FastAPI+Postgres+outbox+deletion/replay，且绑定家长确认一个问题/主结果 |
+| GROWTH / S-01 主线 | `UI-03→UI-05→UI-09`：assessment signal→Perspective/Hypothesis draft→家庭确认→GrowthIntent/ActionTask→回读/ChallengeReview | growth owner / `b37b1b6`（已在当前远端分支历史，仍非生产完成） | narrow 9 tests；journey 64 passed/15 PG skipped；architecture 109/1/1 | `CONTRACTED/PARTIAL (P0 业务主线)` | 仅内存，无 HTTP/PG/outbox/durable deletion/replay；下一阶段必须接真实 FastAPI+Postgres+outbox+deletion/replay，且绑定家长确认一个问题/主结果；缺真实 PG/HTTP/构建/主线合入证据 |
 | GROWTH / S05→S08 | Action→Outcome→Story→Recommendation→Annual/Renewal | growth_action_loop / `b431eda`、`78cb9c1`、`dcc0802` | journey 40/4；Fresh PG 44 | `CONTRACTED-PARTIAL` | 仅作为 S-01 后续；无 Journey HTTP/ORM/常驻 worker/真实 sink；补 Audit/Outbox、consent/replay/deletion 与 UI e2e |
 | GROWTH-ONBOARDING | Confirmed Intent→Onboarding HTTP/PG | growth owner / `0cd53fb`、`6b4a8e9` | route/domain 29 passed；PG 单跑 13 passed，但重复一轮 12 passed/1 failed | `CONTRACTED-PARTIAL` | `actor_family_scope_denied` 时序/时钟 flake；0016/0017 migration 未登记。修 fixture 时钟/隔离、非法 UUID=400、跨租户/撤回同意 |
 | AAIR/PLT / Context | Async/SQL Context、scope/replay/delete | AAIR / `02a80c4`、`6a88625`、`6150169`、`9b10d2d` | context 25 passed；disposable PG probe 1 passed | `CONTRACTED-PARTIAL` | PG probe 仍 create_all/同 engine，无 Alembic/restart/production resolver；补 durable Consent、migration、Audit/Outbox、删除 receipts |
@@ -172,7 +172,7 @@ P0 任一任务没有真实 PostgreSQL 或 HTTP 证据，Sprint 保持 `NOT_DONE
 
 **总闸门（快照）**：architecture `109 passed/1 skipped/1 failed`（Ruff ratchet）、全量 Ruff
 `3 errors (1 E501 + 2 I001)`、Alembic unknown 0023、mobile `249/1/5`，因此当前测试候选只能在受控环境继续；
-生产发布明确 `NO-GO`。旧远端快照 `bd59c91` 已过时；当前 `origin/codex/cleanup-superseded=70eda7d`，其历史含
+生产发布明确 `NO-GO`。旧远端快照 `bd59c91` 已过时；当前 `origin/codex/cleanup-superseded=82f038c`，其历史含
 `9eeb19a`（文档原子场景清单）、`b37b1b6`（S-01 slice）和 `e0c16d0`（场景计划）。这些提交虽已进入该
 分支历史，仍缺真实 PG/HTTP/构建/主线合入证据，不能写成生产完成；工作树仍有其它 Agent WIP，禁止将其一并推送。
 
