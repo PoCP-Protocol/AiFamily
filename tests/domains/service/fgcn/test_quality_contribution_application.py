@@ -109,9 +109,7 @@ def _task(*, status: TaskStatus = TaskStatus.ACCEPTED) -> ServiceTask:
         status=status,
         responsible_ref="expert-quality" if status is not TaskStatus.PENDING else None,
         deliverable_ref=(
-            "evidence:quality-1"
-            if status in {TaskStatus.DELIVERED, TaskStatus.VERIFIED}
-            else None
+            "evidence:quality-1" if status in {TaskStatus.DELIVERED, TaskStatus.VERIFIED} else None
         ),
         verified_at=NOW + timedelta(hours=2) if status is TaskStatus.VERIFIED else None,
         created_at=NOW,
@@ -356,6 +354,19 @@ async def test_contribution_requires_verified_delivery_and_matching_human_provid
                 delivery_id="delivery-quality-1",
                 provider_ref="expert-other",
                 role_key="DELIVERY_RESOURCE",
+                started_at=NOW,
+                completed_at=NOW + timedelta(hours=1),
+                scope=_scope(),
+                recorder=AuditRecorder(),
+            )
+        with pytest.raises(ServiceForbiddenError, match="fgcn_contribution_role_mismatch"):
+            await record_service_contribution(
+                repo,
+                task_id=TASK,
+                contribution_id="00000000-0000-4000-8000-000000000321",
+                delivery_id="delivery-quality-1",
+                provider_ref="expert-quality",
+                role_key="UNBOUND_ROLE",
                 started_at=NOW,
                 completed_at=NOW + timedelta(hours=1),
                 scope=_scope(),

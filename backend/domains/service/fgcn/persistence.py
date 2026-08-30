@@ -62,6 +62,7 @@ from .contracts import (
     CaseStatus,
     ContributionQualityState,
     GateServiceScope,
+    MutationIdempotencyRecord,
     ServiceCase,
     ServiceContribution,
     ServiceDelivery,
@@ -682,6 +683,100 @@ class SqlAlchemyFGCNRepository:
         if result.rowcount != 1:
             raise ServiceConflictError("fgcn_case_opening_idempotency_claim_missing")
 
+    @staticmethod
+    def _mutation_storage_key(
+        scope: GateServiceScope,
+        action_name: str,
+        idempotency_key: str,
+    ) -> str:
+        """Hash tenant, action, and client key into the shared key column."""
+
+        material = (
+            f"fgcn:{action_name.strip()}:{len(scope.tenant_id)}:{scope.tenant_id}:"
+            f"{idempotency_key.strip()}"
+        )
+        return f"fgcn:{hashlib.sha256(material.encode('utf-8')).hexdigest()}"
+
+    async def claim_mutation(
+        self,
+        *,
+        scope: GateServiceScope,
+        action_name: str,
+        idempotency_key: str,
+        request_hash: str,
+    ) -> MutationIdempotencyRecord:
+        """Claim an FGCN mutation in the same transaction as its fact.
+
+        The physical table is pre-existing platform infrastructure.  The
+        storage key remains opaque and tenant-scoped; the request hash binds
+        the key to one immutable command payload.
+        """
+
+        if not action_name.strip() or not idempotency_key.strip():
+            raise ServiceValidationError("fgcn_mutation_idempotency_key_required")
+        storage_key = self._mutation_storage_key(scope, action_name, idempotency_key)
+        insert_result = await self._session.execute(
+            sa.text(
+                """
+                INSERT INTO idempotency_keys(
+                    idempotency_key, action_name, request_hash
+                ) VALUES (:key, :action, :request_hash)
+                ON CONFLICT (idempotency_key) DO NOTHING
+                """
+            ),
+            {
+                "key": storage_key,
+                "action": action_name.strip(),
+                "request_hash": request_hash,
+            },
+        )
+        row = await self._session.get(IdempotencyKeyRow, storage_key, with_for_update=True)
+        if row is None:
+            raise ServiceConflictError("fgcn_mutation_idempotency_unavailable")
+        if row.action_name != action_name.strip() or row.request_hash != request_hash:
+            raise ServiceConflictError("fgcn_mutation_idempotency_replay_mismatch")
+        inserted = insert_result.rowcount == 1
+        resource_id: str | None = None
+        if row.response_body is not None:
+            if not isinstance(row.response_body, dict):
+                raise ServiceConflictError("fgcn_mutation_idempotency_response_invalid")
+            value = row.response_body.get("resource_id")
+            if not isinstance(value, str) or not value.strip():
+                raise ServiceConflictError("fgcn_mutation_idempotency_response_invalid")
+            resource_id = value
+        if not inserted and resource_id is None:
+            raise ServiceConflictError("fgcn_mutation_idempotency_incomplete")
+        return MutationIdempotencyRecord(
+            action_name=action_name.strip(),
+            request_hash=request_hash,
+            resource_id=resource_id,
+            is_new=inserted,
+        )
+
+    async def complete_mutation(
+        self,
+        *,
+        scope: GateServiceScope,
+        action_name: str,
+        idempotency_key: str,
+        request_hash: str,
+        resource_id: str,
+    ) -> None:
+        """Bind the durable response identity before the transaction commits."""
+
+        storage_key = self._mutation_storage_key(scope, action_name, idempotency_key)
+        result = await self._session.execute(
+            sa.update(IdempotencyKeyRow)
+            .where(
+                IdempotencyKeyRow.idempotency_key == storage_key,
+                IdempotencyKeyRow.action_name == action_name.strip(),
+                IdempotencyKeyRow.request_hash == request_hash,
+            )
+            .values(response_code=200, response_body={"resource_id": resource_id})
+        )
+        if result.rowcount != 1:
+            raise ServiceConflictError("fgcn_mutation_idempotency_claim_missing")
+
     async def flush_audit(self, recorder: AuditRecorder) -> int:
         """Flush audit events through this repository's transaction.
 
@@ -1237,6 +1332,8 @@ class SqlAlchemyFGCNRepository:
             raise ServiceConflictError("fgcn_contribution_requires_verified_task")
         if task.responsible_ref != contribution.provider_ref:
             raise ServiceForbiddenError("fgcn_contribution_provider_mismatch")
+        if task.role_key != contribution.role_key:
+            raise ServiceForbiddenError("fgcn_contribution_role_mismatch")
         delivery = _delivery_from_payload(task)
         if delivery is None or delivery.delivery_id != contribution.delivery_id:
             raise ServiceForbiddenError("fgcn_contribution_delivery_mismatch")

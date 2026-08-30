@@ -22,11 +22,13 @@ from backend.platform.audit import AuditEvent, AuditRecorder
 from .contracts import (
     CaseStatus,
     GateServiceScope,
+    MutationIdempotencyRecord,
     ServiceCase,
     ServiceDelivery,
     ServiceTask,
     TaskStatus,
 )
+from .idempotency import effective_mutation_key, mutation_request_hash
 
 
 class FGCNDeliveryRepository(Protocol):
@@ -39,6 +41,25 @@ class FGCNDeliveryRepository(Protocol):
     async def load_delivery(self, task_id: str) -> ServiceDelivery: ...
 
     async def save_delivery(self, delivery: ServiceDelivery) -> None: ...
+
+    async def claim_mutation(
+        self,
+        *,
+        scope: GateServiceScope,
+        action_name: str,
+        idempotency_key: str,
+        request_hash: str,
+    ) -> MutationIdempotencyRecord: ...
+
+    async def complete_mutation(
+        self,
+        *,
+        scope: GateServiceScope,
+        action_name: str,
+        idempotency_key: str,
+        request_hash: str,
+        resource_id: str,
+    ) -> None: ...
 
     async def flush_audit(self, recorder: AuditRecorder) -> int: ...
 
@@ -100,6 +121,7 @@ async def submit_service_delivery(
     scope: GateServiceScope,
     recorder: AuditRecorder,
     delivered_at: datetime | None = None,
+    idempotency_key: str | None = None,
 ) -> ServiceDelivery:
     """Record one delivery evidence reference for an accepted FGCN task.
 
@@ -112,19 +134,19 @@ async def submit_service_delivery(
     task = await repo.load_task(task_id)
     case = await repo.load_case(task.case_id)
     _assert_scope(case, scope)
+    actor = _human_actor(actor_id)
 
     if task.status in {
         TaskStatus.DELIVERED,
         TaskStatus.VERIFIED,
         TaskStatus.CLOSED,
     }:
-        replay_actor = _human_actor(actor_id)
         existing = await repo.load_delivery(task_id)
         if _replay_matches(
             existing,
             delivery_id=delivery_id,
             task_id=task_id,
-            assignee_ref=replay_actor,
+            assignee_ref=actor,
             evidence_ref=evidence_ref,
             outcome_observation=outcome_observation,
         ):
@@ -135,7 +157,6 @@ async def submit_service_delivery(
         raise ServiceConflictError("fgcn_delivery_case_is_terminal")
     if task.status is not TaskStatus.ACCEPTED:
         raise ServiceConflictError("fgcn_delivery_requires_assigned_responsible_person")
-    actor = _human_actor(actor_id)
     if task.responsible_ref != actor:
         raise ServiceForbiddenError("fgcn_delivery_actor_mismatch")
 
@@ -149,7 +170,47 @@ async def submit_service_delivery(
         delivered_at=delivered_at or datetime.now(UTC),
         locale=task.locale,
     )
+    key = effective_mutation_key(idempotency_key, delivery.delivery_id)
+    request_hash = mutation_request_hash(
+        "SUBMIT_SERVICE_DELIVERY",
+        scope,
+        {
+            "delivery_id": delivery.delivery_id,
+            "task_id": delivery.task_id,
+            "assignee_ref": delivery.assignee_ref,
+            "evidence_ref": delivery.evidence_ref,
+            "outcome_observation": delivery.outcome_observation,
+        },
+    )
+    claim = await repo.claim_mutation(
+        scope=scope,
+        action_name="SUBMIT_SERVICE_DELIVERY",
+        idempotency_key=key,
+        request_hash=request_hash,
+    )
+    if not claim.is_new:
+        if claim.resource_id != delivery.delivery_id:
+            raise ServiceConflictError("fgcn_delivery_idempotency_replay_mismatch")
+        existing = await repo.load_delivery(task_id)
+        if not _replay_matches(
+            existing,
+            delivery_id=delivery.delivery_id,
+            task_id=delivery.task_id,
+            assignee_ref=delivery.assignee_ref,
+            evidence_ref=delivery.evidence_ref,
+            outcome_observation=delivery.outcome_observation,
+        ):
+            raise ServiceConflictError("fgcn_delivery_idempotency_replay_mismatch")
+        return existing
+
     await repo.save_delivery(delivery)
+    await repo.complete_mutation(
+        scope=scope,
+        action_name="SUBMIT_SERVICE_DELIVERY",
+        idempotency_key=key,
+        request_hash=request_hash,
+        resource_id=delivery.delivery_id,
+    )
 
     recorder.record(
         AuditEvent(
