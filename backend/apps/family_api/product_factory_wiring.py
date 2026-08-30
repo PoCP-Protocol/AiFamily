@@ -8,9 +8,8 @@ are installed.
 
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import FastAPI
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.domains.product_intelligence.api import product_factory_routes
 from backend.domains.product_intelligence.api.dependencies import (
@@ -25,7 +24,9 @@ def mount_product_factory_router(application: FastAPI) -> None:
     application.include_router(product_factory_routes.router)
 
 
-def install_product_factory_session_factory(session_factory: Any | None) -> None:
+def install_product_factory_session_factory(
+    session_factory: async_sessionmaker[AsyncSession] | None,
+) -> None:
     """Bind an explicit app-owned async session factory for production."""
 
     configure_session_factory(session_factory)
