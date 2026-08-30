@@ -14,8 +14,8 @@ describe("UI-03 family assessment result contract", () => {
   });
 
   it("shows a clear explanation and provenance without score, ranking, or diagnosis", () => {
-    expect(source).toContain("为什么这样整理");
-    expect(source).toContain("可以先尝试");
+    expect(source).toContain("我们听到的家庭关注");
+    expect(source).toContain("可能的方向");
     expect(source).toContain("本次结果依据");
     expect(source).toContain("FAMILY_PERSPECTIVE_NOT_SCORE_OR_DIAGNOSIS");
     expect(source).toContain("may_mutate_business_state");
@@ -28,7 +28,7 @@ describe("UI-03 family assessment result contract", () => {
     expect(source).toContain('state === "error"');
     expect(source).toContain("CONSENT_REQUIRED");
     expect(source).toContain("还没有已提交的家庭测评");
-    expect(source).toContain("暂时无法读取测评结果");
+    expect(source).toContain("暂时无法读取这次整理");
     expect(source).toContain("重新读取");
   });
 
