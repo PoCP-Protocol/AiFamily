@@ -107,8 +107,17 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .live-card-topline { align-items: center; display: flex; gap: 9px; }
 .live-pill { background: #f97316; color: #fff; }
 .live-readonly { background: #ffedd5; color: #9a3412; }
+.live-card-visual { align-items: center; aspect-ratio: 16 / 8; background: radial-gradient(circle at 22% 20%, #fb923c 0, transparent 28%), linear-gradient(135deg, #431407, #9a3412 48%, #f97316); border-radius: 14px; color: #fff7ed; display: flex; flex-direction: column; gap: 6px; justify-content: center; margin-bottom: 16px; overflow: hidden; position: relative; text-align: center; }
+.live-card-visual::after { border: 1px solid rgb(255 247 237 / 35%); border-radius: 50%; content: ""; height: 180px; position: absolute; right: -48px; top: -76px; width: 180px; }
+.live-card-visual strong { font-size: 1rem; position: relative; z-index: 1; }
+.live-card-visual > span:not(.live-visual-badge) { color: #fed7aa; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.7rem; position: relative; z-index: 1; }
+.live-visual-badge { background: #fff7ed; border-radius: 999px; color: #9a3412; font-size: 0.64rem; font-weight: 850; padding: 5px 8px; position: absolute; right: 12px; top: 12px; }
 .live-discovery-card h3 { color: #7c2d12; font-size: 1.2rem; margin: 16px 0 7px; }
+.live-expert-line { align-items: center; display: flex; gap: 8px; }
+.live-expert-avatar { align-items: center; background: #f97316; border: 2px solid #ffedd5; border-radius: 50%; color: #fff; display: inline-flex; font-size: 0.8rem; font-weight: 850; height: 30px; justify-content: center; width: 30px; }
 .live-card-speaker { color: #7c2d12; font-size: 0.9rem; margin: 0; }
+.live-problem-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
+.live-problem-tags span { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 999px; color: #9a3412; font-size: 0.72rem; padding: 4px 7px; }
 .live-card-summary-copy { color: #7c2d12; font-size: 0.88rem; line-height: 1.55; margin: 12px 0 0; max-width: 760px; }
 .live-video-container { background: #2a160e; border: 1px solid #9a3412; border-radius: 18px; margin: 18px auto 22px; max-width: 1240px; overflow: hidden; }
 .live-video-frame { align-items: center; aspect-ratio: 16 / 9; color: #ffedd5; display: grid; gap: 8px; justify-items: center; padding: 28px; text-align: center; }

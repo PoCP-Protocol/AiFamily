@@ -22,6 +22,7 @@ export type LiveSectionKey = "live-now" | "upcoming" | "ended";
 export type LiveRecord = {
   title: string;
   speaker: string;
+  problem_tags: string[];
   expert_summary: string;
   applicable_scope: string;
   starts_at: string;
@@ -55,6 +56,7 @@ export type LiveViewModel = {
 export const XIAO_JU_DENG_FIXTURE: LiveRecord = {
   title: "小橘灯：家庭沟通中的温柔练习",
   speaker: "小橘灯老师",
+  problem_tags: ["家庭沟通", "照护者"],
   expert_summary: "围绕家庭沟通中的具体场景，练习可核对、可暂停的表达方式。",
   applicable_scope: "家长与照护者",
   starts_at: "2026-09-05 19:30",
@@ -80,6 +82,7 @@ export const XIAO_JU_DENG_FIXTURE: LiveRecord = {
 export const XIAO_JU_DENG_ENDED_FIXTURE: LiveRecord = {
   title: "小橘灯：冲突后的家庭复盘",
   speaker: "小橘灯老师",
+  problem_tags: ["冲突复盘", "家庭沟通"],
   expert_summary: "Sandbox 合成内容：仅用于展示已结束场次与回看门控状态。",
   applicable_scope: "家长与照护者",
   starts_at: "2026-08-22 19:30",

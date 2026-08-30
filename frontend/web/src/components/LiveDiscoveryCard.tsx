@@ -6,17 +6,31 @@ type Props = {
 };
 
 export function LiveDiscoveryCard({ record, onOpenDetail }: Props) {
+  const runtimeStatus = record.section === "live-now" ? "LIVE" : record.section === "upcoming" ? "SCHEDULED" : "ENDED";
+
   return (
     <article className="live-discovery-card">
+      <div className="live-card-visual" role="img" aria-label="视频暂不可用 · 等待授权">
+        <span className="live-visual-badge">NO_MEDIA</span>
+        <strong>视频暂不可用</strong>
+        <span>WAITING_AUTHORIZATION</span>
+      </div>
       <div className="live-card-topline">
         <span className="live-pill">专家直播</span>
         <span className="live-readonly">只读信息</span>
+        <span className={`live-runtime-chip live-runtime-${runtimeStatus.toLowerCase()}`}>{runtimeStatus}</span>
         <span className="live-status-chip">{record.approval_status} · {record.expiry_state}</span>
         <span className="live-audit-chip">{record.review_ref}</span>
         <span className="live-sandbox-mark">DEV_ONLY</span>
       </div>
       <h3>{record.title}</h3>
-      <p className="live-card-speaker">主讲人 · {record.speaker}</p>
+      <div className="live-expert-line">
+        <span className="live-expert-avatar" aria-hidden="true">小</span>
+        <span className="live-card-speaker">{record.speaker}</span>
+      </div>
+      <div className="live-problem-tags" aria-label="家庭问题标签">
+        {record.problem_tags.map((tag) => <span key={tag}>#{tag}</span>)}
+      </div>
       <dl className="live-card-summary">
         <div>
           <dt>适用范围</dt>

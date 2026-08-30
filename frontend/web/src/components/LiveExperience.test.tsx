@@ -13,10 +13,14 @@ describe("Xiao Ju Deng read-only live UI", () => {
   it("shows the discovery card and the H-LIVE-01 detail fields", async () => {
     render(<LiveExperience environment={{ DEV: true }} />);
     expect(screen.getByText("小橘灯：家庭沟通中的温柔练习")).toBeInTheDocument();
-    expect(screen.getAllByText("主讲人 · 小橘灯老师")).toHaveLength(2);
+    expect(screen.getAllByText("小橘灯老师")).toHaveLength(2);
     expect(screen.getByText("直播中")).toBeInTheDocument();
     expect(screen.getByText("即将开始")).toBeInTheDocument();
     expect(screen.getByText("已结束 / 回看受限")).toBeInTheDocument();
+    expect(screen.getByText("SCHEDULED")).toBeInTheDocument();
+    expect(screen.getByText("ENDED")).toBeInTheDocument();
+    expect(screen.getAllByText("#家庭沟通")).toHaveLength(2);
+    expect(screen.getAllByText("视频暂不可用")).toHaveLength(2);
     expect(screen.queryByText("围绕家庭沟通中的具体场景，练习可核对、可暂停的表达方式。")).not.toBeInTheDocument();
 
     await userEvent.setup().click(screen.getByRole("button", { name: "查看直播详情" }));

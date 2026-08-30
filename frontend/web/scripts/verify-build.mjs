@@ -40,7 +40,10 @@ if (
   !bundle.includes("视频暂不可用") ||
   !bundle.includes("问题搜索") ||
   !bundle.includes("直播中") ||
-  !bundle.includes("已结束 / 回看受限")
+  !bundle.includes("已结束 / 回看受限") ||
+  !bundle.includes("NO_MEDIA") ||
+  !bundle.includes("SCHEDULED") ||
+  !bundle.includes("ENDED")
 ) {
   fail("sandbox fixture provenance marker is absent from the bundle");
 }

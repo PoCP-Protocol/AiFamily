@@ -44,7 +44,7 @@ export function LiveExperience({ environment = import.meta.env, viewModel }: Pro
 
     return SECTION_ORDER.reduce<LiveSections>((result, key) => {
       result[key] = sections[key].filter((record) =>
-        [record.title, record.speaker, record.expert_summary, record.applicable_scope]
+        [record.title, record.speaker, record.expert_summary, record.applicable_scope, ...record.problem_tags]
           .join(" ")
           .toLocaleLowerCase()
           .includes(normalizedQuery),
