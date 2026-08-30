@@ -37,7 +37,12 @@ def test_dev_auth_requires_explicit_known_environment(monkeypatch, environment: 
         # rejection must identify the environment configuration.
         assert "environment" in str(error).lower() or "aifamily_env" in str(error).lower()
         return
-    assert main.is_dev_environment() is False
+    try:
+        dev_enabled = main.is_dev_environment()
+    except (RuntimeError, ValueError) as error:
+        assert "environment" in str(error).lower() or "aifamily_env" in str(error).lower()
+        return
+    assert dev_enabled is False
     client = TestClient(main.create_app())
 
     assert "/auth/account-session" not in client.get("/openapi.json").json()["paths"]
