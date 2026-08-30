@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.intelligence.experience.api import (
+    MultimodalDraftRuntime,
+    get_multimodal_draft_runtime,
     get_multimodal_draft_runtime_resolver,
     router,
 )
-from backend.intelligence.experience.synthetic_runtime import SyntheticRuntimeResolver
+from backend.intelligence.experience.run_http import InMemoryExperienceRunLedger
+from backend.intelligence.experience.synthetic_runtime import (
+    SyntheticRuntimeResolver,
+    build_synthetic_runtime,
+)
+from backend.intelligence.model_gateway.errors import ModelGatewayError
 
 
 def _body(run_id: str) -> dict[str, object]:
@@ -124,3 +133,96 @@ def test_run_routes_require_idempotency_for_mutations_and_isolate_scope() -> Non
             f"/families/other-family/experience/multimodal/runs/{run_id}/replay"
         )
         assert cross_scope.status_code == 403
+
+
+def test_draft_create_replays_without_a_second_application_invocation() -> None:
+    base_runtime = build_synthetic_runtime(
+        family_id="family-http",
+        tenant_id="tenant-http",
+        subject_ids=("guardian-http",),
+    )
+
+    class CountingApplication:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def generate_draft(self, command):  # type: ignore[no-untyped-def]
+            self.calls += 1
+            return await base_runtime.application.generate_draft(command)
+
+    application = CountingApplication()
+    runtime: MultimodalDraftRuntime = replace(
+        base_runtime,
+        application=application,
+        run_ledger=InMemoryExperienceRunLedger(),
+    )
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_multimodal_draft_runtime] = lambda: runtime
+
+    with TestClient(app) as client:
+        first = client.post(
+            "/families/family-http/experience/multimodal/drafts",
+            json=_body("run-http-preflight"),
+            headers={"Idempotency-Key": "create-preflight"},
+        )
+        replay = client.post(
+            "/families/family-http/experience/multimodal/drafts",
+            json=_body("run-http-preflight"),
+            headers={"Idempotency-Key": "create-preflight"},
+        )
+        conflict = client.post(
+            "/families/family-http/experience/multimodal/drafts",
+            json=_body("run-http-preflight") | {"payload": {"expression": "改过的表达"}},
+            headers={"Idempotency-Key": "create-preflight"},
+        )
+
+    assert first.status_code == 200, first.text
+    assert replay.status_code == 200, replay.text
+    assert replay.json() == first.json()
+    assert conflict.status_code == 409, conflict.text
+    assert application.calls == 1
+
+
+def test_provider_failure_releases_draft_preflight_for_safe_retry() -> None:
+    base_runtime = build_synthetic_runtime(
+        family_id="family-http",
+        tenant_id="tenant-http",
+        subject_ids=("guardian-http",),
+    )
+
+    class FlakyApplication:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def generate_draft(self, command):  # type: ignore[no-untyped-def]
+            self.calls += 1
+            if self.calls == 1:
+                raise ModelGatewayError("NETWORK_ERROR", "transient")
+            return await base_runtime.application.generate_draft(command)
+
+    application = FlakyApplication()
+    runtime = replace(
+        base_runtime,
+        application=application,
+        run_ledger=InMemoryExperienceRunLedger(),
+    )
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_multimodal_draft_runtime] = lambda: runtime
+
+    with TestClient(app) as client:
+        failed = client.post(
+            "/families/family-http/experience/multimodal/drafts",
+            json=_body("run-http-retry"),
+            headers={"Idempotency-Key": "create-retry"},
+        )
+        retried = client.post(
+            "/families/family-http/experience/multimodal/drafts",
+            json=_body("run-http-retry"),
+            headers={"Idempotency-Key": "create-retry"},
+        )
+
+    assert failed.status_code == 503
+    assert retried.status_code == 200, retried.text
+    assert application.calls == 2
