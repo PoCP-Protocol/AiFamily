@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -11,6 +12,7 @@ from backend.domains.service.domain.entities import BookingRequest, ServiceRecor
 from backend.domains.service.domain.errors import (
     ServiceConflictError,
     ServiceForbiddenError,
+    ServiceNotFoundError,
 )
 from backend.domains.service.fgcn.contracts import (
     BlueprintSnapshot,
@@ -22,12 +24,14 @@ from backend.domains.service.fgcn.contracts import (
 )
 from backend.domains.service.fgcn.receipt_bridge import (
     build_service_delivery_from_record,
+    submit_service_delivery_from_record,
 )
 from backend.domains.service.fgcn.scenario import (
     S01_OUTCOME_OBSERVATION,
     S01_SCENARIO,
     S01_TASK_ACCEPTANCE_CRITERION,
 )
+from backend.platform.audit import AuditRecorder
 
 NOW = datetime(2026, 8, 30, 18, tzinfo=UTC)
 TENANT = "tenant-receipt"
@@ -75,6 +79,16 @@ def _case(*, status: CaseStatus = CaseStatus.OPEN) -> ServiceCase:
 
 
 def _task(*, status: TaskStatus = TaskStatus.ACCEPTED) -> ServiceTask:
+    deliverable_ref = (
+        "service-record:record-receipt"
+        if status in {TaskStatus.DELIVERED, TaskStatus.VERIFIED, TaskStatus.CLOSED}
+        else None
+    )
+    verified_at = (
+        NOW + timedelta(hours=3)
+        if status in {TaskStatus.VERIFIED, TaskStatus.CLOSED}
+        else None
+    )
     return ServiceTask(
         task_id=TASK,
         case_id=CASE,
@@ -88,6 +102,8 @@ def _task(*, status: TaskStatus = TaskStatus.ACCEPTED) -> ServiceTask:
         task_weight=Decimal("1"),
         status=status,
         responsible_ref=PROVIDER if status is not TaskStatus.PENDING else None,
+        deliverable_ref=deliverable_ref,
+        verified_at=verified_at,
         created_at=NOW,
     )
 
@@ -157,6 +173,91 @@ class _Reader:
     async def load_booking(self, booking_request_id: str) -> BookingRequest:
         assert booking_request_id == BOOKING
         return self.booking
+
+
+class _FGCNDeliveryRepository:
+    """Small in-memory port double for the existing delivery application."""
+
+    def __init__(self, case: ServiceCase, task: ServiceTask) -> None:
+        self.case = case
+        self.task = task
+        self.delivery = None
+        self.claims: dict[tuple[str, str], tuple[str, str | None]] = {}
+        self.audit_flushes = 0
+        self.commits = 0
+
+    async def load_case(self, case_id: str) -> ServiceCase:
+        assert case_id == self.case.case_id
+        return self.case
+
+    async def load_task(self, task_id: str) -> ServiceTask:
+        assert task_id == self.task.task_id
+        return self.task
+
+    async def load_delivery(self, task_id: str):
+        assert task_id == self.task.task_id
+        if self.delivery is None:
+            raise ServiceNotFoundError("fgcn_service_delivery_not_found")
+        return self.delivery
+
+    async def save_delivery(self, delivery) -> None:
+        self.delivery = delivery
+        self.task = replace(
+            self.task,
+            status=TaskStatus.DELIVERED,
+            deliverable_ref=delivery.evidence_ref,
+        )
+
+    async def claim_mutation(
+        self,
+        *,
+        scope: GateServiceScope,
+        action_name: str,
+        idempotency_key: str,
+        request_hash: str,
+    ):
+        key = (f"{scope.tenant_id}:{scope.family_id}", idempotency_key)
+        previous = self.claims.get(key)
+        if previous is not None:
+            previous_hash, resource_id = previous
+            assert previous_hash == request_hash
+            from backend.domains.service.fgcn.contracts import MutationIdempotencyRecord
+
+            return MutationIdempotencyRecord(
+                action_name=action_name,
+                request_hash=request_hash,
+                resource_id=resource_id,
+                is_new=False,
+            )
+        self.claims[key] = (request_hash, None)
+        from backend.domains.service.fgcn.contracts import MutationIdempotencyRecord
+
+        return MutationIdempotencyRecord(
+            action_name=action_name,
+            request_hash=request_hash,
+            is_new=True,
+        )
+
+    async def complete_mutation(
+        self,
+        *,
+        scope: GateServiceScope,
+        action_name: str,
+        idempotency_key: str,
+        request_hash: str,
+        resource_id: str,
+    ) -> None:
+        key = (f"{scope.tenant_id}:{scope.family_id}", idempotency_key)
+        previous_hash, _ = self.claims[key]
+        assert previous_hash == request_hash
+        self.claims[key] = (previous_hash, resource_id)
+
+    async def flush_audit(self, recorder: AuditRecorder) -> int:
+        self.audit_flushes += 1
+        return len(recorder.all_events())
+
+    async def commit(self) -> None:
+        self.commits += 1
 
 
 @pytest.mark.asyncio
@@ -261,6 +362,78 @@ async def test_bridge_rejects_foreign_fgcn_scope_and_terminal_task() -> None:
             service_record_id=RECORD,
             scope=_scope(family_id="foreign-family"),
             outcome_observation=S01_OUTCOME_OBSERVATION,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "task_status",
+    (TaskStatus.DELIVERED, TaskStatus.VERIFIED, TaskStatus.CLOSED),
+)
+async def test_bridge_replays_the_same_canonical_receipt_after_task_lifecycle_progress(
+    task_status: TaskStatus,
+) -> None:
+    candidate = await build_service_delivery_from_record(
+        _Reader(_record(), _booking()),
+        case=_case(),
+        task=_task(status=task_status),
+        service_record_id=RECORD,
+        scope=_scope(),
+        outcome_observation=S01_OUTCOME_OBSERVATION,
+    )
+
+    assert candidate.delivery_id == "service-record:record-receipt"
+    assert candidate.evidence_ref == "service-record:record-receipt"
+
+
+@pytest.mark.asyncio
+async def test_bridge_submits_to_existing_delivery_writer_and_replays_without_new_write() -> None:
+    case = _case()
+    task = _task()
+    fgcn_repo = _FGCNDeliveryRepository(case, task)
+    reader = _Reader(_record(), _booking())
+
+    first = await submit_service_delivery_from_record(
+        reader,
+        fgcn_repo,
+        case=case,
+        task=task,
+        service_record_id=RECORD,
+        scope=_scope(),
+        outcome_observation=S01_OUTCOME_OBSERVATION,
+        actor_id=PROVIDER,
+        recorder=AuditRecorder(),
+    )
+    second = await submit_service_delivery_from_record(
+        reader,
+        fgcn_repo,
+        case=case,
+        task=fgcn_repo.task,
+        service_record_id=RECORD,
+        scope=_scope(),
+        outcome_observation=S01_OUTCOME_OBSERVATION,
+        actor_id=PROVIDER,
+        recorder=AuditRecorder(),
+    )
+
+    assert second == first
+    assert fgcn_repo.commits == 1
+    assert fgcn_repo.audit_flushes == 1
+
+
+@pytest.mark.asyncio
+async def test_bridge_requires_authenticated_provider_for_mutating_submission() -> None:
+    with pytest.raises(ServiceForbiddenError, match="fgcn_receipt_delivery_actor_mismatch"):
+        await submit_service_delivery_from_record(
+            _Reader(_record(), _booking()),
+            _FGCNDeliveryRepository(_case(), _task()),
+            case=_case(),
+            task=_task(),
+            service_record_id=RECORD,
+            scope=_scope(),
+            outcome_observation=S01_OUTCOME_OBSERVATION,
+            actor_id="operator-not-provider",
+            recorder=AuditRecorder(),
         )
 
     with pytest.raises(ServiceConflictError, match="fgcn_receipt_case_is_terminal"):
