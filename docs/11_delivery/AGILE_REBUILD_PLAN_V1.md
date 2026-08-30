@@ -198,10 +198,10 @@ Sprint 1 未完成前，不宣称“法咪莉校长已上线”或“家庭需�
 ### 验证记录
 
 ```text
-uv run pytest -q                         702 passed, 43 skipped, 1 known lint-gate failure
-uv run pytest tests/architecture -v       109 passed, 1 skipped, 1 known lint-gate failure
-uv run pytest tests/intelligence -q        180 passed
-uv run pytest tests/apps/family_api -q      16 passed, 1 skipped
+uv run pytest -q                         764 passed, 43 skipped, 2 known gate failures
+uv run pytest tests/architecture -v       108 passed, 1 skipped, 2 known gate failures
+uv run pytest tests/intelligence -q        198 passed
+uv run pytest tests/apps/family_api -q      17 passed, 1 skipped
 pnpm exec vitest run（UI-03/05/09）          27 passed
 pnpm check                                  passed
 ```
@@ -215,7 +215,7 @@ pnpm check                                  passed
 - `experience_curator` 目前只有 Registry/合同设计，未开启生产 Agent 或模型供应商调用。
 - L0 现状文档中的历史断言（例如“零业务 API”“Memory ABSENT”）尚未完成与本 Sprint
   证据的同步；在同步前不得把旧基线当作当前实现清单。
-- 全量 Ruff 的唯一失败为并发 WIP 文件 `backend/domains/family/domain/entities.py:331` 的
+- 全量 Ruff 的唯一代码错误为并发 WIP 文件 `backend/domains/family/domain/entities.py:331` 的
   E501；本轮未改动该文件，避免吞并他人工作区。
 
 ## 14. Sprint 1 并行开发评审（2026-08-30）
