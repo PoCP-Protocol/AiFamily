@@ -9,6 +9,14 @@ from enum import StrEnum
 
 from backend.domains.service.domain.errors import ServiceValidationError
 
+from .scenario import (
+    ServiceScenario,
+    validate_s01_outcome_observation,
+    validate_s01_quality_note,
+    validate_s01_scenario,
+    validate_s01_task_acceptance,
+)
+
 
 def _text(value: str, name: str) -> str:
     if not isinstance(value, str) or not value.strip():
@@ -135,6 +143,7 @@ class BlueprintSnapshot:
     policy_version: int
     checksum: str
     task_template_keys: tuple[str, ...]
+    scenario: ServiceScenario
     total_units: Decimal = Decimal("100")
 
     def __post_init__(self) -> None:
@@ -153,6 +162,7 @@ class BlueprintSnapshot:
             not isinstance(key, str) or not key.strip() for key in self.task_template_keys
         ):
             raise ServiceValidationError("fgcn_task_templates_required")
+        validate_s01_scenario(self.scenario)
         total_units = _decimal(self.total_units, "total_units")
         if total_units != Decimal("100"):
             raise ServiceValidationError("fgcn_shadow_pool_must_be_100_units")
@@ -225,6 +235,7 @@ class ServiceTask:
             raise ServiceValidationError("fgcn_task_configuration_invalid")
         if any(not criterion.strip() for criterion in self.acceptance_criteria):
             raise ServiceValidationError("fgcn_acceptance_criteria_invalid")
+        validate_s01_task_acceptance(self.acceptance_criteria)
         try:
             status = TaskStatus(self.status)
         except (TypeError, ValueError) as exc:
@@ -309,6 +320,7 @@ class ServiceDelivery:
     task_id: str
     assignee_ref: str
     evidence_ref: str
+    outcome_observation: str
     delivered_at: datetime
 
     def __post_init__(self) -> None:
@@ -320,6 +332,11 @@ class ServiceDelivery:
             (self.evidence_ref, "delivery_evidence_ref"),
         ):
             _text(value, name)
+        object.__setattr__(
+            self,
+            "outcome_observation",
+            validate_s01_outcome_observation(self.outcome_observation),
+        )
         _aware(self.delivered_at, "delivery_delivered_at")
 
 
@@ -342,6 +359,7 @@ class TaskQualityReview:
             (self.review_note, "quality_review_note"),
         ):
             _text(value, name)
+        object.__setattr__(self, "review_note", validate_s01_quality_note(self.review_note))
         _aware(self.reviewed_at, "quality_reviewed_at")
 
 
@@ -485,6 +503,7 @@ __all__ = [
     "ServiceContribution",
     "ServiceDelivery",
     "ServiceTask",
+    "ServiceScenario",
     "TaskAssignment",
     "TaskAssignmentStatus",
     "TaskQualityReview",

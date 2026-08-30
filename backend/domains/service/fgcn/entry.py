@@ -43,6 +43,9 @@ class CaseEntryDependencySnapshot:
     binding_tenant_id: str
     binding_family_id: str
     binding_status: str
+    family_initiated_request: bool = False
+    family_request_ref: str = ""
+    self_help_failed_attempts: int = 0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "intent_ref", _required_text(self.intent_ref, "intent_ref"))
@@ -78,6 +81,15 @@ class CaseEntryDependencySnapshot:
             _required_text(self.binding_family_id, "binding_family_id"),
         )
         object.__setattr__(self, "binding_status", _status(self.binding_status, "binding_status"))
+        if type(self.family_initiated_request) is not bool:
+            raise ServiceValidationError("fgcn_case_entry_family_request_invalid")
+        object.__setattr__(
+            self,
+            "family_request_ref",
+            _required_text(self.family_request_ref, "family_request_ref"),
+        )
+        if type(self.self_help_failed_attempts) is not int or self.self_help_failed_attempts < 0:
+            raise ServiceValidationError("fgcn_case_entry_self_help_failures_invalid")
 
 
 class CaseEntryDependencyQuery(Protocol):
@@ -144,6 +156,10 @@ def assert_case_entry_dependencies(
         raise ServiceForbiddenError("fgcn_growth_intent_identity_mismatch")
     if snapshot.growth_intent_status != _CONFIRMED_GROWTH_INTENT_STATUS:
         raise ServiceForbiddenError("fgcn_growth_intent_not_confirmed")
+    if not snapshot.family_initiated_request:
+        raise ServiceForbiddenError("fgcn_family_request_required")
+    if snapshot.self_help_failed_attempts < 2:
+        raise ServiceForbiddenError("fgcn_repeated_self_help_failure_required")
     if snapshot.consent_status != _ACTIVE_CONSENT_STATUS:
         raise ServiceForbiddenError("fgcn_consent_not_active")
     if (

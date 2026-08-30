@@ -20,6 +20,7 @@ from backend.domains.service.fgcn.persistence import (
     SqlAlchemyFGCNRepository,
     TaskAssignmentRow,
 )
+from backend.domains.service.fgcn.scenario import S01_SCENARIO, S01_TASK_ACCEPTANCE_CRITERION
 from backend.domains.service.fgcn.workflow_worker import consume_accepted_human_task
 from backend.intelligence.human_gate import (
     ActionProposal,
@@ -79,6 +80,7 @@ def _blueprint() -> BlueprintSnapshot:
         policy_version=1,
         checksum="checksum-v1",
         task_template_keys=("AI_GUIDANCE_DELIVERY",),
+        scenario=S01_SCENARIO,
     )
 
 
@@ -104,7 +106,7 @@ def _task() -> ServiceTask:
         title="Guidance delivery",
         description="Deliver the configured guidance activity.",
         role_key="DELIVERY_RESOURCE",
-        acceptance_criteria=("Evidence reference is present",),
+        acceptance_criteria=(S01_TASK_ACCEPTANCE_CRITERION,),
         required_capability_keys=("family_guidance",),
         task_weight=Decimal("1"),
         status=TaskStatus.PENDING,

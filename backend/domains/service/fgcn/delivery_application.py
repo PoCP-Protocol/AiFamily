@@ -76,6 +76,7 @@ def _replay_matches(
     task_id: str,
     assignee_ref: str,
     evidence_ref: str,
+    outcome_observation: str,
 ) -> bool:
     """Compare business input while ignoring server-generated delivery time."""
 
@@ -84,6 +85,7 @@ def _replay_matches(
         and existing.task_id == task_id
         and existing.assignee_ref == assignee_ref
         and existing.evidence_ref == evidence_ref
+        and existing.outcome_observation == outcome_observation.strip()
     )
 
 
@@ -93,6 +95,7 @@ async def submit_service_delivery(
     task_id: str,
     delivery_id: str,
     evidence_ref: str,
+    outcome_observation: str,
     actor_id: str,
     scope: GateServiceScope,
     recorder: AuditRecorder,
@@ -123,6 +126,7 @@ async def submit_service_delivery(
             task_id=task_id,
             assignee_ref=replay_actor,
             evidence_ref=evidence_ref,
+            outcome_observation=outcome_observation,
         ):
             return existing
         raise ServiceConflictError("fgcn_delivery_idempotency_replay_mismatch")
@@ -141,6 +145,7 @@ async def submit_service_delivery(
         task_id=task.task_id,
         assignee_ref=actor,
         evidence_ref=evidence_ref,
+        outcome_observation=outcome_observation,
         delivered_at=delivered_at or datetime.now(UTC),
     )
     await repo.save_delivery(delivery)

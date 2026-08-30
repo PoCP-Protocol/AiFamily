@@ -3,6 +3,14 @@
 This package is the first executable service-collaboration slice for AiFamily.
 It maps the governed path:
 
+The slice is frozen to business scenario **S-01**: a family has repeatedly
+tried self-help, actively requests support, and needs one qualified human
+provider to help complete a calm start without conflict escalation. The
+provider must submit auditable outcome evidence, and a different human
+reviewer must explicitly verify that outcome before any contribution fact is
+eligible. Child performance, family scores, and rankings are never service
+outcomes or acceptance measures.
+
 ```text
 published blueprint
   → ServiceCase (frozen snapshot)

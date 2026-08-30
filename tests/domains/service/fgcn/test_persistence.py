@@ -48,6 +48,12 @@ from backend.domains.service.fgcn.persistence import (
     SqlAlchemyFGCNRepository,
     TaskAssignmentRow,
 )
+from backend.domains.service.fgcn.scenario import (
+    S01_OUTCOME_OBSERVATION,
+    S01_QUALITY_VERIFICATION_MARKER,
+    S01_SCENARIO,
+    S01_TASK_ACCEPTANCE_CRITERION,
+)
 from backend.intelligence.human_gate import (
     ActorType,
     GateScope,
@@ -102,6 +108,7 @@ def _blueprint() -> BlueprintSnapshot:
         policy_version=1,
         checksum="checksum-v1",
         task_template_keys=("AI_GUIDANCE_DELIVERY",),
+        scenario=S01_SCENARIO,
     )
 
 
@@ -131,7 +138,7 @@ def _task(*, status: TaskStatus = TaskStatus.VERIFIED) -> ServiceTask:
         title="Guidance delivery",
         description="Deliver the configured guidance activity.",
         role_key="DELIVERY_RESOURCE",
-        acceptance_criteria=("Evidence reference is present",),
+        acceptance_criteria=(S01_TASK_ACCEPTANCE_CRITERION,),
         required_capability_keys=("family_guidance",),
         task_weight=Decimal("1"),
         status=status,
@@ -163,6 +170,7 @@ def _delivery() -> ServiceDelivery:
         task_id=TASK,
         assignee_ref="expert-1",
         evidence_ref="evidence:delivery-1",
+        outcome_observation=S01_OUTCOME_OBSERVATION,
         delivered_at=NOW + timedelta(hours=1),
     )
 
@@ -174,7 +182,7 @@ def _review() -> TaskQualityReview:
         task_id=TASK,
         reviewer_ref="quality-1",
         quality_state=TaskQualityState.PASSED,
-        review_note="criteria passed",
+        review_note=S01_QUALITY_VERIFICATION_MARKER,
         reviewed_at=NOW + timedelta(hours=2),
     )
 
@@ -385,6 +393,9 @@ async def test_open_service_case_requires_entry_dependencies_and_audits_success(
         events = await read_all_events(session, tenant_id=TENANT)
     assert loaded == _case()
     assert [event.action for event in events] == ["OPEN_SERVICE_CASE"]
+    assert events[0].after["scenario_key"] == "S-01"
+    assert events[0].after["family_initiated_request"] is True
+    assert events[0].after["self_help_failed_attempts"] == 2
 
 
 @pytest.mark.asyncio
@@ -686,6 +697,34 @@ async def test_open_service_case_refuses_query_failure_before_any_write(session_
 
 
 @pytest.mark.asyncio
+async def test_load_case_rejects_legacy_blueprint_without_s01_scenario(session_factory):
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        await repo.save_case(_case())
+        await session.commit()
+        await session.execute(
+            sa.update(ServiceCaseRow)
+            .where(ServiceCaseRow.case_id == CASE)
+            .values(
+                collaboration_blueprint_snapshot={
+                    "blueprint_ref": _blueprint().blueprint_ref,
+                    "version": 1,
+                    "status": "PUBLISHED",
+                    "policy_ref": "shadow-policy.v1",
+                    "policy_version": 1,
+                    "checksum": "checksum-v1",
+                    "task_template_keys": ["AI_GUIDANCE_DELIVERY"],
+                    "total_units": "100",
+                }
+            )
+        )
+        await session.commit()
+
+        with pytest.raises(ServiceValidationError, match="fgcn_blueprint_snapshot_invalid"):
+            await repo.load_case(CASE)
+
+
+@pytest.mark.asyncio
 async def test_fgcn_facts_round_trip_with_audit_in_one_committed_session(session_factory):
     recorder = AuditRecorder()
     recorder.record(
@@ -728,7 +767,7 @@ async def test_fgcn_facts_round_trip_with_audit_in_one_committed_session(session
 
     assert loaded_case.scope == _scope()
     assert loaded_case.blueprint == _blueprint()
-    assert loaded_task.acceptance_criteria == ("Evidence reference is present",)
+    assert loaded_task.acceptance_criteria == (S01_TASK_ACCEPTANCE_CRITERION,)
     assert loaded_task.status is TaskStatus.VERIFIED
     assert loaded_assignment == _assignment()
     assert loaded_delivery.evidence_ref == "evidence:delivery-1"

@@ -30,6 +30,7 @@ from backend.domains.service.fgcn.contracts import (
     TaskStatus,
 )
 from backend.domains.service.fgcn.persistence import FGCNBase, SqlAlchemyFGCNRepository
+from backend.domains.service.fgcn.scenario import S01_SCENARIO, S01_TASK_ACCEPTANCE_CRITERION
 from backend.intelligence.human_gate import (
     ActorType as GateActorType,
 )
@@ -81,6 +82,7 @@ def _case() -> ServiceCase:
             policy_version=1,
             checksum="checksum-http-fgcn",
             task_template_keys=("AI_GUIDANCE_DELIVERY",),
+            scenario=S01_SCENARIO,
         ),
         opened_at=NOW,
     )
@@ -96,7 +98,7 @@ def _task() -> ServiceTask:
         title="Guidance delivery",
         description="Deliver the configured guidance activity.",
         role_key="DELIVERY_RESOURCE",
-        acceptance_criteria=("Evidence reference is present",),
+        acceptance_criteria=(S01_TASK_ACCEPTANCE_CRITERION,),
         required_capability_keys=("family_guidance",),
         task_weight=Decimal("1"),
         status=TaskStatus.PENDING,

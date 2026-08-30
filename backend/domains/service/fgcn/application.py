@@ -154,6 +154,12 @@ def _case_open_request_hash(
                 "policy_version": blueprint.policy_version,
                 "checksum": blueprint.checksum,
                 "task_template_keys": blueprint.task_template_keys,
+                "scenario": {
+                    "scenario_key": blueprint.scenario.scenario_key,
+                    "family_problem": blueprint.scenario.family_problem,
+                    "provider_deliverable": blueprint.scenario.provider_deliverable,
+                    "service_outcome": blueprint.scenario.service_outcome,
+                },
                 "total_units": str(blueprint.total_units),
             },
         },
@@ -236,7 +242,7 @@ async def open_service_case(
             await repo.commit()
         return existing
 
-    await require_case_entry_dependencies_async(
+    entry_snapshot = await require_case_entry_dependencies_async(
         entry_dependencies,
         scope=scope,
         intent_ref=intent_ref,
@@ -276,6 +282,10 @@ async def open_service_case(
             after={
                 "status": candidate.status.value,
                 "blueprint_ref": candidate.blueprint.blueprint_ref,
+                "scenario_key": candidate.blueprint.scenario.scenario_key,
+                "family_initiated_request": entry_snapshot.family_initiated_request,
+                "family_request_ref": entry_snapshot.family_request_ref,
+                "self_help_failed_attempts": entry_snapshot.self_help_failed_attempts,
             },
         )
     )

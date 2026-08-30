@@ -32,6 +32,12 @@ from backend.domains.service.fgcn.read_model import (
     build_case_progress_projection,
     build_fgcn_pdca_projection,
 )
+from backend.domains.service.fgcn.scenario import (
+    S01_OUTCOME_OBSERVATION,
+    S01_QUALITY_VERIFICATION_MARKER,
+    S01_SCENARIO,
+    S01_TASK_ACCEPTANCE_CRITERION,
+)
 from tests.domains.service.fgcn.admission_test_doubles import admitted_snapshot
 
 NOW = datetime(2026, 8, 30, 9, tzinfo=UTC)
@@ -57,6 +63,7 @@ def _blueprint() -> BlueprintSnapshot:
         policy_version=1,
         checksum="checksum-v1",
         task_template_keys=("HUMAN_HANDOFF",),
+        scenario=S01_SCENARIO,
     )
 
 
@@ -93,7 +100,7 @@ def _task(
         title="Family handoff",
         description="Deliver the family-confirmed activity.",
         role_key="DELIVERY_RESOURCE",
-        acceptance_criteria=("Evidence reference is present",),
+        acceptance_criteria=(S01_TASK_ACCEPTANCE_CRITERION,),
         required_capability_keys=("family_guidance",),
         status=status,
         responsible_ref="expert-1",
@@ -126,6 +133,7 @@ def _delivery() -> ServiceDelivery:
         task_id="task-1",
         assignee_ref="expert-1",
         evidence_ref="evidence:delivery-1",
+        outcome_observation=S01_OUTCOME_OBSERVATION,
         delivered_at=NOW + timedelta(hours=1),
     )
 
@@ -141,7 +149,7 @@ def _review(
         task_id="task-1",
         reviewer_ref=reviewer_ref,
         quality_state=quality_state,
-        review_note="criteria checked",
+        review_note=S01_QUALITY_VERIFICATION_MARKER,
         reviewed_at=NOW + timedelta(hours=2),
     )
 
@@ -329,6 +337,8 @@ def test_fgcn_pdca_projection_reaches_act_only_after_real_fact_chain() -> None:
     assert projection.intent_ref == "intent-1"
     assert projection.plan_ref == "plan-1"
     assert projection.blueprint_ref == "communication-service"
+    assert projection.scenario_key == "S-01"
+    assert "calm start" in projection.service_outcome
     assert projection.provider_ref == "expert-1"
     assert projection.capacity_available == 1
     assert projection.plan_ready is True

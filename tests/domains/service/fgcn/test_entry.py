@@ -38,6 +38,8 @@ def _scope() -> GateServiceScope:
         ({"binding_tenant_id": "foreign-tenant"}, "fgcn_tenant_family_binding_invalid"),
         ({"binding_family_id": "foreign-family"}, "fgcn_tenant_family_binding_invalid"),
         ({"binding_status": "REVOKED"}, "fgcn_tenant_family_binding_invalid"),
+        ({"family_initiated_request": False}, "fgcn_family_request_required"),
+        ({"self_help_failed_attempts": 1}, "fgcn_repeated_self_help_failure_required"),
     ),
 )
 def test_entry_gate_rejects_each_invalid_dependency(change, error_code):
@@ -80,6 +82,8 @@ def test_entry_gate_accepts_exact_intent_consent_and_binding_snapshot():
     assert result.growth_intent_status == "CONFIRMED"
     assert result.consent_status == "ACTIVE"
     assert result.binding_tenant_id == scope.tenant_id
+    assert result.family_initiated_request is True
+    assert result.self_help_failed_attempts >= 2
     assert stub.calls == 1
 
 

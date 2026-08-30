@@ -22,6 +22,12 @@ from backend.domains.service.fgcn.contracts import (
     TaskStatus,
 )
 from backend.domains.service.fgcn.engine import FGCNEngine
+from backend.domains.service.fgcn.scenario import (
+    S01_OUTCOME_OBSERVATION,
+    S01_QUALITY_VERIFICATION_MARKER,
+    S01_SCENARIO,
+    S01_TASK_ACCEPTANCE_CRITERION,
+)
 from backend.intelligence.human_gate import (
     ActorType,
     DecisionOutcome,
@@ -73,6 +79,7 @@ def _blueprint(*, status: str = "PUBLISHED") -> BlueprintSnapshot:
         policy_version=1,
         checksum="checksum-v1",
         task_template_keys=("AI_GUIDANCE_DELIVERY", "HUMAN_HANDOFF"),
+        scenario=S01_SCENARIO,
     )
 
 
@@ -102,7 +109,7 @@ def _engine() -> FGCNEngine:
         title="Guidance delivery",
         description="Deliver the configured guidance activity.",
         role_key="DELIVERY_RESOURCE",
-        acceptance_criteria=("Evidence reference is present",),
+        acceptance_criteria=(S01_TASK_ACCEPTANCE_CRITERION,),
         required_capability_keys=("family_guidance",),
         actor_id="steward-1",
         created_at=NOW,
@@ -286,7 +293,7 @@ def test_task_contract_rejects_states_without_their_proof(
             title="Guidance delivery",
             description="Deliver the configured guidance activity.",
             role_key="DELIVERY_RESOURCE",
-            acceptance_criteria=("Evidence reference is present",),
+            acceptance_criteria=(S01_TASK_ACCEPTANCE_CRITERION,),
             status=status,
             responsible_ref=responsible_ref,
             deliverable_ref=deliverable_ref,
@@ -347,7 +354,7 @@ def test_blueprint_must_be_published_and_task_must_come_from_its_snapshot():
             title="Invalid",
             description="Not configured.",
             role_key="DELIVERY_RESOURCE",
-            acceptance_criteria=("criterion",),
+            acceptance_criteria=(S01_TASK_ACCEPTANCE_CRITERION,),
             actor_id="steward-1",
         )
 
@@ -420,6 +427,7 @@ async def test_delivery_quality_contribution_and_shadow_allocation_are_gated():
         task_id="task-1",
         assignee_ref="expert-1",
         evidence_ref="evidence:delivery-1",
+        outcome_observation=S01_OUTCOME_OBSERVATION,
         submitted_at=NOW + timedelta(hours=1),
     )
     with pytest.raises(ServiceForbiddenError, match="fgcn_quality_reviewer_must_differ"):
@@ -444,7 +452,7 @@ async def test_delivery_quality_contribution_and_shadow_allocation_are_gated():
         quality_review_id="review-1",
         task_id="task-1",
         reviewer_ref="quality-1",
-        review_note="criteria passed",
+        review_note=S01_QUALITY_VERIFICATION_MARKER,
         reviewed_at=NOW + timedelta(hours=2),
     )
     engine.record_contribution(
@@ -549,6 +557,7 @@ async def test_completed_case_rejects_new_delivery_but_keeps_existing_replay() -
         task_id="task-1",
         assignee_ref="expert-1",
         evidence_ref="evidence:terminal-1",
+        outcome_observation=S01_OUTCOME_OBSERVATION,
         submitted_at=NOW + timedelta(hours=1),
     )
     # Simulate a rehydrated/racing state where the case is closed while a task
@@ -563,6 +572,7 @@ async def test_completed_case_rejects_new_delivery_but_keeps_existing_replay() -
             task_id="task-1",
             assignee_ref="expert-1",
             evidence_ref="evidence:terminal-1",
+            outcome_observation=S01_OUTCOME_OBSERVATION,
         )
         == existing
     )
@@ -572,6 +582,7 @@ async def test_completed_case_rejects_new_delivery_but_keeps_existing_replay() -
             task_id="task-1",
             assignee_ref="expert-1",
             evidence_ref="evidence:terminal-2",
+            outcome_observation=S01_OUTCOME_OBSERVATION,
         )
 
 
@@ -585,13 +596,14 @@ async def test_engine_rejects_changed_quality_or_contribution_replays() -> None:
         task_id="task-1",
         assignee_ref="expert-1",
         evidence_ref="evidence:replay-boundary",
+        outcome_observation=S01_OUTCOME_OBSERVATION,
         submitted_at=NOW + timedelta(hours=1),
     )
     engine.verify_delivery(
         quality_review_id="review-replay-boundary",
         task_id="task-1",
         reviewer_ref="quality-1",
-        review_note="first decision",
+        review_note=S01_QUALITY_VERIFICATION_MARKER,
         reviewed_at=NOW + timedelta(hours=2),
     )
 
@@ -602,7 +614,7 @@ async def test_engine_rejects_changed_quality_or_contribution_replays() -> None:
             quality_review_id="review-replay-boundary",
             task_id="task-1",
             reviewer_ref="quality-1",
-            review_note="changed decision",
+            review_note="changed S-01 decision",
             reviewed_at=NOW + timedelta(hours=2),
         )
 
@@ -637,6 +649,7 @@ async def test_engine_does_not_close_or_quality_accept_a_cancelled_case() -> Non
         task_id="task-1",
         assignee_ref="expert-1",
         evidence_ref="evidence:cancelled-boundary",
+        outcome_observation=S01_OUTCOME_OBSERVATION,
         submitted_at=NOW + timedelta(hours=1),
     )
     engine.cases["case-1"] = replace(engine.cases["case-1"], status=CaseStatus.CANCELLED)

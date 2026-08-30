@@ -56,6 +56,9 @@ def valid_entry_snapshot(
     binding_tenant_id: str | None = None,
     binding_family_id: str | None = None,
     binding_status: str = "ACTIVE",
+    family_initiated_request: bool = True,
+    family_request_ref: str = "family-request:s01",
+    self_help_failed_attempts: int = 2,
 ) -> CaseEntryDependencySnapshot:
     return CaseEntryDependencySnapshot(
         intent_ref=intent_ref,
@@ -67,6 +70,9 @@ def valid_entry_snapshot(
         binding_tenant_id=binding_tenant_id or scope.tenant_id,
         binding_family_id=binding_family_id or scope.family_id,
         binding_status=binding_status,
+        family_initiated_request=family_initiated_request,
+        family_request_ref=family_request_ref,
+        self_help_failed_attempts=self_help_failed_attempts,
     )
 
 

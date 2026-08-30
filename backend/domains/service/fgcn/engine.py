@@ -144,7 +144,7 @@ class FGCNEngine:
         # not to FGCN.  Resolve it immediately before the first case write so
         # an unconfirmed intent, invalid consent, or foreign binding cannot
         # create a ServiceCase.
-        require_case_entry_dependencies(
+        entry_snapshot = require_case_entry_dependencies(
             self.case_entry_dependencies,
             scope=scope,
             intent_ref=intent_ref,
@@ -168,7 +168,14 @@ class FGCNEngine:
             resource_id=case_id,
             reason="published blueprint snapshot accepted",
             before=None,
-            after={"status": case.status.value, "blueprint_ref": blueprint.blueprint_ref},
+            after={
+                "status": case.status.value,
+                "blueprint_ref": blueprint.blueprint_ref,
+                "scenario_key": blueprint.scenario.scenario_key,
+                "family_initiated_request": entry_snapshot.family_initiated_request,
+                "family_request_ref": entry_snapshot.family_request_ref,
+                "self_help_failed_attempts": entry_snapshot.self_help_failed_attempts,
+            },
         )
         return case
 
@@ -332,6 +339,7 @@ class FGCNEngine:
         task_id: str,
         assignee_ref: str,
         evidence_ref: str,
+        outcome_observation: str,
         submitted_at: datetime | None = None,
     ) -> ServiceDelivery:
         task = self._task(task_id)
@@ -342,6 +350,7 @@ class FGCNEngine:
                 existing.task_id == task_id
                 and existing.assignee_ref == assignee_ref
                 and existing.evidence_ref == evidence_ref
+                and existing.outcome_observation == outcome_observation.strip()
             ):
                 return existing
             raise ServiceConflictError("fgcn_delivery_id_already_exists")
@@ -365,6 +374,7 @@ class FGCNEngine:
             task_id=task.task_id,
             assignee_ref=assignee_ref,
             evidence_ref=evidence_ref,
+            outcome_observation=outcome_observation,
             delivered_at=_now(submitted_at),
         )
         self.deliveries[delivery_id] = delivery

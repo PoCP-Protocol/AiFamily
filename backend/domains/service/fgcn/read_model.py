@@ -183,6 +183,8 @@ class FGCNPDCAProjection:
     intent_ref: str
     plan_ref: str
     blueprint_ref: str
+    scenario_key: str
+    service_outcome: str
     plan_ready: bool
     do_ready: bool
     check_ready: bool
@@ -351,6 +353,8 @@ def build_fgcn_pdca_projection(
         intent_ref=case.intent_ref,
         plan_ref=case.plan_ref,
         blueprint_ref=case.blueprint.blueprint_ref,
+        scenario_key=case.blueprint.scenario.scenario_key,
+        service_outcome=case.blueprint.scenario.service_outcome,
         plan_ready=plan_ready,
         do_ready=do_ready,
         check_ready=check_ready,

@@ -71,6 +71,7 @@ from .contracts import (
     TaskQualityState,
     TaskStatus,
 )
+from .scenario import ServiceScenario
 
 _UUID = Uuid(as_uuid=False)
 _TIMESTAMP = DateTime(timezone=True)
@@ -351,6 +352,12 @@ def _snapshot(blueprint: BlueprintSnapshot) -> dict[str, Any]:
         "policy_version": blueprint.policy_version,
         "checksum": blueprint.checksum,
         "task_template_keys": list(blueprint.task_template_keys),
+        "scenario": {
+            "scenario_key": blueprint.scenario.scenario_key,
+            "family_problem": blueprint.scenario.family_problem,
+            "provider_deliverable": blueprint.scenario.provider_deliverable,
+            "service_outcome": blueprint.scenario.service_outcome,
+        },
         "total_units": str(blueprint.total_units),
     }
 
@@ -362,6 +369,7 @@ def _blueprint_from_row(row: ServiceCaseRow) -> BlueprintSnapshot:
     values = dict(raw)
     try:
         values["task_template_keys"] = tuple(values["task_template_keys"])
+        values["scenario"] = ServiceScenario(**values["scenario"])
         return BlueprintSnapshot(**values)
     except (KeyError, TypeError, ValueError) as exc:
         raise ServiceValidationError("fgcn_blueprint_snapshot_invalid") from exc
@@ -402,6 +410,7 @@ def _delivery_from_payload(task: ServiceTaskRow) -> ServiceDelivery | None:
     required = {
         "delivery_id": "fgcn_delivery_id_required",
         "evidence_ref": "fgcn_delivery_evidence_required",
+        "outcome_observation": "fgcn_s01_delivery_outcome_required",
         "assignee_ref": "fgcn_delivery_assignee_required",
         "delivered_at": "fgcn_delivery_time_required",
     }
@@ -415,6 +424,9 @@ def _delivery_from_payload(task: ServiceTaskRow) -> ServiceDelivery | None:
             task_id=task.task_id,
             assignee_ref=_required_text(raw["assignee_ref"], required["assignee_ref"]),
             evidence_ref=_required_text(raw["evidence_ref"], required["evidence_ref"]),
+            outcome_observation=_required_text(
+                raw["outcome_observation"], required["outcome_observation"]
+            ),
             delivered_at=_utc(delivered_at),
         )
     except (KeyError, TypeError, ValueError) as exc:
@@ -989,6 +1001,7 @@ class SqlAlchemyFGCNRepository:
             {
                 "delivery_id": delivery.delivery_id,
                 "evidence_ref": delivery.evidence_ref,
+                "outcome_observation": delivery.outcome_observation,
                 "assignee_ref": delivery.assignee_ref,
                 "delivered_at": delivery.delivered_at.isoformat(),
             }
