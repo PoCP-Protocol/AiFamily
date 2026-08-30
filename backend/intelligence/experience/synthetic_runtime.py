@@ -10,7 +10,7 @@ tenant fallback.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from uuid import uuid4
 
 from backend.intelligence.context_engine.contracts import (
@@ -36,6 +36,7 @@ from backend.intelligence.experience.multimodal_routing import (
     QWEN_MULTIMODAL_CANDIDATE,
     MultimodalRouter,
 )
+from backend.intelligence.experience.run_http import InMemoryExperienceRunLedger
 from backend.intelligence.model_gateway.gateway import ModelGateway
 from backend.intelligence.model_gateway.provider_registry import (
     ProviderRecord,
@@ -75,6 +76,7 @@ class SyntheticRuntimeResolver:
     tenant_id: str
     subject_ids: tuple[str, ...]
     environment: str = "test"
+    run_ledger: InMemoryExperienceRunLedger = field(default_factory=InMemoryExperienceRunLedger)
 
     def __post_init__(self) -> None:
         if not isinstance(self.tenant_id, str) or not self.tenant_id.strip():
@@ -96,6 +98,7 @@ class SyntheticRuntimeResolver:
             tenant_id=self.tenant_id,
             subject_ids=self.subject_ids,
             environment=self.environment,
+            run_ledger=self.run_ledger,
         )
 
 
@@ -105,6 +108,7 @@ def build_synthetic_runtime(
     subject_ids: tuple[str, ...] | None = None,
     *,
     environment: str = "test",
+    run_ledger: InMemoryExperienceRunLedger | None = None,
 ) -> MultimodalDraftRuntime:
     """Build a production-shaped runtime backed by deterministic test data.
 
@@ -190,7 +194,14 @@ def build_synthetic_runtime(
     application: MultimodalDraftApplication = _ScopeBoundSyntheticApplication(
         scope=scope, delegate=context_bound
     )
-    return MultimodalDraftRuntime(scope=scope, application=application, environment=environment)
+    return MultimodalDraftRuntime(
+        scope=scope,
+        application=application,
+        environment=environment,
+        run_ledger=(
+            run_ledger if run_ledger is not None else InMemoryExperienceRunLedger()
+        ),
+    )
 
 
 __all__ = ["SyntheticRuntimeResolver", "build_synthetic_runtime"]

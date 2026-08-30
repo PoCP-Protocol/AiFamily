@@ -360,6 +360,38 @@ AG-02 与 AG-00 对齐的最小证据集如下；未达到前，S4-API-01 只能
 - `attempt_id`、`benchmark_report_ref`、实际成本等运行字段是否进入生产响应仍需 AG-02 与 AG-04 根据评估和合规证据冻结。
 - Web 已有 Fake client 的 16 个单元测试和 1 个 Playwright 场景只能证明交互 seam，不能证明真实后端能力；真实 API 接线后需重新执行同等路径。
 
+### Sprint 5 看板：Durable Run ledger 验收矩阵
+
+基于 AG-02 的 `backend/intelligence/experience/run_http.py` 与 `tests/intelligence/experience/test_run_http.py` 交付摘要，本 Sprint 将一次体验运行（Run）定义为 AI Runtime 的 append-only 账本：模型生成只建立 `DRAFT` checkpoint，用户决策、反馈、人工请求和删除只追加交互事件，不直接写入任何业务事实。
+
+| 编号 | 工作包 | 状态 | 当前证据 | 集成边界 |
+|---|---|---|---|---|
+| **S5-RUN-01 / AG-02** | RunScope、DRAFT checkpoint、InteractionReceipt | `READY_FOR_REVIEW` | 7 个 run_http 测试通过；scope、幂等、DRAFT 和删除脱敏均有断言 | 当前为 AI Runtime ledger，尚未挂 HTTP；需与真实 API resolver 对接 |
+| **S5-RUN-02 / AG-03** | Web 决策/反馈/删除/回放映射 | `BLOCKED` | Fake client 可演示 receipt/status/replay；真实 HttpClient 不臆造 URL | 等后端 routes 冻结后接入，不能把 Fake 结果当生产证据 |
+| **S5-RUN-03 / AG-04** | Durable Run 验收与故障注入 | `IN_PROGRESS` | 矩阵见下表；需补 provider invocation、审计和重启证据 | 通过后才可进入 `DONE_WITH_EVIDENCE` |
+| **S5-RUN-04 / AG-00** | 持久化/HTTP 集成与发布裁决 | `PLANNED` | 当前无 run_http HTTP routes，RunStore 与 ledger 尚未统一 | 决定内存 ledger→SQLAlchemy/HTTP 的唯一迁移路径 |
+| **S5-RUN-05 / AG-01** | 用户故事与交付反馈追踪 | `IN_PROGRESS` | S2-US4/US5 可关联 run/decision/feedback/event | 反馈只用于评估和下一轮需求，不改变 canonical Fact |
+
+#### Durable Run 验收矩阵
+
+| 操作 | 必须保留的 evidence | DRAFT-only / 安全语义 | 当前验收状态 |
+|---|---|---|---|
+| **create_draft** | `run_id`、`request_ref`、`RunScope(tenant/family/subjects)`、`idempotency_key`、checkpoint ID、artifact refs、event sequence、时间 | 创建 Durable Run 后只能有 `status=DRAFT` checkpoint；`draft_payload` 拒绝 `family_score/family_rank/ranking/canonical_fact` 等键；`may_mutate_business_state=false`；artifact 只允许引用，禁止 data URL/原始媒体 | **已实现（内存）**；需补真实持久化与 HTTP 证据 |
+| **decision** | `event_id`、`run_id`、完整 scope、`interaction_type=decision`、`payload.decision`、幂等键、sequence、occurred_at；重复请求返回 `status=replayed` | `accepted/rewrite/rejected/pending_human_confirmation` 只是交互记录，不是事实写入；升级为 Named Action/业务事实必须另过 Human Gate、审计和授权 | **已实现（追加/幂等）**；当前未绑定 `human_gate_ref`，不能宣称已完成高影响确认 |
+| **feedback** | `event_id`、run/scope、`signal`、理由（如有）、`draft_version`/`attempt_id`/模型与 benchmark 引用（适用时）、真实事件引用、幂等键 | 反馈只能进入评估、产品迭代或后续建议；不得覆盖草案、改写事实或生成成就事实 | **已实现（追加/幂等）**；ledger 当前不强制模型/attempt/真实 event refs，需 API 层补校验 |
+| **human-review** | `event_id`、run/scope、`reason`、`status=human_review`、人工闸门引用（接入后）、幂等键、审计引用 | 人工请求不等于批准；AI 草案仍保持 DRAFT，人工结果必须有明确决策和审计，不能静默转事实 | **已实现（reason/status）**；`human_gate_ref`/审计尚未落账 |
+| **delete** | `event_id`、run/scope、`deletion_ref`、`status=deleted`、幂等键、级联对象列表/证明（接入外部存储后） | 删除是不可逆的展示边界；后续交互除同一删除幂等重放外全部拒绝；不返回草案 payload 或 artifact refs | **已实现（内存脱敏/幂等）**；需接媒体派生物、Context/embedding 删除 Worker 和 HTTP route |
+| **replay** | 只读 `RunReplaySnapshot`：run/scope、state、`status=DRAFT`、event sequence、interaction entries、draft/artifact refs（未删除时）、deletion state | 只能重放已存在的 run/checkpoint/event；不得调用 Model Gateway、重算模型、追加事件、写业务事实或生成新 Recommendation/Feedback；删除后 payload/artifact 必须为空 | **已实现（内存只读）**；需 SQL/HTTP 重启回放和 provider invocation=0 证据 |
+
+#### 统一收口条件
+
+1. `uv run pytest tests/intelligence/experience/test_run_http.py -q` 必须保持全绿；同时运行 `uv run ruff check backend/intelligence/experience/run_http.py tests/intelligence/experience/test_run_http.py` 并记录输出。
+2. 每个交互事件的 evidence 至少能由 `event_id → run_id → scope → request/checkpoint → provenance/审计` 回溯；缺少上下游引用时只能标 `PARTIAL`。
+3. 相同幂等键、相同 payload 必须返回 `replayed` 且不追加第二条事件；相同 key 不同 payload 必须拒绝并保留冲突证据。
+4. 任一 scope 不匹配、已删除 Run、非法 decision status 或含家庭总分/排名/事实键的 payload 必须 fail-closed；不能通过 UI 文案掩盖拒绝。
+5. `ReplaySnapshot.may_mutate_business_state` 固定为 `false`；Replay/Feedback/Decision 不能直接触发 domain repository、Named Action 或模型重算。
+6. 当前 `run_http.py` 是 ledger/application seam，不是 HTTP 能力。decision/feedback/human-review/delete/replay routes、真实审计、Human Gate、持久化重启和外部派生物删除完成前，Sprint 5 只能标 `PARTIAL`，不得标生产 `ADMITTED`。
+
 ## 5. 通用任务卡格式
 
 每张任务卡必须包含：

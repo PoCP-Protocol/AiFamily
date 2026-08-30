@@ -22,7 +22,7 @@ from datetime import datetime
 from typing import Any, Literal, Protocol
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.intelligence.context_engine.contracts import ContextScope
@@ -34,6 +34,15 @@ from backend.intelligence.experience.multimodal_routing import (
     MultimodalRouteError,
     MultimodalRouteRequest,
     RouteStrategy,
+)
+from backend.intelligence.experience.run_http import (
+    ExperienceRunLedger,
+    InteractionReceipt,
+    InteractionType,
+    RunHttpConflictError,
+    RunHttpError,
+    RunReplaySnapshot,
+    RunScope,
 )
 from backend.intelligence.model_gateway.contracts import MediaInput
 from backend.intelligence.model_gateway.errors import ModelGatewayError
@@ -223,12 +232,97 @@ class DraftRouteResponse(BaseModel):
     fallback_provider_ids: tuple[str, ...]
 
 
-class MultimodalDraftResponse(BaseModel):
-    """A draft-only response; it cannot be treated as a business fact."""
+class RunDecisionRequest(BaseModel):
+    """Human decision over a DRAFT; it never carries provider controls."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["confirm", "rewrite", "reject"]
+    draft_version: str | None = Field(default=None, min_length=1, max_length=128)
+    replacement_text: str | None = Field(default=None, min_length=1, max_length=8_000)
+    reason: str | None = Field(default=None, min_length=1, max_length=2_000)
+
+
+class RunFeedbackRequest(BaseModel):
+    """User feedback associated with a run and optional real event refs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    signal: Literal["helpful", "not_helpful", "request_human"]
+    reason: str | None = Field(default=None, min_length=1, max_length=2_000)
+    draft_version: str | None = Field(default=None, min_length=1, max_length=128)
+    attempt_id: str | None = Field(default=None, min_length=1, max_length=128)
+    candidate_id: str | None = Field(default=None, min_length=1, max_length=160)
+    model_version: str | None = Field(default=None, min_length=1, max_length=160)
+    benchmark_report_ref: str | None = Field(default=None, min_length=1, max_length=256)
+    real_event_refs: tuple[str, ...] = Field(default=(), max_length=64)
+
+
+class RunHumanReviewRequest(BaseModel):
+    """Explicit escalation request; the server creates a review entry."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=2_000)
+    impact_scope: str | None = Field(default=None, min_length=1, max_length=512)
+
+
+class RunDeleteRequest(BaseModel):
+    """Deletion reason without accepting media bytes or scope overrides."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str | None = Field(default=None, min_length=1, max_length=2_000)
+
+
+class RunInteractionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    status: str
+    interaction_ref: str
+    idempotency_replayed: bool
+
+
+class RunReplayEntryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str
+    interaction_type: str
+    sequence: int
+    payload: dict[str, Any]
+    occurred_at: datetime
+
+
+class RunReplayResponse(BaseModel):
+    """Read-only ledger projection; no provider invocation is possible."""
 
     model_config = ConfigDict(extra="forbid")
 
     run_id: str
+    status: Literal["DRAFT"]
+    state: str
+    event_sequence: int
+    deletion_state: Literal["active", "deleted"]
+    draft_payload: dict[str, Any] | None
+    artifact_refs: tuple[str, ...]
+    entries: tuple[RunReplayEntryResponse, ...]
+
+
+class MultimodalDraftResponse(BaseModel):
+    """A draft-only response; it cannot be treated as a business fact.
+
+    ``draft_id`` and ``provenance_ref`` are server-generated when the
+    composition root installs a registry.  A ``null`` pair honestly signals a
+    contract-only runtime; such a response cannot be submitted to FGCN as a
+    durable provenance record.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    draft_id: str | None
+    provenance_ref: str | None
     status: Literal["DRAFT"]
     output: dict[str, Any]
     requires_human_confirmation: Literal[True]
@@ -269,6 +363,7 @@ class MultimodalDraftRuntime:
     scope: ContextScope
     application: MultimodalDraftApplication
     environment: str
+    run_ledger: ExperienceRunLedger | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.scope, ContextScope):
@@ -302,6 +397,79 @@ router = APIRouter(prefix="/families", tags=["experience"])
 def _assert_family_scope(runtime: MultimodalDraftRuntime, family_id: str) -> None:
     if runtime.scope.family_id != family_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="family_access_denied")
+
+
+def _run_scope(runtime: MultimodalDraftRuntime) -> RunScope:
+    return RunScope(
+        tenant_id=runtime.scope.tenant_id,
+        family_id=runtime.scope.family_id,
+        subject_ids=runtime.scope.subject_ids,
+    )
+
+
+def _require_run_ledger(runtime: MultimodalDraftRuntime) -> ExperienceRunLedger:
+    if runtime.run_ledger is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="experience_run_runtime_not_configured",
+        )
+    return runtime.run_ledger
+
+
+def _require_idempotency_key(value: str | None) -> str:
+    if value is None or not value.strip() or len(value) > 256:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Idempotency-Key header is required",
+        )
+    return value.strip()
+
+
+def _map_run_error(error: RunHttpError) -> HTTPException:
+    if error.code == "RUN_NOT_FOUND":
+        code = status.HTTP_404_NOT_FOUND
+    elif error.code in {"RUN_SCOPE_MISMATCH", "SCOPE_REQUIRED", "SUBJECT_SCOPE_REQUIRED"}:
+        code = status.HTTP_403_FORBIDDEN
+    elif error.code == "RUN_DELETED":
+        code = status.HTTP_410_GONE
+    elif isinstance(error, RunHttpConflictError):
+        code = status.HTTP_409_CONFLICT
+    else:
+        code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    return HTTPException(status_code=code, detail=error.code)
+
+
+def _interaction_response(receipt: InteractionReceipt) -> RunInteractionResponse:
+    return RunInteractionResponse(
+        run_id=receipt.run_id,
+        status=receipt.status,
+        interaction_ref=receipt.interaction.event_id,
+        idempotency_replayed=receipt.idempotency_replayed,
+    )
+
+
+def _replay_response(snapshot: RunReplaySnapshot) -> RunReplayResponse:
+    return RunReplayResponse(
+        run_id=snapshot.run_id,
+        status=snapshot.status,
+        state=snapshot.state.value,
+        event_sequence=snapshot.event_sequence,
+        deletion_state=snapshot.deletion_state,
+        draft_payload=(
+            dict(snapshot.draft_payload) if snapshot.draft_payload is not None else None
+        ),
+        artifact_refs=snapshot.artifact_refs,
+        entries=tuple(
+            RunReplayEntryResponse(
+                event_id=entry.event_id,
+                interaction_type=entry.interaction_type.value,
+                sequence=entry.sequence,
+                payload=dict(entry.payload),
+                occurred_at=entry.occurred_at,
+            )
+            for entry in snapshot.entries
+        ),
+    )
 
 
 async def _resolve_request_runtime(
@@ -351,6 +519,8 @@ def _to_response(result: ContextBoundMultimodalDraft) -> MultimodalDraftResponse
     route_provenance = route.provenance_input
     return MultimodalDraftResponse(
         run_id=experience.run_id,
+        draft_id=experience.draft_id,
+        provenance_ref=experience.provenance_ref,
         status=draft.status,
         output=dict(draft.output),
         requires_human_confirmation=draft.requires_human_confirmation,
@@ -405,6 +575,7 @@ async def create_multimodal_draft(
     resolver: MultimodalDraftRuntimeResolver | None = Depends(
         get_multimodal_draft_runtime_resolver
     ),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> MultimodalDraftResponse:
     """Generate one governed draft from a server-bound context snapshot."""
 
@@ -452,7 +623,218 @@ async def create_multimodal_draft(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
         ) from error
+    if runtime.run_ledger is not None:
+        try:
+            runtime.run_ledger.create_draft(
+                scope=_run_scope(runtime),
+                run_id=body.run_id,
+                request_ref=body.run_id,
+                draft_payload=result.output,
+                artifact_refs=tuple(
+                    f"media:sha256:{item.sha256}" for item in body.media_inputs
+                ),
+                # Existing callers without a header remain compatible while
+                # still getting deterministic idempotency in the test runtime.
+                idempotency_key=_require_idempotency_key(idempotency_key or body.run_id),
+            )
+        except RunHttpError as error:
+            raise _map_run_error(error) from error
     return _to_response(result)
+
+
+async def _runtime_for_run(
+    family_id: str,
+    runtime: MultimodalDraftRuntime | None,
+    resolver: MultimodalDraftRuntimeResolver | None,
+) -> MultimodalDraftRuntime:
+    resolved = await _resolve_request_runtime(family_id, runtime, resolver)
+    _assert_family_scope(resolved, family_id)
+    return resolved
+
+
+@router.post(
+    "/{family_id}/experience/multimodal/runs/{run_id}/decisions",
+    response_model=RunInteractionResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def decide_multimodal_run(
+    family_id: str,
+    run_id: str,
+    body: RunDecisionRequest,
+    runtime: MultimodalDraftRuntime | None = Depends(get_multimodal_draft_runtime),
+    resolver: MultimodalDraftRuntimeResolver | None = Depends(
+        get_multimodal_draft_runtime_resolver
+    ),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> RunInteractionResponse:
+    """Record a human decision without promoting a draft into domain facts."""
+
+    resolved = await _runtime_for_run(family_id, runtime, resolver)
+    ledger = _require_run_ledger(resolved)
+    decision = {"confirm": "accepted", "rewrite": "rewrite", "reject": "rejected"}[
+        body.decision
+    ]
+    payload: dict[str, Any] = {"decision": decision}
+    if body.draft_version is not None:
+        payload["draft_version"] = body.draft_version
+    if body.replacement_text is not None:
+        payload["replacement_text"] = body.replacement_text
+    if body.reason is not None:
+        payload["reason"] = body.reason
+    try:
+        receipt = ledger.append_interaction(
+            scope=_run_scope(resolved),
+            run_id=run_id,
+            interaction_type=InteractionType.DECISION,
+            payload=payload,
+            idempotency_key=_require_idempotency_key(idempotency_key),
+        )
+    except RunHttpError as error:
+        raise _map_run_error(error) from error
+    return _interaction_response(receipt)
+
+
+@router.post(
+    "/{family_id}/experience/multimodal/runs/{run_id}/feedback",
+    response_model=RunInteractionResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def record_multimodal_feedback(
+    family_id: str,
+    run_id: str,
+    body: RunFeedbackRequest,
+    runtime: MultimodalDraftRuntime | None = Depends(get_multimodal_draft_runtime),
+    resolver: MultimodalDraftRuntimeResolver | None = Depends(
+        get_multimodal_draft_runtime_resolver
+    ),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> RunInteractionResponse:
+    """Record feedback as an append-only run interaction."""
+
+    resolved = await _runtime_for_run(family_id, runtime, resolver)
+    ledger = _require_run_ledger(resolved)
+    payload: dict[str, Any] = {"signal": body.signal}
+    for field_name in (
+        "reason",
+        "draft_version",
+        "attempt_id",
+        "candidate_id",
+        "model_version",
+        "benchmark_report_ref",
+    ):
+        value = getattr(body, field_name)
+        if value is not None:
+            payload[field_name] = value
+    if body.real_event_refs:
+        payload["real_event_refs"] = list(body.real_event_refs)
+    try:
+        receipt = ledger.append_interaction(
+            scope=_run_scope(resolved),
+            run_id=run_id,
+            interaction_type=InteractionType.FEEDBACK,
+            payload=payload,
+            idempotency_key=_require_idempotency_key(idempotency_key),
+        )
+    except RunHttpError as error:
+        raise _map_run_error(error) from error
+    return _interaction_response(receipt)
+
+
+@router.post(
+    "/{family_id}/experience/multimodal/runs/{run_id}/human-review",
+    response_model=RunInteractionResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def request_multimodal_human_review(
+    family_id: str,
+    run_id: str,
+    body: RunHumanReviewRequest,
+    runtime: MultimodalDraftRuntime | None = Depends(get_multimodal_draft_runtime),
+    resolver: MultimodalDraftRuntimeResolver | None = Depends(
+        get_multimodal_draft_runtime_resolver
+    ),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> RunInteractionResponse:
+    """Escalate one run to a human reviewer without an AI decision."""
+
+    resolved = await _runtime_for_run(family_id, runtime, resolver)
+    ledger = _require_run_ledger(resolved)
+    payload: dict[str, Any] = {"reason": body.reason, "status": "human_review"}
+    if body.impact_scope is not None:
+        payload["impact_scope"] = body.impact_scope
+    try:
+        receipt = ledger.append_interaction(
+            scope=_run_scope(resolved),
+            run_id=run_id,
+            interaction_type=InteractionType.HUMAN_REVIEW,
+            payload=payload,
+            idempotency_key=_require_idempotency_key(idempotency_key),
+        )
+    except RunHttpError as error:
+        raise _map_run_error(error) from error
+    return _interaction_response(receipt)
+
+
+@router.delete(
+    "/{family_id}/experience/multimodal/runs/{run_id}",
+    response_model=RunInteractionResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def delete_multimodal_run(
+    family_id: str,
+    run_id: str,
+    body: RunDeleteRequest | None = None,
+    runtime: MultimodalDraftRuntime | None = Depends(get_multimodal_draft_runtime),
+    resolver: MultimodalDraftRuntimeResolver | None = Depends(
+        get_multimodal_draft_runtime_resolver
+    ),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> RunInteractionResponse:
+    """Record a deletion request and scrub draft/artifact replay material."""
+
+    resolved = await _runtime_for_run(family_id, runtime, resolver)
+    ledger = _require_run_ledger(resolved)
+    payload: dict[str, Any] = {
+        "deletion_ref": f"delete:{resolved.scope.tenant_id}:{family_id}:{run_id}",
+        "status": "deleted",
+    }
+    if body is not None and body.reason is not None:
+        payload["reason"] = body.reason
+    try:
+        receipt = ledger.append_interaction(
+            scope=_run_scope(resolved),
+            run_id=run_id,
+            interaction_type=InteractionType.DELETE,
+            payload=payload,
+            idempotency_key=_require_idempotency_key(idempotency_key),
+        )
+    except RunHttpError as error:
+        raise _map_run_error(error) from error
+    return _interaction_response(receipt)
+
+
+@router.get(
+    "/{family_id}/experience/multimodal/runs/{run_id}/replay",
+    response_model=RunReplayResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def replay_multimodal_run(
+    family_id: str,
+    run_id: str,
+    runtime: MultimodalDraftRuntime | None = Depends(get_multimodal_draft_runtime),
+    resolver: MultimodalDraftRuntimeResolver | None = Depends(
+        get_multimodal_draft_runtime_resolver
+    ),
+) -> RunReplayResponse:
+    """Return an immutable run projection; this endpoint never calls Gateway."""
+
+    resolved = await _runtime_for_run(family_id, runtime, resolver)
+    ledger = _require_run_ledger(resolved)
+    try:
+        snapshot = ledger.replay(scope=_run_scope(resolved), run_id=run_id)
+    except RunHttpError as error:
+        raise _map_run_error(error) from error
+    return _replay_response(snapshot)
 
 
 __all__ = [
@@ -465,8 +847,20 @@ __all__ = [
     "MultimodalDraftResponse",
     "MultimodalDraftRuntime",
     "MultimodalDraftRuntimeResolver",
+    "RunDecisionRequest",
+    "RunDeleteRequest",
+    "RunFeedbackRequest",
+    "RunHumanReviewRequest",
+    "RunInteractionResponse",
+    "RunReplayEntryResponse",
+    "RunReplayResponse",
     "create_multimodal_draft",
+    "decide_multimodal_run",
     "get_multimodal_draft_runtime",
     "get_multimodal_draft_runtime_resolver",
+    "delete_multimodal_run",
+    "record_multimodal_feedback",
+    "replay_multimodal_run",
+    "request_multimodal_human_review",
     "router",
 ]
