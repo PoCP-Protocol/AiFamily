@@ -3,7 +3,7 @@ id: AGILE-REBUILD-PLAN-001
 title: Family 家庭需求平台敏捷重建计划
 type: delivery-plan
 status: current
-version: 0.3
+version: 0.4
 owner: chief-architect
 created: 2026-08-30
 updated: 2026-08-30
@@ -195,10 +195,10 @@ Sprint 1 未完成前，不宣称“法咪莉校长已上线”或“家庭需�
   已完成；AI 不直接写入记忆事实。
 - UI-03/05/09 已接入真实 API 状态和多模态合同；UI-03 已移除总分、排名、雷达图语义。
 
-### 验证记录
+### 验证记录（阶段复盘复测）
 
 ```text
-uv run pytest -q                         764 passed, 43 skipped, 2 known gate failures
+uv run pytest -q                         767 passed, 43 skipped, 4 known gate failures
 uv run pytest tests/architecture -v       108 passed, 1 skipped, 2 known gate failures
 uv run pytest tests/intelligence -q        198 passed
 uv run pytest tests/apps/family_api -q      17 passed, 1 skipped
@@ -217,6 +217,34 @@ pnpm check                                  passed
   证据的同步；在同步前不得把旧基线当作当前实现清单。
 - 全量 Ruff 的唯一代码错误为并发 WIP 文件 `backend/domains/family/domain/entities.py:331` 的
   E501；本轮未改动该文件，避免吞并他人工作区。
+
+### 14.1 复盘新增的质量债
+
+- FGCN 持久化 WIP 的两条契约测试仍失败：终态 ServiceCase 的交付拒绝路径，以及
+  contribution 载荷不能以缺失的已验证交付伪造 task basis；由 ADOM-3 在 Sprint 2 修复。
+- 并发 WIP 新增 `backend/intelligence/product_management/` 未登记到
+  `governance/MIGRATION_MANIFEST.yaml`；由其 owner 单独登记，Lead 不越界修改。
+- 当前分支的测试数量与并发 WIP 会随工作区写入变化，所有数字以本轮实际命令输出为准，不能把
+  缓存报告当成验收证据。
+
+## 15. Sprint 2：平台能力与服务协作 P0（进行中）
+
+本 Sprint 仍以“可验证的闭环能力”为单位，不以目录数量或 UI 数量作为完成标准：
+
+| 任务 | Owner | 独占战场 | 验收目标 |
+|---|---|---|---|
+| ADOM-3 / FGCN 持久化 | ADOM-2 | `backend/domains/service/fgcn/**`、`tests/domains/service/fgcn/**`、P0 migration | ServiceCase/Task/Delivery/Quality/Contribution 可持久化；终态不可逆；贡献只来自已验证交付 |
+| AAIR-3 / Context Broker | AAIR-2 | `backend/intelligence/context_engine/**` 及其测试 | 租户/家庭/主体/用途/同意/数据分类/来源/过期/删除约束；最小只读投影；拒绝越权和撤回数据 |
+| AFE-2 / 跨端能力适配 | AFE-1 | `frontend/mobile/lib/platform-capabilities/**`、专项 Vitest | Android/iOS/HarmonyOS/小程序共享 capability contract；媒体、通知、分享、支付、存储通过 adapter 隔离平台差异 |
+| Lead / 集成与治理 | ARCH-1 | `docs/11_delivery/**`、集成测试、发布脚本 | 不吞并并发 WIP；复测全量闸门；补登记/债务；提交并推送功能分支 |
+
+### Sprint 2 完成定义
+
+- FGCN 通过成功、拒绝、重放、幂等和终态不可逆测试；
+- Context Broker 通过跨租户、过期、撤回、删除和不可变投影测试；
+- 移动端 capability contract 通过四平台矩阵和不可用/拒绝/降级状态测试；
+- dev/test/prod 接口、错误码、状态机和安全闸门相同，只有数据和外部适配器配置可不同；
+- 全量架构测试与 Ruff 不新增错误；所有未解决债务进入本计划，不以“fixture 有数据”宣称完成。
 
 ## 14. Sprint 1 并行开发评审（2026-08-30）
 

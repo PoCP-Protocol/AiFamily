@@ -38,6 +38,15 @@ A<角色码>-<序号>
 | **AGOV-1** | 治理 | 移植 vs 自研分类台账 | `docs/11_delivery/PORT_VS_BUILD_LEDGER.md` | 🔄 在途 |
 | **AQA-1** | 质量守护 | 修 CI 红（398 ruff）+ 建防复发机制 | `.github/workflows/` `pyproject.toml` + lint 清理 | 🔄 在途 |
 
+### 7.1 Sprint 2 并行派工（2026-08-30）
+
+| 编号 | 角色 | 当前任务 | 独占战场 | 状态 |
+|---|---|---|---|---|
+| **ADOM-3** | 领域建模 | FGCN P0 持久化与终态不变量 | `backend/domains/service/fgcn/`、对应测试、P0 migration | 🔄 在途 |
+| **AAIR-3** | AI Runtime | Context Broker 最小只读投影 | `backend/intelligence/context_engine/` 及对应测试 | 🔄 在途 |
+| **AFE-2** | 体验工程 | 四端 capability adapter contracts | `frontend/mobile/lib/platform-capabilities/`、专项测试 | 🔄 在途 |
+| **ARCH-1** | 总设计/集成 | 阶段复盘、闸门复测、治理登记与推送 | `docs/11_delivery/`、集成检查 | 🔄 在途 |
+
 ## 3. 已完成 Agent 履历
 
 按角色归档，便于查该角色的历史交付与教训。
