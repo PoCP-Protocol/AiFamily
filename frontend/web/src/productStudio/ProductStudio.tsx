@@ -20,6 +20,7 @@ const stageLabels: Record<ProductStage, string> = {
   PRODUCT_PACKAGE: "ProductPackage",
   GATE: "IPD Gate",
   PLM: "PLM",
+  STOPPED: "Stopped · KILL",
 };
 
 const gateLabels: Record<GateDecision, string> = {
@@ -68,7 +69,9 @@ export function ProductStudio({ initialState, onStateChange, environmentLabel = 
       <nav aria-label="产品开发阶段" className="product-stage-rail">
         {PRODUCT_STAGE_ORDER.map((stage, index) => {
           const active = state.currentStage === stage;
-          const reached = PRODUCT_STAGE_ORDER.indexOf(state.currentStage) >= index;
+          const reached = state.currentStage === "STOPPED"
+            ? stage === "DEMAND" || stage === "MARKET_EVIDENCE" || stage === "PRODUCT_PACKAGE" || stage === "GATE"
+            : PRODUCT_STAGE_ORDER.indexOf(state.currentStage) >= index;
           return (
             <span key={stage} aria-current={active ? "step" : undefined} data-reached={reached}>
               {index + 1}. {stageLabels[stage]}
@@ -115,6 +118,7 @@ export function ProductStudio({ initialState, onStateChange, environmentLabel = 
                 key={decision}
                 type="button"
                 aria-pressed={state.gate.decision === decision}
+                disabled={state.currentStage !== "GATE"}
                 onClick={() => act({ type: "SET_GATE_DECISION", decision })}
               >
                 {gateLabels[decision]}
@@ -122,6 +126,7 @@ export function ProductStudio({ initialState, onStateChange, environmentLabel = 
             ))}
           </div>
           <p>当前决定：{state.gate.decision ?? "待人工决定"}</p>
+          {state.currentStage === "STOPPED" ? <p role="alert">NO_GO：停止进入正常 PLM，生命周期建议为 KILL。</p> : null}
           <EvidenceRefs refs={state.gate.evidenceRefs} />
         </article>
 
@@ -134,6 +139,7 @@ export function ProductStudio({ initialState, onStateChange, environmentLabel = 
                 key={recommendation}
                 type="button"
                 aria-pressed={state.plm.recommendation === recommendation}
+                disabled={state.currentStage !== "PLM"}
                 onClick={() => act({ type: "SET_LIFECYCLE_RECOMMENDATION", recommendation })}
               >
                 {lifecycleLabels[recommendation]}

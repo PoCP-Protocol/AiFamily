@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { ProductStudio } from "./ProductStudio";
 import { canAdvance, productStudioReducer } from "./state";
-import type { ProductStudioState } from "./types";
+import type { EvidenceRef, ProductStudioState } from "./types";
 
 const evidence = (ref: string, kind: "demand" | "market" | "competitor" | "experiment" | "pilot" = "market") => ({
   ref,
@@ -37,13 +37,12 @@ describe("Product Studio", () => {
     expect(advance).toBeEnabled();
     await user.click(advance);
     expect(screen.getByRole("status")).toHaveTextContent("Market / Competitor Evidence");
-    await user.click(screen.getByRole("button", { name: "GO" }));
-    expect(screen.getByRole("button", { name: "GO" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "GO" })).toBeDisabled();
   });
 
   it("exposes lifecycle choices without implying automatic release", async () => {
     const user = userEvent.setup();
-    render(<ProductStudio initialState={initialState} />);
+    render(<ProductStudio initialState={{ ...initialState, currentStage: "PLM" }} />);
     await user.click(screen.getByRole("button", { name: "REVISE" }));
     expect(screen.getByText("当前建议：REVISE")).toBeInTheDocument();
     expect(screen.getByText(/不直接写入家庭成长事实/)).toBeInTheDocument();
@@ -57,5 +56,26 @@ describe("productStudioReducer", () => {
     const next = productStudioReducer(atGate, { type: "SET_GATE_DECISION", decision: "CONDITIONAL" });
     expect(canAdvance(next)).toBe(true);
     expect(productStudioReducer(next, { type: "ADVANCE_STAGE" }).currentStage).toBe("PLM");
+  });
+
+  it.each(["UNKNOWN", "STALE", "CONTRADICTED"] as const)("blocks %s evidence from advancing", (status) => {
+    const blockedRef: EvidenceRef = { ...evidence("blocked", "demand"), status };
+    const state: ProductStudioState = { ...initialState, demand: { ...initialState.demand, evidenceRefs: [blockedRef] } };
+    expect(canAdvance(state)).toBe(false);
+    expect(productStudioReducer(state, { type: "ADVANCE_STAGE" })).toBe(state);
+  });
+
+  it("moves a NO_GO gate to stopped/KILL and never to normal PLM", () => {
+    const atGate = { ...initialState, currentStage: "GATE" as const };
+    const stopped = productStudioReducer(atGate, { type: "SET_GATE_DECISION", decision: "NO_GO" });
+    expect(stopped.currentStage).toBe("STOPPED");
+    expect(canAdvance(stopped)).toBe(false);
+    expect(productStudioReducer(stopped, { type: "ADVANCE_STAGE" }).currentStage).toBe("STOPPED");
+  });
+
+  it("ignores Gate and PLM actions outside their corresponding stage", () => {
+    const atDemand = initialState;
+    expect(productStudioReducer(atDemand, { type: "SET_GATE_DECISION", decision: "GO" })).toBe(atDemand);
+    expect(productStudioReducer(atDemand, { type: "SET_LIFECYCLE_RECOMMENDATION", recommendation: "SCALE" })).toBe(atDemand);
   });
 });

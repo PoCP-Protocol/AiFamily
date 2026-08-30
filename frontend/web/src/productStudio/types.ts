@@ -1,4 +1,4 @@
-export type ProductStage = "DEMAND" | "MARKET_EVIDENCE" | "PRODUCT_PACKAGE" | "GATE" | "PLM";
+export type ProductStage = "DEMAND" | "MARKET_EVIDENCE" | "PRODUCT_PACKAGE" | "GATE" | "PLM" | "STOPPED";
 
 export type GateDecision = "GO" | "NO_GO" | "CONDITIONAL";
 export type LifecycleRecommendation = "SCALE" | "REVISE" | "KILL";
@@ -42,4 +42,3 @@ export type ProductStudioAction =
   | { type: "ADVANCE_STAGE" }
   | { type: "SET_GATE_DECISION"; decision: GateDecision; decidedBy?: string }
   | { type: "SET_LIFECYCLE_RECOMMENDATION"; recommendation: LifecycleRecommendation };
-
