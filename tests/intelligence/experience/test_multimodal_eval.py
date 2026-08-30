@@ -1,0 +1,172 @@
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+
+from backend.intelligence.experience.multimodal_eval import (
+    GoldCase,
+    MultimodalAdapterResult,
+    MultimodalEvalError,
+    MultimodalEvalRunner,
+)
+from backend.intelligence.model_gateway.contracts import AiProvenance
+
+
+def _case(
+    *,
+    case_id: str = "case-1",
+    expected_refusal: bool = False,
+    expected_output: dict[str, Any] | None = None,
+) -> GoldCase:
+    return GoldCase(
+        case_id=case_id,
+        version="gold.v1",
+        fixture_kind="synthetic",
+        modalities=("text", "image"),
+        locale="zh-CN",
+        safety_labels=("safe",),
+        expected_schema={
+            "type": "object",
+            "required": ["answer"],
+            "properties": {"answer": {"type": "string"}},
+        },
+        expected_refusal=expected_refusal,
+        media_refs=(f"fixture:{case_id}:image",),
+        expected_output=expected_output,
+    )
+
+
+def _result(
+    case: GoldCase,
+    *,
+    output: dict[str, Any] | None = None,
+    refused: bool = False,
+    labels: tuple[str, ...] = ("safe",),
+    safety_passed: bool = True,
+    latency_ms: int = 120,
+    cost_microusd: int = 10,
+    provider_id: str = "qwen",
+) -> MultimodalAdapterResult:
+    return MultimodalAdapterResult(
+        provider_id=provider_id,
+        model="qwen-omni",
+        model_version="2026-08",
+        output=output,
+        refused=refused,
+        refusal_reason="policy" if refused else None,
+        safety_labels=labels,
+        safety_passed=safety_passed,
+        provenance=AiProvenance(
+            provider_id=provider_id,
+            model="qwen-omni",
+            model_version="2026-08",
+            prompt_version="prompt.v1",
+            schema_version=case.version,
+            context_snapshot_ref="ctx:synthetic",
+            latency_ms=latency_ms,
+            data_class="SYNTHETIC",
+            use_case="offline-eval",
+        ),
+        latency_ms=latency_ms,
+        cost_microusd=cost_microusd,
+    )
+
+
+def test_runner_aggregates_provider_model_version_without_media() -> None:
+    cases = (_case(expected_output={"answer": "ok"}), _case(case_id="case-2"))
+
+    def adapter(case: GoldCase) -> MultimodalAdapterResult:
+        return _result(
+            case, output={"answer": "ok"}, latency_ms=100 if case.case_id == "case-1" else 200
+        )
+
+    report = MultimodalEvalRunner().run(cases, {"qwen": adapter})
+    summary = report.by_provider()[("qwen", "qwen-omni", "2026-08")]
+
+    assert report.case_version == "gold.v1"
+    assert summary.total_cases == 2
+    assert summary.passed_cases == 2
+    assert summary.quality_score == 1.0
+    assert summary.schema_pass_rate == 1.0
+    assert summary.refusal_accuracy_rate == 1.0
+    assert summary.safety_pass_rate == 1.0
+    assert summary.provenance_pass_rate == 1.0
+    assert summary.latency_ms_p50 == 100
+    assert summary.latency_ms_p95 == 200
+    assert summary.cost_microusd_total == 20
+
+
+def test_runner_fails_closed_for_schema_safety_and_provenance() -> None:
+    case = _case()
+
+    def adapter(_: GoldCase) -> MultimodalAdapterResult:
+        result = _result(
+            case,
+            output={"wrong": 1},
+            labels=("unsafe",),
+            safety_passed=False,
+        )
+        return MultimodalAdapterResult(
+            provider_id=result.provider_id,
+            model=result.model,
+            model_version=result.model_version,
+            output=result.output,
+            refused=result.refused,
+            safety_labels=result.safety_labels,
+            safety_passed=result.safety_passed,
+            provenance=None,
+            latency_ms=result.latency_ms,
+            cost_microusd=result.cost_microusd,
+        )
+
+    summary = MultimodalEvalRunner().run((case,), {"qwen": adapter}).summaries[0]
+    assert summary.passed_cases == 0
+    assert summary.schema_pass_rate == 0.0
+    assert summary.safety_pass_rate == 0.0
+    assert summary.provenance_pass_rate == 0.0
+    assert summary.failure_reasons == {
+        "provenance_invalid": 1,
+        "safety_failed": 1,
+        "safety_labels_mismatch": 1,
+        "schema_invalid": 1,
+    }
+
+
+def test_expected_refusal_is_a_valid_safe_case_and_raw_media_is_rejected() -> None:
+    case = _case(expected_refusal=True)
+
+    def refusing(_: GoldCase) -> MultimodalAdapterResult:
+        return _result(case, refused=True, output=None)
+
+    summary = MultimodalEvalRunner().run((case,), {"qwen": refusing}).summaries[0]
+    assert summary.passed_cases == 1
+    assert summary.schema_pass_rate == 0.0
+    assert summary.refusal_accuracy_rate == 1.0
+    assert summary.quality_score == 1.0
+
+    with pytest.raises(MultimodalEvalError, match="raw media"):
+        GoldCase(
+            case_id="bad",
+            version="gold.v1",
+            fixture_kind="synthetic",
+            modalities=("image",),
+            locale="zh-CN",
+            safety_labels=("safe",),
+            expected_schema={"type": "object", "properties": {"media_bytes": {}}},
+        )
+
+
+def test_mixed_gold_versions_are_rejected() -> None:
+    first = _case()
+    second = GoldCase(
+        case_id="case-2",
+        version="gold.v2",
+        fixture_kind="anonymous",
+        modalities=("text",),
+        locale="en-US",
+        safety_labels=("safe",),
+        expected_schema={"type": "object"},
+    )
+    with pytest.raises(MultimodalEvalError, match="share one version"):
+        MultimodalEvalRunner().run((first, second), {"qwen": lambda _: _result(first)})

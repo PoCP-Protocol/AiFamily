@@ -104,16 +104,43 @@ entries:
   - capability: agent_runtime
     disposition: REIMPLEMENT
     source: []
-    target: [backend/intelligence/agent_runtime]
+    target:
+      - backend/intelligence/agent_runtime
+      - database/migrations/versions/0012_ai_agent_runs.py
+      - backend/intelligence/agent_runtime/authorization_persistence.py
+      - database/migrations/versions/0013_ai_authorization_leases.py
+      - tests/intelligence/agent_runtime/test_persistence.py
+      - tests/intelligence/agent_runtime/test_authorization_persistence.py
+      - governance/ADR/ADR-0053-agent-run-trace-durable-persistence.md
+      - governance/ADR/ADR-0055-agent-authorization-lease-persistence.md
     status: MIGRATED_TESTED
     evidence:
       - "AI 原生运行时规格要求的 AgentDefinition、动态 AgentAuthorization 和 provider-neutral execution port 已在 Python 侧重建"
       - "AgentAuthorizer 对缺失授权、scope/TTL/撤回、用例/工具白名单和预算超限采用 fail-closed；拒绝路径在 Model Gateway 请求构造前结束"
       - "tests/intelligence/agent_runtime/test_runtime.py 覆盖授权成功、缺授权、scope/tool 越权和过期拒绝"
+      - "SqlAlchemyAgentRunStore 持久化 STARTED/SUCCEEDED/FAILED、append-only Trace、幂等指纹、scope 隔离与 DRAFT-only 输出；AgentAuthorizationLeaseStore 覆盖发行/撤回/过期与 scope/use_case/tool/budget fail-closed、审计回放；15 项 Agent Runtime 测试通过"
     reason: "源仓库无可复用的 Python Agent Runtime；依据 AI_ARCHITECTURE 与 AI_PLATFORM_FORWARD_ARCHITECTURE 重建唯一 AI Runtime 边界"
     known_gaps:
-      - "当前授权与 AgentRun 为进程内值对象，尚未接入持久化授权租约、Tool Runtime 或 workflow worker"
+      - "ToolAuthorization 独立持久化、生产 worker 的并发租约续期和真实身份/同意组合根接线仍待后续迭代"
+      - "AgentRun/Trace migration 0012 依赖并发 WIP 的 0011_ai_human_task_claims；migration tracked 后必须重跑 PostgreSQL upgrade→downgrade→upgrade 门禁"
       - "真实身份/同意组合根和生产 AgentDefinition registry 接线待后续迭代"
+
+  - capability: tool_runtime
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/tool_runtime
+      - tests/intelligence/tool_runtime/test_runtime.py
+      - governance/ADR/ADR-0054-governed-tool-runtime-human-gated-actions.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "ToolDefinition/ToolAuthorization/ToolCallRequest/ToolCallResult 仅允许生成 PENDING_HUMAN_CONFIRMATION Named Action，不执行领域命令或写业务事实"
+      - "ToolRuntime 同时校验真实 AgentDefinition 静态白名单、AgentAuthorization 动态授权、ToolAuthorization scope/TTL 与 use_case"
+      - "tests/intelligence/tool_runtime/test_runtime.py 5 项测试通过，覆盖成功 pending、授权拒绝、租约过期、静态白名单和 generic action 防护"
+    reason: "AI Runtime 需要统一的具名工具边界，保证 Agent 只能提出可审阅动作，Human Gate/领域应用仍是唯一事实写入口"
+    known_gaps:
+      - "ToolAuthorization 当前为进程内值对象，生产需接入持久化授权租约与撤回审计"
+      - "尚未接入 family_api 组合根、durable ToolCall/Named Action outbox 与真实业务域 consumer"
 
   - capability: family_need_orchestration
     disposition: REIMPLEMENT
@@ -922,6 +949,39 @@ entries:
     known_gaps:
       - "attempt counter 当前为进程内策略；生产需接入带租约/attempt 持久化的 worker 与 durable DLQ"
       - "achievement consumer 已接入契约级投影；尚未接入 family_api 组合根、durable achievement projection 与 analytics projection，不能据此声称生产消息链已上线"
+
+  - capability: multimodal_evaluation_boundary
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/experience/multimodal_eval.py
+      - tests/intelligence/experience/test_multimodal_eval.py
+    status: MIGRATED_TESTED
+    evidence:
+      - "版本化 synthetic/anonymous gold case 不携带媒体字节，评估 runner 不读取凭据、不打开网络"
+      - "4 个专项测试覆盖 schema、安全标签、预期拒答、provenance、一致版本和原始媒体拒绝"
+      - "ADR-0056 明确报告只代表契约质量/安全/延迟/成本，不代表家庭总分、孩子成绩或教育疗效"
+    known_gaps:
+      - "当前为离线评估原语，尚未持久化 benchmark report、绑定 Durable Run/feedback 或形成生产 release gate"
+      - "真实 provider 仍需完成合规、删除 SLA、长期 gold set 和 owner approval 后才可进入生产"
+
+  - capability: governed_tool_runtime
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/tool_runtime
+      - tests/intelligence/tool_runtime/test_runtime.py
+      - governance/ADR/ADR-0054-governed-tool-runtime-human-gated-actions.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "ToolDefinition 明确 Named Action 与输入 schema；拒绝泛化 UPDATE/PATCH/DELETE/WRITE/SET 动作"
+      - "ToolRuntime 同时校验真实 AgentDefinition、AgentAuthorization 和短期 ToolAuthorization，失败路径不调用工具"
+      - "ToolCallResult 仅允许 PENDING_HUMAN_CONFIRMATION，保留 GateScope 主体范围、provenance、风险与过期时间，may_mutate_business_state 固定为 false"
+      - "tests/intelligence/tool_runtime/test_runtime.py 覆盖成功 pending action、Agent 动静态白名单、租约 TTL/缺失和动作名边界"
+    reason: "为 Agent Runtime 提供可组合且 provider-neutral 的工具执行边界，保证所有工具输出必须经过 Human Gate/Named Action"
+    known_gaps:
+      - "当前为进程内工具目录与执行适配器；尚未接入 durable tool catalog、租约持久化、队列 worker 和业务域 Named Action consumer"
+      - "工具输入 schema 的深度校验与审计 trace 需在生产组合根接线时补齐"
 
 # ============ 待人工裁决清单（disposition = REVIEW_REQUIRED 的完整索引） ============
 review_required_index:
