@@ -198,9 +198,9 @@ Sprint 1 未完成前，不宣称“法咪莉校长已上线”或“家庭需�
 ### 验证记录（阶段复盘复测）
 
 ```text
-uv run pytest -q                         767 passed, 43 skipped, 4 known gate failures
+uv run pytest -q                         786 passed, 44 skipped, 2 known gate failures
 uv run pytest tests/architecture -v       108 passed, 1 skipped, 2 known gate failures
-uv run pytest tests/intelligence -q        198 passed
+uv run pytest tests/intelligence -q        208 passed
 uv run pytest tests/apps/family_api -q      17 passed, 1 skipped
 pnpm exec vitest run（UI-03/05/09）          27 passed
 pnpm check                                  passed
@@ -215,17 +215,7 @@ pnpm check                                  passed
 - `experience_curator` 目前只有 Registry/合同设计，未开启生产 Agent 或模型供应商调用。
 - L0 现状文档中的历史断言（例如“零业务 API”“Memory ABSENT”）尚未完成与本 Sprint
   证据的同步；在同步前不得把旧基线当作当前实现清单。
-- 全量 Ruff 的唯一代码错误为并发 WIP 文件 `backend/domains/family/domain/entities.py:331` 的
-  E501；本轮未改动该文件，避免吞并他人工作区。
-
-### 14.1 复盘新增的质量债
-
-- FGCN 持久化 WIP 的两条契约测试仍失败：终态 ServiceCase 的交付拒绝路径，以及
-  contribution 载荷不能以缺失的已验证交付伪造 task basis；由 ADOM-3 在 Sprint 2 修复。
-- 并发 WIP 新增 `backend/intelligence/product_management/` 未登记到
-  `governance/MIGRATION_MANIFEST.yaml`；由其 owner 单独登记，Lead 不越界修改。
-- 当前分支的测试数量与并发 WIP 会随工作区写入变化，所有数字以本轮实际命令输出为准，不能把
-  缓存报告当成验收证据。
+- 全量 Ruff 的错误均来自并发 WIP 文件；本轮未改动这些文件，避免吞并他人工作区。
 
 ## 14. Sprint 1 并行开发评审（2026-08-30）
 
@@ -241,12 +231,23 @@ pnpm check                                  passed
 
 ### 集成阻塞与下一步
 
-- S1-B 的 N1→N2 应用服务尚未接入 Family API 路由和持久化仓储；下一任务由 Lead 负责
-  API/依赖注入/端到端契约，不能用 fixture 代替。
+- S1-B 的 N1→N2 应用服务已接入 Family API 路由和 dev/test 合成依赖；仍缺 PostgreSQL
+  持久化和真实身份/同意存储，不能把合成适配器当成生产能力。
 - S1-A 的 Principal 运行时尚未接入 Context Broker、Human Gate、Action Bridge、审计与
   Outbox；当前只能标记 `PARTIAL`，不能宣称“法咪莉校长已上线”。
 - 架构测试另发现并发 WIP 新增 `backend/intelligence/product_management/` 尚未在
   `MIGRATION_MANIFEST.yaml` 登记；该目录不属于本 Sprint 三条战线，待其 owner 处理。
+
+### 14.1 复盘新增的质量债
+
+- FGCN 持久化 WIP 的两条契约测试已由 ADOM-3 修复，并通过 17 条领域/持久化测试；真实
+  Postgres migration 0004 尚未在本地执行，仍不得标记生产就绪。
+- 并发 WIP 新增 `backend/intelligence/product_management/` 未登记到
+  `governance/MIGRATION_MANIFEST.yaml`；由其 owner 单独登记，Lead 不越界修改。
+- 全量 Ruff 当前由并发 WIP 产生 6 个错误（`family/domain/entities.py`、`intelligence/experience/`
+  及其测试）；本轮未改动这些文件，避免吞并他人工作区。
+- 当前分支的测试数量与并发 WIP 会随工作区写入变化，所有数字以本轮实际命令输出为准，不能把
+  缓存报告当成验收证据。
 
 ## 15. Sprint 2：平台能力与服务协作 P0（进行中）
 
@@ -266,3 +267,15 @@ pnpm check                                  passed
 - 移动端 capability contract 通过四平台矩阵和不可用/拒绝/降级状态测试；
 - dev/test/prod 接口、错误码、状态机和安全闸门相同，只有数据和外部适配器配置可不同；
 - 全量架构测试与 Ruff 不新增错误；所有未解决债务进入本计划，不以“fixture 有数据”宣称完成。
+
+### 15.1 Sprint 2 当前复核（阶段性交付）
+
+- **ADOM-3 FGCN：PARTIAL**。领域引擎、SQLAlchemy 持久化映射、终态不变量、交付证据和
+  贡献溯源已通过定向测试；PostgreSQL migration 0004 与真实事务/ORM 演练仍待执行。
+- **AAIR-3 Context Broker：PARTIAL**。租户/区域/家庭/主体/用途/同意/数据分类/来源/过期/
+  删除约束和只读投影已通过 14 条测试；尚未接入 Principal、持久化表和删除 Worker。
+- **AFE-2 跨端能力：PARTIAL**。Android/iOS/HarmonyOS/小程序共用六项 capability contract，
+  合成适配器覆盖不可用、拒绝、低带宽、回退和宿主确认；真实原生桥接仍按平台单独实现。
+- 本轮复测：全量 `786 passed, 44 skipped, 2 known gate failures`；架构 `108 passed, 1 skipped,
+  2 failures`；AI `208 passed`；Family API `17 passed, 1 skipped`；移动端 `pnpm check` 通过。
+  两个闸门失败均为并发 WIP 的 Ruff 债务和未登记 `product_management` 目录，不由本 Sprint 越界吸收。
