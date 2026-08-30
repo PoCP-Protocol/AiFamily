@@ -161,6 +161,9 @@ export class FamilyApiClient {
     return this.request<AccountSessionResponse>("/auth/account-session", {
       method: "POST",
       body: { external_ref: externalRef },
+      headers: {
+        "idempotency-key": `family-mobile-auth-session:${encodeURIComponent(externalRef)}`,
+      },
     });
   }
 
