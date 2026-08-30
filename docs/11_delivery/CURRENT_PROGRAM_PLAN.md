@@ -99,6 +99,43 @@ superseded_by: null
 
 退出条件：每个 P0-P6 任务都能找到唯一 owner、非重叠文件范围、依赖关系和反向验收人；共享 WIP、真实 PostgreSQL、远端 CI 或治理登记未完成的部分保持 `OPEN`。
 
+### Sprint 0 修订：六门 P0 阻断 + S-01 业务验收
+
+Sprint 0 不是纯技术准备阶段。六门技术闸门必须共同保护一条最小业务主线：家长进入平台→完成身份与目的化授权→确认一个家庭问题和一个主结果→获得 AI/Principal 的 Perspective/Hypothesis/Draft→家长确认后形成一个 Action→完成一次 Review。固定顺序为：
+
+`问题/授权 → 内容/AI理解/家庭确认 → Action/Review →（必要时）Service/FGCN → 质量/经营门`。
+
+| P0 门 | owner 角色与文件边界 | 依赖 | 正向/反向测试 | 退出证据 |
+|---|---|---|---|---|
+| ENV-01 | APLT + 原 `dev_wiring.py` WIP owner；`main.py`/`dev_wiring.py`/production composition/Actor/Session/Consent resolver，不覆盖并发 WIP | ADR-0069、trusted auth port | unset/非法 env fail-closed；无 token 401；跨 tenant 403；撤回 CONSENT_REQUIRED；三环境 route/error parity | TestClient/OpenAPI/启动日志+owner sign-off；当前 unset acceptance 仍 expected-red，BLOCKED |
+| DATA-01 | ADOM/ARCH；migration 0011-0023、ORM、Manifest/ADR、对象清单 | DB-01、Fresh PG | up→down→up、重启、并发、unknown head fail；未设 `AIFAMILY_TEST_DATABASE_URL` 的 skip 不算通过 | tracked 文件与登记一致、Fresh PG 原始 stdout；当前 0023 unknown，BLOCKED |
+| IDP-01 | Platform/API；trusted ActorContext、ConsentResolver、tenant-scoped IdempotencyStore | ENV-01、DATA-01 | 同 key 跨 tenant 隔离；同输入 replay 同结果；冲突拒绝；撤回/过期/跨主体拒绝 | Fake/PG 同契约、删除后 replay 负向；当前 IdempotencyStore 仍 InMemory/无生产接线，BLOCKED |
+| LEDGER-01 | Platform/AAIR；canonical AuditEvent、Outbox、worker/lease/DLQ/restart ports | IDP-01、DATA-01 | 命令与 audit/outbox 同事务；crash/retry 不重复；DLQ/补偿/重启可恢复 | PG 事务和 receipt；目前仅切片局部 evidence，跨域 composition 缺，BLOCKED |
+| AI-01 | AAIR/GOV；唯一 `AiReleaseGate`、EvalReport registry、Principal/Context/Memory/Delete，冻结第二 gate | ENV-01、IDP-01、DATA-01 | benchmark unknown/revoked/deleted/mismatch、跨 tenant/locale；AI draft-only，Named Action 才写事实 | 单 gate architecture test、registry/version/provenance；当前双 gate/lookup 缺，BLOCKED |
+| CLIENT-01 | AFE/APLT；Web clientFactory、mobile contracts、OpenAPI/error/locale/session；不改后端 WIP | ENV-01、IDP-01 | `DEV:false + fake` fail-closed；token/session/locale/idempotency；四端错误/重放一致 | Web 26+lint/typecheck、mobile 五失败归零、parity；当前 Web lint 未配置，BLOCKED |
+
+真实 PG URL 缺失、`skip`/`create_all`/disposable probe、Web lint 未配置、远端 push 443 失败均须写入证据表并保持阻断；不能以“本地测试绿”代替 Fresh PG/HTTP/remote 证据。
+
+### Sprint 1-3 计划卡（每卡必须四区记录）
+
+每张计划卡都要以 `Current Truth / Target / Planned / Evidence` 四区记录；Evidence 必须含 commit SHA、
+remote ref、命令、原始摘要、数据集/`AIFAMILY_TEST_DATABASE_URL`、跳过项、失败项和反向测试，不接受“应该可以”。
+
+| Sprint | owner 角色 | 文件边界 | 依赖与输入→活动→输出 | 正向/反向测试 | 退出门 |
+|---|---|---|---|---|---|
+| S0（当前，P0 阻断） | PMA 协调；APLT/Platform/ADOM/AAIR/AFE 各 gate owner | 仅各 owner 已声明文件；不覆盖 `dev_wiring.py` 等共享 WIP | 身份/授权问题→六门技术闸门→家长确认一个问题/主结果→S-01 contract | TestClient 三环境、Fresh PG up/down/up、tenant/consent/idempotency、audit/outbox crash/retry、AI gate、Web/mobile parity | 六门全绿且 S-01 业务链可回读；任一缺失 `BLOCKED/NOT_DONE` |
+| S1（S-01 真实闭环） | Growth + AFE/API + AAIR | `s01_vertical_slice.py`、Journey application/HTTP、独占测试；不改 FGCN/Commerce writer | `b37b1b6`（local only，未推送）signal→Perspective/Hypothesis/Draft→家庭确认→GrowthIntent/ActionTask→Review | 正向家长流程；反向 AI actor/跨 tenant/撤回 consent/新 key replay/conflict/删除/断电重试/多 locale | HTTP+PG+outbox+audit+deletion/replay；UI-03→05→09 可回读；远端出现该 SHA 且 fresh evidence 后才可关闭 |
+| S2（S-01 后续 FGCN） | FGCN/Service + Operations | FGCN admission/assignment/delivery/quality ports、worker；不新增第二 writer | 已确认 need→provider admission→case/task→delivery→quality/`RESOURCE_GAP` | capacity 并发、assignment 完成/撤回 replay、locale、reviewer/tenant/consent、worker restart/DLQ/争议 | Fresh PG/HTTP 常驻 worker、唯一 writer、quality/audit/outbox；否则 `PARTIAL` |
+| S3（平台账与体验扩展，条件解冻） | Commerce/Community/B5/AFE | 保留生产形状契约；暂不开放真实流量/实验 | S-01/FGCN 质量门→四本账、Content/Live、C2C/B2B2C、Product Factory | 订单/支付/退款/权益/结算/社区撤回/机构授权/多 Agent fail-closed；无家庭总分/排名/儿童营销 | 仅在 P0+S1+S2 全绿后；PG/HTTP/审计/回滚/重启/人工 gate/四端 parity 全绿 |
+| S4（生产候选与全球 cell） | Chief Architect + PLT/GOV/AAIR | region/cell、容量、灾备、真实 adapters、PLM | S1-S3 稳定事实→生产身份/支付/模型/媒体/vector/运营事故→candidate release | failover、备份恢复、DPIA/删除、成本/配额、多语言四维、license/CI/事故演练 | 所有 P0/P1 关闭、unknown head 清零、architecture/Ruff/PG/HTTP/删除/审计全绿；才可 `PRODUCTION_CANDIDATE` |
+
+冻结规则：S3 之前 Commerce/C2C/B2B2C/多 Agent 只允许维护未来生产形状的状态机、权限、Consent、tenant、幂等、
+Audit/Outbox、回滚、重启、人工审核和支付/退款/结算契约；不允许真实运营、开放流量、商业实验或范围扩张。
+
+每个 Sprint 还必须通过 **D10 质量/商业门**：家庭是否得到真实帮助，服务质量/安全/退款/返工/供给成本
+是否可追踪和对账，商业动作是否发生在 E3 明确需要且经家长确认之后。点击、停留、家庭总分、排名、虚假
+社会证明或合成收入都不能作为 D10 结果；D10 未通过，技术绿灯也只能标 `PARTIAL`。
+
 ### P0 任务队列：先让家庭需求链真实可调用
 
 | 任务 | 内容 | 文件边界 | 反向验收 |
@@ -123,7 +160,8 @@ P0 任一任务没有真实 PostgreSQL 或 HTTP 证据，Sprint 保持 `NOT_DONE
 | ADOM-5 / DB-01 migration | Alembic baseline/head、ORM/Manifest/ADR | ADOM/ARCH / `5a67a1b`；0011–0023 WIP | FGCN chain 2 passed；baseline PG 分层 8 passed/1 failed/1 skipped | `PARTIAL/BLOCKED (P1)` | `alembic heads=0023`，未知 head 失败；0011–0023 未形成 tracked/审批链。补对象清单、可逆 Fresh PG、单 head 后才 allow-list |
 | AAIR-6 / durable deletion | deletion queue、lease/retry/DLQ、五类回执 | AAIR / durable deletion slice | durable 子集 6 项；context-engine 25 passed | `CONTRACTED/adapter-only` | InMemory store、无 PG/outbox/跨进程 lease/真实 receipts；补 durable worker 与审计删除证明 |
 | AFE-4 / UI experience | 34 UI 语义图标、成就、多模态、跨端 | AFE / UI slice、Web `4b9a4b4` | 专项 5 passed、mobile `pnpm check` passed；Web clientFactory 26 passed/typecheck 0 | `PARTIAL` | mobile 全量 249 passed/1 skipped/5 failed；修 UI-02、registry/service contract 与四端视觉/无障碍/locale parity；生产 `DEV:false + VITE_EXPERIENCE_CLIENT=fake` 必须 fail-closed/强制 HTTP |
-| GROWTH / S05→S08 | Action→Outcome→Story→Recommendation→Annual/Renewal | growth_action_loop / `b431eda`、`78cb9c1`、`dcc0802` | journey 40/4；Fresh PG 44 | `GO (测试契约)/CONTRACTED-PARTIAL` | 无 Journey HTTP/ORM/常驻 worker/真实 sink；补 Audit/Outbox、consent/replay/deletion 与 UI e2e |
+| GROWTH / S-01 主线 | `UI-03→UI-05→UI-09`：assessment signal→Perspective/Hypothesis draft→家庭确认→GrowthIntent/ActionTask→回读/ChallengeReview | growth owner / `b37b1b6`（local only，未推送） | narrow 9 tests；journey 64 passed/15 PG skipped；architecture 109/1/1 | `CONTRACTED/PARTIAL (P0 业务主线)` | 仅内存，无 HTTP/PG/outbox/durable deletion/replay；下一阶段必须接真实 FastAPI+Postgres+outbox+deletion/replay，且绑定家长确认一个问题/主结果 |
+| GROWTH / S05→S08 | Action→Outcome→Story→Recommendation→Annual/Renewal | growth_action_loop / `b431eda`、`78cb9c1`、`dcc0802` | journey 40/4；Fresh PG 44 | `CONTRACTED-PARTIAL` | 仅作为 S-01 后续；无 Journey HTTP/ORM/常驻 worker/真实 sink；补 Audit/Outbox、consent/replay/deletion 与 UI e2e |
 | GROWTH-ONBOARDING | Confirmed Intent→Onboarding HTTP/PG | growth owner / `0cd53fb`、`6b4a8e9` | route/domain 29 passed；PG 单跑 13 passed，但重复一轮 12 passed/1 failed | `CONTRACTED-PARTIAL` | `actor_family_scope_denied` 时序/时钟 flake；0016/0017 migration 未登记。修 fixture 时钟/隔离、非法 UUID=400、跨租户/撤回同意 |
 | AAIR/PLT / Context | Async/SQL Context、scope/replay/delete | AAIR / `02a80c4`、`6a88625`、`6150169`、`9b10d2d` | context 25 passed；disposable PG probe 1 passed | `CONTRACTED-PARTIAL` | PG probe 仍 create_all/同 engine，无 Alembic/restart/production resolver；补 durable Consent、migration、Audit/Outbox、删除 receipts |
 | AAIR/EVAL / Experience | SQL ledger/session、benchmark、唯一 AI gate | AAIR/API / `941feae`、`a11f643`、`96905db`、`69f6508`、`674b764`、`050361f`、`b3fffbb`、`5df865e`、`eb33c06` | evaluation+experience 220 passed/1 warning | `CONTRACTED-PARTIAL` | 双 gate、EvalReport registry、trusted ActorContext/Consent、PG transaction/Audit/Outbox 缺；冻结扩张并合并 canonical gate |
@@ -134,8 +172,8 @@ P0 任一任务没有真实 PostgreSQL 或 HTTP 证据，Sprint 保持 `NOT_DONE
 
 **总闸门（快照）**：architecture `109 passed/1 skipped/1 failed`（Ruff ratchet）、全量 Ruff
 `3 errors (1 E501 + 2 I001)`、Alembic unknown 0023、mobile `249/1/5`，因此当前测试候选只能在受控环境继续；
-生产发布明确 `NO-GO`。远端当前为 `2e80ad2`（包含 FGCN `e7cbb0b` 与 PMA 文档）；
-工作树仍有其它 Agent WIP，禁止将其一并推送。
+生产发布明确 `NO-GO`。远端当前为 `bd59c91`（含 V2 Change Log/Execution Plan）；本地未推送
+`9eeb19a`（文档原子场景清单）及 `b37b1b6`（S-01 slice）不得写成远端或主线完成；工作树仍有其它 Agent WIP，禁止将其一并推送。
 
 ### P1-P6 的首个可实现任务
 

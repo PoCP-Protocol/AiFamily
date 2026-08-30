@@ -101,8 +101,8 @@ AI 只允许产生 `Perspective`、`Draft`、`Recommendation`、`ActionProposal`
 
 - **Current Truth**：assessment 有测评/证据纵切片；journey/growth 有状态机、Outcome/Annual/Renewal 契约；FGCN S-01 已增加 entry evidence/provenance。
 - **Specification**：`assessment → AI evidence interpretation → family confirmation → GrowthIntent → 21-day action → 90-day outcome → annual/renewal → NextNeed`；S01-S09 属 B1，X0/Principal 嵌入。
-- **Planned**：将 S05→S07→S08→annual 变成同一 FastAPI+Postgres+outbox 纵切片；补多语言、撤回、删除、replay、人工闸门。
-- **Evidence**：Journey 含 PG 44 passed；当前仍缺生产 identity/consent、常驻 worker、Audit flush、真实删除投影，故为 `CONTRACTED/PARTIAL`。
+- **Planned**：唯一业务主线先收敛为 `UI-03→UI-05→UI-09`（S-01）：assessment signal→Perspective/Hypothesis draft→人类确认/驳回→GrowthIntent/ActionTask→canonical outcome loop；随后再接 S05-S09。
+- **Evidence**：`b37b1b6` 仅新增 `s01_vertical_slice.py` 与独占测试，9 narrow tests、journey 64 passed/15 PG skipped；内存适配器、无 HTTP/PG/outbox/durable deletion/replay，状态 `CONTRACTED/PARTIAL`、未推送。Journey 含 PG 44 passed 仍不能替代真实 composition。
 
 ### 3.2 L0-L5 流程
 
@@ -131,6 +131,10 @@ AI 只允许产生 `Perspective`、`Draft`、`Recommendation`、`ActionProposal`
 - skills：解释测评、形成假设、拆解小行动、复盘提问、沟通改写；tools：只读 Context/Knowledge、`RecordActionFact`、`CloseChallenge` 命令 port；
 - gates：家庭/监护人确认、敏感主题人工升级、Outcome/Story/Recommendation consent；AI 不能确认自己生成的结果。
 
+AI 不是 FGCN 之后才加入的独立阶段：S-01 第一阶段就必须由 Principal/Model Gateway 服务
+“内容/问题表达→Perspective/Hypothesis/Draft→家庭确认”。产品工厂、知识库和多 Agent
+只以这条主线的输入/输出、来源、同意和 Human Gate 验收；任何 AI 结果都不得越过 Named Action 直写事实。
+
 ### 3.5 B1 退出验收和依赖
 
 ```text
@@ -147,9 +151,9 @@ S05-S09 UI e2e 和中英文 locale 均通过。依赖 P0 ENV-01、DB-01、Princi
 ### 4.1 四区记录
 
 - **Current Truth**：FGCN admission、Human Gate、Named Action、assignment、delivery/quality/contribution contracts 有实现和 113 个 Fresh PG 测试通过。
-- **Specification**：家庭需要→ServiceCase→蓝图/任务→资源匹配与授权→交付留痕→质量验收→贡献凭证；一案一管家、一任务一责任人、未验收不贡献。
-- **Planned**：常驻 durable worker/outbox、容量原子预留、争议/退款/补偿、真实 provider/identity/tenant/consent composition。
-- **Evidence**：当前 reviewer/worker/action context 有 RuntimeError 默认；one-shot worker、双事务 crash/retry、replay 状态和多语言校验仍有缺口，生产 `NO-GO`。
+- **Specification**：FGCN 不是 S-01 之前的独立入口，而是“问题/授权→内容/AI理解/家庭确认→Action/Review”之后的必要服务路径：家庭需要→ServiceCase→蓝图/任务→资源匹配与授权→交付留痕→质量验收→贡献凭证；一案一管家、一任务一责任人、未验收不贡献。
+- **Planned**：S-01 HTTP+PG+outbox 稳定后再接常驻 durable worker/outbox、容量原子预留、争议/退款/补偿、真实 provider/identity/tenant/consent composition；先补 replay/locale/canonical dependency evidence。
+- **Evidence**：当前 reviewer/worker/action context 有 RuntimeError 默认；one-shot worker、双事务 crash/retry、replay 状态和多语言校验仍有缺口，生产 `NO-GO`。113 PG tests 只能证明契约，不证明主线接线。
 
 ### 4.2 L0-L5 流程
 
@@ -187,7 +191,7 @@ Audit/Outbox/PG transaction 和真实 HTTP。依赖 B1 confirmed intent、DB-01�
 
 - **Current Truth**：移动端有 34 UI 基线；commerce/membership/loyalty/product catalog 有局部 WIP 与测试；Web client 已有 auth/session/locale 注入候选。
 - **Specification**：内容/直播触达→家庭需要/行动→E3 明确服务需要→透明 offer/order/payment/entitlement→交付/质量→续购/推荐；B2C 是根，B2B2C 是渠道放大器，C2C 是网络层。
-- **Planned**：四本账和经济事实 durable 化，完成取消/退款/争议/过期/撤回/删除/审计；商业动作一律家长显式确认。
+- **Planned**：四本账和经济事实 durable 化，完成取消/退款/争议/过期/撤回/删除/审计；商业动作一律家长显式确认。当前冻结只暂停真实运营、开放流量、商业实验和范围扩张，不能删掉未来生产形状的订单/支付/权益/退款/结算状态机、权限、Consent、tenant、幂等、Audit/Outbox、回滚、重启和人工审核契约。
 - **Evidence**：会员/支付/贡献和直播/内容仍 WIP/DESIGN；不得用家庭分数、排名、伪造社会证明、自动续费或未成年人画像驱动商业化。
 
 ### 5.2 L0-L5 流程
@@ -411,12 +415,43 @@ O13 指标/实验/分群与经营复盘运营        O14 发布/环境一致性/
 
 ### 11.1 两周（测试环境同构切片）
 
+本轮重新裁决：**Sprint 0 不是普通准备工作，而是六门 P0 发布阻断**。六门全部通过前，
+只允许在隔离分支补合同/负向测试，不得扩张 Commerce、C2C、B2B2C、第二套 Agent 或新的
+migration head。测试环境必须保留生产同样的路由、权限、状态机、错误码、审计、重试、删除和
+人工闸门；仅数据集和外部适配器可以使用 synthetic/sandbox。
+
+| P0 门 | owner 角色 | 明确文件边界 | 依赖 | 正向/反向验收 | 退出证据 |
+|---|---|---|---|---|---|
+| ENV-01 环境与真实身份 | APLT + 原 `dev_wiring.py` WIP owner | `main.py`、`dev_wiring.py`、production composition、Actor/Session/Consent resolver；不覆盖并发 WIP | ADR-0069、trusted auth port | unset/非法 env fail-closed；无 token→401；跨 tenant→403；撤回→CONSENT_REQUIRED；dev/test/prod route/error parity | 三环境 OpenAPI/404/401/403 TestClient、启动日志和 owner sign-off；当前 unset acceptance 仍 expected-red，BLOCKED |
+| DATA-01 迁移与真实 PG | ADOM/ARCH | migrations 0011-0023、ORM、Manifest/ADR、对象清单 | DB-01、Fresh Postgres URL | upgrade→downgrade→upgrade、重启、并发、未知 head 必须 fail；未设 `AIFAMILY_TEST_DATABASE_URL` 的 skip 不算通过 | `git ls-files`+Manifest/ADR/ORM 一致、Fresh PG 原始 stdout；当前 head=0023 unknown，BLOCKED |
+| IDP-01 tenant/consent/idempotency | Platform/API | `ActorContext`、`ConsentResolver`、tenant scoped `IdempotencyStore`；不得信任 body tenant | ENV-01、DB-01 | 同 key 跨 tenant 不污染；重复 replay 返回同结果；冲突拒绝；撤回/过期/跨主体拒绝 | Fake 与 PG 同契约，401/403/CONSENT_REQUIRED、删除后 replay 负向；当前 platform store 仍 InMemory/未生产接线，BLOCKED |
+| LEDGER-01 Audit/Outbox | Platform/AAIR | canonical AuditEvent、Outbox、worker/lease/DLQ/restart；各域只接 port | IDP-01、DB-01 | 命令与 audit/outbox 同事务；crash/retry 不重复；DLQ/补偿/重启可恢复 | PG 事务日志、audit correlation、outbox receipt、worker restart；各切片局部证据，跨域组合缺，BLOCKED |
+| AI-01 唯一准入与 Principal 边界 | AAIR/GOV | `AiReleaseGate`、EvalReport registry、Principal/Context/Memory/Delete；冻结第二 gate | ENV-01、IDP-01、DB-01 | unknown/revoked/deleted/mismatch benchmark、跨 tenant/locale 拒绝；AI 只能 Draft/Proposal，Named Action 才写事实 | 单一 gate architecture test、registry/version/provenance/consent 证据；当前双 gate/报告 lookup 缺，BLOCKED |
+| CLIENT-01 Web/mobile 生产安全 | AFE/APLT | Web `clientFactory`、mobile contracts、OpenAPI error/locale/session；不改后端 WIP | ENV-01、IDP-01 | `DEV:false + fake` 必须 fail-closed；token/session/locale/idempotency 注入；五端错误/重放一致；lint/typecheck | Web 26+lint/typecheck、mobile 全量 5 failures→0、OpenAPI parity；当前 Web lint 未配置，BLOCKED |
+
+**真实 PG URL 缺失是硬阻断**：任何 `skip`、`create_all`、同进程 disposable probe 或未设置
+`AIFAMILY_TEST_DATABASE_URL` 的成功都只能记作 `CONTRACTED`，不得关闭 DATA-01/LEDGER-01。
+**远端 push 443 失败也是交付阻断证据**：提交未出现在 remote 前不能称“已推送”，必须记录 local SHA、
+remote SHA、命令和 exact error；当前远端基线为 `bd59c91`，本地 `9eeb19a`（原子场景清单）和
+`b37b1b6`（S-01 slice）均未推送，必须保持 `LOCAL_ONLY`，不能写成主线完成。
+
+六门 P0 必须绑定同一条业务验收，而不是只做技术绿灯：一个真实（测试数据可合成）家庭由家长进入，
+完成身份/目的化授权，确认一个家庭问题和一个主结果，收到一个可执行的 ActionProposal，家庭确认后
+记录一条 Action/Review；否则即便单项 API 或 migration 通过，Sprint 0 仍为 `NOT_DONE`。该业务链
+固定为 `问题/授权 → 内容/AI理解/家庭确认 → Action/Review →（必要时）Service/FGCN → 质量/经营门`，
+P0 技术门是每个节点的放行条件，不是业务终点。
+
 1. **P0 ENV-01（APLT + 原 dev_wiring owner）**：unset/非法环境 fail-closed、真实 Actor/Consent/Tenant、三环境 401/403/consent parity；不改冲突 WIP，owner 未明确即 BLOCKED。
 2. **P1 DB-01（ADOM）**：0011-0023 ADR/Manifest/ORM/对象清单、Fresh PG up/down/up；unknown head=0023 必须 fail，不能 skip。
-3. **P1 Principal/Context（AAIR）**：单一 session→consent→snapshot→draft→human gate→Named Action，先使用同构 synthetic provider，不添加第二 runtime。
-4. **P1 B1/B2（growth + FGCN）**：S01/S05→S07→S08 最小 HTTP/PG/outbox/audit/delete/replay；ServiceCase/Delivery canonical port。
-5. **P1 X0/B3（AAIR/Commerce）**：合并唯一 `AiReleaseGate`/EvalReport registry；冻结新 gate/report persistence；E3 前不允许商业动作。
-6. **P1 AFE/Web**：34 UI 语义化、多模态/成就、Web/mobile/OpenAPI token/session/locale/idempotency parity；mobile 5 failures→0，Web lint 闭合。
+3. **P1 Principal/Context（AAIR）**：单一 session→consent→snapshot→draft→human gate→Named Action，先使用同构 synthetic provider，不添加第二 runtime；未过 AI-01 只做合同。
+4. **P1 S-01（growth + AFE/API）**：唯一业务主线 `UI-03→UI-05→UI-09`：Assessment signal→Perspective/Hypothesis draft→家庭确认→GrowthIntent/ActionTask→回读/ChallengeReview；`b37b1b6` 仅内存 CONTRACTED/PARTIAL，下一阶段必须 HTTP+PG+outbox+deletion/replay。
+5. **P1 FGCN（B2）**：仅在 S-01 已确认 need 后进入 admission→assignment→delivery→quality；先修 replay/locale/dependency evidence，不得抢跑成第二主线。
+6. **P1 AFE/Web**：34 UI 语义化、多模态/成就、Web/mobile/OpenAPI token/session/locale/idempotency parity；mobile 5 failures→0，Web lint 闭合；`DEV:false + fake` 必须 fail-closed。
+
+本轮明确**暂缓扩张**：Commerce/支付/会员、C2C 社区、B2B2C 学校/机构、直播商品化、更多
+Agent/Skill/Tool、第二个 Gate/Registry。冻结仅针对真实运营、开放流量、商业实验和范围扩张；
+上述能力仍必须保留未来生产形状的状态机、权限、Consent、tenant、幂等、Audit/Outbox、回滚、
+重启、人工审核以及支付/退款/结算契约。待六门 P0 关闭、S-01 HTTP+PG 闭环和唯一写入者稳定后按依赖解冻。
 
 两周退出条件：architecture/Ruff/Fresh PG/HTTP/相关 mobile/Web/删除/审计全部可重复；每个切片标记 `CONTRACTED/PARTIAL`，没有生产升级。
 
@@ -430,6 +465,9 @@ O13 指标/实验/分群与经营复盘运营        O14 发布/环境一致性/
 
 ## 12. 发布红线、停止扩张和责任
 
+- **D10 质量/商业门（不可省略）**：每个切片必须同时证明家庭获得真实帮助、服务质量和安全可追踪、
+  退款/返工/供给成本可对账、商业动作在 E3 后并经家长确认；不得用点击/停留、家庭总分/排名、
+  虚假社会证明或合成收入替代结果证据。D10 未通过时，即便技术测试全绿也只能 `PARTIAL`。
 - 未完成 ENV-01 不得把 dev/test auth 或默认环境暴露到生产；
 - 未完成 DB-01 不得合并新的 migration head；
 - 未完成唯一 `AiReleaseGate`/EvalReport registry 不得新增评测/准入层；
