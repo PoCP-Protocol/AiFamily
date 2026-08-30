@@ -13,7 +13,8 @@ through `activate_membership_tier`, which is the only caller of
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
+from functools import wraps
 
 from backend.packages.contracts.ui_surfaces import MEMBERSHIP_LEDGER_SOURCE_SURFACES
 
@@ -38,6 +39,43 @@ from .context import ActionContext
 from .ports import MembershipRepositoryPort
 
 
+async def _rollback(repo: MembershipRepositoryPort) -> None:
+    rollback = getattr(repo, "rollback", None)
+    if rollback is not None:
+        await rollback()
+
+
+async def _commit(repo: MembershipRepositoryPort) -> None:
+    try:
+        await repo.commit()
+    except Exception:
+        await _rollback(repo)
+        raise
+
+
+def _transactional(command):
+    """Ensure every failed command abandons staged domain writes.
+
+    SQLAlchemy rolls a failed database transaction back only after the caller
+    explicitly asks it to. The Fake adapter mirrors that contract so a test
+    cannot accidentally pass while a failed append leaves prior writes behind.
+    """
+
+    @wraps(command)
+    async def wrapped(repo, *args, **kwargs):
+        try:
+            return await command(repo, *args, **kwargs)
+        except Exception:
+            await _rollback(repo)
+            raise
+
+    return wrapped
+
+
+def _same(value: object, expected: object) -> bool:
+    return value == expected
+
+
 def _new_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4()}"
 
@@ -55,6 +93,7 @@ def _assert_ledger_surface(source_page_id: str) -> None:
 # --------------------------------------------------------------------------
 
 
+@_transactional
 async def subscribe_membership(
     repo: MembershipRepositoryPort,
     ctx: ActionContext,
@@ -63,26 +102,39 @@ async def subscribe_membership(
     subscription_ref: str,
     consent_ref: str,
     subject_person_id: str | None = None,
-    effective_to: object = None,
+    effective_to: datetime | None = None,
 ) -> MembershipSubscription:
     """Records the commercial relationship. Deliberately does NOT touch the
     tier — baseline: "An entitlement purchase alone does not necessarily
     change the tier".升档要另外调 `activate_membership_tier`.
     """
+    assert_human_actor(ctx.actor, code="subscription_create_actor")
     if ctx.idempotency_key:
         existing = await repo.find_subscription_by_idempotency_key(
             ctx.tenant_id, ctx.family_id, ctx.idempotency_key
         )
         if existing is not None:
+            if not (
+                _same(existing.plan_id, plan_id)
+                and _same(existing.subscription_ref, subscription_ref)
+                and _same(existing.consent_ref, consent_ref)
+                and _same(existing.subject_person_id, subject_person_id)
+                and _same(existing.effective_to, effective_to)
+            ):
+                raise MembershipConflictError("idempotency_key_conflict")
             return existing
 
-    plan = await repo.load_plan(plan_id)
+    plan = await repo.load_plan(plan_id, tenant_id=ctx.tenant_id)
     if plan.status != "ACTIVE":
         raise MembershipConflictError(f"plan_not_active:{plan.status}")
     if not consent_ref.strip():
         raise MembershipValidationError("consent_ref_required")
+    if not subscription_ref.strip():
+        raise MembershipValidationError("subscription_ref_required")
 
     now = utcnow()
+    if not plan.is_effective_at(now):
+        raise MembershipConflictError("plan_not_effective")
     subscription = MembershipSubscription(
         membership_subscription_id=_new_id("msub"),
         tenant_id=ctx.tenant_id,
@@ -107,7 +159,7 @@ async def subscribe_membership(
     ).activate(actor=ctx.actor)
 
     await repo.save_subscription(subscription)
-    await repo.commit()
+    await _commit(repo)
     return subscription
 
 
@@ -116,6 +168,7 @@ async def subscribe_membership(
 # --------------------------------------------------------------------------
 
 
+@_transactional
 async def activate_membership_tier(
     repo: MembershipRepositoryPort,
     ctx: ActionContext,
@@ -135,12 +188,40 @@ async def activate_membership_tier(
     `(activation_source_type, activation_source_ref)` pair that invariant 1
     requires.
     """
+    assert_human_actor(ctx.actor, code="tier_transition_actor")
+    if period_days is not None and period_days <= 0:
+        raise MembershipValidationError("period_days_must_be_positive")
+
     if ctx.idempotency_key:
         existing = await repo.find_tier_transition_by_idempotency_key(
             ctx.tenant_id, ctx.family_id, ctx.idempotency_key
         )
         if existing is not None:
-            period = await repo.load_period(existing.resulting_period_id)
+            if not (
+                _same(existing.to_tier_code, to_tier)
+                and _same(existing.activation_source_type, activation_source_type)
+                and _same(existing.activation_source_ref, activation_source_ref)
+                and _same(existing.decided_by, decided_by)
+            ):
+                raise MembershipConflictError("idempotency_key_conflict")
+            if existing.resulting_period_id is None:
+                raise MembershipConflictError("idempotency_result_missing_period")
+            period = await repo.load_period(
+                existing.resulting_period_id,
+                tenant_id=ctx.tenant_id,
+                family_id=ctx.family_id,
+            )
+            if not (
+                _same(period.membership_subscription_id, membership_subscription_id)
+                and _same(period_days is None, period.ends_at is None)
+                and (
+                    period_days is None
+                    or _same(period.ends_at, period.starts_at + timedelta(days=period_days))
+                )
+                and _same(existing.decision_note, decision_note)
+                and _same(existing.actor_person_id, ctx.actor_person_id)
+            ):
+                raise MembershipConflictError("idempotency_key_conflict")
             return existing, period
 
     current = await repo.load_active_period(ctx.tenant_id, ctx.family_id)
@@ -156,7 +237,13 @@ async def activate_membership_tier(
     )
 
     if membership_subscription_id is not None:
-        await repo.load_subscription(membership_subscription_id)  # must exist
+        subscription = await repo.load_subscription(
+            membership_subscription_id,
+            tenant_id=ctx.tenant_id,
+            family_id=ctx.family_id,
+        )
+        if not subscription.is_active_at(utcnow()):
+            raise MembershipConflictError("subscription_not_active")
 
     now = utcnow()
     if current is not None:
@@ -208,10 +295,11 @@ async def activate_membership_tier(
         created_by=ctx.actor,
     )
     await repo.append_tier_transition(transition)
-    await repo.commit()
+    await _commit(repo)
     return transition, period
 
 
+@_transactional
 async def renew_membership_period(
     repo: MembershipRepositoryPort,
     ctx: ActionContext,
@@ -247,6 +335,7 @@ async def renew_membership_period(
     )
 
 
+@_transactional
 async def expire_membership_period(
     repo: MembershipRepositoryPort,
     ctx: ActionContext,
@@ -278,6 +367,7 @@ async def expire_membership_period(
 # --------------------------------------------------------------------------
 
 
+@_transactional
 async def grant_membership_benefit(
     repo: MembershipRepositoryPort,
     ctx: ActionContext,
@@ -290,22 +380,54 @@ async def grant_membership_benefit(
     units: int | None = None,
 ) -> BenefitGrant:
     _assert_ledger_surface(source_page_id)
+    assert_human_actor(ctx.actor, code="benefit_grant_actor")
     if ctx.idempotency_key:
         existing_entry = await repo.find_benefit_ledger_entry_by_idempotency_key(
             ctx.tenant_id, ctx.family_id, ctx.ledger_key("grant")
         )
         if existing_entry is not None:
-            return await repo.load_benefit_grant(existing_entry.benefit_grant_id)
+            existing_grant = await repo.load_benefit_grant(
+                existing_entry.benefit_grant_id,
+                tenant_id=ctx.tenant_id,
+                family_id=ctx.family_id,
+            )
+            if not (
+                _same(existing_grant.membership_subscription_id, membership_subscription_id)
+                and _same(existing_grant.benefit_definition_id, benefit_definition_id)
+                and _same(existing_grant.grant_ref, grant_ref)
+                and _same(existing_grant.subject_person_id, subject_person_id)
+                and (units is None or _same(existing_grant.allocated_units, units))
+                and _same(existing_entry.source_page_id, source_page_id)
+            ):
+                raise MembershipConflictError("idempotency_key_conflict")
+            return existing_grant
 
-    subscription = await repo.load_subscription(membership_subscription_id)
-    if subscription.status != "ACTIVE":
+    subscription = await repo.load_subscription(
+        membership_subscription_id,
+        tenant_id=ctx.tenant_id,
+        family_id=ctx.family_id,
+    )
+    now = utcnow()
+    if not subscription.is_active_at(now):
         raise MembershipConflictError(f"subscription_not_active:{subscription.status}")
-    definition: BenefitDefinition = await repo.load_benefit_definition(benefit_definition_id)
-    if definition.status != "ACTIVE":
-        raise MembershipConflictError(f"benefit_definition_not_active:{definition.status}")
+    if subscription.subject_person_id is not None and (
+        subject_person_id != subscription.subject_person_id
+    ):
+        raise MembershipForbiddenError("benefit_subject_not_authorized")
+    definition: BenefitDefinition = await repo.load_benefit_definition(
+        benefit_definition_id, tenant_id=ctx.tenant_id
+    )
+    if definition.plan_id != subscription.plan_id:
+        raise MembershipForbiddenError("benefit_definition_plan_mismatch")
+    if not definition.is_effective_at(now):
+        raise MembershipConflictError("benefit_definition_not_effective")
+    plan = await repo.load_plan(definition.plan_id, tenant_id=ctx.tenant_id)
+    if not plan.is_effective_at(now):
+        raise MembershipConflictError("plan_not_effective")
 
     allocated = definition.units_per_grant if units is None else units
-    now = utcnow()
+    if not grant_ref.strip():
+        raise MembershipValidationError("grant_ref_required")
     grant = BenefitGrant(
         benefit_grant_id=_new_id("mgrant"),
         tenant_id=ctx.tenant_id,
@@ -341,10 +463,11 @@ async def grant_membership_benefit(
         subject_person_id=subject_person_id,
         key_suffix="grant",
     )
-    await repo.commit()
+    await _commit(repo)
     return grant
 
 
+@_transactional
 async def reserve_membership_benefit(
     repo: MembershipRepositoryPort,
     ctx: ActionContext,
@@ -361,16 +484,39 @@ async def reserve_membership_benefit(
     happened". A reservation is not a consumption — no ledger entry is written
     until `consume_membership_benefit`.
     """
+    assert_human_actor(ctx.actor, code="reservation_create_actor")
     if ctx.idempotency_key:
         existing = await repo.find_reservation_by_idempotency_key(
             ctx.tenant_id, ctx.family_id, ctx.idempotency_key
         )
         if existing is not None:
+            if not (
+                _same(existing.benefit_grant_id, benefit_grant_id)
+                and _same(existing.reservation_ref, reservation_ref)
+                and _same(existing.units, units)
+                and _same(existing.expires_at, expires_at)
+            ):
+                raise MembershipConflictError("idempotency_key_conflict")
             return existing
 
-    grant = await repo.load_benefit_grant(benefit_grant_id)
-    if grant.status != "AVAILABLE":
+    grant = await repo.load_benefit_grant(
+        benefit_grant_id,
+        tenant_id=ctx.tenant_id,
+        family_id=ctx.family_id,
+        for_update=True,
+    )
+    now = utcnow()
+    if not grant.is_usable_at(now):
         raise MembershipConflictError(f"grant_not_available:{grant.status}")
+    subscription = await repo.load_subscription(
+        grant.membership_subscription_id,
+        tenant_id=ctx.tenant_id,
+        family_id=ctx.family_id,
+    )
+    if not subscription.is_active_at(now):
+        raise MembershipConflictError("subscription_not_active")
+    if not reservation_ref.strip():
+        raise MembershipValidationError("reservation_ref_required")
 
     held = sum(
         r.units
@@ -380,7 +526,6 @@ async def reserve_membership_benefit(
     if units > grant.remaining_units - held:
         raise MembershipConflictError("grant_insufficient_unreserved_units")
 
-    now = utcnow()
     reservation = BenefitReservation(
         benefit_reservation_id=_new_id("mresv"),
         tenant_id=ctx.tenant_id,
@@ -400,22 +545,32 @@ async def reserve_membership_benefit(
         updated_by=ctx.actor,
     )
     await repo.save_reservation(reservation)
-    await repo.commit()
+    await _commit(repo)
     return reservation
 
 
+@_transactional
 async def release_membership_benefit_reservation(
     repo: MembershipRepositoryPort,
     ctx: ActionContext,
     *,
     benefit_reservation_id: str,
 ) -> BenefitReservation:
-    reservation = (await repo.load_reservation(benefit_reservation_id)).release(actor=ctx.actor)
+    assert_human_actor(ctx.actor, code="reservation_release_actor")
+    reservation = await repo.load_reservation(
+        benefit_reservation_id,
+        tenant_id=ctx.tenant_id,
+        family_id=ctx.family_id,
+    )
+    if reservation.is_expired_at(utcnow()):
+        raise MembershipConflictError("reservation_expired")
+    reservation = reservation.release(actor=ctx.actor)
     await repo.save_reservation(reservation)
-    await repo.commit()
+    await _commit(repo)
     return reservation
 
 
+@_transactional
 async def consume_membership_benefit(
     repo: MembershipRepositoryPort,
     ctx: ActionContext,
@@ -427,20 +582,68 @@ async def consume_membership_benefit(
     subject_person_id: str | None = None,
 ) -> BenefitGrant:
     _assert_ledger_surface(source_page_id)
+    assert_human_actor(ctx.actor, code="benefit_consume_actor")
     if ctx.idempotency_key:
         existing_entry = await repo.find_benefit_ledger_entry_by_idempotency_key(
             ctx.tenant_id, ctx.family_id, ctx.ledger_key("consume")
         )
         if existing_entry is not None:
-            return await repo.load_benefit_grant(existing_entry.benefit_grant_id)
+            if not (
+                _same(existing_entry.benefit_grant_id, benefit_grant_id)
+                and _same(existing_entry.units, units)
+                and _same(existing_entry.source_page_id, source_page_id)
+                and _same(existing_entry.subject_person_id, subject_person_id)
+            ):
+                raise MembershipConflictError("idempotency_key_conflict")
+            if benefit_reservation_id is not None:
+                reservation = await repo.load_reservation(
+                    benefit_reservation_id,
+                    tenant_id=ctx.tenant_id,
+                    family_id=ctx.family_id,
+                )
+                if reservation.status != "CONSUMED":
+                    raise MembershipConflictError("idempotency_result_incomplete")
+            return await repo.load_benefit_grant(
+                existing_entry.benefit_grant_id,
+                tenant_id=ctx.tenant_id,
+                family_id=ctx.family_id,
+            )
 
-    grant = await repo.load_benefit_grant(benefit_grant_id)
+    grant = await repo.load_benefit_grant(
+        benefit_grant_id,
+        tenant_id=ctx.tenant_id,
+        family_id=ctx.family_id,
+        for_update=True,
+    )
+    now = utcnow()
+    if not grant.is_usable_at(now):
+        raise MembershipConflictError(f"grant_not_available:{grant.status}")
+    subscription = await repo.load_subscription(
+        grant.membership_subscription_id,
+        tenant_id=ctx.tenant_id,
+        family_id=ctx.family_id,
+    )
+    if not subscription.is_active_at(now):
+        raise MembershipConflictError("subscription_not_active")
+    if grant.subject_person_id is not None and subject_person_id not in (
+        None,
+        grant.subject_person_id,
+    ):
+        raise MembershipForbiddenError("benefit_subject_not_authorized")
     if benefit_reservation_id is not None:
-        reservation = await repo.load_reservation(benefit_reservation_id)
+        reservation = await repo.load_reservation(
+            benefit_reservation_id,
+            tenant_id=ctx.tenant_id,
+            family_id=ctx.family_id,
+        )
         if reservation.benefit_grant_id != benefit_grant_id:
             raise MembershipValidationError("reservation_grant_mismatch")
         if reservation.units != units:
             raise MembershipValidationError("reservation_units_mismatch")
+        if reservation.is_expired_at(now):
+            raise MembershipConflictError("reservation_expired")
+        if reservation.status != "HELD":
+            raise MembershipConflictError(f"reservation_not_held:{reservation.status}")
         await repo.save_reservation(reservation.mark_consumed(actor=ctx.actor))
 
     consumed = grant.consume(units=units, actor=ctx.actor)
@@ -455,10 +658,11 @@ async def consume_membership_benefit(
         subject_person_id=subject_person_id,
         key_suffix="consume",
     )
-    await repo.commit()
+    await _commit(repo)
     return consumed
 
 
+@_transactional
 async def revoke_membership_benefit(
     repo: MembershipRepositoryPort,
     ctx: ActionContext,
@@ -471,18 +675,35 @@ async def revoke_membership_benefit(
     ledger row for the units that were taken back — a family can always see
     what was removed and by whom."""
     _assert_ledger_surface(source_page_id)
+    assert_human_actor(ctx.actor, code="benefit_revoke_actor")
     assert_human_actor(decided_by, code="benefit_revoke")
     if ctx.idempotency_key:
         existing_entry = await repo.find_benefit_ledger_entry_by_idempotency_key(
             ctx.tenant_id, ctx.family_id, ctx.ledger_key("revoke")
         )
         if existing_entry is not None:
-            return await repo.load_benefit_grant(existing_entry.benefit_grant_id)
+            if not (
+                _same(existing_entry.benefit_grant_id, benefit_grant_id)
+                and _same(existing_entry.source_page_id, source_page_id)
+            ):
+                raise MembershipConflictError("idempotency_key_conflict")
+            return await repo.load_benefit_grant(
+                existing_entry.benefit_grant_id,
+                tenant_id=ctx.tenant_id,
+                family_id=ctx.family_id,
+            )
 
-    grant = await repo.load_benefit_grant(benefit_grant_id)
+    grant = await repo.load_benefit_grant(
+        benefit_grant_id,
+        tenant_id=ctx.tenant_id,
+        family_id=ctx.family_id,
+    )
     forfeited = grant.remaining_units
     revoked = grant.revoke(actor=decided_by)
     await repo.save_benefit_grant(revoked)
+    for reservation in await repo.list_reservations(ctx.tenant_id, ctx.family_id):
+        if reservation.benefit_grant_id == benefit_grant_id and reservation.status == "HELD":
+            await repo.save_reservation(reservation.release(actor=decided_by))
     await _append_ledger(
         repo,
         ctx,
@@ -493,7 +714,7 @@ async def revoke_membership_benefit(
         subject_person_id=grant.subject_person_id,
         key_suffix="revoke",
     )
-    await repo.commit()
+    await _commit(repo)
     return revoked
 
 

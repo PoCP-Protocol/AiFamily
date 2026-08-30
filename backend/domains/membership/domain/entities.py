@@ -64,6 +64,20 @@ def utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
+def _as_naive_utc(moment: datetime) -> datetime:
+    """Normalize a caller's timestamp to the domain's naive UTC convention."""
+    if moment.tzinfo is None:
+        return moment
+    return moment.astimezone(UTC).replace(tzinfo=None)
+
+
+def _is_in_window(*, starts_at: datetime, ends_at: datetime | None, at: datetime) -> bool:
+    moment = _as_naive_utc(at)
+    start = _as_naive_utc(starts_at)
+    end = _as_naive_utc(ends_at) if ends_at is not None else None
+    return start <= moment and (end is None or moment < end)
+
+
 class _Extensible(BaseModel):
     """Schema-controlled extensibility, same shape as the 0033 DDL
     (`attributes_schema_version` + `attributes jsonb`)."""
@@ -130,7 +144,14 @@ class MembershipPlan(_Extensible, _Audited):
             raise MembershipValidationError("tenant_plan_requires_tenant")
         if not self.fixture_only:
             raise MembershipValidationError("plan_must_be_fixture_only")
+        if self.effective_to is not None and self.effective_to <= self.effective_from:
+            raise MembershipValidationError("plan_effective_window_invalid")
         return self
+
+    def is_effective_at(self, moment: datetime) -> bool:
+        return self.status == "ACTIVE" and _is_in_window(
+            starts_at=self.effective_from, ends_at=self.effective_to, at=moment
+        )
 
 
 class MembershipTierDefinition(_Extensible, _Audited):
@@ -154,6 +175,23 @@ class MembershipTierDefinition(_Extensible, _Audited):
     fixture_only: bool = True
     effective_from: datetime
     effective_to: datetime | None = None
+
+    @model_validator(mode="after")
+    def _check_window(self):
+        if self.scope_type == "PLATFORM" and self.tenant_id is not None:
+            raise MembershipValidationError("platform_tier_definition_must_not_have_tenant")
+        if self.scope_type == "TENANT" and self.tenant_id is None:
+            raise MembershipValidationError("tenant_tier_definition_requires_tenant")
+        if not self.fixture_only:
+            raise MembershipValidationError("tier_definition_must_be_fixture_only")
+        if self.effective_to is not None and self.effective_to <= self.effective_from:
+            raise MembershipValidationError("tier_definition_effective_window_invalid")
+        return self
+
+    def is_effective_at(self, moment: datetime) -> bool:
+        return self.status == "ACTIVE" and _is_in_window(
+            starts_at=self.effective_from, ends_at=self.effective_to, at=moment
+        )
 
 
 class BenefitDefinition(_Extensible, _Audited):
@@ -179,7 +217,14 @@ class BenefitDefinition(_Extensible, _Audited):
             raise MembershipValidationError("units_per_grant_negative")
         if self.valid_days is not None and self.valid_days <= 0:
             raise MembershipValidationError("valid_days_not_positive")
+        if self.effective_to is not None and self.effective_to <= self.effective_from:
+            raise MembershipValidationError("benefit_definition_effective_window_invalid")
         return self
+
+    def is_effective_at(self, moment: datetime) -> bool:
+        return self.status == "ACTIVE" and _is_in_window(
+            starts_at=self.effective_from, ends_at=self.effective_to, at=moment
+        )
 
 
 # --------------------------------------------------------------------------
@@ -213,6 +258,22 @@ class MembershipSubscription(_Extensible, _Audited, _FixtureBoundary):
     idempotency_key: str | None = None
     cancelled_at: datetime | None = None
 
+    @model_validator(mode="after")
+    def _check_window(self):
+        if self.effective_to is not None and self.effective_to <= self.effective_from:
+            raise MembershipValidationError("subscription_effective_window_invalid")
+        if self.status == "CANCELLED" and self.cancelled_at is None:
+            raise MembershipValidationError("cancelled_subscription_requires_cancelled_at")
+        return self
+
+    def is_active_at(self, moment: datetime) -> bool:
+        return self.status == "ACTIVE" and self.is_within_window_at(moment)
+
+    def is_within_window_at(self, moment: datetime) -> bool:
+        return _is_in_window(
+            starts_at=self.effective_from, ends_at=self.effective_to, at=moment
+        )
+
     def activate(self, *, actor: str) -> MembershipSubscription:
         assert_human_actor(actor, code="subscription_activate")
         if self.status not in ("PENDING", "PAUSED"):
@@ -228,13 +289,56 @@ class MembershipSubscription(_Extensible, _Audited, _FixtureBoundary):
 
     def cancel(self, *, actor: str) -> MembershipSubscription:
         assert_human_actor(actor, code="subscription_cancel")
-        if self.status == "CANCELLED":
-            raise MembershipConflictError("subscription_already_cancelled")
+        if self.status not in ("PENDING", "ACTIVE", "PAUSED"):
+            raise MembershipConflictError(f"subscription_not_cancellable:{self.status}")
         now = utcnow()
         return self.model_copy(
             update={
                 "status": "CANCELLED",
                 "cancelled_at": now,
+                "updated_at": now,
+                "updated_by": actor,
+                "row_version": self.row_version + 1,
+            }
+        )
+
+    def pause(self, *, actor: str) -> MembershipSubscription:
+        assert_human_actor(actor, code="subscription_pause")
+        if self.status != "ACTIVE":
+            raise MembershipConflictError(f"subscription_not_paused:{self.status}")
+        return self.model_copy(
+            update={
+                "status": "PAUSED",
+                "updated_at": utcnow(),
+                "updated_by": actor,
+                "row_version": self.row_version + 1,
+            }
+        )
+
+    def resume(self, *, actor: str) -> MembershipSubscription:
+        assert_human_actor(actor, code="subscription_resume")
+        if self.status != "PAUSED":
+            raise MembershipConflictError(f"subscription_not_resumable:{self.status}")
+        if not self.is_within_window_at(utcnow()):
+            raise MembershipConflictError("subscription_window_closed")
+        return self.model_copy(
+            update={
+                "status": "ACTIVE",
+                "updated_at": utcnow(),
+                "updated_by": actor,
+                "row_version": self.row_version + 1,
+            }
+        )
+
+    def expire(self, *, actor: str) -> MembershipSubscription:
+        assert_human_actor(actor, code="subscription_expire")
+        if self.status not in ("ACTIVE", "PAUSED"):
+            raise MembershipConflictError(f"subscription_not_expirable:{self.status}")
+        now = utcnow()
+        return self.model_copy(
+            update={
+                "status": "EXPIRED",
+                "effective_to": self.effective_to or now,
                 "updated_at": now,
                 "updated_by": actor,
                 "row_version": self.row_version + 1,
@@ -274,6 +378,11 @@ class MembershipPeriod(_Extensible, _Audited, _FixtureBoundary):
         if self.status == "CLOSED" and self.closed_at is None:
             raise MembershipValidationError("closed_period_requires_closed_at")
         return self
+
+    def is_active_at(self, moment: datetime) -> bool:
+        return self.status == "ACTIVE" and _is_in_window(
+            starts_at=self.starts_at, ends_at=self.ends_at, at=moment
+        )
 
     def close(self, *, actor: str, reason: str) -> MembershipPeriod:
         assert_human_actor(actor, code="period_close")
@@ -351,9 +460,17 @@ class BenefitGrant(_Extensible, _Audited, _FixtureBoundary):
             raise MembershipValidationError("remaining_units_out_of_range")
         if self.status == "REVOKED" and self.revoked_at is None:
             raise MembershipValidationError("revoked_grant_requires_revoked_at")
+        if self.valid_to is not None and self.valid_to <= self.valid_from:
+            raise MembershipValidationError("grant_validity_window_invalid")
         return self
 
+    def is_usable_at(self, moment: datetime) -> bool:
+        return self.status == "AVAILABLE" and _is_in_window(
+            starts_at=self.valid_from, ends_at=self.valid_to, at=moment
+        )
+
     def make_available(self, *, actor: str) -> BenefitGrant:
+        assert_human_actor(actor, code="benefit_grant")
         if self.status != "PENDING":
             raise MembershipConflictError(f"grant_not_pending:{self.status}")
         return self.model_copy(
@@ -366,6 +483,7 @@ class BenefitGrant(_Extensible, _Audited, _FixtureBoundary):
         )
 
     def consume(self, *, units: int, actor: str) -> BenefitGrant:
+        assert_human_actor(actor, code="benefit_consume")
         if units <= 0:
             raise MembershipValidationError("consume_units_must_be_positive")
         if self.status != "AVAILABLE":
@@ -424,9 +542,17 @@ class BenefitReservation(_Extensible, _Audited, _FixtureBoundary):
     def _check_units(self):
         if self.units <= 0:
             raise MembershipValidationError("reservation_units_must_be_positive")
+        if self.expires_at is not None and self.expires_at <= self.created_at:
+            raise MembershipValidationError("reservation_expiry_invalid")
         return self
 
+    def is_expired_at(self, moment: datetime) -> bool:
+        return self.expires_at is not None and _as_naive_utc(moment) >= _as_naive_utc(
+            self.expires_at
+        )
+
     def release(self, *, actor: str) -> BenefitReservation:
+        assert_human_actor(actor, code="reservation_release")
         if self.status != "HELD":
             raise MembershipConflictError(f"reservation_not_held:{self.status}")
         now = utcnow()
@@ -441,6 +567,7 @@ class BenefitReservation(_Extensible, _Audited, _FixtureBoundary):
         )
 
     def mark_consumed(self, *, actor: str) -> BenefitReservation:
+        assert_human_actor(actor, code="reservation_consume")
         if self.status != "HELD":
             raise MembershipConflictError(f"reservation_not_held:{self.status}")
         now = utcnow()
