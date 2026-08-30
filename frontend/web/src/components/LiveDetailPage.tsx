@@ -25,7 +25,7 @@ export function LiveDetailPage({ record, onBack }: Props) {
         <div><dt>family visibility</dt><dd>{record.family_visibility}</dd></div>
         <div><dt>as_of</dt><dd>{record.as_of}</dd></div>
         <div><dt>source</dt><dd>{record.source}</dd></div>
-        <div><dt>fixture</dt><dd>{record.fixture ? "true · DEV only" : "false"}</dd></div>
+        <div><dt>fixture_only</dt><dd>{record.fixture_only ? "true · Sandbox only" : "false"}</dd></div>
       </dl>
       <p className="live-detail-note">本页仅展示审核过的只读字段，不提供互动或状态变更。</p>
       <button className="live-back-button" type="button" onClick={onBack}>

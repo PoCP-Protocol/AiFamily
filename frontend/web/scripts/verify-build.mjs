@@ -31,6 +31,9 @@ if (!relativeScriptPath || relativeScriptPath.startsWith("..")) {
 
 const bundle = await read(scriptPath);
 if (!bundle.includes("SYNTHETIC_TEST")) fail("synthetic test marker is absent from the bundle");
+if (!bundle.includes("SANDBOX_SYNTHETIC") || !bundle.includes("fixture_only")) {
+  fail("sandbox fixture provenance marker is absent from the bundle");
+}
 if (
   !bundle.includes('VITE_EXPERIENCE_CLIENT==="fake"&&') ||
   !bundle.includes('.DEV===!0?"fake"') ||
@@ -51,4 +54,11 @@ if (!factorySource.includes('environment.VITE_EXPERIENCE_CLIENT === "fake" && en
   fail("artifact source map does not retain the guarded fake-client branch");
 }
 
-console.log(`build audit: PASS (${relativeScriptPath}; DEV:false resolves HTTP; fake guarded)`);
+const catalogIndex = sourceMap.sources.findIndex((source) => source.endsWith("src/live/liveCatalog.ts"));
+const catalogSource = sourceMap.sourcesContent?.[catalogIndex];
+if (!catalogSource) fail("live catalog source is not traceable from the production artifact");
+if (!catalogSource.includes('source: "SANDBOX_SYNTHETIC"') || !catalogSource.includes("fixture_only: true")) {
+  fail("artifact source map does not retain sandbox-only fixture provenance");
+}
+
+console.log(`build audit: PASS (${relativeScriptPath}; sandbox fixture explicit; DEV:false resolves HTTP; fake guarded)`);

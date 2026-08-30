@@ -26,8 +26,8 @@ export type LiveRecord = {
   status: "SCHEDULED" | "LIVE" | "WITHDRAWN" | "EXPIRED";
   family_visibility: "family-private" | "public";
   as_of: string;
-  source: "DEV_FIXTURE" | "BACKEND";
-  fixture: boolean;
+  source: "SANDBOX_SYNTHETIC" | "BACKEND";
+  fixture_only: boolean;
 };
 
 export type LiveViewModel = {
@@ -46,8 +46,8 @@ export const XIAO_JU_DENG_FIXTURE: LiveRecord = {
   status: "SCHEDULED",
   family_visibility: "family-private",
   as_of: "2026-08-30T18:00:00+08:00",
-  source: "DEV_FIXTURE",
-  fixture: true,
+  source: "SANDBOX_SYNTHETIC",
+  fixture_only: true,
 };
 
 export const resolveLiveView = (environment: LiveEnvironment): LiveViewModel =>

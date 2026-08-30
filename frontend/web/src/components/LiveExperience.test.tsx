@@ -20,9 +20,11 @@ describe("Xiao Ju Deng read-only live UI", () => {
     expect(screen.getByText("H-LIVE-01 · 只读详情")).toBeInTheDocument();
     expect(screen.getByText("review:H-LIVE-01")).toBeInTheDocument();
     expect(screen.getByText("H-LIVE-01.v1")).toBeInTheDocument();
-    expect(screen.getByText("true · DEV only")).toBeInTheDocument();
+    expect(screen.getByText("true · Sandbox only")).toBeInTheDocument();
     expect(screen.getByRole("article")).toHaveTextContent("family-private");
     expect(screen.getByText("2026-08-30T18:00:00+08:00")).toBeInTheDocument();
+    expect(XIAO_JU_DENG_FIXTURE.source).toBe("SANDBOX_SYNTHETIC");
+    expect(XIAO_JU_DENG_FIXTURE.fixture_only).toBe(true);
   });
 
   it("keeps production fixture access fail-closed", () => {
