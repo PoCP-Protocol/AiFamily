@@ -57,7 +57,7 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 ### 3.2 ADOM-5 FGCN 迁移链
 
 - **证据**：DB-01 提交 `981343b` 后 Fresh Postgres 下 `tests/database/test_alembic_baseline_applies.py` 3 passed、`tests/database/test_fgcn_migration_chain.py` 2 passed；0001 baseline、0008 固定边界与动态 head 已分层，0008=159 表。当前工作区新出现未跟踪 `database/migrations/versions/0009_ai_model_drafts.py`，head=0009、160 表；`governance/ADR/ADR-0045-durable-model-draft-provenance-registry.md` 与该 migration 均未正式提交，`MIGRATION_MANIFEST` 尚无 0009 capability 条目。
-- **缺口/风险**：迁移测试显式允许 0008→159 或 0009→160，未知 head 会失败；但未登记的 0009 仍会改变动态 head，不能把测试通过或 WIP 文件当成发布能力。ORM、迁移对象、AI draft 数据保留/删除和生产 wiring 尚未完成。
+- **缺口/风险**：迁移测试显式允许 0008→159 或 0009→160，未知 head 会失败；但当前 allow-list 本身不验证 migration 文件是否已提交、ADR 是否已登记或 `MIGRATION_MANIFEST` 是否有 capability 条目，未登记的 0009 仍会改变动态 head，不能把测试通过或 WIP 文件当成发布能力。ORM、迁移对象、AI draft 数据保留/删除和生产 wiring 尚未完成。
 - **下一步与验收**：ADOM/AAIR/ARCH 必须二选一并留证：①补 ADR、`governance/MIGRATION_MANIFEST.yaml`、ORM/表/索引/CHECK 对象清单、Fresh Postgres upgrade/downgrade/re-upgrade 后再纳入 0009→160；或 ②在批准前移出/隔离 0009，恢复 0008=159 责任边界。两种路径都要求单 head、未知 head 失败，不能简单改常数。
 
 ### 3.3 AAIR-5 Context 删除 Worker
