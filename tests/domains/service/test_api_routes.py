@@ -59,7 +59,8 @@ from backend.domains.service.infrastructure.sqlalchemy_repository import (
     SqlAlchemyServiceRepository,
 )
 from backend.platform.audit.recorder import AuditRecorder
-from backend.platform.identity.context import ActorContext, ActorType
+from backend.platform.identity.context import ActorContext, ActorType, TenantStatus
+from backend.platform.identity.directory import InMemoryTenantDirectory
 
 from .helpers import CHILD, CONSENT_REF, FAMILY, GUARDIAN, TENANT, granted
 
@@ -135,6 +136,9 @@ def client(wiring: _Wiring) -> Iterator[TestClient]:
     app.dependency_overrides[deps.get_action_context] = _ctx
     app.dependency_overrides[deps.get_actor_context] = _actor
     app.dependency_overrides[deps.get_audit_recorder] = lambda: wiring.recorder
+    app.dependency_overrides[deps.get_policy_engine] = lambda: deps.build_policy_engine(
+        InMemoryTenantDirectory({TENANT: TenantStatus.ACTIVE})
+    )
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
@@ -256,6 +260,14 @@ def test_http_chain_browse_book_confirm_fulfil(client: TestClient, wiring: _Wiri
     # The projection is honest that this is fixture supply, not a real appointment.
     assert row["external_effect"] is False
     assert row["source_system"] == "TEST_FIXTURE"
+
+
+def test_http_empty_service_result_is_family_scoped(client: TestClient) -> None:
+    response = client.get(
+        f"/families/{FAMILY}/orchestration/test-loop/services/customer-projection"
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["bookings"] == []
 
 
 def test_service_journey_and_private_checkin_draft(client: TestClient, wiring: _Wiring) -> None:
