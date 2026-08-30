@@ -43,6 +43,7 @@ superseded_by: null
 - 扫描 P0 红线（dev_auth、环境 fail-closed、fake production wiring、身份/同意/租户绑定）；
 - 运行 `uv run pytest tests/architecture -q`、`uv run ruff check .` 及受影响专项测试；
 - 对迁移运行 upgrade/downgrade/re-upgrade 和 `alembic heads`；
+- 对迁移维护显式 head allow-list：当前责任边界为 0004-0008（159 表）；任何 0009+ revision 必须先完成 ADR、Migration Manifest、ORM/对象清单和 Fresh Postgres 证据，未知 head 直接失败；
 - 抽查 OpenAPI、移动端 client、Registry 和文档是否漂移；
 - 对新 AI 能力检查 Model Gateway、draft、human gate、审计、评测和删除回执。
 
@@ -74,6 +75,7 @@ synthetic adapter、内存 repository、mock provider、设计稿和“应该可
 - **AI 治理**：领域不直连 provider；AI 输出只能是 draft/proposal，不能直写事实；高影响动作必须 Human Gate、审计、可回放。
 - **家庭尊严**：不设计家庭总分、家庭排名、跨家庭比较；游戏感来自自己的节奏、阶段、徽章和陪伴，不来自羞辱性竞争。
 - **身份与同意**：Account→TenantMembership→Family 主体绑定、session revoke、Consent grant/withdraw/expiry、租户隔离、审计和删除必须持久化。
+- **迁移可审计**：baseline、责任边界和动态 head 必须分层；未登记的 WIP migration 不得被测试或发布闸门默认为已完成，未知 head 必须阻断。
 - **数据删除**：删除命令幂等、有租户边界、可重试、可审计，并覆盖文本、媒体、向量、缓存和派生 projection；内存删除不能宣称完成。
 - **多语言多端**：locale/region/tenant 是数据边界，不是 UI 字符串替换；Android、iOS、Harmony、小程序和 Web 的核心流程、错误和权限一致。
 - **技术边界**：正式业务事实只走 Python/FastAPI/PostgreSQL；Node/Express/tRPC/MySQL 只能经 ADR 证明为非业务工具。
@@ -121,9 +123,8 @@ P0 发现后立即通知 Lead，不等待下一次站会；P1 必须有本 Sprin
 ## 8. 本轮审查记录（2026-08-30）
 
 1. AFE-4：语义化服务列表目标测试 5 项通过、`pnpm check` 通过；因全量 5 失败和跨 UI/跨端审计缺失，结论为 `PARTIAL`，已发 AFE 返工意见。
-2. ADOM-5：FGCN migration chain 2 项通过且 Fresh Postgres 可逆；baseline 159/152 断言失败，结论为 `PARTIAL`，已发 ADOM 返工意见。
+2. ADOM-5：FGCN migration chain 2 项通过且 Fresh Postgres 可逆；未跟踪 `0009_ai_model_drafts.py` 使动态 head=0009/160，manifest/ADR 登记仍缺，结论为 `PARTIAL`，已发 ADOM 返工意见。
 3. AAIR-5：删除 worker 7 项通过，幂等/租户/重试/审计契约成立；内存 job、无 durable queue 和外部 projection cascade，结论为 `PARTIAL / RELEASE BLOCKED`，已通知 AAIR/Lead。
 4. 平台闸门：生产 dev_auth probe 返回 200，环境缺失默认 development；结论为 `P0 NO-GO`，已立即通知 Lead 并要求 APLT/ARCH 负向测试。
 
 这些记录是可追溯的审查输入，不是对 owner 的替代实现。返工完成后必须重新读取文件并运行新鲜命令，才能更新状态。
-

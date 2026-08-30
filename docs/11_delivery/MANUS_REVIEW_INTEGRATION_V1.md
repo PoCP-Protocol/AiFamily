@@ -41,7 +41,7 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 | AI 只有基础设施、没有业务能力 | **已过时代码描述，风险仍成立** | 当前已有 `backend/intelligence/principal`、`human_gate`、`experience`、`knowledge` 和多项契约测试；Principal 仍输出 `DRAFT`，Model Gateway 没有获准外部 provider，`AI_USE_CASE_REGISTRY.yaml` 全部为 `PLANNED`，Context/Memory 与 Human Gate 尚未形成生产持久化和正式 HTTP 闭环。 | AAIR/ARCH：先完成一个低风险、可回放、人工确认的生产候选闭环，再把 registry 状态改为 evidence-backed。 |
 | Node/Express/tRPC/MySQL 模板越过 Python 后端边界 | **仍成立，P2** | `frontend/mobile/package.json` 和 `server/_core` 仍有 Express、tRPC、Drizzle、mysql2。它们是否是可删除模板尚未有 ADR 和边界测试；R1 规定正式业务后端为 Python/FastAPI/PostgreSQL。 | ARCH/API：做 ADR；删除或明确仅本地 UI 工具，禁止承载正式业务事实。 |
 | 公共仓库缺许可证 | **仍成立，P2** | 根目录没有 LICENSE/COPYING/SPDX，`pyproject.toml` 无许可证字段；公开远端仓库仍可访问。 | GOV/LEGAL：补 SPDX/许可证与第三方资产清单，或在发布前改私有并记录授权。 |
-| Alembic 基线/迁移链失败 | **部分成立** | 原报告的 `0005` 长度问题已由 `0005_fgcn_assignment_idempotency` 修复；Fresh Postgres 下 0004→0008 `test_fgcn_migration_chain.py` 2 passed，upgrade/downgrade/re-upgrade 成功且单 head。但 `test_alembic_baseline_applies.py` 仍以 152 表为预期，head 实测 159 表，测试失败。 | ADOM/ARCH：分离 baseline 与 head 断言，维护 ORM/迁移对象清单；不得只改数字掩盖漂移。 |
+| Alembic 基线/迁移链失败 | **部分成立，当前有新增 WIP** | 原报告的 `0005` 长度问题已由 `0005_fgcn_assignment_idempotency` 修复；Fresh Postgres 下 0004→0008 `test_fgcn_migration_chain.py` 2 passed，upgrade/downgrade/re-upgrade 成功且单 head。当前工作区又出现未跟踪 `database/migrations/versions/0009_ai_model_drafts.py`（0008→0009），head 变为 0009、160 表；0009 尚未登记/提交，不得视为完成。 | ADOM/AAIR/ARCH：保留 0004-0008 的固定边界（159 表），head 只允许显式映射 0008→159 或已登记 0009→160；未知 head 必须失败。维护 ORM/迁移对象清单，不得只改数字掩盖漂移。 |
 | 身份、同意、租户/家庭绑定及持久化不完整 | **仍成立，P0/P1** | service/membership/commerce production dependencies 仍在 session factory、actor/context、tenant directory 或 repository 未配置时拒绝；identity 只有 `DenyAllTenantDirectory`/`InMemoryTenantDirectory`；consent 只有无状态 gate，没有 grant store；family_need 仅 fake repository。 | PLT/DOM/DATA：实现 Account→TenantMembership→Family、Consent store、审计和真实 UoW；任何生产路由不得落到 fake。 |
 
 ## 3. 本轮独立反向审查（已发 owner，等待返工）
@@ -56,9 +56,9 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 
 ### 3.2 ADOM-5 FGCN 迁移链
 
-- **证据**：Fresh Postgres 下 `tests/database/test_fgcn_migration_chain.py` 2 passed；`alembic upgrade head`、`downgrade base`、再次 upgrade 成功，head 为 `0008_experience_runs`。
-- **缺口/风险**：`tests/database/test_alembic_baseline_applies.py` 仍失败（159 表 vs 152），说明 acceptance 口径和迁移/ORM 对象清单漂移；不能把迁移链称为全部完成。
-- **补测与验收**：baseline/head 测试分层且全绿；0004→0008 单 head、可逆；ORM 与迁移对象有可审计映射。
+- **证据**：Fresh Postgres 下 `tests/database/test_fgcn_migration_chain.py` 2 passed；`alembic upgrade head`、`downgrade base`、再次 upgrade 成功。当前工作区新出现未跟踪 `0009_ai_model_drafts.py`，head=0009、160 表；0009 尚未登记/提交。
+- **缺口/风险**：迁移测试已在 WIP 中拆分 baseline、0008 固定边界和动态 head，但未登记 0009 会让 head 口径漂移。若测试只接受 0008，会误报合法 WIP；若无条件接受 head，又会掩盖未审查迁移。
+- **补测与验收**：baseline/0008/head 测试分层且全绿；0004→0008 固定 159 表、单 head、可逆；只有 owner 完成 ADR/manifest、核对模型对象和 Fresh Postgres 结果后才允许 0009→160；未知 head 必须失败。
 
 ### 3.3 AAIR-5 Context 删除 Worker
 
@@ -79,7 +79,7 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 | SEC-01 / APLT-1 + ARCH-1 | 移除生产 dev_auth；先统一真实会话/身份端口，再保留 dev/test synthetic 适配器。 | production `app.openapi()` 无 `/auth/account-session`；POST 返回 404/403；任意 external_ref 不可换 token；dev/test 功能路径仍同构。 | 平台安全、应用、数据治理 |
 | ENV-01 / APLT-1 | 统一 `AIFAMILY_ENV`（或 ADR 指定唯一变量），缺失/拼写错误/非法值 fail-closed，启动时拒绝错误 wiring。 | 未设置或 `APP_ENV` 单独设置时启动失败；production wiring 不含 fake；dev/test 明确 synthetic data_class；环境 parity 测试通过。 | 平台、部署、治理 |
 | ID-01 / PLT + DOM | 实现 Account→TenantMembership→Family 绑定、会话撤销、tenant 状态和主体授权；接入 Consent grant store、withdraw/expiry 即时生效。 | Fresh Postgres CRUD、跨租户负向测试、撤销/过期测试、审计记录；所有生产依赖不再 RuntimeError/DenyAll。 | 身份、租户、业务数据、合规 |
-| DB-01 / ADOM + DATA | 处理 migration 0004-0008 与 baseline 测试分层，补 ORM/迁移清单和回滚契约。 | upgrade/downgrade/re-upgrade、单 head；`test_fgcn_migration_chain.py` 与 baseline/head 测试全绿，159/152 差异有明确模型依据。 | 数据、领域、交付 |
+| DB-01 / ADOM + DATA + AAIR | 处理 migration 0004-0008 与未跟踪 0009 的边界；补 ORM/迁移清单和回滚契约。 | upgrade/downgrade/re-upgrade、单 head；baseline/0008 测试全绿（0008=159）；0009 只有在 manifest/ADR/模型清单登记后才可作为 head（0009=160），未知 head 失败。 | 数据、领域、交付、AI |
 
 ### P1（本迭代必须完成）
 
@@ -107,7 +107,7 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 
 1. SEC-01、ENV-01：生产负向 OpenAPI/404/启动测试，P0 每日复验。
 2. QA-01：修 Registry 语法和登记，清零 Ruff/architecture 红灯，启用 CI required checks。
-3. DB-01：明确 baseline/head，Fresh Postgres 迁移可逆；冻结未经登记的 schema 改动。
+3. DB-01：明确 baseline/0008/head，Fresh Postgres 迁移可逆；冻结未经登记的 schema 改动，特别是 `0009_ai_model_drafts.py`。
 4. ID-01 起步：会话、tenant、family、consent 数据模型和审计事件；禁止用 fake 结果替代接口。
 5. AFE/AAIR 返工验收：全量移动端测试和删除 worker adapter-only 声明。
 
@@ -136,4 +136,3 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 本文件不是替代业务、流程、数据、应用或 AI 架构，而是把它们变成 delivery gate：商业蓝图的家庭测评→AI 诊断→方案→21/90 天交付→结果沉淀，对应业务流程、持久化事实、应用端点、Principal/Context/Human Gate 和移动端体验。每个 Sprint 必须带成功、拒绝、重放、删除、租户隔离、审计和四端体验证据。
 
 当前敏捷计划中的 Sprint 2/2.1 垂直切片可以继续，但在 P0 未清零前只能标记“契约/测试环境完成”，不能标记生产完成。下一阶段以本文件 P0→P1 顺序进入 Sprint 3：先环境与身份闸门，再真实持久化和 API 兼容，最后扩大 AI 与 34 UI 的游戏化体验。任何新增场景必须同时更新业务/流程/数据/应用/AI traceability，不得脱离总设计单独堆 UI。
-
