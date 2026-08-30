@@ -19,11 +19,13 @@ and route deletion handles to the durable deletion worker.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import uuid4
+
+from backend.platform.consent import ConsentGate, ConsentGrant, ConsentPurpose
 
 from ..domain.errors import (
     JourneyConflictError,
@@ -69,11 +71,12 @@ class RecommendationStatus(StrEnum):
     REJECTED = "REJECTED"
 
 
-class ServiceCaseStatus(StrEnum):
+class ServiceCaseCommandStatus(StrEnum):
     REQUESTED = "REQUESTED"
+
+
+class ServiceDeliveryStatus(StrEnum):
     DELIVERED = "DELIVERED"
-    CLOSED = "CLOSED"
-    CANCELLED = "CANCELLED"
 
 
 class RenewalStatus(StrEnum):
@@ -150,10 +153,10 @@ S05_S08_NODE_CONTRACTS = (
         node_id="S10-N01",
         inputs=("RecommendationDraft", "family_decision"),
         activity="open and deliver a selected service case",
-        outputs=("ServiceCase(REQUESTED|DELIVERED)",),
-        command="AcceptRecommendation / RecordDelivery",
+        outputs=("ServiceCaseCommand", "ServiceDeliveryReceipt"),
+        command="AcceptRecommendation / RecordDeliveryReceipt",
         event="ServiceCaseRequested / ServiceDelivered",
-        unique_writer="service.case",
+        unique_writer="service.case (canonical service port)",
         rule="renewal waits for delivery evidence; no automatic purchase",
     ),
     LoopNodeContract(
@@ -182,6 +185,7 @@ class ActionFact:
     evidence_refs: tuple[str, ...]
     recorded_at: datetime
     locale: str = "zh-CN"
+    deletion_ref: str = ""
 
 
 @dataclass(frozen=True)
@@ -199,6 +203,7 @@ class ChallengeReview:
     decided_by: str
     decided_at: datetime
     locale: str = "zh-CN"
+    deletion_ref: str = ""
 
 
 @dataclass(frozen=True)
@@ -252,15 +257,44 @@ class RecommendationDraft:
 
 
 @dataclass(frozen=True)
-class ServiceCase:
-    case_id: str
+class ServiceCaseCommand:
+    """Command handed to the canonical ``service/fgcn`` case port.
+
+    This module must not create a second ``ServiceCase`` aggregate.  The
+    command carries enough scope for the service Named Action to create the
+    real case in its own domain.
+    """
+
+    command_id: str
+    service_case_ref: str
     tenant_id: str
     family_id: str
     recommendation_id: str
     selected_candidate_ref: str
-    status: ServiceCaseStatus
-    opened_by: str
-    delivered_evidence_refs: tuple[str, ...]
+    subject_refs: tuple[str, ...]
+    status: ServiceCaseCommandStatus
+    issued_by: str
+    issued_at: datetime
+    deletion_ref: str
+    locale: str = "zh-CN"
+
+    @property
+    def case_id(self) -> str:
+        """Compatibility alias for callers that pass a service case reference."""
+        return self.service_case_ref
+
+
+@dataclass(frozen=True)
+class ServiceDeliveryReceipt:
+    """Receipt returned by the canonical service delivery port."""
+
+    service_case_ref: str
+    tenant_id: str
+    family_id: str
+    evidence_refs: tuple[str, ...]
+    delivered_by: str
+    delivered_at: datetime
+    status: ServiceDeliveryStatus
     deletion_ref: str
     locale: str = "zh-CN"
 
@@ -276,6 +310,7 @@ class AnnualReviewProjection:
     generated_at: datetime
     deletion_refs: tuple[str, ...]
     locale: str = "zh-CN"
+    deletion_ref: str = ""
 
 
 @dataclass(frozen=True)
@@ -308,7 +343,8 @@ class OutcomeLoopSnapshot:
     outcomes: tuple[OutcomeRecord, ...]
     stories: tuple[FamilyStory, ...]
     recommendations: tuple[RecommendationDraft, ...]
-    service_cases: tuple[ServiceCase, ...]
+    service_case_commands: tuple[ServiceCaseCommand, ...]
+    delivery_receipts: tuple[ServiceDeliveryReceipt, ...]
     annual_projections: tuple[AnnualReviewProjection, ...]
     renewals: tuple[RenewalIntent, ...]
     locale: str = "zh-CN"
@@ -329,17 +365,20 @@ class GrowthOutcomeLoop:
         *,
         now: Callable[[], datetime] | None = None,
         locale: str = "zh-CN",
+        consent_loader: Callable[[str, ConsentPurpose], Iterable[ConsentGrant]] | None = None,
     ) -> None:
         if not locale.strip() or len(locale) > 32:
             raise JourneyValidationError("invalid_locale")
         self._now = now or (lambda: datetime.now(UTC))
         self._locale = locale
+        self._consent_loader = consent_loader or (lambda _subject, _purpose: ())
         self._actions: dict[str, ActionFact] = {}
         self._reviews: dict[str, ChallengeReview] = {}
         self._outcomes: dict[str, OutcomeRecord] = {}
         self._stories: dict[str, FamilyStory] = {}
         self._recommendations: dict[str, RecommendationDraft] = {}
-        self._cases: dict[str, ServiceCase] = {}
+        self._case_commands: dict[str, ServiceCaseCommand] = {}
+        self._deliveries: dict[str, ServiceDeliveryReceipt] = {}
         self._annual: dict[str, AnnualReviewProjection] = {}
         self._renewals: dict[str, RenewalIntent] = {}
         self._idempotency: dict[tuple[str, str, str, str], tuple[tuple[object, ...], object]] = {}
@@ -358,6 +397,7 @@ class GrowthOutcomeLoop:
         evidence_refs: tuple[str, ...] = (),
     ) -> ActionFact:
         self._validate_scope(tenant_id, family_id, actor_id, idempotency_key)
+        self._assert_human_actor(actor_id)
         if not 1 <= day_number <= 21:
             raise JourneyValidationError("action_day_must_be_between_1_and_21")
         if not plan_id.strip() or not task_id.strip():
@@ -416,6 +456,7 @@ class GrowthOutcomeLoop:
         idempotency_key: str,
     ) -> ChallengeReview:
         self._validate_scope(tenant_id, family_id, actor_id, idempotency_key)
+        self._assert_human_actor(actor_id)
         if not plan_id.strip():
             raise JourneyValidationError("challenge_plan_required")
         action_ids = tuple(
@@ -460,6 +501,7 @@ class GrowthOutcomeLoop:
             decided_by=actor_id,
             decided_at=self._timestamp(),
             locale=self._locale,
+            deletion_ref=f"challenge-review:{tenant_id}:{family_id}:{plan_id}",
         )
         self._reviews[review.review_id] = review
         self._remember(
@@ -580,6 +622,12 @@ class GrowthOutcomeLoop:
             self._assert_record_scope(outcome, tenant_id, family_id)
             if outcome.status is not OutcomeStatus.CONFIRMED:
                 raise JourneyConflictError("story_requires_confirmed_outcomes")
+        if visibility is StoryVisibility.SHARED:
+            self._assert_live_consent(
+                tuple(sorted({outcome.subject_ref for outcome in outcomes})),
+                ConsentPurpose.GROWTH_TRACKING,
+                required_consent_id=story_consent_ref,
+            )
         fingerprint = (
             outcome_ids,
             title,
@@ -710,7 +758,7 @@ class GrowthOutcomeLoop:
         candidate_ref: str,
         actor_id: str,
         idempotency_key: str,
-    ) -> ServiceCase:
+    ) -> ServiceCaseCommand:
         self._validate_scope(tenant_id, family_id, actor_id, idempotency_key)
         self._assert_human_actor(actor_id)
         recommendation = self._required(
@@ -731,23 +779,35 @@ class GrowthOutcomeLoop:
             **{**recommendation.__dict__, "status": RecommendationStatus.ACCEPTED}
         )
         self._recommendations[recommendation_id] = accepted
-        case = ServiceCase(
-            case_id=str(uuid4()),
+        command = ServiceCaseCommand(
+            command_id=str(uuid4()),
+            service_case_ref=f"service-request:{uuid4()}",
             tenant_id=tenant_id,
             family_id=family_id,
             recommendation_id=recommendation_id,
             selected_candidate_ref=candidate_ref,
-            status=ServiceCaseStatus.REQUESTED,
-            opened_by=actor_id,
-            delivered_evidence_refs=(),
+            subject_refs=tuple(
+                sorted(
+                    {
+                        outcome.subject_ref
+                        for outcome in (
+                            self._required(self._outcomes, outcome_id, "outcome_not_found")
+                            for outcome_id in recommendation.outcome_ids
+                        )
+                    }
+                )
+            ),
+            status=ServiceCaseCommandStatus.REQUESTED,
+            issued_by=actor_id,
+            issued_at=self._timestamp(),
             deletion_ref=f"service-case:{tenant_id}:{family_id}",
             locale=self._locale,
         )
-        self._cases[case.case_id] = case
+        self._case_commands[command.service_case_ref] = command
         self._remember(
-            "accept_recommendation", tenant_id, family_id, idempotency_key, fingerprint, case
+            "accept_recommendation", tenant_id, family_id, idempotency_key, fingerprint, command
         )
-        return case
+        return command
 
     def record_delivery(
         self,
@@ -758,26 +818,43 @@ class GrowthOutcomeLoop:
         evidence_refs: tuple[str, ...],
         actor_id: str,
         idempotency_key: str,
-    ) -> ServiceCase:
+    ) -> ServiceDeliveryReceipt:
         self._validate_scope(tenant_id, family_id, actor_id, idempotency_key)
-        case = self._required(self._cases, case_id, "service_case_not_found")
-        self._assert_record_scope(case, tenant_id, family_id)
+        self._assert_human_actor(actor_id)
+        command = self._required(self._case_commands, case_id, "service_case_command_not_found")
+        self._assert_record_scope(command, tenant_id, family_id)
+        self._assert_live_consent(command.subject_refs, ConsentPurpose.SERVICE)
         if not evidence_refs:
             raise JourneyValidationError("service_delivery_evidence_required")
         fingerprint = (case_id, tuple(evidence_refs), actor_id)
         replay = self._replay("record_delivery", tenant_id, family_id, idempotency_key, fingerprint)
         if replay is not None:
             return replay  # type: ignore[return-value]
-        if case.status is not ServiceCaseStatus.REQUESTED:
-            raise JourneyConflictError("service_case_is_not_pending_delivery")
-        delivered = ServiceCase(
-            **{
-                **case.__dict__,
-                "status": ServiceCaseStatus.DELIVERED,
-                "delivered_evidence_refs": tuple(evidence_refs),
-            }
+        if case_id in self._deliveries:
+            existing = self._deliveries[case_id]
+            if existing.evidence_refs == tuple(evidence_refs):
+                self._remember(
+                    "record_delivery",
+                    tenant_id,
+                    family_id,
+                    idempotency_key,
+                    fingerprint,
+                    existing,
+                )
+                return existing
+            raise JourneyConflictError("service_delivery_already_recorded")
+        delivered = ServiceDeliveryReceipt(
+            service_case_ref=case_id,
+            tenant_id=tenant_id,
+            family_id=family_id,
+            evidence_refs=tuple(evidence_refs),
+            delivered_by=actor_id,
+            delivered_at=self._timestamp(),
+            status=ServiceDeliveryStatus.DELIVERED,
+            deletion_ref=f"service-delivery:{tenant_id}:{family_id}:{case_id}",
+            locale=self._locale,
         )
-        self._cases[case_id] = delivered
+        self._deliveries[case_id] = delivered
         self._remember(
             "record_delivery", tenant_id, family_id, idempotency_key, fingerprint, delivered
         )
@@ -836,6 +913,7 @@ class GrowthOutcomeLoop:
                 [item.deletion_ref for item in outcomes] + [item.deletion_ref for item in stories]
             ),
             locale=self._locale,
+            deletion_ref=f"annual-review:{tenant_id}:{family_id}",
         )
         self._annual[projection.projection_id] = projection
         self._remember(
@@ -856,11 +934,12 @@ class GrowthOutcomeLoop:
     ) -> RenewalIntent:
         self._validate_scope(tenant_id, family_id, actor_id, idempotency_key)
         self._assert_human_actor(actor_id)
-        case = self._required(self._cases, case_id, "service_case_not_found")
-        self._assert_record_scope(case, tenant_id, family_id)
-        if case.status is not ServiceCaseStatus.DELIVERED:
+        command = self._required(self._case_commands, case_id, "service_case_command_not_found")
+        self._assert_record_scope(command, tenant_id, family_id)
+        receipt = self._deliveries.get(case_id)
+        if receipt is None or receipt.status is not ServiceDeliveryStatus.DELIVERED:
             raise JourneyConflictError("renewal_requires_delivered_service")
-        if candidate_ref != case.selected_candidate_ref:
+        if candidate_ref != command.selected_candidate_ref:
             raise JourneyValidationError("renewal_candidate_must_match_delivered_case")
         if annual_projection_id is not None:
             projection = self._required(
@@ -920,8 +999,15 @@ class GrowthOutcomeLoop:
                 for item in self._recommendations.values()
                 if self._in_scope(item, tenant_id, family_id)
             ),
-            service_cases=tuple(
-                item for item in self._cases.values() if self._in_scope(item, tenant_id, family_id)
+            service_case_commands=tuple(
+                item
+                for item in self._case_commands.values()
+                if self._in_scope(item, tenant_id, family_id)
+            ),
+            delivery_receipts=tuple(
+                item
+                for item in self._deliveries.values()
+                if self._in_scope(item, tenant_id, family_id)
             ),
             annual_projections=tuple(
                 item for item in self._annual.values() if self._in_scope(item, tenant_id, family_id)
@@ -937,10 +1023,17 @@ class GrowthOutcomeLoop:
     def deletion_refs(self, *, tenant_id: str, family_id: str) -> tuple[str, ...]:
         """Return references for the future durable deletion cascade."""
         snapshot = self.snapshot(tenant_id=tenant_id, family_id=family_id)
-        refs = [item.deletion_ref for item in snapshot.outcomes]
+        refs = [item.deletion_ref for item in snapshot.actions]
+        refs.extend(item.deletion_ref for item in snapshot.reviews)
+        refs.extend(item.deletion_ref for item in snapshot.outcomes)
         refs.extend(item.deletion_ref for item in snapshot.stories)
+        refs.extend(
+            f"media:{media_ref}" for story in snapshot.stories for media_ref in story.media_refs
+        )
         refs.extend(item.deletion_ref for item in snapshot.recommendations)
-        refs.extend(item.deletion_ref for item in snapshot.service_cases)
+        refs.extend(item.deletion_ref for item in snapshot.service_case_commands)
+        refs.extend(item.deletion_ref for item in snapshot.delivery_receipts)
+        refs.extend(item.deletion_ref for item in snapshot.annual_projections)
         refs.extend(item.deletion_ref for item in snapshot.renewals)
         return tuple(sorted(set(refs)))
 
@@ -974,6 +1067,7 @@ class GrowthOutcomeLoop:
             evidence_refs=tuple(evidence_refs),
             recorded_at=self._timestamp(),
             locale=self._locale,
+            deletion_ref=f"action:{tenant_id}:{family_id}:{task_id}",
         )
 
     @staticmethod
@@ -1004,6 +1098,22 @@ class GrowthOutcomeLoop:
     def _assert_human_actor(actor_id: str) -> None:
         if actor_id.lower().startswith("ai:") or actor_id.upper() in {"AI", "SYSTEM"}:
             raise JourneyForbiddenError("human_confirmation_required")
+
+    def _assert_live_consent(
+        self,
+        subject_refs: tuple[str, ...],
+        purpose: ConsentPurpose,
+        *,
+        required_consent_id: str | None = None,
+    ) -> None:
+        if not subject_refs:
+            raise JourneyForbiddenError("subject_binding_required")
+        for subject_ref in subject_refs:
+            grants = tuple(self._consent_loader(subject_ref, purpose))
+            if required_consent_id is not None:
+                grants = tuple(grant for grant in grants if grant.consent_id == required_consent_id)
+            if not ConsentGate.check(subject_ref, purpose, grants, at=self._timestamp()):
+                raise JourneyForbiddenError("live_consent_required")
 
     @staticmethod
     def _required(mapping: dict[str, object], key: str, code: str):
@@ -1068,8 +1178,10 @@ __all__ = [
     "RecommendationStatus",
     "RenewalIntent",
     "RenewalStatus",
-    "ServiceCase",
-    "ServiceCaseStatus",
+    "ServiceCaseCommand",
+    "ServiceCaseCommandStatus",
+    "ServiceDeliveryReceipt",
+    "ServiceDeliveryStatus",
     "S05_S08_NODE_CONTRACTS",
     "StoryVisibility",
 ]

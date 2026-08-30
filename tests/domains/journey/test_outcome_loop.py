@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -12,7 +12,8 @@ from backend.domains.journey.application.outcome_loop import (
     GrowthOutcomeLoop,
     OutcomeStatus,
     RecommendationStatus,
-    ServiceCaseStatus,
+    ServiceCaseCommandStatus,
+    ServiceDeliveryStatus,
     StoryVisibility,
 )
 from backend.domains.journey.domain.errors import (
@@ -21,12 +22,35 @@ from backend.domains.journey.domain.errors import (
     JourneyNotFoundError,
     JourneyValidationError,
 )
+from backend.platform.consent import (
+    ConsentGrant,
+    ConsentStatus,
+    GuardianRelation,
+    SubjectAge,
+)
 
 FIXED_NOW = datetime(2026, 8, 30, 8, 0, tzinfo=UTC)
 
 
-def _loop() -> GrowthOutcomeLoop:
-    return GrowthOutcomeLoop(now=lambda: FIXED_NOW)
+def _loop(consent_loader=None) -> GrowthOutcomeLoop:
+    if consent_loader is None:
+
+        def consent_loader(subject, purpose):
+            return (
+                ConsentGrant(
+                    consent_id=f"consent:{purpose.value}",
+                    subject_person_id=subject,
+                    guardian_person_id="parent-1",
+                    purpose=purpose,
+                    status=ConsentStatus.GRANTED,
+                    granted_at=FIXED_NOW,
+                    expires_at=FIXED_NOW + timedelta(days=30),
+                    subject_age=SubjectAge(years=18),
+                    guardian_relation=GuardianRelation.GUARDIAN,
+                ),
+            )
+
+    return GrowthOutcomeLoop(now=lambda: FIXED_NOW, consent_loader=consent_loader)
 
 
 def test_result_loop_has_l4_l5_contract_for_each_transition_and_locale_boundary() -> None:
@@ -238,7 +262,7 @@ def test_confirmed_result_creates_private_story_and_draft_recommendation_then_ca
         actor_id="parent-1",
         idempotency_key="story-shared",
         visibility=StoryVisibility.SHARED,
-        story_consent_ref="consent:story:v1",
+        story_consent_ref="consent:growth_tracking",
     )
     recommendation = loop.draft_recommendation(
         tenant_id="tenant-a",
@@ -260,7 +284,7 @@ def test_confirmed_result_creates_private_story_and_draft_recommendation_then_ca
         actor_id="parent-1",
         idempotency_key="accept-recommendation-1",
     )
-    assert case.status is ServiceCaseStatus.REQUESTED
+    assert case.status is ServiceCaseCommandStatus.REQUESTED
     assert (
         loop.accept_recommendation(
             tenant_id="tenant-a",
@@ -329,7 +353,7 @@ def test_delivery_evidence_is_required_before_explicit_renewal() -> None:
         actor_id="coach-1",
         idempotency_key="delivery-1",
     )
-    assert delivered.status is ServiceCaseStatus.DELIVERED
+    assert delivered.status is ServiceDeliveryStatus.DELIVERED
     annual = loop.build_annual_review(
         tenant_id="tenant-a",
         family_id="family-a",
@@ -360,6 +384,77 @@ def test_delivery_evidence_is_required_before_explicit_renewal() -> None:
     )
 
 
+def test_delivery_and_shared_story_require_human_actor_and_live_consent() -> None:
+    consent_status = {"status": ConsentStatus.GRANTED}
+
+    def live_loader(subject, purpose):
+        return (
+            ConsentGrant(
+                consent_id=f"consent:{purpose.value}",
+                subject_person_id=subject,
+                guardian_person_id="parent-1",
+                purpose=purpose,
+                status=consent_status["status"],
+                granted_at=FIXED_NOW,
+                expires_at=FIXED_NOW + timedelta(days=30),
+                subject_age=SubjectAge(years=18),
+                guardian_relation=GuardianRelation.GUARDIAN,
+            ),
+        )
+
+    loop = _loop(consent_loader=live_loader)
+    outcome = _confirmed_outcome(loop)
+    recommendation = loop.draft_recommendation(
+        tenant_id="tenant-a",
+        family_id="family-a",
+        outcome_ids=(outcome.outcome_id,),
+        candidate_refs=("service:family-dialogue",),
+        purpose="growth_support",
+        rationale="家庭确认结果后的下一步草案",
+        actor_id="ai:principal",
+        idempotency_key="recommendation-1",
+    )
+    command = loop.accept_recommendation(
+        tenant_id="tenant-a",
+        family_id="family-a",
+        recommendation_id=recommendation.recommendation_id,
+        candidate_ref="service:family-dialogue",
+        actor_id="parent-1",
+        idempotency_key="accept-1",
+    )
+    with pytest.raises(JourneyForbiddenError, match="human_confirmation_required"):
+        loop.record_delivery(
+            tenant_id="tenant-a",
+            family_id="family-a",
+            case_id=command.case_id,
+            evidence_refs=("delivery:ai",),
+            actor_id="ai:service",
+            idempotency_key="ai-delivery",
+        )
+    consent_status["status"] = ConsentStatus.WITHDRAWN
+    with pytest.raises(JourneyForbiddenError, match="live_consent_required"):
+        loop.record_delivery(
+            tenant_id="tenant-a",
+            family_id="family-a",
+            case_id=command.case_id,
+            evidence_refs=("delivery:coach",),
+            actor_id="coach-1",
+            idempotency_key="withdrawn-delivery",
+        )
+    with pytest.raises(JourneyForbiddenError, match="live_consent_required"):
+        loop.create_story(
+            tenant_id="tenant-a",
+            family_id="family-a",
+            outcome_ids=(outcome.outcome_id,),
+            title="撤回授权后不能共享",
+            body="共享故事必须二次检查实时同意",
+            actor_id="parent-1",
+            idempotency_key="withdrawn-story",
+            visibility=StoryVisibility.SHARED,
+            story_consent_ref="consent:growth_tracking",
+        )
+
+
 def test_tenant_scope_isolation_and_deletion_refs_are_explicit() -> None:
     loop = _loop()
     outcome = _confirmed_outcome(loop)
@@ -388,6 +483,7 @@ def test_tenant_scope_isolation_and_deletion_refs_are_explicit() -> None:
         outcome_ids=(outcome.outcome_id,),
         title="删除测试",
         body="撤回后仍需要删除引用",
+        media_refs=("media:photo-1",),
         actor_id="parent-1",
         idempotency_key="story-1",
     )
@@ -403,6 +499,9 @@ def test_tenant_scope_isolation_and_deletion_refs_are_explicit() -> None:
     )
     assert set(loop.deletion_refs(tenant_id="tenant-a", family_id="family-a")) >= {
         outcome.deletion_ref,
+        "action:tenant-a:family-a:task-1",
+        "challenge-review:tenant-a:family-a:plan-90",
         story.deletion_ref,
+        "media:media:photo-1",
         recommendation.deletion_ref,
     }
