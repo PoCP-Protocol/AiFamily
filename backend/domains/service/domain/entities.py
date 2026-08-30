@@ -465,6 +465,7 @@ class ServiceRecord(_Extensible, _Audited, _FixtureBoundary):
         return self._advance("COMPLETED", actor, quality_rating=quality_rating)
 
     def cancel(self, *, actor: str) -> ServiceRecord:
+        assert_human_actor(actor, code="record_cancel")
         if self.status in ("CANCELLED", "COMPLETED"):
             raise ServiceConflictError(f"record_not_cancellable:{self.status}")
         return self._advance("CANCELLED", actor)
@@ -588,6 +589,8 @@ class ServiceAction(_Extensible, _FixtureBoundary):
     def _check_action(self):
         if self.action_type == "FIRST_RESPONSE" and self.sla_due_at is None:
             raise ServiceValidationError("first_response_sla_due_at_required")
+        if self.action_type == "FOLLOW_UP" and self.delivery_record_id is None:
+            raise ServiceValidationError("follow_up_requires_delivery")
         if self.family_feedback_id is not None and self.delivery_record_id is None:
             raise ServiceValidationError("feedback_action_requires_delivery")
         if self.action_type in ("REMEDY_REWORK", "REMEDY_REASSIGN", "REFUND_REQUESTED") and (

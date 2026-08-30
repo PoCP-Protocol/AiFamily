@@ -362,3 +362,94 @@ async def test_expired_supply_and_ai_named_action_are_denied(repo, consent, reco
             delivery_record_id=record.booking_service_record_id,
             action_type="FOLLOW_UP",
         )
+
+
+async def test_duplicate_delivery_callback_is_idempotent_and_payload_bound(
+    repo, consent, recorder
+) -> None:
+    """A retried provider callback cannot create a second delivery event."""
+    consent.add(granted())
+    _provider, offering, slot = await seed_supply(repo, recorder=recorder)
+    booking = await _book(repo, consent, recorder, offering, slot)
+    _confirmed, record = await commands.confirm_booking_request(
+        repo, make_ctx(), recorder, booking_request_id=booking.booking_request_id
+    )
+
+    callback_ctx = make_ctx(idempotency_key="delivery-callback-1")
+    first = await commands.fulfil_service_record(
+        repo,
+        callback_ctx,
+        recorder,
+        booking_service_record_id=record.booking_service_record_id,
+        quality_rating="POSITIVE",
+    )
+    replay = await commands.fulfil_service_record(
+        repo,
+        callback_ctx,
+        recorder,
+        booking_service_record_id=record.booking_service_record_id,
+        quality_rating="POSITIVE",
+    )
+    assert replay == first
+
+    events = await repo.list_pending_service_events(booking.tenant_id)
+    assert sum(event.event_type == "service.delivery_completed.v1" for event in events) == 1
+    with pytest.raises(ServiceConflictError, match="delivery_idempotency_replay_mismatch"):
+        await commands.fulfil_service_record(
+            repo,
+            callback_ctx,
+            recorder,
+            booking_service_record_id=record.booking_service_record_id,
+            quality_rating="NEUTRAL",
+        )
+
+
+async def test_completed_delivery_cannot_be_cancelled_or_release_capacity(
+    repo, consent, recorder
+) -> None:
+    booking, record = await _completed(repo, consent, recorder)
+    with pytest.raises(ServiceConflictError, match="completed_delivery_cannot_be_cancelled"):
+        await commands.cancel_booking_request(
+            repo,
+            make_ctx(idempotency_key="cancel-after-delivery"),
+            recorder,
+            booking_request_id=booking.booking_request_id,
+        )
+
+    current_booking = await repo.load_booking(booking.booking_request_id)
+    current_record = await repo.load_service_record(record.booking_service_record_id)
+    slot = await repo.load_slot(booking.availability_slot_id)
+    assert current_booking.status == "CONFIRMED"
+    assert current_record.status == "COMPLETED"
+    assert slot.reserved_count == 1
+    assert not any(
+        event.event_type == "service.booking_cancelled.v1"
+        for event in await repo.list_pending_service_events(booking.tenant_id)
+    )
+
+
+async def test_duplicate_cancellation_is_state_idempotent(repo, consent, recorder) -> None:
+    consent.add(granted())
+    _provider, offering, slot = await seed_supply(repo, recorder=recorder)
+    booking = await _book(repo, consent, recorder, offering, slot)
+    await commands.confirm_booking_request(
+        repo, make_ctx(), recorder, booking_request_id=booking.booking_request_id
+    )
+
+    cancel_ctx = make_ctx(idempotency_key="cancel-replay-1")
+    first = await commands.cancel_booking_request(
+        repo, cancel_ctx, recorder, booking_request_id=booking.booking_request_id
+    )
+    replay = await commands.cancel_booking_request(
+        repo, cancel_ctx, recorder, booking_request_id=booking.booking_request_id
+    )
+    assert replay == first
+    slot_after = await repo.load_slot(slot.availability_slot_id)
+    assert (slot_after.reserved_count, slot_after.status) == (0, "AVAILABLE")
+    events = await repo.list_pending_service_events(booking.tenant_id)
+    assert sum(event.event_type == "service.booking_cancelled.v1" for event in events) == 1
+    assert any(
+        event.payload["delivery_record_id"] is not None
+        for event in events
+        if event.event_type == "service.booking_cancelled.v1"
+    )

@@ -249,6 +249,23 @@ def test_http_chain_browse_book_confirm_fulfil(client: TestClient, wiring: _Wiri
     assert fulfil.status_code == 200, fulfil.text
     assert fulfil.json()["status"] == "COMPLETED"
 
+    # A repeated external delivery callback is a safe replay, while a
+    # post-delivery cancellation is a fail-closed conflict.
+    fulfil_replay = client.post(
+        f"/families/{FAMILY}/service/service-records/{record_id}/fulfil",
+        json={"quality_rating": "POSITIVE"},
+        headers=_key(wiring, "fulfil-1"),
+    )
+    assert fulfil_replay.status_code == 200
+    assert fulfil_replay.json()["status"] == "COMPLETED"
+
+    cancel_after_delivery = client.post(
+        f"/families/{FAMILY}/service/booking-requests/{booking_id}/cancel",
+        headers=_key(wiring, "cancel-after-delivery"),
+    )
+    assert cancel_after_delivery.status_code == 409
+    assert cancel_after_delivery.json()["detail"] == "completed_delivery_cannot_be_cancelled"
+
     projection = client.get(
         f"/families/{FAMILY}/orchestration/test-loop/services/customer-projection"
     )
