@@ -366,22 +366,22 @@ AG-02 与 AG-00 对齐的最小证据集如下；未达到前，S4-API-01 只能
 
 | 编号 | 工作包 | 状态 | 当前证据 | 集成边界 |
 |---|---|---|---|---|
-| **S5-RUN-01 / AG-02** | RunScope、DRAFT checkpoint、InteractionReceipt | `READY_FOR_REVIEW` | 7 个 run_http 测试通过；scope、幂等、DRAFT 和删除脱敏均有断言 | 当前为 AI Runtime ledger，尚未挂 HTTP；需与真实 API resolver 对接 |
-| **S5-RUN-02 / AG-03** | Web 决策/反馈/删除/回放映射 | `BLOCKED` | Fake client 可演示 receipt/status/replay；真实 HttpClient 不臆造 URL | 等后端 routes 冻结后接入，不能把 Fake 结果当生产证据 |
+| **S5-RUN-01 / AG-02** | RunScope、DRAFT checkpoint、InteractionReceipt 与 HTTP routes | `PARTIAL` | 7 个 run_http 测试 + 2 个 HTTP route 测试通过；draft/decision/feedback/human-review/delete/replay 已挂载 | 创建调用幂等为 P0；SQL 重启持久化、真实 Human Gate、派生媒体删除和强 evidence 校验仍为 `PARTIAL` |
+| **S5-RUN-02 / AG-03** | Web 决策/反馈/删除/回放映射 | `READY_FOR_REVIEW` | 后端 routes 已交付；Web Fake 可演示 receipt/status/replay，真实 HttpClient 仍待接线 | 等 Web HTTP client 接入和 e2e 复核；不得把 Fake 结果单独当生产证据 |
 | **S5-RUN-03 / AG-04** | Durable Run 验收与故障注入 | `IN_PROGRESS` | 矩阵见下表；需补 provider invocation、审计和重启证据 | 通过后才可进入 `DONE_WITH_EVIDENCE` |
-| **S5-RUN-04 / AG-00** | 持久化/HTTP 集成与发布裁决 | `PLANNED` | 当前无 run_http HTTP routes，RunStore 与 ledger 尚未统一 | 决定内存 ledger→SQLAlchemy/HTTP 的唯一迁移路径 |
+| **S5-RUN-04 / AG-00** | 持久化/HTTP 集成与发布裁决 | `IN_PROGRESS` | HTTP routes 已挂载；RunStore 与 run_http ledger 尚未统一 | 决定内存 ledger→SQLAlchemy 的唯一持久化路径，补真实 Gate/删除证据 |
 | **S5-RUN-05 / AG-01** | 用户故事与交付反馈追踪 | `IN_PROGRESS` | S2-US4/US5 可关联 run/decision/feedback/event | 反馈只用于评估和下一轮需求，不改变 canonical Fact |
 
 #### Durable Run 验收矩阵
 
 | 操作 | 必须保留的 evidence | DRAFT-only / 安全语义 | 当前验收状态 |
 |---|---|---|---|
-| **create_draft** | `run_id`、`request_ref`、`RunScope(tenant/family/subjects)`、`idempotency_key`、checkpoint ID、artifact refs、event sequence、时间 | 创建 Durable Run 后只能有 `status=DRAFT` checkpoint；`draft_payload` 拒绝 `family_score/family_rank/ranking/canonical_fact` 等键；`may_mutate_business_state=false`；artifact 只允许引用，禁止 data URL/原始媒体 | **已实现（内存）**；需补真实持久化与 HTTP 证据 |
-| **decision** | `event_id`、`run_id`、完整 scope、`interaction_type=decision`、`payload.decision`、幂等键、sequence、occurred_at；重复请求返回 `status=replayed` | `accepted/rewrite/rejected/pending_human_confirmation` 只是交互记录，不是事实写入；升级为 Named Action/业务事实必须另过 Human Gate、审计和授权 | **已实现（追加/幂等）**；当前未绑定 `human_gate_ref`，不能宣称已完成高影响确认 |
-| **feedback** | `event_id`、run/scope、`signal`、理由（如有）、`draft_version`/`attempt_id`/模型与 benchmark 引用（适用时）、真实事件引用、幂等键 | 反馈只能进入评估、产品迭代或后续建议；不得覆盖草案、改写事实或生成成就事实 | **已实现（追加/幂等）**；ledger 当前不强制模型/attempt/真实 event refs，需 API 层补校验 |
-| **human-review** | `event_id`、run/scope、`reason`、`status=human_review`、人工闸门引用（接入后）、幂等键、审计引用 | 人工请求不等于批准；AI 草案仍保持 DRAFT，人工结果必须有明确决策和审计，不能静默转事实 | **已实现（reason/status）**；`human_gate_ref`/审计尚未落账 |
-| **delete** | `event_id`、run/scope、`deletion_ref`、`status=deleted`、幂等键、级联对象列表/证明（接入外部存储后） | 删除是不可逆的展示边界；后续交互除同一删除幂等重放外全部拒绝；不返回草案 payload 或 artifact refs | **已实现（内存脱敏/幂等）**；需接媒体派生物、Context/embedding 删除 Worker 和 HTTP route |
-| **replay** | 只读 `RunReplaySnapshot`：run/scope、state、`status=DRAFT`、event sequence、interaction entries、draft/artifact refs（未删除时）、deletion state | 只能重放已存在的 run/checkpoint/event；不得调用 Model Gateway、重算模型、追加事件、写业务事实或生成新 Recommendation/Feedback；删除后 payload/artifact 必须为空 | **已实现（内存只读）**；需 SQL/HTTP 重启回放和 provider invocation=0 证据 |
+| **create_draft** | `run_id`、`request_ref`、`RunScope(tenant/family/subjects)`、`idempotency_key`、checkpoint ID、artifact refs、event sequence、时间 | 创建 Durable Run 后只能有 `status=DRAFT` checkpoint；`draft_payload` 拒绝 `family_score/family_rank/ranking/canonical_fact` 等键；`may_mutate_business_state=false`；artifact 只允许引用，禁止 data URL/原始媒体 | **HTTP + 内存 ledger 已交付；调用幂等 `PARTIAL/P0`**（当前 Gateway 可能先于 ledger，重试会重复 invocation/计费）；SQL 重启持久化仍 `PARTIAL` |
+| **decision** | `event_id`、`run_id`、完整 scope、`interaction_type=decision`、`payload.decision`、幂等键、sequence、occurred_at；重复请求返回 `status=replayed` | `accepted/rewrite/rejected/pending_human_confirmation` 只是交互记录，不是事实写入；升级为 Named Action/业务事实必须另过 Human Gate、审计和授权 | **已交付 HTTP + 追加/幂等**；真实 Human Gate/审计仍 `PARTIAL` |
+| **feedback** | `event_id`、run/scope、`signal`、理由（如有）、`draft_version`/`attempt_id`/模型与 benchmark 引用（适用时）、真实事件引用、幂等键 | 反馈只能进入评估、产品迭代或后续建议；不得覆盖草案、改写事实或生成成就事实 | **已交付 HTTP + 追加/幂等**；强制模型/attempt/真实 event refs 校验仍 `PARTIAL` |
+| **human-review** | `event_id`、run/scope、`reason`、`status=human_review`、人工闸门引用（接入后）、幂等键、审计引用 | 人工请求不等于批准；AI 草案仍保持 DRAFT，人工结果必须有明确决策和审计，不能静默转事实 | **已交付 HTTP + reason/status**；真实 Human Gate/审计仍 `PARTIAL` |
+| **delete** | `event_id`、run/scope、`deletion_ref`、`status=deleted`、幂等键、级联对象列表/证明（接入外部存储后） | 删除是不可逆的展示边界；后续交互除同一删除幂等重放外全部拒绝；不返回草案 payload 或 artifact refs | **已交付 HTTP + 内存脱敏/幂等**；派生媒体、Context/embedding 删除仍 `PARTIAL` |
+| **replay** | 只读 `RunReplaySnapshot`：run/scope、state、`status=DRAFT`、event sequence、interaction entries、draft/artifact refs（未删除时）、deletion state | 只能重放已存在的 run/checkpoint/event；不得调用 Model Gateway、重算模型、追加事件、写业务事实或生成新 Recommendation/Feedback；删除后 payload/artifact 必须为空 | **已交付 HTTP + 内存只读**；SQL 重启回放与持久化仍 `PARTIAL` |
 
 #### 统一收口条件
 
@@ -390,7 +390,33 @@ AG-02 与 AG-00 对齐的最小证据集如下；未达到前，S4-API-01 只能
 3. 相同幂等键、相同 payload 必须返回 `replayed` 且不追加第二条事件；相同 key 不同 payload 必须拒绝并保留冲突证据。
 4. 任一 scope 不匹配、已删除 Run、非法 decision status 或含家庭总分/排名/事实键的 payload 必须 fail-closed；不能通过 UI 文案掩盖拒绝。
 5. `ReplaySnapshot.may_mutate_business_state` 固定为 `false`；Replay/Feedback/Decision 不能直接触发 domain repository、Named Action 或模型重算。
-6. 当前 `run_http.py` 是 ledger/application seam，不是 HTTP 能力。decision/feedback/human-review/delete/replay routes、真实审计、Human Gate、持久化重启和外部派生物删除完成前，Sprint 5 只能标 `PARTIAL`，不得标生产 `ADMITTED`。
+6. `run_http.py` 已经通过 HTTP routes 暴露 decision/feedback/human-review/delete/replay，但生产能力仍为 `PARTIAL`，直至真实审计/Human Gate、SQL 重启持久化、外部派生物删除和强 evidence 校验完成；不得标生产 `ADMITTED`。
+
+#### Sprint 5 必须补测场景
+
+以下场景是 HTTP routes 已交付后仍必须补齐或在集成环境复跑的验收项；已有内存单测不能替代这些证据：
+
+1. **创建幂等与冲突（P0）**：必须先执行 `reserve/preflight(request fingerprint)`，再调用 Gateway，最后 `finalize` ledger；同一 `run_id + Idempotency-Key + payload` 重试返回同一结果、`provider_invocation=1` 且不新增 checkpoint/重复计费；同 key 改 payload 返回 409 并保留冲突证据；Provider 失败必须释放 reservation 并允许安全重试。
+2. **全端点 scope 隔离**：以其他 tenant/family/subject 访问 decision、feedback、human-review、delete、replay，返回稳定 403/404，且不追加事件、不调用 Provider。
+3. **幂等头强制**：所有 mutation 缺 `Idempotency-Key` 返回 422；同 key 不同操作或不同 payload 不得复用既有 receipt。
+4. **Consent/Context fail-closed**：撤回、过期、删除中或缺少 consent 的 runtime 在任何模型调用前拒绝，证明 `provider_invocation=0`、拒绝码、trace/audit 均存在。
+5. **决策与人工请求边界**：confirm/rewrite/reject 和 human-review 均追加 interaction，但不写 Family/Growth/Service/Commerce 事实；未接真实 Human Gate 时必须显式标 `PARTIAL`。
+6. **反馈 evidence 完整性**：补测 `draft_version`、`attempt_id`、candidate/model、benchmark report 和真实 event refs 的合法/缺失/跨 scope 情况；在强校验完成前，缺字段不得被描述为完整 evidence。
+7. **删除后语义**：delete 成功后 replay 返回 `deletion_state=deleted` 且 `draft_payload/artifact_refs` 为空；除同一删除幂等重放外，所有 mutation 返回 410；验证媒体派生物、Context/embedding 删除证明仍为待处理。
+8. **Replay 不重算**：对 Gateway 注入 spy，调用 replay 不得触发模型、路由、事件追加或事实写入；状态、sequence、interaction 顺序与 ledger 一致。
+9. **SQL 重启回放**：进程重启/新连接后仍可读取同一 Run、checkpoint 和 interaction，且幂等/删除状态不丢失；该项当前未完成。
+10. **环境 parity 与生产 fail-closed**：test synthetic 可运行；production 未配置真实 resolver/ledger 时稳定 503，不回退 Fake；Web smoke/e2e 使用同一错误语义。
+
+#### 仍保持 `PARTIAL` 的能力
+
+| 能力 | 保持 PARTIAL 的原因 | 晋级条件 |
+|---|---|---|
+| SQL/耐久化重启 | `run_http` 当前为内存 ledger，尚未与 SQL RunStore 统一 | 迁移、事务、重启、幂等和跨实例回放测试通过 |
+| 创建调用幂等与计费 | 当前 draft HTTP 路由在 ledger 写入前调用 Gateway，同一幂等键重试可能重复 invocation/计费 | reserve/preflight→Gateway→finalize 三段式；测试证明同 key 仅一次 invocation、冲突 409、Provider 失败可释放重试 |
+| 真实 Human Gate 与审计 | 当前 human-review 只是 append interaction，未绑定真实人工闸门、actor、reason 和审计记录 | Human Gate/Named Action/审计链路接入并有拒绝、超时、重放证据 |
+| 派生媒体/Context/embedding 删除 | delete 只隐藏 ledger 中 draft/artifact，未证明外部派生物级联删除 | 删除 Worker、外部存储回执、级联清单和删除证明齐全 |
+| 强 evidence 校验 | feedback 可携带 evidence 字段，但当前未强制 attempt/model/benchmark/真实 event refs | schema/策略强制、缺失/伪造/跨 scope 拒绝测试通过 |
+| 真实 Provider 生产准入 | 当前候选和 test runtime 不能证明生产供应商合规、成本和删除 SLA | Provider registry、DPIA、转委托、区域、预算和评估 Gate 全部批准 |
 
 ## 5. 通用任务卡格式
 
