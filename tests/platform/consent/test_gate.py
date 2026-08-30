@@ -7,10 +7,30 @@ REPOSITORY_CONSTITUTION.md's disposition for `platform_consent`.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from backend.platform.consent.gate import ConsentGate
 from backend.platform.consent.models import ConsentGrant, ConsentPurpose, ConsentStatus
+
+EVALUATION_TIME = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)
+
+
+class _TimeAwareGrant:
+    """Small test double for the newer ConsentGrant time-aware contract."""
+
+    subject_person_id = "person-1"
+    purpose = ConsentPurpose.ASSESSMENT
+
+    def __init__(self, effective_from: datetime, effective_to: datetime) -> None:
+        self._effective_from = effective_from
+        self._effective_to = effective_to
+
+    @property
+    def is_active(self) -> bool:
+        return False
+
+    def is_active_at(self, at: datetime) -> bool:
+        return self._effective_from <= at < self._effective_to
 
 
 def _grant(
@@ -29,6 +49,54 @@ def _grant(
 def test_active_grant_for_matching_purpose_is_allowed() -> None:
     grants = [_grant(ConsentStatus.GRANTED)]
     assert ConsentGate.check("person-1", ConsentPurpose.ASSESSMENT, grants) is True
+
+
+def test_explicit_evaluation_time_is_accepted_for_legacy_grants() -> None:
+    grants = [_grant(ConsentStatus.GRANTED, purpose=ConsentPurpose.ASSESSMENT)]
+    assert (
+        ConsentGate.check(
+            "person-1",
+            ConsentPurpose.ASSESSMENT,
+            grants,
+            at=EVALUATION_TIME,
+        )
+        is True
+    )
+
+
+def test_explicit_evaluation_time_preserves_effective_window_boundaries() -> None:
+    grant = _TimeAwareGrant(
+        effective_from=EVALUATION_TIME,
+        effective_to=EVALUATION_TIME + timedelta(days=1),
+    )
+
+    assert (
+        ConsentGate.check(
+            "person-1",
+            ConsentPurpose.ASSESSMENT,
+            [grant],
+            at=EVALUATION_TIME - timedelta(microseconds=1),
+        )
+        is False
+    )
+    assert (
+        ConsentGate.check(
+            "person-1",
+            ConsentPurpose.ASSESSMENT,
+            [grant],
+            at=EVALUATION_TIME,
+        )
+        is True
+    )
+    assert (
+        ConsentGate.check(
+            "person-1",
+            ConsentPurpose.ASSESSMENT,
+            [grant],
+            at=EVALUATION_TIME + timedelta(days=1),
+        )
+        is False
+    )
 
 
 def test_withdrawn_grant_is_denied_immediately() -> None:
