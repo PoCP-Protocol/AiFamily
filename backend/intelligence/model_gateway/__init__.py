@@ -37,6 +37,7 @@ from backend.intelligence.model_gateway.attempts import (
 from backend.intelligence.model_gateway.contracts import (
     AiProvenance,
     DataClass,
+    MediaInput,
     ModelDraft,
     PolicyContext,
     StructuredRequest,
@@ -76,6 +77,7 @@ __all__ = [
     "FakeProvider",
     "InMemoryAttemptSink",
     "ModelDraft",
+    "MediaInput",
     "ModelGateway",
     "ModelGatewayError",
     "NullAttemptSink",
