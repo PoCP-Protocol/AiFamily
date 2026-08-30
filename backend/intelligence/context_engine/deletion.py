@@ -283,13 +283,21 @@ class SubjectDeletionWorker:
         return now
 
 
+# Short aliases keep the adapter convenient for callers while retaining the
+# explicit subject scope in the canonical class names above.
+DeletionCommand = SubjectDeletionCommand
+DeletionWorker = SubjectDeletionWorker
+
+
 __all__ = [
+    "DeletionCommand",
     "DeletionAuditEvent",
     "DeletionContractError",
     "DeletionEventType",
     "DeletionJob",
     "DeletionScopeError",
     "DeletionStatus",
+    "DeletionWorker",
     "SubjectDeletionCommand",
     "SubjectDeletionPort",
     "SubjectDeletionWorker",
