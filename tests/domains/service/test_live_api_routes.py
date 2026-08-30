@@ -16,7 +16,8 @@ from backend.domains.service.application.live_ports import (
 )
 from backend.domains.service.application.live_read_models import LiveSessionProjection
 from backend.platform.audit.recorder import AuditRecorder
-from backend.platform.identity.context import ActorContext, ActorType
+from backend.platform.identity.context import ActorContext, ActorType, TenantStatus
+from backend.platform.identity.directory import InMemoryTenantDirectory
 
 FAMILY = "family-a"
 OTHER_FAMILY = "family-b"
@@ -109,6 +110,9 @@ def client(wiring: dict[str, object]) -> TestClient:
     app.dependency_overrides[service_dependencies.get_live_projection] = lambda: projection
     app.dependency_overrides[service_dependencies.get_action_context] = lambda: _context()
     app.dependency_overrides[service_dependencies.get_actor_context] = lambda: _actor()
+    app.dependency_overrides[service_dependencies.get_tenant_directory] = lambda: (
+        InMemoryTenantDirectory({TENANT: TenantStatus.ACTIVE})
+    )
     app.dependency_overrides[service_dependencies.get_audit_recorder] = lambda: recorder
     return TestClient(app)
 

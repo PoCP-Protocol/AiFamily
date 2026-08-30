@@ -94,6 +94,7 @@ else:
     _JOURNEY_IMPORT_ERROR = None
 
 from backend.domains.membership.api.routes import router as membership_router
+from backend.domains.service.api.live_routes import router as live_router
 from backend.domains.service.api.routes import router as service_router
 
 # FGCN currently shares the same absent provenance foundation as the
@@ -355,6 +356,11 @@ def create_app(
     # first so FastAPI selects the canonical private process projection while
     # the remaining service routes (including check-in drafts) stay available.
     application.include_router(service_router)
+    # H-LIVE-01 is a read-only, family-scoped projection. Its provider remains
+    # fail-closed until Route B supplies a canonical live projection, but the
+    # route must be present in every environment so OpenAPI and refusal
+    # semantics stay identical.
+    application.include_router(live_router)
     # In a dev environment, supply the four service dependencies that raise by
     # design, so the six mounted SERVICE endpoints are actually callable instead
     # of returning 500 to every caller. The domain code is untouched and still
