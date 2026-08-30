@@ -61,7 +61,7 @@ from __future__ import annotations
 import os
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from fastapi import FastAPI, Header, HTTPException
 
@@ -290,6 +290,62 @@ async def _dev_family_context(
     _assessment_repository.grant_family_manage_permission(
         family_id, person_id, role="OWNER_GUARDIAN"
     )
+
+    # The browser slice needs one explicit synthetic beneficiary in order to
+    # exercise the real assessment route.  Keep this fixture in dev wiring,
+    # not in the domain or a second consent implementation: `seed_subject`
+    # populates the fake repository's existing subject/consent test boundary,
+    # and the stable UUID makes the fixture safe to replay for one family.
+    if not _assessment_repository.subjects.get(family_id):
+        synthetic_subject_id = str(
+            uuid5(NAMESPACE_URL, f"aifamily:{family_id}:assessment-subject")
+        )
+        _assessment_repository.seed_subject(
+            family_id,
+            synthetic_subject_id,
+            "家庭成员（合成）",
+            consent_granted=True,
+        )
+    for focus_ref, need_type_ref, title, description in (
+        (
+            "LEARNING_HABITS",
+            "NEED_LEARNING_HABITS",
+            "学习开始与节奏",
+            "先从一个固定的开始时刻做一个小调整。",
+        ),
+        (
+            "EMOTION_REGULATION",
+            "NEED_EMOTION_REGULATION",
+            "情绪起伏时的缓冲",
+            "先留出一点缓冲，再一起确认当下最难的部分。",
+        ),
+        (
+            "PARENT_CHILD_COMMUNICATION",
+            "NEED_PARENT_CHILD_COMMUNICATION",
+            "亲子沟通支持",
+            "先从倾听开始，再一起找一个可尝试的小约定。",
+        ),
+        (
+            "DEVICE_USE_CONTEXT",
+            "NEED_DEVICE_USE_CONTEXT",
+            "屏幕使用边界",
+            "先把一个具体时刻说清楚，再试一个双方都知道的边界。",
+        ),
+        (
+            "SELF_REGULATION",
+            "NEED_SELF_REGULATION",
+            "家庭节奏与自我管理",
+            "先选择一个容易做到的时刻，建立可回看的小节奏。",
+        ),
+    ):
+        if focus_ref not in _assessment_repository.need_types:
+            _assessment_repository.seed_need_type(
+                focus_ref,
+                need_type_ref,
+                title,
+                description,
+                ["LISTENING_COACH"],
+            )
 
     return assessment_deps.FamilyContext(
         tenant_id=tenant_id,

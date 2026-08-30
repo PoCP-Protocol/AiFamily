@@ -227,6 +227,76 @@ def test_cross_family_request_is_rejected(client: TestClient) -> None:
     )
 
 
+def test_dev_browser_fixture_runs_the_minimal_family_result_slice(client: TestClient) -> None:
+    """The dev runtime supplies only a labelled synthetic subject/catalog.
+
+    This is the fixture used by the clickable UI replay; it is not production
+    authentication, consent, persistence, or a second domain model.
+    """
+    auth = _auth(client, family="browser-family", key="auth-browser")
+    projection = client.get(
+        "/families/browser-family/ui/02/assessment", headers=auth
+    )
+    assert projection.status_code == 200, projection.text
+    body = projection.json()
+    assert body["availability"] == "AVAILABLE"
+    assert len(body["subjects"]) == 1
+    subject_id = body["subjects"][0]["person_id"]
+    uuid.UUID(subject_id)
+
+    start = client.post(
+        "/families/browser-family/assessments/sessions",
+        json={"subject_person_id": subject_id, "tool_ref": "FAMILY_SUPPORT_NEEDS"},
+        headers={**auth, "idempotency-key": "browser-start-1"},
+    )
+    assert start.status_code == 200, start.text
+    session_id = start.json()["session"]["assessment_session_id"]
+
+    for item_ref, response_value in (
+        ("FOCUS", "LEARNING_HABITS"),
+        ("LEARNING_HABITS_Q01", "OFTEN"),
+        ("LEARNING_HABITS_Q02", "SOMETIMES"),
+        ("LEARNING_HABITS_Q03", "NOT_SURE"),
+    ):
+        response = client.post(
+            f"/families/browser-family/assessments/sessions/{session_id}/responses",
+            json={
+                "item_ref": item_ref,
+                "response_type": "SINGLE_CHOICE",
+                "response_value": response_value,
+            },
+            headers={
+                **auth,
+                "idempotency-key": f"browser-response-{item_ref}",
+            },
+        )
+        assert response.status_code == 200, response.text
+
+    submit = client.post(
+        f"/families/browser-family/assessments/sessions/{session_id}/submit",
+        json={},
+        headers={**auth, "idempotency-key": "browser-submit-1"},
+    )
+    assert submit.status_code == 200, submit.text
+    replay = client.post(
+        f"/families/browser-family/assessments/sessions/{session_id}/submit",
+        json={},
+        headers={**auth, "idempotency-key": "browser-submit-1"},
+    )
+    assert replay.status_code == 200
+    assert replay.json()["replayed"] is True
+
+    result = client.get(
+        "/families/browser-family/assessments/results/latest", headers=auth
+    )
+    assert result.status_code == 200, result.text
+    result_body = result.json()
+    assert result_body["status"] == "READY"
+    assert result_body["family_id"] == "browser-family"
+    assert result_body["result"]["boundary"] == "FAMILY_PERSPECTIVE_NOT_SCORE_OR_DIAGNOSIS"
+    assert result_body["result"]["ai"]["may_mutate_business_state"] is False
+
+
 def test_mutation_without_idempotency_key_is_rejected(client: TestClient) -> None:
     """Fails for the stated reason only.
 
