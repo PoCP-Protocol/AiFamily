@@ -28,6 +28,13 @@ describe("cross-platform capability contracts", () => {
     }
   });
 
+  it("offers a single status snapshot for shell health without leaking platform details", async () => {
+    const snapshot = await createPlatformCapabilityRegistry(context("IOS"), { synthetic: true }).statusSnapshot();
+    expect(Object.keys(snapshot)).toEqual([...CAPABILITY_IDS]);
+    expect(snapshot.MEDIA_CAPTURE.state).toBe("AVAILABLE");
+    expect(snapshot.STORAGE.value?.fallbackSupported).toBe(false);
+  });
+
   it("defaults to an explicit unavailable adapter instead of pretending production support exists", async () => {
     const registry = createPlatformCapabilityRegistry(context("IOS", "PROD"));
     expect(registry.descriptors().every((item) => item.state === "UNAVAILABLE" && !item.synthetic)).toBe(true);

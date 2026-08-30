@@ -1,4 +1,4 @@
-import { CAPABILITY_IDS, type CapabilityById, type CapabilityDescriptor, type CapabilityId, type CapabilityRuntimeContext, type PlatformCapabilityAdapters } from "./contracts";
+import { CAPABILITY_IDS, type CapabilityById, type CapabilityDescriptor, type CapabilityId, type CapabilityResult, type CapabilityRuntimeContext, type CapabilityStatus, type PlatformCapabilityAdapters } from "./contracts";
 import { capabilityMap } from "./adapters";
 
 export interface CapabilityRegistry {
@@ -7,6 +7,7 @@ export interface CapabilityRegistry {
   get<K extends CapabilityId>(id: K): CapabilityById[K];
   has(id: CapabilityId): boolean;
   descriptors(): readonly CapabilityDescriptor[];
+  statusSnapshot(): Promise<{ [K in CapabilityId]: CapabilityResult<CapabilityStatus> }>;
 }
 
 export function createCapabilityRegistry(context: CapabilityRuntimeContext, adapters: PlatformCapabilityAdapters): CapabilityRegistry {
@@ -20,6 +21,9 @@ export function createCapabilityRegistry(context: CapabilityRuntimeContext, adap
     get: (id) => capabilities[id],
     has: (id) => id in capabilities,
     descriptors: () => CAPABILITY_IDS.map((id) => capabilities[id].descriptor),
+    statusSnapshot: async () => {
+      const entries = await Promise.all(CAPABILITY_IDS.map(async (id) => [id, await capabilities[id].status()] as const));
+      return Object.fromEntries(entries) as { [K in CapabilityId]: CapabilityResult<CapabilityStatus> };
+    },
   };
 }
-
