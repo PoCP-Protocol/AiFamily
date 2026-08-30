@@ -38,6 +38,7 @@ from .admission import (
     require_provider_admitted_async,
 )
 from .contracts import (
+    HUMAN_SERVICE_PROVIDER_KINDS,
     BlueprintSnapshot,
     CaseOpeningIdempotencyRecord,
     CaseStatus,
@@ -449,7 +450,9 @@ async def execute_task_assignment_named_action(
         assignment_id = _argument(args, "assignment_id")
     else:
         assignment_id = str(uuid5(NAMESPACE_URL, f"fgcn-assignment:{request.request_id}"))
-    if assignee_kind not in {"STEWARD", "AI", "COACH", "EXPERT", "CONTENT"}:
+    if assignee_kind == "AI":
+        raise ServiceForbiddenError("fgcn_service_provider_must_be_human")
+    if assignee_kind not in HUMAN_SERVICE_PROVIDER_KINDS:
         raise ServiceValidationError("fgcn_assignee_kind_invalid")
 
     task = await repo.load_task(task_id)

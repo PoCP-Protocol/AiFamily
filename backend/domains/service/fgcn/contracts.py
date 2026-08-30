@@ -65,6 +65,11 @@ class TaskAssignmentStatus(StrEnum):
     COMPLETED = "COMPLETED"
 
 
+# S-01 is a request for real human help. AI may draft a match proposal, but it
+# cannot be the provider that owns or submits the service delivery.
+HUMAN_SERVICE_PROVIDER_KINDS = frozenset({"STEWARD", "COACH", "EXPERT"})
+
+
 _REPLAYABLE_ASSIGNMENT_STATUSES = frozenset(
     {
         TaskAssignmentStatus.ACCEPTED,
@@ -564,6 +569,7 @@ __all__ = [
     "CaseStatus",
     "ContributionQualityState",
     "GateServiceScope",
+    "HUMAN_SERVICE_PROVIDER_KINDS",
     "ServiceCase",
     "ServiceContribution",
     "ServiceDelivery",

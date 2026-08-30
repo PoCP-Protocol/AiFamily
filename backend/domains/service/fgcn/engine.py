@@ -22,6 +22,7 @@ from .admission import (
     require_provider_admitted,
 )
 from .contracts import (
+    HUMAN_SERVICE_PROVIDER_KINDS,
     AllocationBasisType,
     AllocationBucket,
     AllocationLine,
@@ -58,7 +59,6 @@ FIXED_ALLOCATION_UNITS = {
     AllocationBucket.QUALITY_RESERVE: Decimal("10"),
 }
 DELIVERY_ALLOCATION_UNITS = Decimal("40")
-ALLOWED_ASSIGNEE_KINDS = frozenset({"STEWARD", "AI", "COACH", "EXPERT", "CONTENT"})
 
 
 def _now(value: datetime | None) -> datetime:
@@ -256,7 +256,9 @@ class FGCNEngine:
         task_id = self._argument(args, "service_task_id")
         assignee_ref = self._argument(args, "provider_id")
         assignee_kind = self._argument(args, "assignee_kind", default="EXPERT")
-        if assignee_kind not in ALLOWED_ASSIGNEE_KINDS:
+        if assignee_kind == "AI":
+            raise ServiceForbiddenError("fgcn_service_provider_must_be_human")
+        if assignee_kind not in HUMAN_SERVICE_PROVIDER_KINDS:
             raise ServiceValidationError("fgcn_assignee_kind_invalid")
         task = self._task(task_id)
         case = self._case(task.case_id)

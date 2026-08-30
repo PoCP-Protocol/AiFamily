@@ -52,6 +52,7 @@ from backend.domains.service.domain.errors import (
 from backend.platform.audit import AuditRecorder
 
 from .contracts import (
+    HUMAN_SERVICE_PROVIDER_KINDS,
     AllocationBasisType,
     AllocationBucket,
     AllocationLine,
@@ -124,7 +125,7 @@ _QUALITY_STATE = _existing_enum(
     "PENDING", "PASSED", "REWORK_REQUIRED", "REJECTED", name="task_quality_state"
 )
 
-_ALLOWED_ASSIGNEE_KINDS = frozenset({"STEWARD", "AI", "COACH", "EXPERT", "CONTENT"})
+_ALLOWED_ASSIGNEE_KINDS = HUMAN_SERVICE_PROVIDER_KINDS
 _FIXED_ALLOCATION_UNITS = {
     AllocationBucket.PLATFORM: Decimal("20"),
     AllocationBucket.CONTENT_RESOURCE: Decimal("15"),

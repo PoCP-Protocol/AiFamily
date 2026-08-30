@@ -123,6 +123,7 @@ def _assignment_request(
     scope: GateScope | None = None,
     provider_id: str = "expert-1",
     proposal_id: str = "proposal-fgcn-1",
+    assignee_kind: str = "EXPERT",
 ):
     gate = InMemoryHumanGate()
     draft_provider = FakeProvider(
@@ -164,7 +165,7 @@ def _assignment_request(
             action_arguments={
                 "service_task_id": "task-1",
                 "provider_id": provider_id,
-                "assignee_kind": "EXPERT",
+                "assignee_kind": assignee_kind,
             },
             scope=scope or _gate_scope(),
             allowed_actor_types=(ActorType.GUARDIAN,),
@@ -207,6 +208,23 @@ async def test_ai_gateway_human_gate_and_fgcn_assignment_form_one_audited_path()
     assert assignment_event.after["provider_credential_ref"] == "credential:expert-1:v1"
     assert assignment_event.after["provider_slot_ref"] == "slot:expert-1:default"
     assert assignment_event.after["provider_capacity_available"] == 1
+
+
+@pytest.mark.asyncio
+async def test_human_gate_cannot_assign_ai_as_the_s01_service_provider():
+    engine = _engine()
+    request = await _assignment_request(
+        provider_id="ai-provider",
+        assignee_kind="AI",
+        proposal_id="proposal-fgcn-ai-provider",
+    )()
+
+    with pytest.raises(ServiceForbiddenError, match="fgcn_service_provider_must_be_human"):
+        engine.execute_named_action(request)
+
+    assert engine.tasks["task-1"].status is TaskStatus.PENDING
+    assert engine.cases["case-1"].status is CaseStatus.OPEN
+    assert engine.assignments == {}
 
 
 @pytest.mark.asyncio

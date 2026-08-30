@@ -23,7 +23,7 @@ class AssignmentProposalRequest(BaseModel):
     draft_id: str = Field(min_length=1, max_length=160)
     provenance_ref: str = Field(min_length=1, max_length=256)
     provider_id: str = Field(min_length=1, max_length=160)
-    assignee_kind: Literal["STEWARD", "AI", "COACH", "EXPERT", "CONTENT"] = "EXPERT"
+    assignee_kind: Literal["STEWARD", "COACH", "EXPERT"] = "EXPERT"
     assignment_id: UUID | None = None
     expires_in_seconds: int = Field(default=86_400, ge=60, le=86_400)
 
