@@ -44,6 +44,10 @@ S01_LOCALE_REGISTRY: dict[str, dict[str, object]] = {
         "quality_verification_marker": (
             "S-01 outcome verified: calm start completed and conflict did not escalate."
         ),
+        "quality_rework_marker": (
+            "S-01 rework required: delivery evidence does not yet demonstrate a calm start "
+            "without conflict escalation."
+        ),
         "outcome_observation": "S-01 calm start completed; conflict did not escalate.",
         "markers": {
             "calm_start_completed": ("calm start completed",),
@@ -63,6 +67,7 @@ S01_LOCALE_REGISTRY: dict[str, dict[str, object]] = {
             "成人主导的平稳启动已完成且冲突未升级；儿童表现、家庭分数和排名不是验收指标。"
         ),
         "quality_verification_marker": "S-01 结果已验收：平稳启动已完成且冲突未升级。",
+        "quality_rework_marker": "S-01 需要返工：交付证据尚未证明平稳启动且冲突未升级。",
         "outcome_observation": "S-01 平稳启动已完成；冲突未升级。",
         "markers": {
             "calm_start_completed": ("平稳启动已完成",),
@@ -90,12 +95,13 @@ S01_LOCALE_REGISTRY: dict[str, dict[str, object]] = {
             "classements ne sont pas des critères d'acceptation."
         ),
         "quality_verification_marker": (
-            "Résultat S-01 vérifié : démarrage calme terminé et le conflit ne s'est pas "
-            "aggravé."
+            "Résultat S-01 vérifié : démarrage calme terminé et le conflit ne s'est pas aggravé."
         ),
-        "outcome_observation": (
-            "S-01 démarrage calme terminé ; le conflit ne s'est pas aggravé."
+        "quality_rework_marker": (
+            "Retouche S-01 requise : la preuve de livraison ne démontre pas encore un "
+            "démarrage calme sans aggravation du conflit."
         ),
+        "outcome_observation": ("S-01 démarrage calme terminé ; le conflit ne s'est pas aggravé."),
         "markers": {
             "calm_start_completed": ("démarrage calme terminé",),
             "conflict_contained": ("conflit ne s'est pas aggravé",),
@@ -108,6 +114,7 @@ S01_PROVIDER_DELIVERABLE = S01_LOCALE_REGISTRY["en"]["provider_deliverable"]
 S01_SERVICE_OUTCOME = S01_LOCALE_REGISTRY["en"]["service_outcome"]
 S01_TASK_ACCEPTANCE_CRITERION = S01_LOCALE_REGISTRY["en"]["task_acceptance_criterion"]
 S01_QUALITY_VERIFICATION_MARKER = S01_LOCALE_REGISTRY["en"]["quality_verification_marker"]
+S01_REWORK_QUALITY_MARKER = S01_LOCALE_REGISTRY["en"]["quality_rework_marker"]
 S01_OUTCOME_OBSERVATION = S01_LOCALE_REGISTRY["en"]["outcome_observation"]
 
 _FORBIDDEN_COMPARISON_TERMS = (
@@ -313,6 +320,18 @@ def validate_s01_quality_note(note: str, *, locale: str = S01_DEFAULT_LOCALE) ->
     return normalized
 
 
+def validate_s01_rework_note(note: str, *, locale: str = S01_DEFAULT_LOCALE) -> str:
+    """Require a localized human reason when delivery needs rework."""
+
+    normalized = _text(note, "quality_rework_note")
+    marker = _entry(locale)["quality_rework_marker"]
+    if marker not in normalized:
+        raise ServiceValidationError("fgcn_s01_rework_reason_required")
+    if any(term in normalized.casefold() for term in _FORBIDDEN_COMPARISON_TERMS):
+        raise ServiceValidationError("fgcn_s01_scoring_semantics_forbidden")
+    return normalized
+
+
 __all__ = [
     "S01_DEFAULT_LOCALE",
     "S01_FAMILY_PROBLEM",
@@ -322,6 +341,7 @@ __all__ = [
     "S01_POLICY_REF",
     "S01_POLICY_VERSION",
     "S01_PROVIDER_DELIVERABLE",
+    "S01_REWORK_QUALITY_MARKER",
     "S01_QUALITY_VERIFICATION_MARKER",
     "S01_SCENARIO",
     "S01_SCENARIO_KEY",
@@ -334,6 +354,7 @@ __all__ = [
     "render_s01_scenario",
     "validate_s01_outcome_observation",
     "validate_s01_quality_note",
+    "validate_s01_rework_note",
     "validate_s01_scenario",
     "validate_s01_task_acceptance",
 ]
