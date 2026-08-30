@@ -15,6 +15,14 @@ export function LiveDetailPage({ record, onBack }: Props) {
         </div>
         <span className="live-status-badge">{record.status}</span>
       </div>
+      <section className="live-video-container" aria-labelledby="live-video-heading" data-playback-state={record.playback_state}>
+        <div className="live-video-frame" role="status">
+          <span className="live-readonly">PLAYER CONTAINER · FAIL-CLOSED</span>
+          <h4 id="live-video-heading">视频暂不可用</h4>
+          <p>等待授权后才可评估播放能力；当前不会加载媒体。</p>
+          <span className="live-video-state">{record.playback_state}</span>
+        </div>
+      </section>
       <dl className="live-detail-grid">
         <div><dt>主讲人</dt><dd>{record.speaker}</dd></div>
         <div><dt>适用范围</dt><dd>{record.applicable_scope}</dd></div>

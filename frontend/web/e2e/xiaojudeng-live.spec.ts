@@ -21,6 +21,10 @@ test("Xiao Ju Deng homepage card opens the H-LIVE-01 read-only detail", async ({
   await expect(page.getByRole("article")).toContainText("回看");
   await expect(page.getByRole("article")).toContainText("LOCKED · 不可用");
   await expect(page.getByRole("button", { name: /收藏|回看/ })).toHaveCount(0);
+  await expect(page.getByText("视频暂不可用")).toBeVisible();
+  await expect(page.getByText("WAITING_AUTHORIZATION")).toBeVisible();
+  await expect(page.locator("video")).toHaveCount(0);
+  await expect(page.locator("[data-playback-url]")).toHaveCount(0);
   await expect(page.getByRole("article")).not.toContainText("token");
   await expect(page.getByRole("article")).not.toContainText("预约");
 

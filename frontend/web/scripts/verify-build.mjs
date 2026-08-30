@@ -36,6 +36,8 @@ if (
   !bundle.includes("fixture_only") ||
   !bundle.includes("DEV_ONLY") ||
   !bundle.includes("LOCKED") ||
+  !bundle.includes("WAITING_AUTHORIZATION") ||
+  !bundle.includes("视频暂不可用") ||
   !bundle.includes("按家庭问题寻找") ||
   !bundle.includes("直播中") ||
   !bundle.includes("已结束 / 回看受限")
@@ -72,9 +74,11 @@ if (
   !catalogSource.includes('expiry_state: "UNEXPIRED"') ||
   !catalogSource.includes('audience_scope: "FAMILY"') ||
   !catalogSource.includes('favorite: "LOCKED"') ||
-  !catalogSource.includes('replay: "LOCKED"')
+  !catalogSource.includes('replay: "LOCKED"') ||
+  !catalogSource.includes('playback_state: "WAITING_AUTHORIZATION"')
 ) {
   fail("artifact source map does not retain sandbox-only fixture provenance");
 }
 
 console.log(`build audit: PASS (${relativeScriptPath}; sandbox fixture explicit; DEV:false resolves HTTP; fake guarded)`);
+console.log("preview: pnpm run preview -- --host 127.0.0.1 -> http://127.0.0.1:4173/");

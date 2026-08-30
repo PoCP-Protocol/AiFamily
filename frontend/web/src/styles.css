@@ -106,6 +106,11 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .live-discovery-card h3 { color: #7c2d12; font-size: 1.2rem; margin: 16px 0 7px; }
 .live-card-speaker { color: #7c2d12; font-size: 0.9rem; margin: 0; }
 .live-card-summary-copy { color: #7c2d12; font-size: 0.88rem; line-height: 1.55; margin: 12px 0 0; max-width: 760px; }
+.live-video-container { background: #2a160e; border: 1px solid #9a3412; border-radius: 18px; margin: 18px auto 22px; max-width: 1240px; overflow: hidden; }
+.live-video-frame { align-items: center; aspect-ratio: 16 / 9; color: #ffedd5; display: grid; gap: 8px; justify-items: center; padding: 28px; text-align: center; }
+.live-video-frame h4 { color: #fff7ed; font-size: 1.2rem; margin: 0; }
+.live-video-frame p { color: #fed7aa; font-size: 0.86rem; margin: 0; }
+.live-video-state { border: 1px solid #fb923c; border-radius: 999px; color: #fed7aa; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.72rem; padding: 5px 8px; }
 .live-card-summary, .live-detail-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 20px 0; }
 .live-card-summary dt, .live-detail-grid dt { color: #9a3412; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; }
 .live-card-summary dd, .live-detail-grid dd { color: #431407; font-size: 0.86rem; margin: 4px 0 0; overflow-wrap: anywhere; }

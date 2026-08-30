@@ -28,6 +28,9 @@ describe("Xiao Ju Deng read-only live UI", () => {
     expect(screen.getByText("APPROVED")).toBeInTheDocument();
     expect(screen.getByText("UNEXPIRED")).toBeInTheDocument();
     expect(screen.getByText("FAMILY")).toBeInTheDocument();
+    expect(screen.getByText("视频暂不可用")).toBeInTheDocument();
+    expect(screen.getByText("等待授权后才可评估播放能力；当前不会加载媒体。")).toBeInTheDocument();
+    expect(screen.getByText("WAITING_AUTHORIZATION")).toBeInTheDocument();
     expect(screen.getAllByText("LOCKED · 不可用")).toHaveLength(2);
     expect(screen.queryByRole("button", { name: /收藏|回看/ })).not.toBeInTheDocument();
     expect(screen.getByRole("article")).toHaveTextContent("family-private");
@@ -35,6 +38,7 @@ describe("Xiao Ju Deng read-only live UI", () => {
     expect(XIAO_JU_DENG_FIXTURE.source).toBe("SANDBOX_SYNTHETIC");
     expect(XIAO_JU_DENG_FIXTURE.fixture_only).toBe(true);
     expect(XIAO_JU_DENG_FIXTURE.capabilities).toEqual({ favorite: "LOCKED", replay: "LOCKED" });
+    expect(XIAO_JU_DENG_FIXTURE.playback_state).toBe("WAITING_AUTHORIZATION");
   });
 
   it("keeps production fixture access fail-closed", () => {
@@ -78,5 +82,7 @@ describe("Xiao Ju Deng read-only live UI", () => {
     for (const prohibited of ["room", "token", "画像", "排序", "分数", "购买", "预约", "观看"]) {
       expect(text).not.toContain(prohibited);
     }
+    expect(container.querySelector("video")).toBeNull();
+    expect(container.querySelector("[src]")).toBeNull();
   });
 });

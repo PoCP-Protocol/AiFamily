@@ -37,6 +37,7 @@ export type LiveRecord = {
     favorite: "LOCKED";
     replay: "LOCKED";
   };
+  playback_state: "WAITING_AUTHORIZATION";
   section: LiveSectionKey;
   as_of: string;
   source: "SANDBOX_SYNTHETIC" | "BACKEND";
@@ -69,6 +70,7 @@ export const XIAO_JU_DENG_FIXTURE: LiveRecord = {
     favorite: "LOCKED",
     replay: "LOCKED",
   },
+  playback_state: "WAITING_AUTHORIZATION",
   section: "upcoming",
   as_of: "2026-08-30T18:00:00+08:00",
   source: "SANDBOX_SYNTHETIC",
@@ -93,6 +95,7 @@ export const XIAO_JU_DENG_ENDED_FIXTURE: LiveRecord = {
     favorite: "LOCKED",
     replay: "LOCKED",
   },
+  playback_state: "WAITING_AUTHORIZATION",
   section: "ended",
   as_of: "2026-08-30T18:00:00+08:00",
   source: "SANDBOX_SYNTHETIC",
