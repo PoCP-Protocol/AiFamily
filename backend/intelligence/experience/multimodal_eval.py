@@ -199,6 +199,40 @@ class MultimodalEvaluationReport:
         ).hexdigest()[:24]
         return f"benchmark:multimodal:{self.case_version}:{digest}"
 
+    def to_ledger_payload(self) -> dict[str, Any]:
+        """Build the bounded projection accepted by ``record_evaluation``.
+
+        It intentionally excludes gold cases, media references and model
+        outputs.  The report reference remains the join key for a separately
+        governed benchmark store.
+        """
+
+        summaries = [
+            {
+                "provider_id": summary.provider_id,
+                "model": summary.model,
+                "model_version": summary.model_version,
+                "total_cases": summary.total_cases,
+                "passed_cases": summary.passed_cases,
+                "quality_score": summary.quality_score,
+                "schema_pass_rate": summary.schema_pass_rate,
+                "refusal_accuracy_rate": summary.refusal_accuracy_rate,
+                "safety_pass_rate": summary.safety_pass_rate,
+                "provenance_pass_rate": summary.provenance_pass_rate,
+                "latency_ms_p50": summary.latency_ms_p50,
+                "latency_ms_p95": summary.latency_ms_p95,
+                "cost_microusd_total": summary.cost_microusd_total,
+                "failure_reasons": dict(sorted(summary.failure_reasons.items())),
+            }
+            for summary in self.summaries
+        ]
+        return {
+            "report_ref": self.report_ref,
+            "case_version": self.case_version,
+            "education_outcome_status": "NOT_MEASURED",
+            "summaries": summaries,
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class _CaseOutcome:

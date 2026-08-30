@@ -42,6 +42,7 @@ class InteractionType(StrEnum):
     FEEDBACK = "feedback"
     HUMAN_REVIEW = "human_review"
     DELETE = "delete"
+    EVALUATION = "evaluation"
 
 
 DecisionStatus = Literal["pending_human_confirmation", "accepted", "rewrite", "rejected"]
@@ -218,6 +219,17 @@ class ExperienceRunLedger(Protocol):
         interaction_type: InteractionType,
         payload: Mapping[str, Any],
         idempotency_key: str,
+    ) -> InteractionReceipt: ...
+
+    def record_evaluation(
+        self,
+        *,
+        scope: RunScope,
+        run_id: str,
+        report_ref: str,
+        case_version: str,
+        idempotency_key: str,
+        payload: Mapping[str, Any] | None = None,
     ) -> InteractionReceipt: ...
 
     def replay(self, *, scope: RunScope, run_id: str) -> RunReplaySnapshot: ...
@@ -527,6 +539,35 @@ class InMemoryExperienceRunLedger:
             idempotency_key=idempotency_key,
         )
 
+    def record_evaluation(
+        self,
+        *,
+        scope: RunScope,
+        run_id: str,
+        report_ref: str,
+        case_version: str,
+        idempotency_key: str,
+        payload: Mapping[str, Any] | None = None,
+    ) -> InteractionReceipt:
+        """Persist an aggregate evaluation projection beside the run.
+
+        The report itself remains owned by the evaluation subsystem; the Run
+        ledger stores only a bounded, media-free projection and its immutable
+        reference so later feedback can be joined without copying responses.
+        """
+
+        body = dict(payload or {})
+        body["report_ref"] = report_ref
+        body["case_version"] = case_version
+        body.setdefault("education_outcome_status", "NOT_MEASURED")
+        return self.append_interaction(
+            scope=scope,
+            run_id=run_id,
+            interaction_type=InteractionType.EVALUATION,
+            payload=body,
+            idempotency_key=idempotency_key,
+        )
+
     def request_human(
         self,
         *,
@@ -628,6 +669,8 @@ class InMemoryExperienceRunLedger:
             raise RunHttpError("DELETION_STATUS_INVALID")
         if interaction_type is InteractionType.FEEDBACK:
             _validate_feedback_payload(payload)
+        if interaction_type is InteractionType.EVALUATION:
+            _validate_evaluation_payload(payload)
 
 
 def _validate_feedback_payload(payload: Mapping[str, Any]) -> None:
@@ -665,6 +708,34 @@ def _validate_feedback_payload(payload: Mapping[str, Any]) -> None:
         )
     ):
         raise RunHttpError("REAL_EVENT_REFS_INVALID")
+
+
+def _validate_evaluation_payload(payload: Mapping[str, Any]) -> None:
+    """Validate the media-free projection stored with a Durable Run."""
+
+    report_ref = payload.get("report_ref")
+    case_version = payload.get("case_version")
+    if (
+        not isinstance(report_ref, str)
+        or not report_ref.startswith("benchmark:")
+        or len(report_ref) > 256
+        or not report_ref.strip()
+    ):
+        raise RunHttpError("BENCHMARK_REPORT_REF_INVALID")
+    if (
+        not isinstance(case_version, str)
+        or not case_version.strip()
+        or len(case_version) > 128
+    ):
+        raise RunHttpError("EVALUATION_CASE_VERSION_INVALID")
+    if payload.get("education_outcome_status") != "NOT_MEASURED":
+        raise RunHttpError("EDUCATION_OUTCOME_MUST_REMAIN_NOT_MEASURED")
+    summaries = payload.get("summaries")
+    if summaries is not None and (
+        not isinstance(summaries, (list, tuple))
+        or any(not isinstance(summary, Mapping) for summary in summaries)
+    ):
+        raise RunHttpError("EVALUATION_SUMMARIES_INVALID")
 
 
 def _fingerprint(value: Mapping[str, Any]) -> str:

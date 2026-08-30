@@ -76,6 +76,17 @@ class AsyncExperienceRunLedgerPort(Protocol):
         idempotency_key: str,
     ) -> InteractionReceipt: ...
 
+    async def record_evaluation(
+        self,
+        *,
+        scope: RunScope,
+        run_id: str,
+        report_ref: str,
+        case_version: str,
+        idempotency_key: str,
+        payload: Mapping[str, Any] | None = None,
+    ) -> InteractionReceipt: ...
+
     async def replay(self, *, scope: RunScope, run_id: str) -> RunReplaySnapshot: ...
 
 
@@ -256,6 +267,9 @@ class AsyncExperienceRunLedgerBridge:
             run_id = kwargs["run_id"]
             self._responses.pop((scope.key, run_id), None)
         return receipt
+
+    async def record_evaluation(self, **kwargs: Any) -> InteractionReceipt:
+        return await dispatch_ledger_call(self._ledger, "record_evaluation", **kwargs)
 
     async def replay(self, *, scope: RunScope, run_id: str) -> RunReplaySnapshot:
         return await self._ledger.replay(scope=scope, run_id=run_id)

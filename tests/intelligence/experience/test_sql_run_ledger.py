@@ -156,6 +156,31 @@ async def test_sql_feedback_references_use_the_shared_evaluation_contract(sessio
 
 
 @pytest.mark.asyncio
+async def test_sql_evaluation_projection_replays_after_a_new_session(session_factory) -> None:
+    async with session_factory() as writer:
+        await _create(writer)
+        report_ledger = SessionPerCallExperienceRunLedger(session_factory)
+        receipt = await report_ledger.record_evaluation(
+            scope=_scope(),
+            run_id="run-sql-1",
+            report_ref="benchmark:multimodal:gold.v1:abc123",
+            case_version="gold.v1",
+            idempotency_key="evaluation-sql-1",
+            payload={
+                "summaries": [{"provider_id": "qwen", "quality_score": 0.9}],
+            },
+        )
+        assert receipt.status == "recorded"
+
+    async with session_factory() as reader:
+        snapshot = await SqlAlchemyExperienceRunLedger(reader).replay(
+            scope=_scope(), run_id="run-sql-1"
+        )
+    assert snapshot.entries[-1].interaction_type is InteractionType.EVALUATION
+    assert snapshot.entries[-1].payload["education_outcome_status"] == "NOT_MEASURED"
+
+
+@pytest.mark.asyncio
 async def test_sql_ledger_scope_and_idempotency_conflicts_fail_closed(session_factory) -> None:
     async with session_factory() as session:
         await _create(session)

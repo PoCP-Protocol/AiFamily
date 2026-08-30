@@ -253,6 +253,34 @@ def test_feedback_evaluation_references_are_namespaced_and_scope_safe() -> None:
         )
 
 
+def test_evaluation_projection_is_append_only_and_never_an_education_outcome() -> None:
+    ledger = _ledger()
+    _create(ledger)
+
+    receipt = ledger.record_evaluation(
+        scope=_scope(),
+        run_id="run-1",
+        report_ref="benchmark:multimodal:gold.v1:abc123",
+        case_version="gold.v1",
+        idempotency_key="evaluation-1",
+        payload={
+            "summaries": [{"provider_id": "qwen", "quality_score": 0.9}],
+        },
+    )
+    assert receipt.interaction.interaction_type is InteractionType.EVALUATION
+    assert receipt.interaction.payload["education_outcome_status"] == "NOT_MEASURED"
+
+    with pytest.raises(RunHttpError, match="EDUCATION_OUTCOME_MUST_REMAIN_NOT_MEASURED"):
+        ledger.record_evaluation(
+            scope=_scope(),
+            run_id="run-1",
+            report_ref="benchmark:multimodal:gold.v1:other",
+            case_version="gold.v1",
+            idempotency_key="evaluation-2",
+            payload={"education_outcome_status": "MEASURED"},
+        )
+
+
 def test_delete_hides_draft_and_artifacts_and_blocks_new_mutations() -> None:
     ledger = _ledger()
     _create(ledger)

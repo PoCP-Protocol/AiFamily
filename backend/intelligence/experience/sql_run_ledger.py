@@ -44,6 +44,7 @@ from backend.intelligence.experience.run_http import (
     _assert_draft_payload,
     _assert_safe_mapping,
     _fingerprint,
+    _validate_evaluation_payload,
     _validate_feedback_payload,
 )
 from backend.intelligence.experience.run_http import (
@@ -104,6 +105,17 @@ class AsyncExperienceRunLedger(Protocol):
         interaction_type: InteractionType,
         payload: Mapping[str, Any],
         idempotency_key: str,
+    ) -> InteractionReceipt: ...
+
+    async def record_evaluation(
+        self,
+        *,
+        scope: HttpRunScope,
+        run_id: str,
+        report_ref: str,
+        case_version: str,
+        idempotency_key: str,
+        payload: Mapping[str, Any] | None = None,
     ) -> InteractionReceipt: ...
 
     async def replay(self, *, scope: HttpRunScope, run_id: str) -> RunReplaySnapshot: ...
@@ -541,6 +553,30 @@ class SqlAlchemyExperienceRunLedger:
         )
         return receipt
 
+    async def record_evaluation(
+        self,
+        *,
+        scope: HttpRunScope,
+        run_id: str,
+        report_ref: str,
+        case_version: str,
+        idempotency_key: str,
+        payload: Mapping[str, Any] | None = None,
+    ) -> InteractionReceipt:
+        """Persist a bounded, media-free evaluation projection beside a run."""
+
+        body = dict(payload or {})
+        body["report_ref"] = report_ref
+        body["case_version"] = case_version
+        body.setdefault("education_outcome_status", "NOT_MEASURED")
+        return await self.append_interaction(
+            scope=scope,
+            run_id=run_id,
+            interaction_type=InteractionType.EVALUATION,
+            payload=body,
+            idempotency_key=idempotency_key,
+        )
+
     async def replay(self, *, scope: HttpRunScope, run_id: str) -> RunReplaySnapshot:
         self._assert_scope(scope)
         row = await self._session.get(
@@ -720,6 +756,8 @@ class SqlAlchemyExperienceRunLedger:
             raise RunHttpError("DELETION_STATUS_INVALID")
         if interaction_type is InteractionType.FEEDBACK:
             _validate_feedback_payload(payload)
+        if interaction_type is InteractionType.EVALUATION:
+            _validate_evaluation_payload(payload)
 
 
 class CommittedExperienceRunLedger:
@@ -773,6 +811,11 @@ class CommittedExperienceRunLedger:
         await self._commit()
         return result
 
+    async def record_evaluation(self, **kwargs: Any) -> InteractionReceipt:
+        result = await self._ledger.record_evaluation(**kwargs)
+        await self._commit()
+        return result
+
     async def replay(self, **kwargs: Any) -> RunReplaySnapshot:
         return await self._ledger.replay(**kwargs)
 
@@ -811,6 +854,9 @@ class SessionPerCallExperienceRunLedger:
 
     async def append_interaction(self, **kwargs: Any) -> InteractionReceipt:
         return await self._run(lambda ledger: ledger.append_interaction(**kwargs))
+
+    async def record_evaluation(self, **kwargs: Any) -> InteractionReceipt:
+        return await self._run(lambda ledger: ledger.record_evaluation(**kwargs))
 
     async def replay(self, **kwargs: Any) -> RunReplaySnapshot:
         async with self._session_factory() as session:
