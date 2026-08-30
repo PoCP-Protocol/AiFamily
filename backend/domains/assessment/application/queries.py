@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ..domain.errors import AssessmentForbiddenError
 from ..domain.value_objects import Ui02AssessmentAvailability
 from .ports import AssessmentInterpretationPort, AssessmentRepositoryPort
 
@@ -19,6 +20,13 @@ class GetUi02ProjectionQuery:
 
 @dataclass(frozen=True)
 class GetUi03ProjectionQuery:
+    family_id: str
+    tenant_id: str
+    actor_id: str
+
+
+@dataclass(frozen=True)
+class GetAssessmentResultProjectionQuery:
     family_id: str
     tenant_id: str
     actor_id: str
@@ -96,6 +104,54 @@ class AssessmentQueryHandler:
             query.tenant_id, query.family_id, "READY", hypothesis, ai_state="MODEL_DRAFT_READY"
         )
 
+    async def get_assessment_result_projection(
+        self, query: GetAssessmentResultProjectionQuery
+    ) -> dict:
+        """Return the latest submitted assessment as a family-scoped read model.
+
+        The result is derived from the submitted session and its evidence
+        lineage. It does not create a second ``FamilyNeed``/``Consent`` object,
+        write a canonical Fact, or calculate a family score. Consent is checked
+        again at read time so withdrawal cannot leave a stale result visible.
+        """
+        await self._repository.assert_tenant_family_scope(
+            query.tenant_id, query.family_id, query.actor_id
+        )
+        if not await self._repository.tenant_allows_page(query.tenant_id, "UI-02"):
+            return _assessment_result_projection(
+                query.tenant_id, query.family_id, "POLICY_BLOCKED", None
+            )
+
+        evidence = await self._repository.load_hypothesis_evidence(
+            query.family_id, query.tenant_id
+        )
+        if evidence is None:
+            return _assessment_result_projection(
+                query.tenant_id, query.family_id, "NO_RESULT", None
+            )
+
+        try:
+            await self._repository.assert_subject_consent(
+                query.family_id, evidence.subject_person_id, "ASSESSMENT"
+            )
+        except AssessmentForbiddenError:
+            # The repository port exposes the domain error rather than a
+            # boolean, preserving fail-closed behavior without leaking the
+            # submitted result after consent withdrawal.
+            return _assessment_result_projection(
+                query.tenant_id, query.family_id, "CONSENT_REQUIRED", None
+            )
+
+        interpretation = await self._interpretation.interpret(
+            query.family_id, evidence, "ASSESSMENT_RESULT_EXPLANATION"
+        )
+        return _assessment_result_projection(
+            query.tenant_id,
+            query.family_id,
+            "READY",
+            _map_assessment_result(evidence, interpretation),
+        )
+
 
 def _ui03_projection(
     tenant_id: str,
@@ -167,5 +223,85 @@ def _map_hypothesis(evidence, interpretation: dict) -> dict:
             candidate["action_ref"] for candidate in draft.get("action_candidates", [])
         ],
         "fact_boundary": "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS",
-        "scorecard": interpretation.get("scorecard"),
+    }
+
+
+def _assessment_result_projection(
+    tenant_id: str, family_id: str, status: str, result: dict | None
+) -> dict:
+    return {
+        "projection_version": "ASSESSMENT_RESULT_V1",
+        "tenant_id": tenant_id,
+        "family_id": family_id,
+        "status": status,
+        "result": result,
+    }
+
+
+def _map_assessment_result(evidence, interpretation: dict) -> dict:
+    """Map submitted evidence into a bounded, explainable result projection."""
+    draft = interpretation.get("interpretation", {}).get("draft", {})
+    source_refs = [
+        evidence.assessment_evidence_id,
+        evidence.assessment_session_id,
+        evidence.assessment_response_id,
+    ]
+    recommendations = [
+        {
+            "text": evidence.description,
+            "source": "DETERMINISTIC_TEST_BASELINE",
+            "status": "DRAFT",
+        }
+    ]
+    return {
+        "result_id": f"ASSESSMENT_RESULT:{evidence.assessment_session_id}",
+        "subject": {
+            "person_id": evidence.subject_person_id,
+            "display_name": evidence.subject_display_name,
+        },
+        "focus_ref": evidence.focus_ref,
+        "family_need_ref": evidence.need_type_ref,
+        "title": evidence.title,
+        "explanation": {
+            "headline": f"家庭可以先从“{evidence.title}”开始",
+            "summary": evidence.description,
+            "observations": [
+                {
+                    "item_ref": response["item_ref"],
+                    "response_value": response["response_value"],
+                    "kind": "ASSESSMENT_RESPONSE",
+                }
+                for response in evidence.response_set
+            ],
+            "hypothesis": (
+                "这是基于本次家庭回答整理出的待验证支持方向，"
+                "你可以拒绝它或重新开始一次测评。"
+            ),
+            "recommendations": recommendations,
+        },
+        "evidence_lineage": {
+            "source_refs": source_refs,
+            "tool_ref": evidence.tool_ref,
+            "tool_version": evidence.tool_version,
+            "submitted_at": evidence.submitted_at,
+        },
+        "ai": {
+            "generator": interpretation.get("interpretation", {}).get(
+                "generator", "DETERMINISTIC_TEST_BASELINE"
+            ),
+            "model": None,
+            "model_version": None,
+            "prompt_version": None,
+            "context_snapshot_ref": None,
+            "provenance_refs": source_refs,
+            "model_gateway_status": "NOT_INVOKED",
+            "may_mutate_business_state": False,
+        },
+        "boundary": "FAMILY_PERSPECTIVE_NOT_SCORE_OR_DIAGNOSIS",
+        "draft_metadata": {
+            "boundary_labels": draft.get(
+                "boundary_labels", ["hypothesis_not_fact", "recommendation_not_decision"]
+            ),
+            "review_required": False,
+        },
     }

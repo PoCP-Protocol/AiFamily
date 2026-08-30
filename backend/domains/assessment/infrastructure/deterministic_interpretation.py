@@ -139,5 +139,4 @@ class DeterministicInterpretationAdapter(AssessmentInterpretationPort):
                 "assessment_ref": evidence.assessment_session_id,
                 "draft": draft,
             },
-            "scorecard": {"generator": "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC"},
         }

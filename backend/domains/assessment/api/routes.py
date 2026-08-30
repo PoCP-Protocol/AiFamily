@@ -41,6 +41,7 @@ from ..application.growth_hypothesis_commands import (
 )
 from ..application.queries import (
     AssessmentQueryHandler,
+    GetAssessmentResultProjectionQuery,
     GetUi02ProjectionQuery,
     GetUi03ProjectionQuery,
 )
@@ -65,6 +66,7 @@ from .requests import (
 )
 from .responses import (
     AssessmentMutationReceiptResponse,
+    AssessmentResultProjectionResponse,
     GrowthHypothesisDecisionReceiptResponse,
     Ui02AssessmentProjectionResponse,
     Ui03GrowthHypothesisProjectionResponse,
@@ -215,6 +217,22 @@ async def get_ui03_projection(
     _assert_path_family(context, family_id)
     return await handler.get_ui03_projection(
         GetUi03ProjectionQuery(family_id, context.tenant_id, context.person_id)
+    )
+
+
+@router.get(
+    "/{family_id}/assessments/results/latest",
+    responses={200: {"model": AssessmentResultProjectionResponse}},
+)
+async def get_latest_assessment_result(
+    family_id: str,
+    context: FamilyContext = Depends(get_family_context),
+    handler: AssessmentQueryHandler = Depends(get_query_handler),
+) -> dict:
+    """Read the latest family-scoped result without creating another object."""
+    _assert_path_family(context, family_id)
+    return await handler.get_assessment_result_projection(
+        GetAssessmentResultProjectionQuery(family_id, context.tenant_id, context.person_id)
     )
 
 

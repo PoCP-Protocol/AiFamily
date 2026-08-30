@@ -24,6 +24,7 @@ from backend.domains.assessment.application.growth_hypothesis_commands import (
 )
 from backend.domains.assessment.application.queries import (
     AssessmentQueryHandler,
+    GetAssessmentResultProjectionQuery,
     GetUi02ProjectionQuery,
     GetUi03ProjectionQuery,
 )
@@ -44,6 +45,16 @@ def _meta(key: str = "idem-1") -> MutationMeta:
     return MutationMeta(correlation_id="corr-1", idempotency_key=key, source="test")
 
 
+def _nested_keys(value: object) -> set[str]:
+    if isinstance(value, dict):
+        return {key for key in value} | {
+            nested_key for nested in value.values() for nested_key in _nested_keys(nested)
+        }
+    if isinstance(value, list):
+        return {nested_key for nested in value for nested_key in _nested_keys(nested)}
+    return set()
+
+
 @pytest.fixture
 def repo() -> FakeAssessmentRepository:
     repository = FakeAssessmentRepository()
@@ -52,7 +63,7 @@ def repo() -> FakeAssessmentRepository:
     child_id = str(uuid.uuid4())
     repository.seed_subject(family_id, child_id, "小明")
     repository.seed_need_type(
-        "COMMUNICATION",
+        "PARENT_CHILD_COMMUNICATION",
         "NEED_PARENT_CHILD_COMMUNICATION",
         "亲子沟通支持",
         "先从倾听开始",
@@ -139,7 +150,7 @@ class TestAssessmentSessionLifecycle:
                 session_id,
                 "FOCUS",
                 "SINGLE_CHOICE",
-                "COMMUNICATION",
+                "PARENT_CHILD_COMMUNICATION",
                 _meta("s2"),
             )
         )
@@ -166,7 +177,7 @@ class TestAssessmentSessionLifecycle:
                 session_id,
                 "FOCUS",
                 "SINGLE_CHOICE",
-                "COMMUNICATION",
+                "PARENT_CHILD_COMMUNICATION",
                 _meta("c2"),
             )
         )
@@ -200,6 +211,25 @@ class TestAssessmentSessionLifecycle:
             )
         assert exc.value.code == "assessment_choice_not_in_tool_version"
 
+    async def test_submit_requires_the_minimal_guardian_focus_answer(self, repo, command_handler):
+        family_id, child_id = repo._test_family_id, repo._test_child_id
+        start = await command_handler.start(
+            StartAssessmentCommand(family_id, TENANT_ID, "actor-1", child_id, None, _meta("m1"))
+        )
+
+        with pytest.raises(AssessmentValidationError) as exc:
+            await command_handler.submit(
+                SubmitAssessmentCommand(
+                    family_id,
+                    TENANT_ID,
+                    "actor-1",
+                    start["session"]["assessment_session_id"],
+                    _meta("m2"),
+                )
+            )
+
+        assert exc.value.code == "required_assessment_responses_missing:FOCUS"
+
 
 class TestUi02Projection:
     async def test_projection_shows_available_when_consent_granted(self, repo, query_handler):
@@ -227,7 +257,7 @@ class TestGrowthHypothesisFlow:
                 session_id,
                 "FOCUS",
                 "SINGLE_CHOICE",
-                "COMMUNICATION",
+                "PARENT_CHILD_COMMUNICATION",
                 _meta("h2"),
             )
         )
@@ -325,6 +355,46 @@ class TestGrowthHypothesisFlow:
                 )
             )
         assert exc.value.code == "growth_hypothesis_reference_mismatch"
+
+    async def test_result_projection_is_family_scoped_and_has_no_score_shape(
+        self, repo, command_handler, query_handler
+    ):
+        await self._submit_full_session(repo, command_handler)
+        projection = await query_handler.get_assessment_result_projection(
+            GetAssessmentResultProjectionQuery(repo._test_family_id, TENANT_ID, "actor-1")
+        )
+
+        assert projection["projection_version"] == "ASSESSMENT_RESULT_V1"
+        assert projection["status"] == "READY"
+        assert projection["family_id"] == repo._test_family_id
+        assert projection["result"]["family_need_ref"] == "NEED_PARENT_CHILD_COMMUNICATION"
+        assert projection["result"]["ai"]["may_mutate_business_state"] is False
+        assert projection["result"]["ai"]["model_gateway_status"] == "NOT_INVOKED"
+        result_keys = {key.lower() for key in _nested_keys(projection["result"])}
+        assert "score" not in result_keys
+        assert "ranking" not in result_keys
+
+    async def test_result_projection_hides_submitted_content_after_consent_withdrawal(
+        self, repo, command_handler, query_handler
+    ):
+        await self._submit_full_session(repo, command_handler)
+        family_id, child_id = repo._test_family_id, repo._test_child_id
+        repo.consents.remove((family_id, child_id, "ASSESSMENT"))
+
+        projection = await query_handler.get_assessment_result_projection(
+            GetAssessmentResultProjectionQuery(family_id, TENANT_ID, "actor-1")
+        )
+
+        assert projection["status"] == "CONSENT_REQUIRED"
+        assert projection["result"] is None
+
+    async def test_result_projection_is_empty_before_submission(self, repo, query_handler):
+        projection = await query_handler.get_assessment_result_projection(
+            GetAssessmentResultProjectionQuery(repo._test_family_id, TENANT_ID, "actor-1")
+        )
+
+        assert projection["status"] == "NO_RESULT"
+        assert projection["result"] is None
 
 
 class TestSafetyPolicy:
