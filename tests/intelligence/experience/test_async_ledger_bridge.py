@@ -28,6 +28,24 @@ class AsyncFacade:
         return self.inner.replay(**kwargs)
 
 
+class DurableFacade(AsyncFacade):
+    def __init__(self) -> None:
+        super().__init__()
+        self.lifecycle_calls: list[str] = []
+
+    async def preflight_create(self, **kwargs: Any):
+        self.lifecycle_calls.append("preflight")
+        return self.inner.preflight_create(**kwargs)
+
+    async def finalize_create(self, reservation, **kwargs: Any):
+        self.lifecycle_calls.append("finalize")
+        return self.inner.finalize_create(reservation, **kwargs)
+
+    async def release_create(self, reservation) -> None:
+        self.lifecycle_calls.append("release")
+        self.inner.release_create(reservation)
+
+
 def scope() -> RunScope:
     return RunScope(tenant_id="tenant-1", family_id="family-1", subject_ids=("child-1",))
 
@@ -161,3 +179,32 @@ async def test_async_bridge_scrubs_cached_response_after_delete() -> None:
     )
     assert replay.status == "replay"
     assert replay.response_payload is None
+
+
+@pytest.mark.asyncio
+async def test_async_bridge_delegates_durable_lifecycle_instead_of_local_cache() -> None:
+    facade = DurableFacade()
+    bridge = AsyncExperienceRunLedgerBridge(facade)
+    reservation = await bridge.preflight_create(
+        scope=scope(),
+        run_id="run-durable-bridge",
+        request_ref="request-durable-bridge",
+        request_fingerprint="fp-durable-bridge",
+        idempotency_key="idem-durable-bridge",
+    )
+    await bridge.finalize_create(
+        reservation,
+        draft_payload={"status": "DRAFT", "text": "durable"},
+        response_payload={"run_id": "run-durable-bridge", "status": "DRAFT"},
+    )
+
+    replay = await bridge.preflight_create(
+        scope=scope(),
+        run_id="run-durable-bridge",
+        request_ref="request-durable-bridge",
+        request_fingerprint="fp-durable-bridge",
+        idempotency_key="idem-durable-bridge",
+    )
+    assert replay.status == "replay"
+    assert replay.snapshot is not None
+    assert facade.lifecycle_calls == ["preflight", "finalize", "preflight"]
