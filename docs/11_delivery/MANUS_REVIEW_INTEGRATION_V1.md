@@ -214,6 +214,15 @@ Experience 401/403/CONSENT_REQUIRED 语义；`736ae19` 允许不安全环境在�
 这些仅是独立验收合同，未修改 `dev_wiring.py`/`production_experience_wiring.py`，未证明真实 auth/session/tenant/consent。
 状态 **CONTRACTED/PARTIAL，P0 BLOCKED**；生产仍 NO-GO。
 
+### 3.16 e99d499 B2C 服务垂直切片复核
+
+`e99d499`（`codex/p1-service-vertical-slice`）提供 ServiceOffering→Slot→预约→履约→
+反馈的测试候选：SQLite/HTTP/ORM **59 passed、26 skipped**，HTTP **10 passed、1 skipped**，
+Fresh PostgreSQL **4 passed**，ORM drift **2 passed**，Alembic upgrade→downgrade(0010)→
+upgrade 全通过。该结果仍是 `PARTIAL/候选测试切片`：family_api provenance、Audit flush、
+常驻 worker/DLQ、FGCN bridge、真实身份/租户/同意/删除及 Commerce 冻结边界未闭合；远端
+推送待网络恢复，不能将局部绿测升为生产服务能力。
+
 ## 4. P0/P1/P2 执行清单
 
 验收证据必须是可复现命令输出、实际文件或 Fresh Postgres 结果；设计文档、synthetic adapter、单元测试通过只能标记契约阶段。

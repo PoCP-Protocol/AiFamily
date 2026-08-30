@@ -451,3 +451,12 @@ PostgreSQL WORM 场景，另有 Onboarding **35 passed、11 skipped**。这只�
 主动欢迎、SLA/补救/回访、可信分享/组队、机构运营、发布与事故闭环均未实现。必须指派
 运营 owner，补真实 PG WORM、HTTP/权限/租户、审计/删除、通知 worker 和三环境 parity，
 再将每个场景拆为 L4/L5 输入—活动—输出—规则—异常验收；在此之前不进入生产候选。
+
+### 18.3 P1 B2C 服务垂直切片（2026-08-30）
+
+`e99d499`（分支 `codex/p1-service-vertical-slice`）完成 ServiceOffering→Slot→预约→
+履约→反馈的测试候选切片：SQLite/HTTP/ORM **59 passed、26 skipped**，HTTP **10 passed、
+1 skipped**，Fresh PostgreSQL **4 passed**，ORM drift **2 passed**，Alembic
+upgrade→downgrade(0010)→upgrade 全通过。状态为 `PARTIAL/候选测试切片`；family_api provenance、
+Audit flush、常驻 worker/DLQ、FGCN bridge、真实身份/租户/同意/删除和 Commerce 冻结边界仍未
+闭合。远端推送待网络恢复，未将该切片升为生产能力。
