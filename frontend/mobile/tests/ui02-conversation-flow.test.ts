@@ -68,7 +68,7 @@ describe("UI-02/UI-03 conversation scenario", () => {
     expect(ui03).toContain("我们听到的家庭关注");
     expect(ui03).toContain("关键机制 · 可探索方向");
     expect(ui03).toContain("还不确定的地方");
-    expect(ui03).toContain("方案的第一阶段");
+    expect(ui03).toContain("进入 21 天计划");
     expect(ui03).toContain("返回修改");
     expect(ui03).toContain("重新开始测评");
     expect(ui03).toContain("assessment-result-feedback");
@@ -77,7 +77,7 @@ describe("UI-02/UI-03 conversation scenario", () => {
     expect(ui03).toContain("补充");
     expect(ui03).toContain("assessment-feedback-input");
     expect(ui03).toContain("assessment-feedback-submit");
-    expect(ui03).toContain("开始方案的第一阶段");
+    expect(ui03).not.toContain("assessment-start-small-step");
     expect(ui03).toContain("先保存，明天再看");
     expect(ui03).toContain("测评授权已撤回");
     expect(ui03).toContain("暂时无法读取这次整理");
@@ -104,7 +104,7 @@ describe("UI-02/UI-03 conversation scenario", () => {
   it("consumes the canonical support-card loop and keeps recovery bounded", () => {
     expect(ui03).not.toContain("recordDevFlowEvent");
     expect(ui03).toContain("submitAssessmentSupportCardFeedback");
-    expect(ui03).toContain("startAssessmentSupportCardSmallStep");
+    expect(ui03).not.toContain("startAssessmentSupportCardSmallStep");
     expect(ui03).toContain("recordAssessmentSupportCardCheckin");
     expect(ui03).toContain("getLatestAssessmentSupportCard");
     expect(ui03).toContain("FEEDBACK_REFINES_PERSPECTIVE_NOT_FACT");
@@ -113,12 +113,12 @@ describe("UI-02/UI-03 conversation scenario", () => {
     expect(ui03).toContain("FAMILY_FEEDBACK_NOT_OUTCOME_PROOF");
     expect(ui03).toContain("keyFor(");
     expect(ui03).toContain("暂时无法保存反馈，请稍后重试");
-    expect(ui03).toContain("不会自动触发其他行动");
+    expect(ui03).toContain("不会自动创建行动");
     expect(ui03).toContain("const saveForLater");
     expect(ui03).toContain("assessment-next-day-checkin");
     expect(ui03).toContain("阶段复盘");
     expect(ui03).toContain("反馈还没有放入家庭空间");
-    expect(ui03).toContain("第一阶段已为你展开");
+    expect(ui03).toContain("确认这份理解后，再一起走过三个家庭机制阶段");
     expect(ui03).toContain("assessment-result-profile");
     expect(ui03).toContain("assessment-result-knowledge");
   });

@@ -152,6 +152,7 @@ export default function GrowthExplanationScreen() {
   >("idle");
   const [supportRetryNonce, setSupportRetryNonce] = useState(0);
   const [showDetails, setShowDetails] = useState(false);
+  const [showObservationLayer, setShowObservationLayer] = useState(false);
   const [perspectiveFeedback, setPerspectiveFeedback] = useState<
     "LIKE" | "NOT_LIKE" | "ADD_CONTEXT" | null
   >(null);
@@ -159,9 +160,7 @@ export default function GrowthExplanationScreen() {
   const [feedbackState, setFeedbackState] = useState<
     "idle" | "saving" | "saved" | "retry"
   >("idle");
-  const [smallStepState, setSmallStepState] = useState<
-    "idle" | "saving" | "saved" | "retry"
-  >("idle");
+  const [saveState, setSaveState] = useState<"idle" | "saved">("idle");
   const [checkinOutcome, setCheckinOutcome] = useState<
     "HELPED" | "NO_CHANGE" | "NOT_TRIED" | null
   >(null);
@@ -206,27 +205,27 @@ export default function GrowthExplanationScreen() {
         basis: "本次家庭回答",
         status: "DRAFT" as const,
       }];
-  const planPhases = result?.growth_plan?.phases ?? [
+  const planPhases = [
     {
-      phase_ref: "OBSERVE_7D",
-      title: "看见循环",
+      phase_ref: "RELATION_MECHANISM_7D",
+      title: "关系机制",
       duration_days: 7,
       prompt: firstRecommendation,
     },
     {
-      phase_ref: "PRACTICE_21D",
-      title: "共同练习",
-      duration_days: 21,
-      prompt: "把有效的回应和家庭约定固定下来，让孩子也参与调整。",
+      phase_ref: "COMMON_DECISION_7D",
+      title: "共同决策",
+      duration_days: 7,
+      prompt: "把一个回应方式说清楚，和孩子一起决定什么时候、怎么试。",
     },
     {
-      phase_ref: "REVIEW_90D",
-      title: "形成节奏",
-      duration_days: 90,
-      prompt: "每周回看一次：什么让关系更顺，什么需要换一种方法。",
+      phase_ref: "CONFLICT_REPAIR_7D",
+      title: "冲突修复",
+      duration_days: 7,
+      prompt: "回看一次冲突如何被修复，再一起调整下一次的家庭约定。",
     },
   ];
-  const planGoal = result?.growth_plan?.goal ?? `让「${displayedKnowledge?.title ?? result?.title ?? "家庭互动"}」回到家庭可以共同参与、共同调整的日常里。`;
+  const planGoal = `让「${displayedKnowledge?.title ?? result?.title ?? "家庭互动"}」回到家庭可以共同参与、共同调整的日常里。`;
 
   const [interpretationDecision, setInterpretationDecision] = useState<
     "idle" | "saving" | "confirmed" | "dismissed" | "retry"
@@ -305,37 +304,8 @@ export default function GrowthExplanationScreen() {
     submitPerspectiveFeedback("ADD_CONTEXT");
   };
 
-  const startSmallStep = () => {
-    if (!connected) {
-      setSmallStepState("saving");
-      setSmallStepState("saved");
-      return;
-    }
-    if (!assessmentSessionId) {
-      setSmallStepState("retry");
-      return;
-    }
-    setSmallStepState("saving");
-    void familyApi
-      .startAssessmentSupportCardSmallStep(
-        session.token!,
-        session.selectedFamily!.family_id,
-        { assessment_session_id: assessmentSessionId, action_ref: "TRY_TONIGHT" },
-        keyFor(`support-small-step:${assessmentSessionId}:TRY_TONIGHT`),
-      )
-      .then(() => {
-        setSmallStepState("saved");
-        setSupportRetryNonce((value) => value + 1);
-      })
-      .catch(() => setSmallStepState("retry"));
-  };
-
   const saveForLater = () => {
-    if (connected) {
-      setSmallStepState("retry");
-      return;
-    }
-    setSmallStepState("saved");
+    setSaveState("saved");
   };
 
   const submitCheckin = (outcome: "HELPED" | "NO_CHANGE" | "NOT_TRIED") => {
@@ -425,7 +395,6 @@ export default function GrowthExplanationScreen() {
         setSupportRemote(support);
         setSupportState("ready");
         setFeedbackState(support.latest_feedback ? "saved" : "idle");
-        setSmallStepState(support.small_step ? "saved" : "idle");
         if (support.latest_checkin) {
           setCheckinOutcome(support.latest_checkin.outcome);
           setCheckinNote(support.latest_checkin.note ?? "");
@@ -547,7 +516,7 @@ export default function GrowthExplanationScreen() {
                 { backgroundColor: colors.surface, borderColor: colors.border },
               ]}
             >
-              <Text style={styles.sectionLabel}>我们听到的家庭关注</Text>
+              <Text style={styles.sectionLabel}>家庭理解卡 · 我们听到的家庭关注</Text>
               <Text style={[styles.cardTitle, { color: colors.text }]}>
                 {assessmentNeedText.trim() || result.explanation.headline}
               </Text>
@@ -557,21 +526,12 @@ export default function GrowthExplanationScreen() {
               <Text style={[styles.boundaryText, { color: colors.muted }]}>
                 这是一段家庭视角的整理，不是给孩子下结论。
               </Text>
-            </View>
-
-            <View testID="assessment-result-profile" style={styles.profileSection}>
-              <View style={styles.sectionHeadingRow}>
-                <View style={styles.sectionHeadingCopy}>
-                  <Text style={styles.sectionLabel}>家庭观察画像</Text>
-                  <Text style={[styles.sectionTitle, { color: colors.text }]}>五个方向，组成一张家庭地图</Text>
-                </View>
-                <Text style={styles.sectionMeta}>本次回答</Text>
-              </View>
-              <AssessmentDimensionRadar profiles={dimensionProfiles} />
-              <AssessmentDimensionList
-                profiles={dimensionProfiles}
-                activeFocus={assessmentFocus}
-              />
+              <Text style={styles.narrativeLabel}>依据</Text>
+              <Text style={[styles.cardText, { color: colors.muted }]}>本次整理只使用本次测评的回答和已标注的知识参考。</Text>
+              <Text style={styles.narrativeLabel}>可能的方向</Text>
+              <Text style={[styles.cardText, { color: colors.muted }]}>以下是可继续验证的理解草案，不是诊断或事实结论。</Text>
+              <Text style={styles.narrativeLabel}>还未知</Text>
+              <Text style={[styles.cardText, { color: colors.muted }]}>还需要把这份理解带回几次真实家庭时刻，才能知道哪些贴近你们家。</Text>
             </View>
 
             <View
@@ -707,6 +667,33 @@ export default function GrowthExplanationScreen() {
               </Text>
             </View>
 
+            <View testID="assessment-result-profile" style={styles.profileSection}>
+              <View style={styles.sectionHeadingRow}>
+                <View style={styles.sectionHeadingCopy}>
+                  <Text style={styles.sectionLabel}>观察层与复盘 · 家庭观察画像</Text>
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>五个方向，组成一张家庭地图</Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  testID="assessment-observation-toggle"
+                  onPress={() => setShowObservationLayer((value) => !value)}
+                  style={styles.editButton}
+                >
+                  <Text style={[styles.editButtonText, { color: colors.tint }]}>{showObservationLayer ? "收起" : "查看"}</Text>
+                </Pressable>
+              </View>
+              <Text style={[styles.directionHint, { marginTop: 0 }]}>这里只回看本次回答留下的线索，不是分数、排名或对孩子的结论。</Text>
+              {showObservationLayer ? (
+                <View testID="assessment-observation-layer">
+                  <AssessmentDimensionRadar profiles={dimensionProfiles} />
+                  <AssessmentDimensionList
+                    profiles={dimensionProfiles}
+                    activeFocus={assessmentFocus}
+                  />
+                </View>
+              ) : null}
+            </View>
+
             <View testID="assessment-result-next-step" style={styles.planCard}>
               <View style={styles.sectionHeadingRow}>
                 <View style={styles.sectionHeadingCopy}>
@@ -719,7 +706,7 @@ export default function GrowthExplanationScreen() {
               <View style={styles.planTimeline}>
                 {planPhases.map((phase, index) => (
                   <View key={phase.phase_ref} style={styles.planPhase}>
-                    <Text style={styles.planPhaseDay}>{index === 0 ? "前" : "第"} {phase.duration_days === 7 ? "7" : phase.duration_days === 21 ? "8–21" : "22–90"} 天</Text>
+                  <Text style={styles.planPhaseDay}>{index === 0 ? "第 1–7 天" : index === 1 ? "第 8–14 天" : "第 15–21 天"}</Text>
                     <Text style={styles.planPhaseTitle}>{phase.title}</Text>
                     <Text style={styles.planPhaseText}>{phase.prompt}</Text>
                   </View>
@@ -823,42 +810,21 @@ export default function GrowthExplanationScreen() {
             </View>
 
             <View testID="assessment-result-action" style={styles.actionCard}>
-              <Text style={styles.sectionLabel}>把理解带回生活</Text>
-              <Text style={[styles.actionTitle, { color: colors.text }]}>先执行第一阶段，再根据家庭反馈调整</Text>
-              <Pressable
-                testID="assessment-start-small-step"
-                accessibilityRole="button"
-                disabled={smallStepState === "saving" || smallStepState === "saved"}
-                onPress={() => void startSmallStep()}
-                style={({ pressed }) => [
-                  styles.primaryButton,
-                  { backgroundColor: colors.tint },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Text style={styles.primaryButtonText}>
-                  {smallStepState === "saving"
-                    ? connected
-                      ? "正在展开方案的第一阶段…"
-                      : "正在为你展开第一阶段"
-                    : smallStepState === "saved"
-                      ? connected
-                        ? "开始方案的第一阶段"
-                        : "第一阶段已为你展开"
-                      : "开始方案的第一阶段"}
-                </Text>
-              </Pressable>
-              {smallStepState === "saved" ? (
-                <Text style={[styles.actionStatus, { color: colors.muted }]}>
-                  {connected
-                    ? "把今天的实践带回生活，回来告诉我们发生了什么；反馈会帮助你调整方案。"
-                    : "第一阶段已经展开，回来告诉我们真实生活里发生了什么。"}
-                </Text>
-              ) : smallStepState === "retry" ? (
-                <Text style={styles.actionError}>
-                  暂时没保存，请稍后重试；不会自动触发其他行动。
-                </Text>
-              ) : null}
+              <Text style={styles.sectionLabel}>家庭决定 · 进入 21 天计划</Text>
+              <Text style={[styles.actionTitle, { color: colors.text }]}>确认这份理解后，再一起走过三个家庭机制阶段</Text>
+              <Text style={[styles.cardText, { color: colors.muted }]}>关系机制、共同决策、冲突修复都以家庭自己的观察和复盘为依据；不会自动创建行动。</Text>
+              {interpretationDecision === "confirmed" ? (
+                <Pressable
+                  accessibilityRole="button"
+                  testID="assessment-open-journey-plan"
+                  onPress={() => router.push("/ui/UI-04" as Href)}
+                  style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.tint }, pressed && styles.pressed]}
+                >
+                  <Text style={styles.primaryButtonText}>进入 21 天家庭计划</Text>
+                </Pressable>
+              ) : (
+                <Text style={styles.actionError}>请先在上方确认这份理解，确认后才可以进入家庭计划。</Text>
+              )}
               <Pressable
                 testID="assessment-save-for-later"
                 accessibilityRole="button"
@@ -869,6 +835,7 @@ export default function GrowthExplanationScreen() {
                   先保存，明天再看
                 </Text>
               </Pressable>
+              {saveState === "saved" ? <Text style={[styles.actionStatus, { color: colors.muted }]}>已保存当前理解，回来后仍可修改或确认。</Text> : null}
             </View>
 
             {supportState === "error" ? (
@@ -1134,6 +1101,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontSize: 18, lineHeight: 25, fontWeight: "900" },
   cardText: { fontSize: 14, lineHeight: 22 },
+  narrativeLabel: { color: "#2563EB", fontSize: 11, lineHeight: 16, fontWeight: "900", marginTop: 2 },
   boundaryText: { fontSize: 12, lineHeight: 19, marginTop: 2 },
   directionCard: {
     borderRadius: 17,
@@ -1156,6 +1124,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: "700",
   },
+  directionHint: { color: "#5B7091", fontSize: 12, lineHeight: 18 },
   knowledgeCard: {
     borderRadius: 18,
     backgroundColor: "#FFFDF8",

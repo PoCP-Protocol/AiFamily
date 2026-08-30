@@ -34,11 +34,6 @@ export default function FamilyAssessmentResultScreen() {
   } = useFamilyMobile();
   const resultNeed =
     assessmentNeedText.trim() || "你想找到一个更少冲突的开始";
-  const firstStep = resultNeed.includes("作业") || resultNeed.includes("学习")
-    ? "先看见“开始”这一刻发生了什么：给彼此一点缓冲，再一起找出最难的一段。"
-    : resultNeed.includes("手机") || resultNeed.includes("游戏")
-      ? "先把使用边界和停下来的时刻说清楚，再听孩子为什么还想继续。"
-      : "先留出一段不被打断的时间，把这件事听完整，再一起决定怎么往前走。";
   const resultProfiles = buildAssessmentDimensionProfiles(
     Object.entries(assessmentAnswers).map(([item_ref, response_value]) => ({
       item_ref,
@@ -56,9 +51,7 @@ export default function FamilyAssessmentResultScreen() {
   >(null);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [supplementText, setSupplementText] = useState("");
-  const [savedAction, setSavedAction] = useState<"idle" | "started" | "saved">(
-    "idle",
-  );
+  const [showObservationLayer, setShowObservationLayer] = useState(false);
 
   useEffect(() => {
     if (assessmentSyncState === "synced") {
@@ -97,24 +90,19 @@ export default function FamilyAssessmentResultScreen() {
             { backgroundColor: colors.surface, borderColor: colors.border },
           ]}
         >
-          <Text style={styles.sectionLabel}>我们听到的家庭关注</Text>
+          <Text style={styles.sectionLabel}>家庭理解卡 · 我们听到的家庭关注</Text>
           <Text style={[styles.cardTitle, { color: colors.text }]}>
             {resultNeed}
           </Text>
           <Text style={[styles.cardText, { color: colors.muted }]}>
             不替你给孩子下结论，先把这件反复发生的事放回家庭关系与日常环境里理解。
           </Text>
-        </View>
-        <View testID="assessment-result-profile" style={styles.profileSection}>
-          <View style={styles.sectionHeadingRow}>
-            <View style={styles.sectionHeadingCopy}>
-              <Text style={styles.sectionLabel}>家庭观察画像</Text>
-              <Text style={[styles.sectionTitle, { color: colors.text }]}>五个方向，看看事情卡在哪一层</Text>
-            </View>
-            <Text style={styles.sectionMeta}>今天的回答</Text>
-          </View>
-          <AssessmentDimensionRadar profiles={resultProfiles} />
-          <AssessmentDimensionList profiles={resultProfiles} activeFocus={selectedGrowthFocus} />
+          <Text style={styles.narrativeLabel}>依据</Text>
+          <Text style={[styles.cardText, { color: colors.muted }]}>本次整理只使用你主动说出的家庭场景和回答。</Text>
+          <Text style={styles.narrativeLabel}>可能的方向</Text>
+          <Text style={[styles.cardText, { color: colors.muted }]}>{focusSummary?.familyTheorySupport[0] ?? "先看家庭互动与环境，再决定是否需要更多支持。"}</Text>
+          <Text style={styles.narrativeLabel}>还未知</Text>
+          <Text style={[styles.cardText, { color: colors.muted }]}>{uncertain}</Text>
         </View>
         <View
           testID="assessment-result-directions"
@@ -149,11 +137,34 @@ export default function FamilyAssessmentResultScreen() {
             你可以随时回来补充或改写，后续的成长方案会跟着你的理解调整。
           </Text>
         </View>
+        <View testID="assessment-result-profile" style={styles.profileSection}>
+          <View style={styles.sectionHeadingRow}>
+            <View style={styles.sectionHeadingCopy}>
+              <Text style={styles.sectionLabel}>观察层与复盘 · 家庭观察画像</Text>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>五个方向，看看事情卡在哪一层</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              testID="assessment-observation-toggle"
+              onPress={() => setShowObservationLayer((value) => !value)}
+              style={styles.observationToggle}
+            >
+              <Text style={styles.observationToggleText}>{showObservationLayer ? "收起" : "查看"}</Text>
+            </Pressable>
+          </View>
+          <Text style={[styles.directionHint, { marginTop: 0 }]}>这里只回看本次回答留下的线索，不是分数、排名或对孩子的结论。</Text>
+          {showObservationLayer ? (
+            <View testID="assessment-observation-layer">
+              <AssessmentDimensionRadar profiles={resultProfiles} />
+              <AssessmentDimensionList profiles={resultProfiles} activeFocus={selectedGrowthFocus} />
+            </View>
+          ) : null}
+        </View>
         <View testID="assessment-result-next-step" style={styles.nextStepCard}>
-          <Text style={styles.sectionLabel}>成长方案 · 从今天开始</Text>
-          <Text style={styles.nextStepTitle}>{firstStep}</Text>
+          <Text style={styles.sectionLabel}>下一步 · 进入 21 天家庭计划</Text>
+          <Text style={styles.nextStepTitle}>先确认这份理解，再一起决定三段家庭机制练习。</Text>
           <Text style={styles.nextStepText}>
-            先不急着改变孩子，先找到最值得改变的环节；这一阶段确认后，后面的 21 天和 90 天方案才会更贴近你们家。
+            先不急着改变孩子。登录并完成授权后，家长可以确认理解，再进入关系机制、共同决策、冲突修复三个阶段；这次离线整理不会自动创建计划或行动。
           </Text>
         </View>
         <View testID="assessment-result-feedback" style={styles.feedbackCard}>
@@ -223,41 +234,8 @@ export default function FamilyAssessmentResultScreen() {
           ) : null}
         </View>
         <View testID="assessment-result-action" style={styles.actionCard}>
-          <Text style={styles.sectionLabel}>把理解带回生活</Text>
-          <Pressable
-            testID="assessment-start-small-step"
-            accessibilityRole="button"
-            onPress={() => setSavedAction("started")}
-            style={({ pressed }) => [
-              styles.primaryButton,
-              { backgroundColor: colors.tint },
-              pressed && styles.pressed,
-            ]}
-          >
-            <Text style={styles.primaryButtonText}>
-              {savedAction === "started" ? "已开启第一阶段" : "开始第一阶段"}
-            </Text>
-          </Pressable>
-          {savedAction === "started" ? (
-            <Text style={[styles.actionStatus, { color: colors.muted }]}>
-              第一阶段已经为你展开，明天可以回来继续看。
-            </Text>
-          ) : null}
-          <Pressable
-            testID="assessment-save-for-later"
-            accessibilityRole="button"
-            onPress={() => setSavedAction("saved")}
-            style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
-          >
-            <Text style={[styles.editButtonText, { color: colors.tint }]}>
-              先留在这里，明天再看
-            </Text>
-          </Pressable>
-          {savedAction === "saved" ? (
-            <Text style={[styles.actionStatus, { color: colors.muted }]}>
-              已为你保留当前整理，明天可以继续补充。
-            </Text>
-          ) : null}
+          <Text style={styles.sectionLabel}>家庭决定</Text>
+          <Text style={[styles.cardText, { color: colors.muted }]}>只有在家庭空间中确认理解后，才会进入 Journey 计划；拒绝、退出或离线都不会创建后续行动。</Text>
         </View>
         <View
           style={[
@@ -338,6 +316,8 @@ const styles = StyleSheet.create({
   sectionHeadingCopy: { flex: 1, gap: 3 },
   sectionTitle: { fontSize: 18, lineHeight: 25, fontWeight: "900" },
   sectionMeta: { color: "#7B8FA4", fontSize: 11, lineHeight: 17, fontWeight: "800" },
+  observationToggle: { minHeight: 32, paddingHorizontal: 12, borderRadius: 16, backgroundColor: "#E8F2FF", alignItems: "center", justifyContent: "center" },
+  observationToggleText: { color: "#2563EB", fontSize: 12, lineHeight: 17, fontWeight: "900" },
   card: { borderRadius: 17, borderWidth: 1, padding: 16, gap: 8 },
   sectionLabel: {
     color: "#5B7091",
@@ -347,6 +327,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontSize: 18, lineHeight: 25, fontWeight: "900" },
   cardText: { fontSize: 14, lineHeight: 22 },
+  narrativeLabel: { color: "#2563EB", fontSize: 11, lineHeight: 16, fontWeight: "900", marginTop: 2 },
   directionCard: {
     borderRadius: 17,
     backgroundColor: "#F7FBF8",

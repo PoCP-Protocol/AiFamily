@@ -68,7 +68,7 @@ describe("Family AI UI registry", () => {
 
   it("keeps home, daily task, and 90-day plan distinct", () => {
     expect(getFamilyScreen("UI-01")?.primaryTarget).toBe("UI-09");
-    expect(getFamilyScreen("UI-04")?.title).toContain("90 天");
+    expect(getFamilyScreen("UI-04")?.title).toContain("21 天");
     expect(getFamilyScreen("UI-09")?.title).toBe("今日成长任务");
   });
 

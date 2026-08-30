@@ -24,6 +24,12 @@ describe("UI-03 family assessment result contract", () => {
     expect(source).toContain("may_mutate_business_state");
     expect(source).toContain("NOT_INVOKED");
     expect(source).toContain("assessment-human-gate");
+    expect(source).toContain("家庭理解卡");
+    expect(source).toContain("assessment-observation-toggle");
+    expect(source).toContain("assessment-observation-layer");
+    expect(source).toContain("依据");
+    expect(source).toContain("可能的方向");
+    expect(source).toContain("还未知");
     expect(source).toContain("decideGrowthHypothesis");
     expect(source).toContain("确认这份理解");
     expect(source).toContain("暂不采用");
@@ -46,5 +52,11 @@ describe("UI-03 family assessment result contract", () => {
     expect(source).toContain("router.back()");
     expect(source).toContain(">退出<");
     expect(source).not.toContain("startGrowthOnboarding");
+  });
+
+  it("opens the existing Journey plan only after the adult confirms the draft understanding", () => {
+    expect(source).toContain('interpretationDecision === "confirmed"');
+    expect(source).toContain('testID="assessment-open-journey-plan"');
+    expect(source).toContain('router.push("/ui/UI-04" as Href)');
   });
 });

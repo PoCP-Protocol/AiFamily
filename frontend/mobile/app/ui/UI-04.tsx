@@ -1,7 +1,7 @@
 import type { Href } from "expo-router";
 import { Stack, router } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { FamilyRefreshControl } from "@/components/family/family-refresh-control";
 import { ScreenContainer } from "@/components/screen-container";
@@ -10,15 +10,25 @@ import { familyApi } from "@/lib/family/family-api-client";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
 import { useFamilyMobile } from "@/lib/family/family-state";
 import { MOBILE_JOURNEY_PHASES, type MobileJourneyPhase } from "@/lib/family/journey-plan-content";
+import {
+  classifyJourneyPlanError,
+  journeyPlanErrorCopy,
+  type JourneyPlanErrorKind,
+  type JourneyPlanLoadState,
+  type JourneyPlanProjectionDto,
+} from "@/lib/family/journey-plan-contract";
+import {
+  SYNTHETIC_JOURNEY_ENABLED,
+  SYNTHETIC_JOURNEY_PREVIEW,
+  SYNTHETIC_JOURNEY_PROJECTION,
+} from "@/lib/family/journey-plan-synthetic-fixture";
 import { getUiActionPolicy } from "@/lib/family/ui-action-policies";
 import { haptic } from "@/lib/haptics";
 
-interface RemoteJourneyPlan {
-  plan?: { plan_id?: string; status?: string; current_phase?: string; phases?: { phase: string; status: string }[] } | null;
-}
+type RemoteJourneyPlan = JourneyPlanProjectionDto;
 
 interface RemotePlanPreview {
-  structure?: { stages?: { stage_id: string; small_action: string }[] };
+  structure?: { stages?: readonly { stage_id: string; small_action: string }[] };
 }
 
 interface RemoteGrowthPriority {
@@ -27,26 +37,18 @@ interface RemoteGrowthPriority {
 
 type BaselineWeek = {
   id: MobileJourneyPhase["id"];
-  week: string;
+  phase: string;
   title: string;
-  intent: string;
-  tasks: readonly [string, string];
+  mechanism: string;
+  observableShift: string;
   tone: "mint" | "blue" | "orange" | "gray";
   illustration: string;
 };
 
-const PLAN_SUMMARY_STATS = [
-  { value: "待确认", label: "当前阶段" },
-  { value: "0", label: "今日任务" },
-  { value: "0h", label: "累计时长" },
-  { value: "90天", label: "计划周期" },
-] as const;
-
 const BASELINE_WEEKS: readonly BaselineWeek[] = [
-  { id: "SEE", week: "第1周", title: "关系破冰", intent: "建立信任，打开沟通通道", tasks: ["亲子时光15分钟", "倾听孩子的感受"], tone: "mint", illustration: "♥" },
-  { id: "PARENT_FIRST", week: "第2周", title: "行为训练", intent: "减少冲突，正向引导行为", tasks: ["积极反馈练习", "制定家庭规则"], tone: "blue", illustration: "▣" },
-  { id: "CO_CREATE", week: "第3周", title: "习惯建立", intent: "制定计划，培养好习惯", tasks: ["学习计划制定", "每日习惯打卡"], tone: "orange", illustration: "◎" },
-  { id: "STABILIZE", week: "第4周", title: "情绪管理", intent: "识别情绪，科学表达", tasks: ["识别此刻的感受", "用一句话表达需要"], tone: "gray", illustration: "○" },
+  { id: "SEE", phase: "第 1 阶段", title: "关系机制", mechanism: "看见触发—回应循环", observableShift: "从互相催促，转为先说出当下发生了什么。", tone: "mint", illustration: "♥" },
+  { id: "PARENT_FIRST", phase: "第 2 阶段", title: "共同决策", mechanism: "一起找到能执行的回应", observableShift: "从单方面要求，转为家长和孩子共同选择下一步。", tone: "blue", illustration: "▣" },
+  { id: "CO_CREATE", phase: "第 3 阶段", title: "冲突修复", mechanism: "回看并调整家庭约定", observableShift: "从一次次争执，转为能说清发生了什么并重新约定。", tone: "orange", illustration: "◎" },
 ] as const;
 
 function getPhaseStatus(plan: RemoteJourneyPlan["plan"], phaseId: string, currentPhase: string | null) {
@@ -63,13 +65,30 @@ export default function JourneyPlanScreen() {
   const [remoteJourney, setRemoteJourney] = useState<RemoteJourneyPlan | null>(null);
   const [remotePreview, setRemotePreview] = useState<RemotePlanPreview | null>(null);
   const [remotePriority, setRemotePriority] = useState<RemoteGrowthPriority | null>(null);
-  const [projectionState, setProjectionState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [projectionError, setProjectionError] = useState<string | null>(null);
+  const [projectionState, setProjectionState] = useState<JourneyPlanLoadState>("idle");
+  const [projectionError, setProjectionError] = useState<JourneyPlanErrorKind | null>(null);
   const [activationState, setActivationState] = useState<"idle" | "submitting">("idle");
   const [activationMessage, setActivationMessage] = useState<string | null>(null);
 
   const loadPlanProjection = useCallback(async () => {
-    if (session.status !== "connected" || !session.token || !session.selectedFamily) return;
+    if (SYNTHETIC_JOURNEY_ENABLED) {
+      setRemoteJourney(SYNTHETIC_JOURNEY_PROJECTION);
+      setRemotePreview(SYNTHETIC_JOURNEY_PREVIEW);
+      setRemotePriority({ active_priority: { priority_id: "synthetic-priority" } });
+      setProjectionError(null);
+      setProjectionState("ready");
+      return;
+    }
+    if (session.status !== "connected" || !session.token || !session.selectedFamily) {
+      setProjectionState("blocked");
+      setProjectionError("CONSENT_OR_ACCESS_BLOCKED");
+      return;
+    }
+    if (!activeOnboardingId) {
+      setProjectionState("blocked");
+      setProjectionError("ASSESSMENT_REQUIRED");
+      return;
+    }
     setProjectionState("loading"); setProjectionError(null);
     try {
       const [journeyResult, previewResult, priorityResult] = await Promise.all([
@@ -77,8 +96,12 @@ export default function JourneyPlanScreen() {
         activeOnboardingId ? familyApi.getPlanPreview<RemotePlanPreview>(session.token, session.selectedFamily.family_id, activeOnboardingId) : Promise.resolve(null),
         activeOnboardingId ? familyApi.getGrowthPriority<RemoteGrowthPriority>(session.token, session.selectedFamily.family_id, activeOnboardingId) : Promise.resolve(null),
       ]);
-      setRemoteJourney(journeyResult); setRemotePreview(previewResult); setRemotePriority(priorityResult); setProjectionState("ready");
-    } catch { setProjectionState("error"); setProjectionError("成长方案暂时无法同步；请稍后重试。"); }
+      setRemoteJourney(journeyResult); setRemotePreview(previewResult); setRemotePriority(priorityResult);
+      setProjectionState(journeyResult.plan?.plan_id ? "ready" : "empty");
+    } catch (error) {
+      setProjectionState("error");
+      setProjectionError(classifyJourneyPlanError(error));
+    }
   }, [activeOnboardingId, session.selectedFamily, session.status, session.token]);
 
   useEffect(() => { void loadPlanProjection(); }, [loadPlanProjection]);
@@ -91,12 +114,17 @@ export default function JourneyPlanScreen() {
     return BASELINE_WEEKS.map((week, index) => {
       const remote = remoteStages.find((stage) => stage.stage_id === week.id);
       const fallback = MOBILE_JOURNEY_PHASES[index];
-      return { ...week, smallAction: remote?.small_action ?? fallback?.smallAction ?? week.tasks[0] };
+      return { ...week, familyChange: remote?.small_action ?? fallback?.smallAction ?? week.observableShift };
     });
   }, [remotePreview]);
 
   const beginPlan = async () => {
     if (activationState === "submitting") return;
+    if (SYNTHETIC_JOURNEY_ENABLED) {
+      setRemoteJourney(SYNTHETIC_JOURNEY_PROJECTION);
+      router.push("/ui/UI-05" as Href);
+      return;
+    }
     if (session.status !== "connected" || !session.token || !session.selectedFamily) {
       setActivationMessage("请先连接家庭账户，再开始这段成长计划。");
       return;
@@ -140,7 +168,7 @@ export default function JourneyPlanScreen() {
       router.push("/ui/UI-05" as Href);
     } catch (error) {
       const code = error instanceof Error ? error.message : "PLAN_ACTIVATION_FAILED";
-      setActivationMessage(code === "GROWTH_PRIORITY_REQUIRED" ? "请先在成长解读中确认当前关注方向。" : "暂时无法开启计划，请稍后重试。");
+      setActivationMessage(code === "GROWTH_PRIORITY_REQUIRED" ? "请先在成长解读中确认当前关注方向。" : journeyPlanErrorCopy(classifyJourneyPlanError(error)));
     } finally {
       setActivationState("idle");
     }
@@ -161,11 +189,37 @@ export default function JourneyPlanScreen() {
                 <Pressable onPress={() => router.back()} hitSlop={10} style={styles.backButton}>
                   <IconSymbol name="chevron.left" size={27} color="#222222" />
                 </Pressable>
-                <Text style={styles.topTitle}>90天成长方案</Text>
+                <Text style={styles.topTitle}>21天家庭计划</Text>
                 <View style={styles.topActions}><Text style={styles.moreText}>•••</Text><Text style={styles.circleText}>⊙</Text></View>
               </View>
+              {SYNTHETIC_JOURNEY_ENABLED ? <Text testID="journey-plan-synthetic-badge" style={styles.syntheticBadge}>SYNTHETIC DEV · 只用于演示，不写入家庭空间</Text> : null}
               <PlanSummaryCard planIsActive={planIsActive} />
-              {projectionState === "error" ? <Pressable onPress={() => void loadPlanProjection()} style={styles.projectionNotice}><Text style={styles.projectionNoticeText}>{projectionError} 点击重试</Text></Pressable> : null}
+              {projectionState === "loading" ? (
+                <View testID="journey-plan-loading" style={styles.projectionNotice}>
+                  <ActivityIndicator color="#B2621D" />
+                  <Text style={styles.projectionNoticeText}>正在读取你的家庭计划…</Text>
+                </View>
+              ) : null}
+              {projectionState === "blocked" || projectionState === "empty" ? (
+                <View testID={`journey-plan-${projectionState}`} style={styles.projectionNotice}>
+                  <Text style={styles.projectionNoticeText}>
+                    {projectionState === "empty" ? "还没有已确认的家庭计划；确认关注方向后，这里会出现计划。" : journeyPlanErrorCopy(projectionError ?? "ASSESSMENT_REQUIRED")}
+                  </Text>
+                  {projectionState === "blocked" && projectionError === "ASSESSMENT_REQUIRED" ? (
+                    <Pressable accessibilityRole="button" testID="journey-plan-back-to-assessment" onPress={() => router.push("/ui/UI-02" as Href)} style={styles.retryButton}>
+                      <Text style={styles.retryText}>回到测评</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : null}
+              {projectionState === "error" ? (
+                <View testID="journey-plan-error" style={styles.projectionNotice}>
+                  <Text style={styles.projectionNoticeText}>{journeyPlanErrorCopy(projectionError ?? "RETRYABLE")}</Text>
+                  <Pressable accessibilityRole="button" testID="journey-plan-retry" onPress={() => void loadPlanProjection()} style={styles.retryButton}>
+                    <Text style={styles.retryText}>重新读取</Text>
+                  </Pressable>
+                </View>
+              ) : null}
             </>
           }
           renderItem={({ item, index }) => {
@@ -180,27 +234,18 @@ export default function JourneyPlanScreen() {
                 </View>
                 <View style={[styles.weekCard, { backgroundColor: tone.surface, borderColor: tone.border }]}>
                   <View style={styles.weekHeader}>
-                    <View style={[styles.weekBadge, { backgroundColor: tone.badge }]}><Text style={styles.weekBadgeText}>{item.week}</Text></View>
+                    <View style={[styles.weekBadge, { backgroundColor: tone.badge }]}><Text style={styles.weekBadgeText}>{item.phase}</Text></View>
                     <Text style={styles.weekTitle}>{item.title}</Text>
                     <Text style={styles.weekStatus}>（{statusLabel}）</Text>
                   </View>
-                  <Text style={styles.weekIntent}>{item.intent}</Text>
+                  <Text style={styles.weekIntent}>{item.mechanism}</Text>
                   <View style={styles.weekBody}>
-                    <View style={styles.taskList}>
-                      {item.tasks.map((task, taskIndex) => {
-                        const done = status === "completed" || (status === "active" && taskIndex === 0);
-                        return (
-                          <View key={task} style={styles.taskLine}>
-                            <View style={[styles.taskBullet, { borderColor: tone.dot }]}><View style={[styles.taskBulletInner, { backgroundColor: done ? tone.dot : "transparent" }]} /></View>
-                            <Text style={styles.taskText}>{task}</Text>
-                            {done ? <IconSymbol name="checkmark.circle.fill" size={18} color={tone.dot} /> : <View style={[styles.emptyCheck, { borderColor: tone.dot }]} />}
-                          </View>
-                        );
-                      })}
+                    <View style={styles.changeCopy}>
+                      <Text style={styles.changeLabel}>可观察的家庭变化</Text>
+                      <Text style={styles.changeText}>{item.familyChange}</Text>
                     </View>
                     <View style={[styles.illustration, { backgroundColor: tone.art }]}><Text style={[styles.illustrationText, { color: tone.dot }]}>{item.illustration}</Text></View>
                   </View>
-                  {status === "active" ? <Text style={[styles.currentAction, { color: tone.dot }]}>{item.smallAction}</Text> : null}
                 </View>
               </View>
             );
@@ -208,7 +253,7 @@ export default function JourneyPlanScreen() {
         />
         <View style={styles.fixedFooter}>
           {activationMessage ? <Text style={styles.activationMessage}>{activationMessage}</Text> : null}
-          <Pressable disabled={activationState === "submitting"} onPress={beginPlan} style={({ pressed }) => [styles.primaryButton, (pressed || activationState === "submitting") && styles.pressed]}><Text style={styles.primaryButtonText}>{activationState === "submitting" ? "正在开启计划" : "开始执行计划"}</Text></Pressable>
+           <Pressable disabled={activationState === "submitting"} onPress={beginPlan} style={({ pressed }) => [styles.primaryButton, (pressed || activationState === "submitting") && styles.pressed]}><Text style={styles.primaryButtonText}>{activationState === "submitting" ? "正在确认家庭计划" : planIsActive ? "进入家庭复盘" : "确认并进入 21 天计划"}</Text></Pressable>
         </View>
       </View>
     </ScreenContainer>
@@ -216,36 +261,18 @@ export default function JourneyPlanScreen() {
 }
 
 function PlanSummaryCard({ planIsActive }: { planIsActive: boolean }) {
-  const stats = planIsActive ? [
-    { value: "3", label: "当前阶段" },
-    { value: "12", label: "今日任务" },
-    { value: "36h", label: "累计时长" },
-    { value: "90天", label: "计划周期" },
-  ] : PLAN_SUMMARY_STATS;
   return (
-    <View accessibilityLabel="当前阶段、目标、累计时长、难度与计划统计" style={styles.summaryReference}>
+    <View accessibilityLabel="21 天家庭计划的阶段与家庭机制变化" style={styles.summaryReference}>
       <View style={styles.summaryGlow} />
       <View style={styles.summaryHeader}>
         <View>
-          <Text style={styles.summaryEyebrow}>当前成长阶段</Text>
-          <Text style={styles.summaryTitle}>90天成长方案</Text>
+          <Text style={styles.summaryEyebrow}>家庭机制练习</Text>
+          <Text style={styles.summaryTitle}>21天家庭计划</Text>
         </View>
-        <View style={styles.summaryBadge}><Text style={styles.summaryBadgeText}>{planIsActive ? "进行中" : "待确认"}</Text></View>
+        <View style={styles.summaryBadge}><Text style={styles.summaryBadgeText}>{planIsActive ? "家庭已确认" : "等待确认"}</Text></View>
       </View>
-      <Text style={styles.summaryGoal}>目标：建立稳定沟通节奏，完成亲子关系、习惯与情绪三类训练</Text>
-      <View style={styles.summaryStatsRow}>
-        {stats.map((stat) => (
-          <View key={stat.label} style={styles.summaryStat}>
-            <Text style={styles.summaryStatValue}>{stat.value}</Text>
-            <Text style={styles.summaryStatLabel}>{stat.label}</Text>
-          </View>
-        ))}
-      </View>
-      <View style={styles.summaryProgressTrack}><View style={styles.summaryProgressFill} /></View>
-      <View style={styles.summaryFooterRow}>
-        <Text style={styles.summaryFooterText}>难度：温和进阶</Text>
-        <Text style={styles.summaryFooterText}>每周 3-4 次</Text>
-      </View>
+      <Text style={styles.summaryGoal}>目标：把一个反复发生的家庭场景，走过关系机制、共同决策、冲突修复三个阶段。</Text>
+      <Text style={styles.summaryBoundary}>每一阶段都以家庭自己的观察和复盘为依据，不用积分、排名或完成数量证明变化。</Text>
     </View>
   );
 }
@@ -264,9 +291,10 @@ const styles = StyleSheet.create({
   backButton: { width: 36, alignItems: "flex-start" },
   topTitle: { color: "#20242A", fontSize: 19, lineHeight: 26, fontWeight: "800" },
   topActions: { width: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  syntheticBadge: { marginHorizontal: 18, color: "#8A5A00", fontSize: 10, lineHeight: 15, fontWeight: "900" },
   moreText: { color: "#20242A", fontSize: 17, lineHeight: 19, fontWeight: "900", letterSpacing: 1 },
   circleText: { color: "#20242A", fontSize: 25, lineHeight: 25 },
-  summaryReference: { alignSelf: "center", width: "100%", minHeight: 222, marginTop: 2, marginBottom: 5, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 17, borderRadius: 0, backgroundColor: "#FFF4E8", overflow: "hidden" },
+  summaryReference: { alignSelf: "center", width: "100%", minHeight: 190, marginTop: 2, marginBottom: 5, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 17, borderRadius: 0, backgroundColor: "#FFF4E8", overflow: "hidden" },
   summaryGlow: { position: "absolute", right: -28, top: -35, width: 148, height: 148, borderRadius: 74, backgroundColor: "#FFD7A8", opacity: 0.56 },
   summaryHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   summaryEyebrow: { color: "#B2621D", fontSize: 12, lineHeight: 17, fontWeight: "800" },
@@ -274,14 +302,7 @@ const styles = StyleSheet.create({
   summaryBadge: { minHeight: 28, borderRadius: 14, paddingHorizontal: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#FF8A1F" },
   summaryBadgeText: { color: "#FFFFFF", fontSize: 12, lineHeight: 17, fontWeight: "900" },
   summaryGoal: { color: "#6A4A2C", fontSize: 13, lineHeight: 20, fontWeight: "700", marginTop: 11 },
-  summaryStatsRow: { flexDirection: "row", gap: 8, marginTop: 17 },
-  summaryStat: { flex: 1, minHeight: 58, borderRadius: 14, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", shadowColor: "#D88916", shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
-  summaryStatValue: { color: "#FF8A1F", fontSize: 20, lineHeight: 26, fontWeight: "900" },
-  summaryStatLabel: { color: "#7A614A", fontSize: 10, lineHeight: 14, fontWeight: "700", marginTop: 2 },
-  summaryProgressTrack: { height: 7, borderRadius: 7, backgroundColor: "#F8DEC0", marginTop: 16, overflow: "hidden" },
-  summaryProgressFill: { width: "42%", height: 7, borderRadius: 7, backgroundColor: "#FF8A1F" },
-  summaryFooterRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 9 },
-  summaryFooterText: { color: "#7A614A", fontSize: 11, lineHeight: 16, fontWeight: "700" },
+  summaryBoundary: { color: "#7A614A", fontSize: 11, lineHeight: 17, fontWeight: "700", marginTop: 9 },
   timelineRow: { flexDirection: "row", paddingHorizontal: 18, minHeight: 164 },
   timelineRail: { width: 28, alignItems: "center" },
   timelineDot: { width: 11, height: 11, borderRadius: 6, marginTop: 17, zIndex: 1 },
@@ -294,18 +315,17 @@ const styles = StyleSheet.create({
   weekStatus: { color: "#8D96A3", fontSize: 12, lineHeight: 17 },
   weekIntent: { color: "#4E5B68", fontSize: 14, lineHeight: 21, fontWeight: "600", marginTop: 7 },
   weekBody: { flexDirection: "row", marginTop: 10, gap: 8 },
-  taskList: { flex: 1, gap: 8, paddingTop: 2 },
-  taskLine: { minHeight: 21, flexDirection: "row", alignItems: "center", gap: 7 },
-  taskBullet: { width: 14, height: 14, borderWidth: 1.5, borderRadius: 7, alignItems: "center", justifyContent: "center" },
-  taskBulletInner: { width: 6, height: 6, borderRadius: 3 },
-  taskText: { flex: 1, color: "#3D4854", fontSize: 13, lineHeight: 18, fontWeight: "600" },
-  emptyCheck: { width: 17, height: 17, borderRadius: 9, borderWidth: 1.5 },
+  changeCopy: { flex: 1, gap: 5 },
+  changeLabel: { color: "#718096", fontSize: 11, lineHeight: 16, fontWeight: "900" },
+  changeText: { color: "#3D4854", fontSize: 13, lineHeight: 20, fontWeight: "700" },
   illustration: { width: 70, height: 70, borderRadius: 35, alignItems: "center", justifyContent: "center", alignSelf: "center" },
   illustrationText: { fontSize: 37, lineHeight: 42, fontWeight: "900" },
   currentAction: { fontSize: 12, lineHeight: 18, fontWeight: "700", marginTop: 9 },
   fixedFooter: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "#FFFFFF", paddingHorizontal: 19, paddingTop: 11, paddingBottom: 13, borderTopWidth: 1, borderTopColor: "#F2F2F2" },
-  primaryButton: { minHeight: 54, borderRadius: 27, alignItems: "center", justifyContent: "center", backgroundColor: "#FF8A1F" },
-  primaryButtonText: { color: "#FFFFFF", fontSize: 19, lineHeight: 26, fontWeight: "900" },
-  projectionNotice: { marginTop: 10, borderRadius: 12, padding: 10, backgroundColor: "#FFF4F0" }, projectionNoticeText: { color: "#9D4E38", fontSize: 11, lineHeight: 16, textAlign: "center", fontWeight: "800" }, activationMessage: { marginHorizontal: 4, marginBottom: 8, color: "#A0532C", fontSize: 12, lineHeight: 18, textAlign: "center" },
-  pressed: { opacity: 0.86, transform: [{ scale: 0.985 }] },
-});
+   primaryButton: { minHeight: 54, borderRadius: 27, alignItems: "center", justifyContent: "center", backgroundColor: "#FF8A1F" },
+   primaryButtonText: { color: "#FFFFFF", fontSize: 19, lineHeight: 26, fontWeight: "900" },
+   projectionNotice: { marginTop: 10, borderRadius: 12, padding: 10, backgroundColor: "#FFF4F0" }, projectionNoticeText: { color: "#9D4E38", fontSize: 11, lineHeight: 16, textAlign: "center", fontWeight: "800" }, activationMessage: { marginHorizontal: 4, marginBottom: 8, color: "#A0532C", fontSize: 12, lineHeight: 18, textAlign: "center" },
+   retryButton: { alignSelf: "center", minHeight: 34, marginTop: 8, paddingHorizontal: 14, borderRadius: 17, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
+   retryText: { color: "#A0532C", fontSize: 12, lineHeight: 17, fontWeight: "900" },
+   pressed: { opacity: 0.86, transform: [{ scale: 0.985 }] },
+ });
