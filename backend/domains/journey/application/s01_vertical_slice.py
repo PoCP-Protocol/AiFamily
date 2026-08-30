@@ -617,7 +617,7 @@ class S01VerticalSlice:
 
     def _assert_live_consent(self, subject_ref: str, purpose: ConsentPurpose) -> None:
         grants = tuple(self._consent_loader(subject_ref, purpose))
-        if not ConsentGate.check(subject_ref, purpose, grants, at=self._timestamp()):
+        if not ConsentGate.check(subject_ref, purpose, grants):
             raise JourneyForbiddenError("consent_required")
 
     def deletion_refs(self, *, tenant_id: str, family_id: str) -> tuple[str, ...]:

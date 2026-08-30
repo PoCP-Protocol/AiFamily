@@ -1122,7 +1122,7 @@ class GrowthOutcomeLoop:
             grants = tuple(self._consent_loader(subject_ref, purpose))
             if required_consent_id is not None:
                 grants = tuple(grant for grant in grants if grant.consent_id == required_consent_id)
-            if not ConsentGate.check(subject_ref, purpose, grants, at=self._timestamp()):
+            if not ConsentGate.check(subject_ref, purpose, grants):
                 raise JourneyForbiddenError("live_consent_required")
 
     @staticmethod
