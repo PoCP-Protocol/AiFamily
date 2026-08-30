@@ -18,6 +18,7 @@ list from an earlier request.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import UTC, datetime
 
 from backend.platform.consent.models import ConsentGrant, ConsentPurpose
 
@@ -30,20 +31,29 @@ class ConsentGate:
         subject_id: str,
         purpose: ConsentPurpose,
         grants: Iterable[ConsentGrant],
+        *,
+        at: datetime | None = None,
     ) -> bool:
-        """Return True iff there exists an active grant for this subject/purpose.
+        """Return True iff a grant is active for this subject/purpose at ``at``.
 
         `grants` must be freshly read by the caller (e.g. from a repository
         inside the current UnitOfWork) — this method performs no I/O and
         keeps no state across calls, so a withdrawn grant is honored the
         instant the caller passes in the updated grant list. There is no
         code path here that can return a stale ALLOW.
+
+        ``at`` is the evaluation time for the grant's effective window. It is
+        optional to preserve the original call contract; omitted means the
+        current UTC time. Supplying it is required for deterministic replay
+        and lets legacy grants use their ``granted_at``/``expires_at`` window
+        without a separate status-flipping job.
         """
+        moment = at if at is not None else datetime.now(UTC)
         for grant in grants:
             if (
                 grant.subject_person_id == subject_id
                 and grant.purpose is purpose
-                and grant.is_active
+                and grant.is_active_at(moment)
             ):
                 return True
         return False

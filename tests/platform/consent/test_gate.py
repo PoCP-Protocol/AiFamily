@@ -7,14 +7,19 @@ REPOSITORY_CONSTITUTION.md's disposition for `platform_consent`.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from backend.platform.consent.gate import ConsentGate
 from backend.platform.consent.models import ConsentGrant, ConsentPurpose, ConsentStatus
 
 
 def _grant(
-    status: ConsentStatus, purpose: ConsentPurpose = ConsentPurpose.ASSESSMENT
+    status: ConsentStatus,
+    purpose: ConsentPurpose = ConsentPurpose.ASSESSMENT,
+    *,
+    granted_at: datetime | None = None,
+    expires_at: datetime | None = None,
+    withdrawn_at: datetime | None = None,
 ) -> ConsentGrant:
     return ConsentGrant(
         consent_id="consent-1",
@@ -22,7 +27,9 @@ def _grant(
         guardian_person_id="guardian-1",
         purpose=purpose,
         status=status,
-        granted_at=datetime.now(UTC),
+        granted_at=granted_at or datetime.now(UTC),
+        expires_at=expires_at,
+        withdrawn_at=withdrawn_at,
     )
 
 
@@ -62,3 +69,56 @@ def test_no_grants_at_all_is_denied() -> None:
 def test_grant_for_a_different_subject_does_not_leak_permission() -> None:
     grants = [_grant(ConsentStatus.GRANTED)]
     assert ConsentGate.check("some-other-person", ConsentPurpose.ASSESSMENT, grants) is False
+
+
+def test_at_evaluates_a_legacy_grant_window_without_mutating_status() -> None:
+    granted_at = datetime(2026, 8, 30, 12, tzinfo=UTC)
+    expires_at = granted_at + timedelta(days=1)
+    grant = _grant(
+        ConsentStatus.GRANTED,
+        granted_at=granted_at,
+        expires_at=expires_at,
+    )
+
+    assert (
+        ConsentGate.check(
+            "person-1",
+            ConsentPurpose.ASSESSMENT,
+            [grant],
+            at=granted_at - timedelta(microseconds=1),
+        )
+        is False
+    )
+    assert ConsentGate.check("person-1", ConsentPurpose.ASSESSMENT, [grant], at=granted_at)
+    assert (
+        ConsentGate.check(
+            "person-1",
+            ConsentPurpose.ASSESSMENT,
+            [grant],
+            at=expires_at,
+        )
+        is False
+    )
+    assert grant.status is ConsentStatus.GRANTED
+
+
+def test_at_honors_withdrawal_at_the_evaluation_time() -> None:
+    granted_at = datetime(2026, 8, 30, 12, tzinfo=UTC)
+    withdrawn_at = granted_at + timedelta(hours=1)
+    grant = _grant(
+        ConsentStatus.GRANTED,
+        granted_at=granted_at,
+        expires_at=granted_at + timedelta(days=1),
+        withdrawn_at=withdrawn_at,
+    )
+
+    assert ConsentGate.check("person-1", ConsentPurpose.ASSESSMENT, [grant], at=granted_at)
+    assert (
+        ConsentGate.check(
+            "person-1",
+            ConsentPurpose.ASSESSMENT,
+            [grant],
+            at=withdrawn_at,
+        )
+        is False
+    )
