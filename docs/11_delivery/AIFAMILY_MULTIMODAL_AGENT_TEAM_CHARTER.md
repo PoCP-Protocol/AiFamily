@@ -418,6 +418,59 @@ AG-02 与 AG-00 对齐的最小证据集如下；未达到前，S4-API-01 只能
 | 强 evidence 校验 | feedback 可携带 evidence 字段，但当前未强制 attempt/model/benchmark/真实 event refs | schema/策略强制、缺失/伪造/跨 scope 拒绝测试通过 |
 | 真实 Provider 生产准入 | 当前候选和 test runtime 不能证明生产供应商合规、成本和删除 SLA | Provider registry、DPIA、转委托、区域、预算和评估 Gate 全部批准 |
 
+### Sprint 6 看板：SQL 重启持久化（P1 主线）
+
+Sprint 6 将 SQL 重启持久化作为唯一主线之一：把 Sprint 5 已交付的 HTTP routes 与 `SqlAlchemyExperienceRunLedger` 接通，证明 Run、interaction、DRAFT checkpoint 和 deletion 状态在事务边界与进程重启后仍可安全回放。当前 WIP 由 `backend/intelligence/experience/sql_run_ledger.py`、`database/migrations/versions/0010_experience_run_interactions.py`、`tests/intelligence/experience/test_sql_run_ledger.py` 和 `governance/ADR/ADR-0047-async-sql-experience-run-ledger.md` 组成；SQLite 证据不等同于 PostgreSQL 生产证据。
+
+| 编号 | 工作包 | 状态 | 本轮目标 | 退出条件 |
+|---|---|---|---|---|
+| **S6-SQL-01 / AG-02** | Async SQL ledger 与同步 HTTP bridge | `PARTIAL` | 保持 `AsyncSession` 非阻塞，提供明确的 await/事务组合根 | HTTP routes 通过显式 async bridge 使用 SQL ledger；不得用 `asyncio.run` 或伪同步阻塞 |
+| **S6-SQL-02 / AG-00** | Migration/ORM/schema 对齐 | `IN_PROGRESS` | 冻结 `experience_runs` 幂等/删除字段和 `experience_run_interactions` 表 | ADR、Migration Manifest、ORM 对象清单、单 head、upgrade/downgrade/re-upgrade 证据齐全 |
+| **S6-SQL-03 / AG-04** | 事务、唯一幂等和重启 replay 验收 | `IN_PROGRESS` | 补 PostgreSQL 并发、事务回滚、进程重启和删除擦除测试 | `AIFAMILY_TEST_DATABASE_URL` 下通过，且与 SQLite 结果一致 |
+| **S6-SQL-04 / AG-03** | Web 真实 SQL 状态回读 | `PLANNED` | Web draft/decision/feedback/delete/replay 读取同一 durable Run | 刷新/重启后状态、sequence、DRAFT 和 deleted projection 一致 |
+| **S6-SQL-05 / AG-01** | 用户故事与交付证据 | `IN_PROGRESS` | 将 S2-US4/US5 的 provenance、人工决定、反馈和真实事件引用落到 SQL ledger | 每个交互可由 event→run→scope→checkpoint→provenance/audit 回溯 |
+
+#### Sprint 6 SQL 验收标准
+
+**1. 显式事务与原子边界**
+
+- `SqlAlchemyExperienceRunLedger` 只 `flush`，不私自 commit/close；事务由组合根通过 `ledger.transaction()` 或现有 Unit of Work 管理。
+- create、interaction、delete 与其 audit/outbox（接入后）必须能在同一事务提交或整体回滚；异常后不能留下半条 interaction、孤立 checkpoint 或错误 deletion_state。
+- 必须有事务回滚测试，并证明新的 AsyncSession 看不到已回滚 Run；禁止用线程阻塞、`asyncio.run` 或隐式自动提交掩盖边界。
+
+**2. 数据库唯一幂等与并发**
+
+- `tenant_id + run_id + idempotency_key` 唯一约束守住同一操作重放；`tenant_id + run_id + event_sequence` 唯一约束守住顺序。
+- create 保存 `create_idempotency_key` 与 `create_fingerprint`；同 key 同 fingerprint 返回原 DRAFT，冲突 fingerprint 返回稳定 409/冲突码。
+- PostgreSQL 并发 create/interaction 竞态必须只产生一条记录；唯一约束冲突可安全重试，不得静默覆盖或生成第二次模型事实。
+
+**3. 进程重启后的 Replay**
+
+- 在新连接/新进程中，按完整 `RunScope(tenant/family/subject_ids)` 读取同一 Run，保持 checkpoint、interaction sequence、DRAFT payload 和 artifact refs（未删除时）不变。
+- Replay 只能读取 SQL ledger 投影，不调用 Model Gateway、不重算模型、不追加 interaction、不写 Family/Growth/Service/Commerce 事实。
+- 跨 tenant/family/subject 的读取或重放必须 fail-closed；未知 Run 返回稳定 404/错误码，不能泄露其他作用域是否存在。
+
+**4. 删除 Scrub 与可追溯性**
+
+- delete 以 append-only interaction 保留最小审计线索，同时将 checkpoint 的 draft payload、artifact refs 和 run deletion_state 擦除/置 deleted。
+- 删除后 replay 必须保持 `status=DRAFT` 但 `draft_payload=null`、`artifact_refs=[]`、`deletion_state=deleted`；除同一删除幂等重放外，新的 decision/feedback/human-review 返回 410/`RUN_DELETED`。
+- 外部媒体、Context snapshot、embedding、缓存和供应商侧数据的级联删除证明尚未覆盖，继续标记 `PARTIAL`；不得把本地 SQL scrub 当作完整删除 SLA。
+
+**5. 生产准入边界**
+
+- SQL adapter 通过 SQLite 单测或本地 migration 不等于生产能力；必须有 Fresh PostgreSQL upgrade/downgrade/re-upgrade、并发唯一约束、重启 replay 和删除测试。
+- 当前 HTTP routes 仍需显式 async bridge 才能注入 SQL ledger；在 bridge、真实 resolver、审计/Human Gate、删除 Worker 和 Provider 合规准入完成前，状态不得进入 `PILOT_CANDIDATE` 或 `ADMITTED`。
+- 生产环境严禁 synthetic runtime；未满足 provider、DPIA、转委托、区域、成本和删除 SLA 时，API 必须继续 fail-closed。
+
+#### Sprint 6 必须补测与交付证据
+
+1. `uv run pytest tests/intelligence/experience/test_sql_run_ledger.py -q`（当前 SQLite WIP：5 passed）及对应 Ruff 输出。
+2. 配置 `AIFAMILY_TEST_DATABASE_URL` 后执行 PostgreSQL 迁移 round-trip、并发 create/interaction、唯一约束、事务回滚、跨进程 replay 和 delete scrub；结果必须记录 migration revision、数据库版本和测试命令。
+3. HTTP 集成测试证明 draft/decision/feedback/human-review/delete/replay 均使用 durable SQL ledger，而非隐式回落到 in-memory；同一 Run 在刷新/重启后 receipt 与 replay 一致。
+4. 对 Gateway 注入 invocation spy，验证 replay、重复幂等和删除重试均不产生第二次模型调用；provider 失败时事务可安全回滚并允许重试。
+5. 验证 `DRAFT`/`may_mutate_business_state=false` 贯穿 SQL row、HTTP response 和 replay projection；任何“accepted” interaction 都不能直接变成业务事实或成就事实。
+6. 所有 migration/ORM/ADR/Manifest 文件必须已登记并可追溯；未登记的 head、未提交 WIP 或缺少真实 PostgreSQL 证据时，AG-00 必须将 Sprint 6 标为 `PARTIAL/BLOCKED`。
+
 ## 5. 通用任务卡格式
 
 每张任务卡必须包含：
