@@ -70,7 +70,7 @@ superseded_by: null
 |---|---|---|---|
 | 业务架构 | 家庭教育为入口，拓展家庭需求服务/产品/方案；家庭拥有数据、AI 不替人；六引擎形成情绪→成长→经济价值闭环；S01-S24/O01-O14 有唯一边界 | 业务文档已完整定义 Fact/Perspective/Recommendation/Action/Outcome、FGCN、三层价值网络和 24+14 场景；代码形成 S04 测评、N0-N1 Need 首片及 FGCN Named Action→Assignment 片段 | **业务设计完整，运行兑现不足，P1**。S07/S08/S09、FGCN 常驻交付/质量、支付/社区/运营大部分未实现；不能以 34 UI 或路由存在代替闭环 |
 | 流程架构 | L0 VS-01…VS-05 → L1 P01…P06 → L2 S/O → L3 子流程 → L4 节点 → L5 API/Command/Event/Job/Human Task，异常可退出、可重放、可接管 | 目录已列出 L0-L5；S04 节点有 Handler/SQL/fake/幂等；S05/S06 只有部分；S07 action worker、S14 dispute、S20 deletion、O05/O09/O12/O14 等仍无完整执行器 | **流程“画出来”多于“跑起来”，P1**。每个 L4 必须绑定输入/活动/输出/规则/异常/owner/API/数据/测试，缺一只能 PARTIAL |
-| 数据架构 | 主数据与业务数据分离；租户/locale/主体/同意/删除/审计贯穿；Postgres 事实、事件和投影可重放；Family Context/Growth Graph 让平台长期懂家庭 | Alembic baseline、Assessment/Growth/Journey/FGCN 部分表及 outbox 存在；数据目录覆盖目标对象和关系；Family Context、三类记忆、embedding、删除证明仍无完整 durable production runtime；当前 head 已漂移至 0017，0011-0017 为未跟踪/WIP revision | **P0/P1**：家庭记忆与跨会话图谱为独占区空白；0009+ migration 虽有局部 manifest 行但未形成全链可信审批；`product_intelligence` ORM/迁移漂移及公共 schema 目标态未落地；未知 0017 直接阻断 roundtrip |
+| 数据架构 | 主数据与业务数据分离；租户/locale/主体/同意/删除/审计贯穿；Postgres 事实、事件和投影可重放；Family Context/Growth Graph 让平台长期懂家庭 | Alembic baseline、Assessment/Growth/Journey/FGCN 部分表及 outbox 存在；数据目录覆盖目标对象和关系；Family Context、三类记忆、embedding、删除证明仍无完整 durable production runtime；当前 head 已漂移至 0023，0011-0023 为未跟踪/WIP revision | **P0/P1**：家庭记忆与跨会话图谱为独占区空白；0009+ migration 虽有局部 manifest 行但未形成全链可信审批；`product_intelligence` ORM/迁移漂移及公共 schema 目标态未落地；未知 0023 直接阻断 roundtrip |
 | 应用架构 | A0-A6 分层，唯一应用服务和写入者；Family API、Web、Android/iOS/Harmony/小程序同一契约；dev/test/prod 功能同构 | FastAPI 已挂 assessment、journey、service、commerce、membership、family-need、FGCN、experience；OpenAPI 生产 57 paths；Web client 22 tests；mobile 34 UI 可渲染 | **P0/P1**：生产身份/同意/租户链未完整接线；experience 默认 resolver 503；Web 仅注入请求上下文、无真实 backend 401/403；mobile 五个失败；service journey duplicate operationId；多端 parity 尚无一套 CI 闸门 |
 | AI 技术架构 | 单一法咪莉校长控制面：Context/Memory/Principal/Soul/Knowledge/Model Gateway/Prompt-Schema/Eval/Human Gate/Observability/Deletion；AI 只产 Draft/Recommendation/Proposal，Named Action 才写事实 | `backend/intelligence` 有 principal/context_engine/knowledge/human_gate/experience/model_gateway/agent_runtime 契约；18 个 context tests、durable human gate/agent runtime 测试；但 gateway/provider、Soul/Knowledge registry、Context durable projection、Eval/trace/worker/真实多模态适配未形成生产链 | **P1，生产阻断**：契约和 in-memory adapter 不等于运行能力；AAIR-6 仍 `CONTRACTED/adapter-only`；未接入唯一 Principal 家庭请求→人工闸门→Named Action 的完整链 |
 
@@ -142,7 +142,7 @@ superseded_by: null
 | locale/多语言 | canonical concept + content/model/policy locale；无可靠翻译时人工降级，不能静默机翻敏感建议 | `backend/platform/localization` 和 locale 契约存在；未见完整 API/内容/模型/检索/审计四端闭环，P1 |
 | 删除/留存 | 原始事实、媒体转写/OCR、记忆、embedding、缓存、评估副本和供应商回执级联；Proof/WORM audit；legal hold 有期限 | `durable_deletion.py` 6 tests 通过，但 `InMemoryDurableDeletionStore.production_ready=False`；没有 Postgres/outbox、五类真实 adapter、重启和跨进程 lease，P0/P1 |
 | 审计/事件 | 每次命令同事务 Audit + Outbox；可重放、补偿、死信 | Assessment/Journey/部分 FGCN 有局部；Worker、运营和 AI 全链未统一，P1 |
-| schema/migration | baseline 0001→0008 的 159 固定边界；0009+ 只能在 ADR、Manifest、ORM、对象清单、Fresh Postgres 后 allow-list | 当前 head=0017；0011-0017 migration 与对应 ADR/ORM/对象清单未形成可审计提交链，测试 8 passed/1 failed/1 skipped（失败为未知 0017 head）；manifest 工作树行不能替代提交证据，P1 阻断 |
+| schema/migration | baseline 0001→0008 的 159 固定边界；0009+ 只能在 ADR、Manifest、ORM、对象清单、Fresh Postgres 后 allow-list | 当前 head=0023；0011-0023 migration 与对应 ADR/ORM/对象清单未形成可审计提交链，测试 8 passed/1 failed/1 skipped（失败为未知 0023 head）；manifest 工作树行不能替代提交证据，P1 阻断 |
 
 ## 5. 应用、API 与四端 parity
 
@@ -207,7 +207,7 @@ lifecycle 的 adapter 直接委托 preflight/finalize，避免原先仅靠进程
 1. `AGILE_REBUILD_PLAN_V1` 将 DB-01/AAIR-6/AFE-4/PMA-1 标为阶段切片；本轮把 AAIR-6
    统计刷新为 context-engine **25 passed**，mobile 为 **249/1/5**，不沿用旧的 13/247。
 2. DB-01 0001 baseline 与 0004-0008 159 边界可复测；当前 `alembic heads` 已继续漂移到
-   0017。0011-0017 文件及其 ADR/Manifest/ORM 仍未形成可审计提交/审批链，不能把
+   0023。0011-0023 文件及其 ADR/Manifest/ORM 仍未形成可审计提交/审批链，不能把
    `agent_runtime: MIGRATED_TESTED` manifest 行或任何工作树 WIP 视为发布事实。
 3. AFE-4 的 UI-19/20/21/22/23/24/31 图标化与成就组件方向符合 UX；但全量测试红灯，
    旧 UI-02 断言和 service contract 没有收敛，状态必须 PARTIAL。
@@ -244,7 +244,7 @@ revision 文件已 tracked。这证明了 P0 Named Action 写入边界和 SQLite
    的安全重试依赖调用方再次提交，不能当作 workflow worker；
 2. `family_api` production composition 仍未绑定真实 identity/consent/session/reviewer role，
    FGCN routes 默认 fail-closed，dev/test 仅 synthetic adapter；三环境功能集合尚未同构；
-3. 0004 已进入链，但 0011-0017 未追踪的 migration head 仍使总迁移发布 NO-GO；不能以 FGCN
+3. 0004 已进入链，但 0011-0023 未追踪的 migration head 仍使总迁移发布 NO-GO；不能以 FGCN
    23 项测试掩盖全局 schema 漂移；
 4. 资源准入、交付/返工、质量/争议、贡献与资金结算尚未由该命令实现，不能把 TaskAssignment
    事实等同于完整 ACN/FGCN 商业引擎。
@@ -308,7 +308,7 @@ tests/intelligence/experience -q` **220 passed、1 warning**（P4 media/share/ac
   401/403/跨租户、并发 idempotency、进程重启 replay 证据；
 - SQL 交互表 0010 的 deletion 只清理 run checkpoint/response，外部媒体、向量、缓存、
   评估副本和供应商回执仍依赖 AAIR durable worker（当前 adapter-only）；
-- 新增 0011-0017 agent/human-task/authorization/tool/achievement/onboarding/model-attempt migration 尚未形成
+- 新增 0011-0023 agent/human-task/authorization/tool/achievement/onboarding/model-attempt/safety/release/telemetry/memory/growth-graph migration 尚未形成
   完整 ADR、Manifest、ORM/对象表、tracked head 和 Fresh Postgres roundtrip，数据库总闸门仍 NO-GO。
 
 结论：**CONTRACTED/PARTIAL，P1 发布阻断**。只能把该切片作为测试环境同构的 SQL adapter
@@ -522,7 +522,7 @@ tenant/consent。状态为 **CONTRACTED/PARTIAL，P0 BLOCKED**，生产仍 NO-GO
 | Agent/线程（标题） | Scope | Owner/提交 | 当前状态与实证 | 下一动作/闸门 |
 |---|---|---|---|---|
 | APLT-2（security gate） | 环境 fail-closed、Experience 401/403/同意错误码 | APLT；`cbc055e`、`736ae19`、`d2196bc` | `CONTRACTED/PARTIAL`；定向 7 passed/1 expected-red（unset env）；未改冲突 wiring | 原 WIP owner 收口 `AIFAMILY_ENV` 默认值、真实 auth/session/tenant/consent；TestClient 三环境 401/403 |
-| ADOM-5/DB-01（migration） | Alembic baseline/head、ORM/Manifest/ADR | ADOM/ARCH；`5a67a1b` 及 0011-0017 WIP | `PARTIAL/BLOCKED`；head=0017；Fresh PG 8 passed/1 failed/1 skipped（unknown head） | tracked migration + ORM/对象清单/ADR/Manifest；Fresh PG up/down/re-up/restart；unknown head fail |
+| ADOM-5/DB-01（migration） | Alembic baseline/head、ORM/Manifest/ADR | ADOM/ARCH；`5a67a1b` 及 0011-0023 WIP | `PARTIAL/BLOCKED`；head=0023；Fresh PG 8 passed/1 failed/1 skipped（unknown head） | tracked migration + ORM/对象清单/ADR/Manifest；Fresh PG up/down/re-up/restart；unknown head fail |
 | AAIR-6（durable deletion） | deletion queue/lease/retry/DLQ/五类回执 | AAIR；durable deletion slice | `CONTRACTED/adapter-only`；context-engine 25 passed，内存 store；无真实 PG/outbox/外部 receipts | durable Postgres/outbox、跨进程 lease、projection cascade 和审计回执；未完成保持 RELEASE BLOCKED |
 | AFE-4（UI experience） | 34 UI 语义图标、成就、多模态、跨端契约 | AFE；UI slice、Web `4b9a4b4` | `PARTIAL`；mobile 249 passed/1 skipped/5 failed，Web clientFactory 26 passed/typecheck0 | 修复 UI-02、registry/service contract 五失败；禁止 production 显式 fake client（`DEV:false` fail-closed/强制 HTTP）；四端视觉/无障碍/locale parity |
 | GROWTH（S05→S08） | Action→Outcome→Story→Recommendation→Annual/Renewal | growth_action_loop；`b431eda`、`78cb9c1`、`dcc0802` | 测试分支 `GO`；journey 无 DB 40/4、PG 44；无 HTTP/worker/真实 sink | Journey ORM/API、常驻 worker、Audit/Outbox、consent/replay/deletion、UI vertical e2e |
@@ -541,7 +541,7 @@ tenant/consent。状态为 **CONTRACTED/PARTIAL，P0 BLOCKED**，生产仍 NO-GO
 | 切片/owner | 战场 | 输入→活动→输出 | 依赖 | 测试与发布闸门 |
 |---|---|---|---|---|
 | SEC/ENV-01（APLT/ARCH，P0，owner 未明确） | `main.py`、`dev_wiring.py`、auth/tenant context（当前与他人 WIP 冲突，不能安全接手） | 环境启动配置→显式 allow-list + real session seam→同一 auth/scope API 与拒绝码 | identity/consent port、ADR-0010/环境规范；先由原 WIP owner 收口 | production OpenAPI 无 dev auth 且 real auth 可用；unset/prod/test 负向 404/401/403；三环境 route/error parity；owner 未明确或缺 fail-closed 证据即 BLOCKED/NO-GO |
-| DB-01（ADOM/ARCH，P1） | migrations 0009-0017、Manifest、ADR、ORM | WIP revision→登记/校验对象清单→Fresh Postgres up/down/up→提交可追踪 head | ADR-0045/0047/0048/0052/0053/0054/0055/0057/0058/0059、ORM ownership | `git ls-files` + manifest/ADR/ORM 一致；unknown head fail；`AIFAMILY_TEST_DATABASE_URL` roundtrip/concurrency 全绿；否则保持 0008 boundary |
+| DB-01（ADOM/ARCH，P1） | migrations 0009-0023、Manifest、ADR、ORM | WIP revision→登记/校验对象清单→Fresh Postgres up/down/up→提交可追踪 head | ADR-0045/0047/0048/0052/0053/0054/0055/0057/0058/0059、ORM ownership | `git ls-files` + manifest/ADR/ORM 一致；unknown head fail；`AIFAMILY_TEST_DATABASE_URL` roundtrip/concurrency 全绿；否则保持 0008 boundary |
 | API-PARITY-01（APLT/AFE，P1） | OpenAPI、Web client、mobile contracts | scope/token envelope→client 注入 Authorization/session/locale→生成契约→四端拒绝/重放 | SEC/ENV-01、trusted_context | OpenAPI duplicate operationId=0；Web 22 auth-context tests；mobile 5 failures=0；production/dev/test paths 与错误码一致 |
 | S05→S07（GROWTH / growth_action_loop，P1） | Onboarding、ActionTask/Record、Journey worker | confirmed hypothesis/plan→今日任务/提醒/完成/复盘→Outcome/Feedback draft | S04 evidence、Journey persistence、AI Draft/Human Gate | 当前 journey contract 40/4（PG 44）可进测试；仍需 HTTP/Postgres/outbox、timeout/DLQ/compensation；UI-03/04/05/09/10/11 vertical e2e；无总分/排名 |
 | EXPERIENCE-LEDGER-01（AAIR/API，P1） | `sql_run_ledger.py` + composition root | HTTP preflight→provider→finalize/replay→interaction/delete | 0010 schema、identity/consent、Audit/Outbox | `tests/intelligence/experience` 220/1 仍仅契约；需真实 FastAPI+Postgres session/transaction、401/403、并发/restart/deletion receipts；否则 CONTRACTED/PARTIAL |
@@ -582,7 +582,7 @@ Points ledger 的测试环境完整状态机；补 O01-O12 的最小运营队列
 - 停止把 `InMemoryDurableDeletionStore`、deterministic interpretation、fixture catalog、
   one-shot FGCN worker 说成生产 AI/服务能力；它们只能作为同构测试替身。
 - 停止新建第二套模型网关、第二套 Principal 或 Node/Express 业务路径；未完成 ADR 前不扩充
-  更多 migration head，不把未跟踪 0009-0017 当完成。
+  更多 migration head，不把未跟踪 0009-0023 当完成。
 - 在 `multimodal_eval.py:EvaluationReleaseGate` 与 `evaluation/release_gate.py:AiReleaseGate`
   合并为唯一 canonical gate、完成 report registry lookup 前，冻结新增 evaluation/release-gate/
   report-persistence 代码；只允许补 canonical gate、registry/版本/租户负向测试和审计删除证据。
@@ -605,7 +605,7 @@ Points ledger 的测试环境完整状态机；补 O01-O12 的最小运营队列
 |---|---|---|---|---|
 | P0 | APLT/ARCH（owner 未明确，当前与他人 WIP 冲突）：`backend/apps/family_api/main.py`、`dev_wiring.py`、auth | 默认环境开发值让 dev_auth 暴露；生产仅 404 无真实等价 auth；租户/同意缺失 | `AIFAMILY_ENV=production uv run pytest tests/apps/family_api/test_production_dev_auth_gate.py -q`；unset/test/prod OpenAPI 与 401/403/404 smoke | 未设置环境也 fail-closed；real session/tenant/consent route 与 dev/test 同功能集合；无 synthetic auth 生产暴露；owner 明确前保持 BLOCKED |
 | P1 | AQA/GOV：`DOMAIN_REGISTRY.yaml`、Ruff、Manifest/CI | YAML 解析、lint debt、未登记 `product_management`/`prompt_registry`/pycache、branch protection 失效 | `uv run pytest tests/architecture -q`; `uv run ruff check .`; CI clean + `gh api repos/PoCP-Protocol/AiFamily/branches/main/protection` |  architecture 0 failures；Ruff 0 errors；每个 backend 目录有唯一登记；CI/主分支保护可证明 |
-| P1 | ADOM/ARCH：`0009-0017`、ADR/Manifest/ORM | 未跟踪 migration 被工作树 manifest 误放行；head 漂移、不可回滚/不可审计；当前未知 0017 | `git ls-files` 检查；`uv run alembic heads`; Postgres `tests/database/test_alembic_baseline_applies.py`/`test_fgcn_migration_chain.py` | 0008=159 固定；0009-0017 仅提交后 allow-list；ORM/对象表/ADR/Manifest/Fresh Postgres/concurrency 全一致；unknown head fail |
+| P1 | ADOM/ARCH：`0009-0023`、ADR/Manifest/ORM | 未跟踪 migration 被工作树 manifest 误放行；head 漂移、不可回滚/不可审计；当前未知 0023 | `git ls-files` 检查；`uv run alembic heads`; Postgres `tests/database/test_alembic_baseline_applies.py`/`test_fgcn_migration_chain.py` | 0008=159 固定；0009-0023 仅提交后 allow-list；ORM/对象表/ADR/Manifest/Fresh Postgres/concurrency 全一致；unknown head fail |
 | P1 | AAIR：`context_engine/durable_deletion.py`、生产 wiring | 内存 adapter 丢作业，不能删除外部媒体/vector/cache/评估副本，误宣称合规 | `uv run pytest tests/intelligence/context_engine -q`; Postgres restart/lease/DLQ/五 adapter receipts | durable queue/store、跨进程 lease/retry/DLQ、五类真实 adapter 和删除 proof/audit；在此以前保持 CONTRACTED/RELEASE BLOCKED |
 | P1 | AFE/API：mobile 全量 UI 与 `frontend/web/src/api/httpClient.ts` | 249/1/5 红灯；Web 已注入 Authorization/session/locale 但缺 backend 401/403 smoke，四端契约仍漂移；UI 视觉通过但业务不通 | `cd frontend/mobile; pnpm test -- --run`; `cd frontend/web; pnpm test -- --run; pnpm typecheck`; OpenAPI parity | mobile 5→0 failures；client 注入 token/session/locale/idempotency；UI 图标/成就无 UI-xx、无 score/rank/伪造进度；Web/mobile/后端同一拒绝/重放路径 |
 | P1 | GROWTH/无 owner：S05-N04、S07 ActionTask/Worker | 价值链在“计划后”断裂，情绪价值不能转成长结果；无法复盘/复购 | `pytest` domain/API/Postgres e2e + UI-03/04/05/09/10/11 vertical tests | Onboarding、今日任务、提醒、完成/跳过、21d 结项、Outcome 人工确认、超时/补偿/审计/outbox 全闭环 |
