@@ -98,6 +98,17 @@ Agent 的 WIP。提交可追踪不代表生产就绪。以下 P0 必须先清零
 
 这些意见已分别发送给 ADOM-2、AFE-1，并由 Lead 转交 APLT-1、AQA-1、AGOV-1、AAIR-5。未收到返工命令和新鲜输出前，不更新为 DONE。
 
+### 3.7.1 FGCN replay 语义反向复核
+
+独立读取 `41ad120` 的 `execute_task_assignment_named_action` 后发现，
+`_assignment_matches` 将当前 `TaskAssignment.status == ACCEPTED` 当作 request replay
+身份的一部分。一次成功后若 assignment 已进入 `COMPLETED` 或 `REVOKED`，相同
+`source_request_id` 的 crash/retry 会被误报 `fgcn_assignment_idempotency_replay_mismatch`，
+与 worker 声称的可重放语义不一致。P1 返工要求：用 canonical request payload/hash 和
+不可变身份字段判定 replay，生命周期状态变化仍返回原 assignment；仅 payload 变化才拒绝，
+并补 assignment 后续终态的重复 replay（无重复 audit）以及 Fresh Postgres 验收。当前保持
+`PARTIAL/NO-GO`，不能因 77/1 或 PG 45/2 绿测关闭该缺口。
+
 ### 3.8 GROWTH S05→S08→年度/续购闭环复核
 
 `ccd3d87` 的原始 journey 切片曾在 journey 内创建第二个 `ServiceCase` 聚合，并以非空
