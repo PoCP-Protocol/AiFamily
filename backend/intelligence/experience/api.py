@@ -26,6 +26,10 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.intelligence.context_engine.contracts import ContextScope
+from backend.intelligence.experience.async_ledger_bridge import (
+    AsyncExperienceRunLedgerPort,
+    dispatch_ledger_call,
+)
 from backend.intelligence.experience.multimodal_context_application import (
     ContextBoundMultimodalCommand,
     ContextBoundMultimodalDraft,
@@ -365,7 +369,7 @@ class MultimodalDraftRuntime:
     scope: ContextScope
     application: MultimodalDraftApplication
     environment: str
-    run_ledger: ExperienceRunLedger | None = None
+    run_ledger: ExperienceRunLedger | AsyncExperienceRunLedgerPort | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.scope, ContextScope):
@@ -409,7 +413,9 @@ def _run_scope(runtime: MultimodalDraftRuntime) -> RunScope:
     )
 
 
-def _require_run_ledger(runtime: MultimodalDraftRuntime) -> ExperienceRunLedger:
+def _require_run_ledger(
+    runtime: MultimodalDraftRuntime,
+) -> ExperienceRunLedger | AsyncExperienceRunLedgerPort:
     if runtime.run_ledger is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -484,13 +490,14 @@ def _draft_request_fingerprint(
     )
 
 
-def _release_draft_preflight(
-    ledger: ExperienceRunLedger | None, reservation: DraftPreflight | None
+async def _release_draft_preflight(
+    ledger: ExperienceRunLedger | AsyncExperienceRunLedgerPort | None,
+    reservation: DraftPreflight | None,
 ) -> None:
     if ledger is None or reservation is None:
         return
     try:
-        ledger.release_create(reservation)
+        await dispatch_ledger_call(ledger, "release_create", reservation=reservation)
     except RunHttpError:
         # Preserve the original provider/validation failure.  A durable
         # implementation must make release idempotent and transaction-safe.
@@ -656,7 +663,9 @@ async def create_multimodal_draft(
             )
         create_idempotency_key = _require_idempotency_key(idempotency_key or body.run_id)
         try:
-            reservation = ledger.preflight_create(
+            reservation = await dispatch_ledger_call(
+                ledger,
+                "preflight_create",
                 scope=_run_scope(runtime),
                 run_id=body.run_id,
                 request_ref=body.run_id,
@@ -700,12 +709,12 @@ async def create_multimodal_draft(
         )
         result = await runtime.application.generate_draft(command)
     except MultimodalRouteError as error:
-        _release_draft_preflight(ledger, reservation)
+        await _release_draft_preflight(ledger, reservation)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=error.reason
         ) from error
     except ModelGatewayError as error:
-        _release_draft_preflight(ledger, reservation)
+        await _release_draft_preflight(ledger, reservation)
         # Never expose provider text or request payloads through HTTP.  The
         # gateway's closed failure taxonomy is the only stable detail allowed
         # across this boundary; retryability is represented by the status.
@@ -716,22 +725,24 @@ async def create_multimodal_draft(
         )
         raise HTTPException(status_code=error_status, detail=error.kind) from error
     except (ValueError, TypeError) as error:
-        _release_draft_preflight(ledger, reservation)
+        await _release_draft_preflight(ledger, reservation)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
         ) from error
     try:
         response = _to_response(result)
     except (TypeError, ValueError) as error:
-        _release_draft_preflight(ledger, reservation)
+        await _release_draft_preflight(ledger, reservation)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="DRAFT_RESPONSE_INVALID",
         ) from error
     if ledger is not None and reservation is not None and create_idempotency_key is not None:
         try:
-            ledger.finalize_create(
-                reservation,
+            await dispatch_ledger_call(
+                ledger,
+                "finalize_create",
+                reservation=reservation,
                 draft_payload=result.output,
                 artifact_refs=tuple(
                     f"media:sha256:{item.sha256}" for item in body.media_inputs
@@ -783,7 +794,9 @@ async def decide_multimodal_run(
     if body.reason is not None:
         payload["reason"] = body.reason
     try:
-        receipt = ledger.append_interaction(
+        receipt = await dispatch_ledger_call(
+            ledger,
+            "append_interaction",
             scope=_run_scope(resolved),
             run_id=run_id,
             interaction_type=InteractionType.DECISION,
@@ -829,7 +842,9 @@ async def record_multimodal_feedback(
     if body.real_event_refs:
         payload["real_event_refs"] = list(body.real_event_refs)
     try:
-        receipt = ledger.append_interaction(
+        receipt = await dispatch_ledger_call(
+            ledger,
+            "append_interaction",
             scope=_run_scope(resolved),
             run_id=run_id,
             interaction_type=InteractionType.FEEDBACK,
@@ -864,7 +879,9 @@ async def request_multimodal_human_review(
     if body.impact_scope is not None:
         payload["impact_scope"] = body.impact_scope
     try:
-        receipt = ledger.append_interaction(
+        receipt = await dispatch_ledger_call(
+            ledger,
+            "append_interaction",
             scope=_run_scope(resolved),
             run_id=run_id,
             interaction_type=InteractionType.HUMAN_REVIEW,
@@ -902,7 +919,9 @@ async def delete_multimodal_run(
     if body is not None and body.reason is not None:
         payload["reason"] = body.reason
     try:
-        receipt = ledger.append_interaction(
+        receipt = await dispatch_ledger_call(
+            ledger,
+            "append_interaction",
             scope=_run_scope(resolved),
             run_id=run_id,
             interaction_type=InteractionType.DELETE,
@@ -932,7 +951,9 @@ async def replay_multimodal_run(
     resolved = await _runtime_for_run(family_id, runtime, resolver)
     ledger = _require_run_ledger(resolved)
     try:
-        snapshot = ledger.replay(scope=_run_scope(resolved), run_id=run_id)
+        snapshot = await dispatch_ledger_call(
+            ledger, "replay", scope=_run_scope(resolved), run_id=run_id
+        )
     except RunHttpError as error:
         raise _map_run_error(error) from error
     return _replay_response(snapshot)
