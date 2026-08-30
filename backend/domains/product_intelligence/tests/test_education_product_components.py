@@ -4,12 +4,16 @@ from datetime import UTC, datetime
 
 import pytest
 
+from ..application import commands
+from ..application.context import ActorContext
 from ..domain.entities import (
     EducationProductSpec,
     ProductComponent,
+    ProductConcept,
     ProductDefinition,
 )
 from ..domain.errors import ProductIntelligenceValidationError
+from ..infrastructure.fake_repository import FakeProductIntelligenceRepository
 
 
 def _common() -> dict[str, object]:
@@ -99,3 +103,48 @@ def test_education_product_requires_demand_and_market_insight_refs() -> None:
             market_insight_refs=["market-insight-1"],
             education_spec=_spec(),
         )
+
+
+@pytest.mark.asyncio
+async def test_product_factory_creates_draft_from_demand_and_market_evidence() -> None:
+    repo = FakeProductIntelligenceRepository()
+    now = datetime.now(UTC)
+    await repo.save_product_concept(
+        ProductConcept(
+            id="concept-1",
+            created_at=now,
+            updated_at=now,
+            created_by="human:product-owner",
+            tenant_scope="tenant-a",
+            strategy_id="strategy-1",
+            title="家庭行动支持",
+        )
+    )
+    definition = await commands.create_education_product_definition(
+        repo,
+        ActorContext(
+            actor_id="ai:product-factory",
+            actor_type="AI",
+            tenant_scope="tenant-a",
+        ),
+        concept_id="concept-1",
+        product_kind="MICRO_CAMP",
+        duration_days=21,
+        zone="ADVANTAGE",
+        primary_contradiction="理解与行动之间存在断点",
+        demand_ref="family-need-1",
+        market_insight_refs=["market-insight-1"],
+        component_ids=["understand-v1", "action-v1"],
+        skill_ids=["compose_growth_product"],
+        success_metric_ids=["action_adoption"],
+        guardrail_ids=["no_child_commercial_targeting"],
+        stop_conditions=["safety_guardrail_breached"],
+        pause_policy="家长可以随时暂停",
+        human_gate_policy="敏感建议需人工复核",
+        model_ref="gateway:test",
+        prompt_use_case_version="product.compose.v1",
+        confidence=0.8,
+    )
+    assert definition.status == "DRAFT"
+    assert definition.demand_ref == "family-need-1"
+    assert definition.generated_by == "ai:product-factory"

@@ -528,7 +528,7 @@ class ProductPattern(_CommonFields):
     required_skill_ids: list[str] = Field(default_factory=list)
 
 
-class ProductDefinition(_CommonFields):
+class ProductDefinition(_CommonFields, _AiProvenanceFields):
     status: GenericRecordStatus = "DRAFT"
     concept_id: str
     pattern_id: str | None = None
