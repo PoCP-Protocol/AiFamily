@@ -28,6 +28,12 @@ from backend.intelligence.model_gateway.provider_registry import (
 from backend.intelligence.model_gateway.providers.fake import FakeProvider
 
 
+class _DurableTestContextBroker(ContextBroker):
+    """Explicitly marked test double for the production composition contract."""
+
+    durability_mode = "DURABLE"
+
+
 @pytest.fixture
 async def production_runtime():
     environment = "staging"
@@ -95,7 +101,7 @@ async def production_runtime():
         session_factory=session_factory,
         gateway=gateway,
         router=MultimodalRouter((profile,)),
-        context_broker=ContextBroker(),
+        context_broker=_DurableTestContextBroker(),
         environment=environment,
     )
     try:
@@ -229,3 +235,10 @@ def test_production_resolver_rejects_test_environment() -> None:
             context_broker=object(),  # type: ignore[arg-type]
             environment="test",
         )
+
+
+@pytest.mark.asyncio
+async def test_production_resolver_rejects_in_memory_context_broker(production_runtime) -> None:
+    resolver, _, _ = production_runtime
+    with pytest.raises(ValueError, match="durable ContextBroker"):
+        replace(resolver, context_broker=ContextBroker()).__post_init__()

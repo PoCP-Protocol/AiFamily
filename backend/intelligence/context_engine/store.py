@@ -21,6 +21,8 @@ from .contracts import (
 class ContextBroker:
     """Build and read immutable, purpose-scoped context projections."""
 
+    durability_mode = "IN_MEMORY"
+
     def __init__(self) -> None:
         self._observations: dict[tuple[str, str], StateObservation] = {}
         self._snapshots: dict[str, ContextSnapshot] = {}

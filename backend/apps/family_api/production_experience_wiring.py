@@ -148,6 +148,10 @@ class ProductionExperienceRuntimeResolver(MultimodalDraftRuntimeResolver):
             for method_name in ("snapshot", "read")
         ):
             raise TypeError("context_broker must implement snapshot() and read()")
+        if getattr(self.context_broker, "durability_mode", "IN_MEMORY") != "DURABLE":
+            raise ValueError(
+                "production experience resolver requires a durable ContextBroker"
+            )
         if self.environment not in PRODUCTION_ENVIRONMENTS:
             raise ValueError(
                 "production experience resolver environment must be staging or production"
