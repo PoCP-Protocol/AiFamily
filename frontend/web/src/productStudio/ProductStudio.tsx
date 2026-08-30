@@ -11,6 +11,7 @@ import type {
 type ProductStudioProps = {
   initialState: ProductStudioState;
   onStateChange?: (state: ProductStudioState) => void;
+  environmentLabel?: string;
 };
 
 const stageLabels: Record<ProductStage, string> = {
@@ -46,7 +47,7 @@ function EvidenceRefs({ refs }: { refs: EvidenceRef[] }) {
   );
 }
 
-export function ProductStudio({ initialState, onStateChange }: ProductStudioProps) {
+export function ProductStudio({ initialState, onStateChange, environmentLabel = "Sandbox Fixture" }: ProductStudioProps) {
   const [state, dispatch] = useReducer(productStudioReducer, initialState);
   const act = (action: Parameters<typeof dispatch>[0]) => {
     // Keep the component pure from API/AI concerns; the parent owns persistence.
@@ -60,6 +61,7 @@ export function ProductStudio({ initialState, onStateChange }: ProductStudioProp
       <header>
         <p className="eyebrow">IPD · PDM · PLM</p>
         <h1>产品设计工厂</h1>
+        <p data-testid="product-studio-environment">{environmentLabel} · 不连接真实模型或生产数据</p>
         <p className="muted">所有 AI 内容均为 DRAFT；证据、Gate 和生命周期决定必须可追溯并由人批准。</p>
       </header>
 
@@ -154,4 +156,3 @@ export function ProductStudio({ initialState, onStateChange }: ProductStudioProp
 }
 
 export type { ProductStudioProps };
-
