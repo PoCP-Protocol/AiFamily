@@ -37,6 +37,12 @@ class LiveReadForbiddenError(LiveReadError):
     code = "live_session_scope_forbidden"
 
 
+class LiveReadConflictError(LiveReadError):
+    """The canonical source returned an ambiguous read result."""
+
+    code = "live_session_read_conflict"
+
+
 @dataclass(frozen=True, slots=True)
 class LiveReadScope:
     """Server-derived scope for one guardian read.
@@ -66,6 +72,7 @@ class LiveSessionReadPort(Protocol):
 
 __all__ = [
     "LiveReadError",
+    "LiveReadConflictError",
     "LiveReadForbiddenError",
     "LiveReadNotFoundError",
     "LiveReadScope",

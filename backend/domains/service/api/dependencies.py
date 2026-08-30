@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 
 from backend.platform.audit.recorder import AuditRecorder
 from backend.platform.authorization.policy import PolicyEngine, PolicyRule
@@ -141,9 +141,9 @@ async def get_live_session_read_port() -> LiveSessionReadPort:
     production process appear to have live-session data, so composition must
     explicitly provide the adapter (tests override this dependency).
     """
-    raise RuntimeError(
-        "service live-session read port not configured — no synthetic or implicit "
-        "live-session source is allowed"
+    raise HTTPException(
+        status_code=503,
+        detail="live_session_read_port_not_configured",
     )
 
 

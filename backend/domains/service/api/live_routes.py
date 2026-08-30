@@ -19,6 +19,7 @@ from backend.platform.identity.context import ActorContext
 
 from ..application.context import ActionContext
 from ..application.live_ports import (
+    LiveReadConflictError,
     LiveReadError,
     LiveReadScope,
     LiveSessionReadPort,
@@ -98,7 +99,12 @@ async def get_live_session(
             session_ref=session_ref,
         )
     except LiveReadError as exc:
-        status = 403 if exc.code.endswith("forbidden") or "scope" in exc.code else 404
+        if isinstance(exc, LiveReadConflictError):
+            status = 409
+        elif exc.code.endswith("forbidden") or "scope" in exc.code:
+            status = 403
+        else:
+            status = 404
         raise HTTPException(status_code=status, detail=exc.code) from exc
 
     # This endpoint returns no minor data.  The read audit still names the

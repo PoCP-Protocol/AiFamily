@@ -10,12 +10,13 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from backend.domains.service.api import dependencies as deps
 from backend.domains.service.api.live_routes import router
 from backend.domains.service.application.context import ActionContext
+from backend.domains.service.application.live_ports import LiveReadConflictError
 from backend.domains.service.application.live_read_models import LiveSessionCandidate
 from backend.platform.audit.models import AuditActionKind
 from backend.platform.audit.recorder import AuditRecorder
@@ -84,6 +85,13 @@ class FakeLiveReader:
         return self.candidate
 
 
+class ConflictingLiveReader(FakeLiveReader):
+    async def get_session(
+        self, *, tenant_id: str, family_id: str, session_ref: str
+    ) -> LiveSessionCandidate | None:
+        raise LiveReadConflictError
+
+
 @pytest.fixture
 def wiring() -> tuple[TestClient, FakeLiveReader, AuditRecorder]:
     reader = FakeLiveReader(_candidate())
@@ -150,6 +158,39 @@ def test_openapi_exposes_only_get_detail() -> None:
     app.include_router(router)
     operations = app.openapi()["paths"]["/families/{family_id}/live-sessions/{session_ref}"]
     assert set(operations) == {"get"}
+
+
+def test_read_adapter_conflict_is_409() -> None:
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[deps.get_live_session_read_port] = lambda: ConflictingLiveReader(
+        _candidate()
+    )
+    app.dependency_overrides[deps.get_action_context] = lambda: _ctx()
+    app.dependency_overrides[deps.get_actor_context] = _actor
+    app.dependency_overrides[deps.get_policy_engine] = lambda: deps.build_policy_engine(
+        InMemoryTenantDirectory({TENANT: TenantStatus.ACTIVE})
+    )
+    app.dependency_overrides[deps.get_audit_recorder] = AuditRecorder
+    with TestClient(app) as client:
+        response = client.get(f"/families/{FAMILY}/live-sessions/{SESSION}")
+    assert response.status_code == 409
+    assert response.json()["detail"] == "live_session_read_conflict"
+
+
+def test_unauthenticated_dependency_is_401() -> None:
+    app = FastAPI()
+    app.include_router(router)
+
+    def unauthenticated() -> ActionContext:
+        raise HTTPException(status_code=401, detail="authentication_required")
+
+    app.dependency_overrides[deps.get_live_session_read_port] = lambda: FakeLiveReader(_candidate())
+    app.dependency_overrides[deps.get_action_context] = unauthenticated
+    with TestClient(app) as client:
+        response = client.get(f"/families/{FAMILY}/live-sessions/{SESSION}")
+    assert response.status_code == 401
+    assert response.json()["detail"] == "authentication_required"
 
 
 def test_cross_family_path_is_forbidden(
@@ -231,10 +272,12 @@ def test_fixture_source_contradiction_is_rejected() -> None:
 
 
 def test_default_read_adapter_is_fail_closed() -> None:
-    with pytest.raises(RuntimeError, match="live-session read port not configured"):
+    with pytest.raises(HTTPException) as exc_info:
         import asyncio
 
         asyncio.run(deps.get_live_session_read_port())
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == "live_session_read_port_not_configured"
 
     app = FastAPI()
     app.include_router(router)
@@ -246,4 +289,4 @@ def test_default_read_adapter_is_fail_closed() -> None:
     app.dependency_overrides[deps.get_audit_recorder] = AuditRecorder
     with TestClient(app, raise_server_exceptions=False) as client:
         response = client.get(f"/families/{FAMILY}/live-sessions/{SESSION}")
-    assert response.status_code == 500
+    assert response.status_code == 503
