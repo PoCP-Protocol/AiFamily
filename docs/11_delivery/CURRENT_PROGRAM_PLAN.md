@@ -35,6 +35,11 @@ superseded_by: null
 
 本节把家庭成长平台的商业蓝图转换为当前可执行的项目航次。它在交付顺序上优先于下方历史 Wave 描述；下方 Wave 仍保留作为 AIFAMILY-000 的治理与迁移背景，不得被解释为当前代码已经完成。
 
+新蓝图（Family Need OS、B2C/B2B2C/C2C、内容到行动、产品工厂、Principal 和全球 cell）的增量与当前证据，
+统一见 [`ARCHITECTURE_ALIGNMENT_CHANGELOG_V2.md`](ARCHITECTURE_ALIGNMENT_CHANGELOG_V2.md)。该文档仍是
+`draft/canonical:false` 的变更控制输入；在治理登记、ADR、Registry、owner sign-off 和契约测试完成前，
+本计划的当前真相和 NO-GO 发布判定不变。
+
 ### 总控责任与初心
 
 总设计师、项目经理和总负责人对以下三件事负最终责任：**方向不偏、价值不虚、交付可验收**。

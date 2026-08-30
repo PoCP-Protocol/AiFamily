@@ -611,7 +611,15 @@ Points ledger 的测试环境完整状态机；补 O01-O12 的最小运营队列
 | P1 | GROWTH/无 owner：S05-N04、S07 ActionTask/Worker | 价值链在“计划后”断裂，情绪价值不能转成长结果；无法复盘/复购 | `pytest` domain/API/Postgres e2e + UI-03/04/05/09/10/11 vertical tests | Onboarding、今日任务、提醒、完成/跳过、21d 结项、Outcome 人工确认、超时/补偿/审计/outbox 全闭环 |
 | P1 | AAIR/GOV：`multimodal_eval.py`、`evaluation/release_gate.py`、`run_http.py` | 69f6508 与既有 gate 双真相；96905db 只协调 interaction projection，未做 registry/主体/租户绑定 | `uv run pytest tests/intelligence/evaluation tests/intelligence/experience -q`; 新增 architecture test 断言单 gate；Postgres registry/审计/删除 smoke | 合并唯一 `AiReleaseGate`；EvalReport registry lookup（case/candidate/version/provenance/tenant/locale/consent）；unknown/revoked/deleted/replay/跨租户拒绝；report projection 仅 NOT_MEASURED，不写 Outcome/Fact；在此以前冻结扩张 |
 
-## 11. 发布判定和持续检查
+## 11. V2 新蓝图变更日志
+
+新加入的总体设计（包括 `FAMILY_GROWTH_PLATFORM_MASTER_DESIGN_V1`、Family Need OS、IPD/产品工厂、
+全球多租户、多语言和 Principal 统一编排）与本 V1 评审的增量、冲突、当前证据及分阶段落地，集中记录在
+[`ARCHITECTURE_ALIGNMENT_CHANGELOG_V2.md`](ARCHITECTURE_ALIGNMENT_CHANGELOG_V2.md)。该日志仍为
+`draft/canonical:false`；在 `SYSTEM_MANIFEST`、ADR、Registry、owner sign-off 和 contract tests 完成前，
+不改变本评审的 NO-GO 判定。
+
+## 12. 发布判定和持续检查
 
 当前发布判定：**NO-GO**。任一以下红线未通过均阻断 dev→test→production promotion：
 
