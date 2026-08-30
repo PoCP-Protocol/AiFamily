@@ -104,17 +104,37 @@ def test_adoption_requires_complete_evidence_status_map_and_reason() -> None:
 
 
 def test_adoption_mapping_and_output_are_immutable_and_side_effect_free() -> None:
-    command = _adopt()
+    draft = _draft()
+    draft.output["nested"] = {
+        "steps": [{"labels": {"alpha", "beta"}, "values": [1, {"deep": "value"}]}],
+        "tuple": ("kept", {"inner": ["frozen"]}),
+    }
+    command = _adopt(draft=draft)
     mapping = command.to_domain_mapping()
     assert isinstance(mapping, MappingProxyType)
     assert mapping["human_actor"] == "human:ipmt"
     assert mapping["provenance"] is command.ai_provenance
+    nested = command.output["nested"]
+    assert isinstance(nested, MappingProxyType)
+    assert isinstance(nested["steps"], tuple)
+    assert isinstance(nested["steps"][0], MappingProxyType)
+    assert isinstance(nested["steps"][0]["labels"], frozenset)
+    assert isinstance(nested["tuple"], tuple)
+    assert isinstance(nested["tuple"][1], MappingProxyType)
+    assert isinstance(nested["tuple"][1]["inner"], tuple)
     with pytest.raises(TypeError):
         mapping["human_actor"] = "human:other"  # type: ignore[index]
     with pytest.raises(TypeError):
         command.output["new_key"] = "blocked"  # type: ignore[index]
+    with pytest.raises(TypeError):
+        nested["steps"][0]["labels"] |= {"blocked"}  # type: ignore[index]
+    with pytest.raises(AttributeError):
+        nested["steps"].append("blocked")  # type: ignore[attr-defined]
+    with pytest.raises(TypeError):
+        nested["steps"][0]["values"][1]["deep"] = "changed"  # type: ignore[index]
     with pytest.raises(FrozenInstanceError):
         command.human_actor = "human:other"  # type: ignore[misc]
+    assert mapping["output"] is command.output
     assert command.to_domain_mapping()["package_id"] == "package:21:v1"
 
 

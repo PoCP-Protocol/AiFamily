@@ -22,6 +22,23 @@ class ProductPackageAdoptionError(ValueError):
     """Raised when a draft cannot pass the human adoption ACL."""
 
 
+def _freeze(value: Any) -> Any:
+    """Recursively copy container values into immutable equivalents.
+
+    Draft output is model-controlled data and may contain nested JSON-like
+    containers.  A shallow ``MappingProxyType`` would leave lists and nested
+    mappings mutable after the adoption command crossed the ACL boundary.
+    """
+
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze(item) for item in value)
+    return value
+
+
 def _required_text(value: str, code: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ProductPackageAdoptionError(code)
@@ -83,6 +100,11 @@ class ProductPackageAdoptionCommand:
     adoption_reason: str
     adopted_at: datetime
     idempotency_key: str | None = None
+
+    def __post_init__(self) -> None:
+        # Preserve the immutable command invariant even when a caller
+        # constructs the dataclass directly instead of using the ACL function.
+        object.__setattr__(self, "output", _freeze(self.output))
 
     @property
     def may_mutate_business_state(self) -> bool:
@@ -164,7 +186,7 @@ def adopt_product_package_draft(
         package_id=_required_text(draft.package_id, "PACKAGE_ID_REQUIRED"),
         product_id=_required_text(draft.product_id, "PRODUCT_ID_REQUIRED"),
         version=_required_text(draft.version, "PACKAGE_VERSION_REQUIRED"),
-        output=MappingProxyType(dict(draft.output)),
+        output=_freeze(draft.output),
         evidence_refs=evidence_refs,
         assumptions=tuple(draft.assumptions),
         next_validation=_required_text(draft.next_validation, "NEXT_VALIDATION_REQUIRED"),
