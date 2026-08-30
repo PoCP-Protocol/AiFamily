@@ -13,11 +13,15 @@ export type ExperienceClientEnvironment = {
 /**
  * Resolve the client mode from an explicit setting, retaining the local
  * sandbox default for developers and the HTTP default for production builds.
+ *
+ * The Vite `DEV` flag is the safety boundary for the synthetic client. An
+ * explicit fake request in any non-development build is treated as HTTP so a
+ * misconfigured production environment cannot silently bypass the API.
  */
 export const resolveExperienceClientMode = (
   environment: ExperienceClientEnvironment,
 ): ExperienceClientMode => {
-  if (environment.VITE_EXPERIENCE_CLIENT === "fake") return "fake";
+  if (environment.VITE_EXPERIENCE_CLIENT === "fake" && environment.DEV === true) return "fake";
   if (environment.VITE_EXPERIENCE_CLIENT === "http") return "http";
   return environment.DEV === true ? "fake" : "http";
 };
