@@ -199,7 +199,7 @@ Sprint 1 未完成前，不宣称“法咪莉校长已上线”或“家庭需�
 
 ```text
 uv run pytest -q                         819 passed, 44 skipped, 2 known gate failures
-uv run pytest tests/architecture -v       108 passed, 1 skipped, 2 known gate failures
+uv run pytest tests/architecture -v       108 passed, 1 skipped, 2 known gate failures（历史快照；当前见 §18.1）
 uv run pytest tests/intelligence -q        229 passed
 uv run pytest tests/apps/family_api -q      17 passed, 1 skipped
 pnpm exec vitest run（UI-03/05/09）          27 passed
@@ -244,8 +244,7 @@ pnpm check                                  passed
   Postgres migration 0004 尚未在本地执行，仍不得标记生产就绪。
 - 并发 WIP 新增 `backend/intelligence/product_management/` 未登记到
   `governance/MIGRATION_MANIFEST.yaml`；由其 owner 单独登记，Lead 不越界修改。
-- 全量 Ruff 当前由并发 WIP 产生 6 个错误（`family/domain/entities.py`、`intelligence/experience/`
-  及其测试）；本轮未改动这些文件，避免吞并他人工作区。
+- 全量 Ruff 当前由并发 WIP 产生 **1 个错误**（`backend/domains/family/domain/entities.py:E501`；具体清单以 fresh 命令为准）；本轮未改动该文件，避免吞并他人工作区。
 - 当前分支的测试数量与并发 WIP 会随工作区写入变化，所有数字以本轮实际命令输出为准，不能把
   缓存报告当成验收证据。
 
@@ -280,9 +279,10 @@ pnpm check                                  passed
 - **AAIR-4 Principal 上下文接线：PARTIAL**。注入 ContextBroker 时已按路由决定构造完整作用域，
   只读 projection 在模型调用前完成边界校验；未注入 broker 的兼容路径显式返回
   `CONTEXT_PROJECTION_UNAVAILABLE`，真实持久化 Broker、Human Gate 和删除 Worker 仍待接入。
-- 本轮复测：全量 `819 passed, 44 skipped, 2 known gate failures`；架构 `108 passed, 1 skipped,
+- 本轮复测（历史快照）：全量 `819 passed, 44 skipped, 2 known gate failures`；架构 `108 passed, 1 skipped,
   2 failures`；AI `229 passed`；Family API `17 passed, 1 skipped`；移动端 `pnpm check` 通过。
-  两个闸门失败均为并发 WIP 的 Ruff 债务和未登记 `product_management` 目录，不由本 Sprint 越界吸收。
+  该快照已由 §18.1 的新鲜命令替代，不作为当前发布闸门；当时两个失败为并发 WIP 的 Ruff 债务和未登记
+  `product_management` 目录，不由本 Sprint 越界吸收。
 
 ## 16. Sprint 2.1：可观测闭环与删除安全（进行中）
 
@@ -352,11 +352,13 @@ pnpm check                                  passed
 
 | 编号 | 优先级 | 任务 | Owner | 完成证据 |
 |---|---|---|---|---|
-| PA-SEC-01 | P0 | 生产配置下隔离 dev auth；统一 `AIFAMILY_ENV`，空值/拼写错误 fail-closed | ARCH-1 + APLT | 生产 OpenAPI 不含 `/auth/account-session`；负向启动和 404 测试 |
+| PA-SEC-01 | P0 | 生产配置下隔离 dev auth；统一 `AIFAMILY_ENV`，空值/拼写错误 fail-closed | ARCH-1 + APLT + 原 WIP owner（未明确） | 生产 OpenAPI 不含 `/auth/account-session`；负向启动和 404 测试；owner 未明确/战场冲突即 BLOCKED，不能将 404 当功能同构 |
 | PA-QUAL-01 | P0 | 清理/隔离并发 Ruff 债务，恢复 CI 绿灯和分支保护 | AQA-1 | `ruff check .` 清零；架构/全量测试为 required checks |
 | PA-DATA-01 | P1 | 真实 Identity、Tenant–Family、Consent store、Postgres UoW 与审计持久化 | APLT + ADOM | 真实数据库完成认证、同意撤回、跨家庭拒绝和审计查询 |
 | PA-API-01 | P1 | 从 FastAPI OpenAPI 生成并校验移动端 API 契约 | AAPI + AFE | CI 能检测动词、路径、参数、schema 和状态码漂移 |
-| PA-AI-01 | P1 | Context Broker → Principal → Human Gate → Named Action → Outbox 的可回放链路 | AAIR | 首个低风险场景仅产出 draft，人工确认后才写事实 |
+| PA-AI-01 | P1 | Context Broker → Principal → Human Gate → Named Action → Outbox 的可回放链路（含 Experience SQL ledger、benchmark registry） | AAIR + API + PLT | 首个低风险场景仅产出 draft，人工确认后才写事实；benchmark ref 必须 registry lookup/版本与主体绑定，quality 不得写 Outcome/Fact |
+| PA-AI-02 | P1 | 合并多模态 `EvaluationReleaseGate` 与既有 `AiReleaseGate` 为唯一准入真相 | AAIR + GOV | 仅一处 canonical gate；ProviderRegistry/environment/data_class、case/candidate/version/provenance、阈值、撤销和审计均有测试；未审批 provider 必须 BLOCKED |
+| PA-AI-03 | P1 | 将 `AsyncContextBrokerPort`/`AsyncSqlContextBroker` 接入 durable Context/Memory 生产组合根 | AAIR + PLT + DATA | 当前 02a80c4/6a88625/6150169 context-engine 25 passed，9b10d2d disposable Postgres probe 1 passed，均为 adapter/create_all 证据；须补 Alembic/Manifest/ORM、Fresh Postgres upgrade/downgrade/restart、撤回/跨租户/并发 replay、Audit/Outbox/删除收据后才可升阶 |
 | PA-UX-01 | P1 | 将 AFE-4 的语义图标/成就反馈推广到其余服务与成长入口 | AFE | UI 不显示研发编号；多模态、暂停、拒绝、删除和无障碍测试齐全 |
 | PA-OPS-01 | P2 | 明确 Node/Express/tRPC 模板层边界并补 SPDX/素材权属说明 | ARCH-1 + GOV | ADR、构建排除证明、许可证和第三方清单齐全 |
 
@@ -370,13 +372,15 @@ pnpm check                                  passed
 ## 18. Sprint 2.1 复核结果（项目助理驱动，2026-08-30）
 
 - **DB-01：CONTRACTED / PARTIAL**。`tests/database/test_alembic_baseline_applies.py` 已将历史
-  baseline（0001，152/7/60）与 0004-0008 additive head（0008，159/7/60）分层，并对当前
-  未登记的 0009 WIP 只做显式 `160` allow-list；Fresh Postgres baseline 3 passed、FGCN chain
-  2 passed、Ruff 通过。0009 仍需 ADR、MIGRATION_MANIFEST、ORM/迁移对象清单和 owner 提交，未知
-  head 必须失败。
+  baseline（0001，152/7/60）与 0004-0008 additive head（0008，159/7/60）分层；当前动态
+  head=0017，0011-0017 migration 与对应 ADR/Manifest/ORM 未 tracked/审批。Fresh Postgres
+  baseline **8 passed、1 failed、1 skipped**（未知 0017 head，0010 已登记跳过），
+  FGCN chain **2 passed**；0009-0017 仍需 ADR、MIGRATION_MANIFEST、ORM/迁移对象清单和 owner 提交，
+  未知 head 必须失败。
 - **AAIR-6：CONTRACTED / adapter-only**。新增 durable deletion queue 的端口、租约、重试、DLQ、
-  幂等、租户隔离和 TEXT/MEDIA/VECTOR/CACHE/DERIVED 回执合同；定向删除测试 13 passed、Ruff
-  通过。当前实现仍是 `InMemoryDurableDeletionStore`，没有 Postgres/outbox、跨进程 lease 或真实
+  幂等、租户隔离和 TEXT/MEDIA/VECTOR/CACHE/DERIVED 回执合同；durable deletion 子集 6 项通过，
+  其后 Async/SQL Context 使 Fresh `tests/intelligence/context_engine` 当前 **25 passed**、context 文件 Ruff 通过。
+  当前删除实现仍是 `InMemoryDurableDeletionStore`，没有 Postgres/outbox、跨进程 lease 或真实
   五类 projection，保持 `RELEASE BLOCKED`，不得标记生产删除完成。
 - **AFE-4：PARTIAL**。服务列表已用语义图标、步骤和家庭小成就替换可见 UI 编号，专项 5 tests
   与 `pnpm check` 通过；全量移动端仍 5 failures，`family-screen-list.tsx`、通用 `[id]` 路由和
@@ -388,20 +392,52 @@ pnpm check                                  passed
   挂载 synthetic `dev_auth`，生产 OpenAPI 不含 `/auth/account-session`，Family API 定向
   `39 passed, 1 skipped`；但 `dev_wiring.current_environment()` 缺少 `AIFAMILY_ENV` 时仍回落
   到 `development`，且生产尚无真实 auth 替代端点，不能把环境 P0 标为完成。
-- **Web/Contract-01：新增 P1 阻断**。项目助理复核 `frontend/web` 发现 httpClient 未注入
-  Bearer/session token，而后端体验运行时依赖 Authorization 解析家庭身份；当前 Web 端只能用
-  fake fetch 测试，真实受保护请求会 401/503。后续必须统一 session/token/家庭上下文注入并补
+- **Web/Contract-01：P1 PARTIAL**。68fc0ce+d403998 已让 httpClient 注入 Authorization、
+  X-Session-Id 和 request locale（显式 scope locale 优先），Web 22 passed/typecheck 0；但
+  仍只有 fake fetch，真实受保护请求/跨租户 401/403 未用 TestClient 验证。后续必须补
   OpenAPI/client schema parity；不得让客户端传 tenant/provider/scope 控制字段。
+- **GROWTH-01：GO（测试切片）/CONTRACTED-PARTIAL（生产前置）**。b431eda/78cb9c1/dcc0802
+  将 S07→S08→年度/续购改为 canonical ServiceCaseCommand/DeliveryReceipt、人类 actor、实时
+  ConsentGate 和删除引用；journey **40 passed/4 skipped**（无 DB），Fresh Postgres **44 passed**。
+  仍无 Journey HTTP/ORM/Audit/Outbox/跨进程 worker/真实 service sink，生产 NO-GO。
+- **EXPERIENCE/EVAL：CONTRACTED/PARTIAL**。128fb57/4924506/3f56089/a11f643 提供 SQL
+  ledger/session/resolver hook 和 media-free evaluation projection；eb33c06 将 ModelDraft
+  generation 放入 SqlAlchemyUnitOfWork；当前定向 experience+production/trusted **220 passed、1 warning**，
+  P4 media/share/achievement runtime contracts 已通过 synthetic/in-memory 测试但仍非生产接线。`941feae` benchmark ref 只做 namespace
+  校验，69f6508/96905db 又引入与既有 `AiReleaseGate` 重叠的第二 gate/coordinator，未 lookup
+  registry/版本/tenant/consent/provenance；生产 composition 仍 503，状态 P1 阻断。
+- **CONTEXT：CONTRACTED/PARTIAL**。02a80c4 提供异步 Context port，6a88625/6150169 提供 SQL
+  adapter 和跨会话 scope 修复；当前 `uv run pytest tests/intelligence/context_engine -q` 为
+  **25 passed**，但表只由 SQLite `metadata.create_all` fixture 创建，未有 migration/Manifest/ORM、
+  production resolver、ConsentRecord 撤回、Audit/Outbox 和完整删除收据，不能将 `DURABLE` 类名
+  视为生产能力。
+- **MEMBERSHIP-01：CONTRACTED/PARTIAL**。`0ca62d2` 补充会员权益生命周期的租户/家庭作用域、
+  幂等冲突、人工 actor 和 repository/UoW 合同；Fresh Postgres `tests/domains/membership -q`
+  当前 **50 passed、1 warning**。生产 API/main 组合根、Account→Membership→Family 身份链、
+  Consent/审计/outbox、退款/删除回执仍缺；贡献账、权益账、现金账必须分离，禁止家庭总分/排名，
+  不能把 3107d30 DESIGN_ONLY 蓝图升为生产商业能力。
+- **SEC-02：CONTRACTED/PARTIAL，P0 BLOCKED**。`cbc055e`/`736ae19` 新增 ADR-0069、
+  Experience 401/403/CONSENT_REQUIRED 映射和不安全环境启动拒绝合同；unset `AIFAMILY_ENV`
+  acceptance 仍按设计红灯，因 `dev_wiring.current_environment()` 仍默认 development，
+  未修改他人 WIP。只有完成原 WIP owner 的 fail-closed 实现、真实 auth/session/tenant/consent
+  及三环境 TestClient 证据后才能关闭 ENV-01。
+- **GROWTH-ONBOARDING：CONTRACTED/PARTIAL**。`0cd53fb`/`6b4a8e9` 提供 GrowthIntent→Onboarding
+  的领域、SQL/fake、HTTP 和同事务审计/outbox/idempotency；PG 批量首跑一次 actor scope flake，
+  0016/0017 migration 尚未 tracked/审批。须稳定重复 PG、补跨租户/撤回 consent/非法 UUID 和
+  migration registry/ORM/可逆证据后方可进入生产候选。
 
 ### 18.1 当前可复现闸门
 
 ```text
-uv run pytest tests/architecture -q                 106 passed, 1 skipped, 4 failed
-uv run ruff check . --output-format concise          1 E501（并发 WIP family/entities.py）
-uv run pytest tests/database/test_alembic_baseline_applies.py -q  3 passed
+uv run pytest tests/architecture -q                 109 passed, 1 skipped, 1 failed（Ruff ratchet）
+uv run ruff check . --output-format concise          1 error（family/entities.py E501）
+uv run pytest tests/database/test_alembic_baseline_applies.py -q  8 passed, 1 failed, 1 skipped（unknown 0017 head）
 uv run pytest tests/database/test_fgcn_migration_chain.py -q      2 passed
 cd frontend/mobile; pnpm test -- --run              249 passed, 1 skipped, 5 failed（55 files）
 cd frontend/mobile; pnpm check                       passed
+uv run pytest tests/domains/journey -q                  40 passed, 4 skipped（Postgres URL: 44 passed）
+uv run pytest tests/intelligence/experience -q          220 passed, 1 warning（P4 contracts synthetic/in-memory green）
+cd frontend/web; pnpm test -- --run; pnpm typecheck   22 passed；typecheck 0
 ```
 
 上述失败必须被项目助理逐轮复核；不得用抬高基线、删除测试、把 0009 WIP 偷换为已完成或将
