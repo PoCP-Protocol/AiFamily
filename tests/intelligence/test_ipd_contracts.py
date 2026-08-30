@@ -248,6 +248,14 @@ def test_product_package_gate_is_sequential_and_requires_human_evidence() -> Non
         decided_by="human:quality",
         evidence=_gate_evidence("qualified"),
     )
+    assert (pilot.gate_history[-1].from_stage, pilot.gate_history[-1].to_stage) == (
+        IPDStage.PLAN,
+        IPDStage.DEVELOP,
+    )
+    assert (qualified.gate_history[-1].from_stage, qualified.gate_history[-1].to_stage) == (
+        IPDStage.DEVELOP,
+        IPDStage.QUALIFY,
+    )
     with pytest.raises(IPDContractError, match="RELEASE_BASELINE_REQUIRED"):
         qualified.advance(
             ArtifactStatus.RELEASED,

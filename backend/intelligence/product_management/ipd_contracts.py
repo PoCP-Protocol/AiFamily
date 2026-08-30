@@ -70,6 +70,18 @@ class PilotStatus(StrEnum):
     ROLLED_BACK = "ROLLED_BACK"
 
 
+# A ProductPackage's status transitions are the execution-facing slice of the
+# IPD stage model.  Keeping this mapping explicit prevents a gate record from
+# claiming the same MARKET→LIFECYCLE transition for every pilot/qualification/
+# release decision.
+_PACKAGE_STATUS_STAGES: dict[ArtifactStatus, IPDStage] = {
+    ArtifactStatus.DRAFT: IPDStage.PLAN,
+    ArtifactStatus.PILOT: IPDStage.DEVELOP,
+    ArtifactStatus.QUALIFIED: IPDStage.QUALIFY,
+    ArtifactStatus.RELEASED: IPDStage.LAUNCH,
+}
+
+
 def _coerce_enum(value: object, enum_type: type[StrEnum], code: str) -> StrEnum:
     try:
         return value if isinstance(value, enum_type) else enum_type(value)
@@ -486,8 +498,8 @@ class ProductPackage:
         if target is ArtifactStatus.RELEASED and not self.release_baseline_id:
             raise IPDContractError("PRODUCT_PACKAGE_RELEASE_BASELINE_REQUIRED")
         record = GateRecord(
-            from_stage=IPDStage.MARKET,
-            to_stage=IPDStage.LIFECYCLE,
+            from_stage=_PACKAGE_STATUS_STAGES[self.status],
+            to_stage=_PACKAGE_STATUS_STAGES[target],
             decision=decision,
             decided_by=decided_by,
             evidence=evidence,
