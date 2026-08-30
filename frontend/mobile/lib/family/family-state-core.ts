@@ -3,10 +3,27 @@ import type { TodayAction } from "./domain";
 import type { ControlledActionKind } from "./ui-action-policies";
 import type { FamilyLoop } from "./ui-registry";
 import type { AssessmentAnswer, GrowthFocusId } from "./core-growth";
-import type { ChildChoice, ChildChoiceDraft, PrivateGrowthStoryDraft } from "./child-growth";
-import type { CommerceIntentDraft, FamilyInvitationDraft, FamilyStudyGroupDraft } from "./commerce-entitlements";
-import type { ActivityInterestDraft, ConsultationChannel, ConsultationNeedDraft } from "./service-support";
-import type { CommunityAiTagDraft, CommunityInteractionDraft, CommunityPostDraft, CommunityPostKind } from "./community-content";
+import type {
+  ChildChoice,
+  ChildChoiceDraft,
+  PrivateGrowthStoryDraft,
+} from "./child-growth";
+import type {
+  CommerceIntentDraft,
+  FamilyInvitationDraft,
+  FamilyStudyGroupDraft,
+} from "./commerce-entitlements";
+import type {
+  ActivityInterestDraft,
+  ConsultationChannel,
+  ConsultationNeedDraft,
+} from "./service-support";
+import type {
+  CommunityAiTagDraft,
+  CommunityInteractionDraft,
+  CommunityPostDraft,
+  CommunityPostKind,
+} from "./community-content";
 
 export interface ActionReceipt {
   actionId: string;
@@ -26,8 +43,17 @@ export interface UiActionReceipt {
   externalEffect: false;
 }
 
-export type FamilyFlowSource = "LOCAL_DRAFT" | "REMOTE_PROJECTION" | "REMOTE_RECEIPT" | "FALLBACK";
-export type FamilyRemoteSyncState = "NOT_STARTED" | "SYNCING" | "SYNCED" | "ERROR";
+export type FamilyFlowSource =
+  | "LOCAL_DRAFT"
+  | "REMOTE_PROJECTION"
+  | "REMOTE_RECEIPT"
+  | "FALLBACK";
+export type FamilyRemoteSyncState =
+  | "NOT_STARTED"
+  | "SYNCING"
+  | "SYNCED"
+  | "ERROR";
+export type AssessmentFlowStep = "story" | "consent" | "focus" | "questions";
 
 export interface FamilyMobileState {
   hydrated: boolean;
@@ -46,6 +72,9 @@ export interface FamilyMobileState {
   retryable: boolean;
   uiActionReceipts: UiActionReceipt[];
   selectedGrowthFocus: GrowthFocusId | null;
+  /** Local family-private draft; never a canonical Fact or server-side FamilyNeed. */
+  assessmentNeedText: string;
+  assessmentFlowStep: AssessmentFlowStep;
   assessmentAnswers: Record<string, AssessmentAnswer>;
   assessmentSyncState: "local" | "syncing" | "synced" | "error";
   activeOnboardingId: string | null;
@@ -66,27 +95,87 @@ export type FamilyMobileAction =
   | { type: "activate_camp_day"; day: number }
   | { type: "start_camp" }
   | { type: "complete_action"; reflection: string }
-  | { type: "set_flow_status"; flowId?: string | null; lastAction?: string | null; remoteSyncState?: FamilyRemoteSyncState; source?: FamilyFlowSource; retryable?: boolean }
+  | {
+      type: "set_flow_status";
+      flowId?: string | null;
+      lastAction?: string | null;
+      remoteSyncState?: FamilyRemoteSyncState;
+      source?: FamilyFlowSource;
+      retryable?: boolean;
+    }
   | { type: "skip_action" }
-  | { type: "record_ui_action"; payload: Omit<UiActionReceipt, "recordedAt" | "externalEffect"> }
+  | {
+      type: "record_ui_action";
+      payload: Omit<UiActionReceipt, "recordedAt" | "externalEffect">;
+    }
   | { type: "select_growth_focus"; focus: GrowthFocusId }
+  | { type: "save_assessment_need"; text: string }
+  | { type: "restart_assessment" }
+  | { type: "set_assessment_step"; step: AssessmentFlowStep }
   | { type: "answer_assessment"; questionId: string; answer: AssessmentAnswer }
-  | { type: "set_assessment_sync"; state: FamilyMobileState["assessmentSyncState"] }
+  | {
+      type: "set_assessment_sync";
+      state: FamilyMobileState["assessmentSyncState"];
+    }
   | { type: "set_active_onboarding"; onboardingId: string | null }
   | { type: "record_child_choice"; promptId: string; choice: ChildChoice }
   | { type: "save_private_growth_story"; draft: PrivateGrowthStoryDraft }
-  | { type: "save_commerce_intent_draft"; productRef: string; productVersion: number; productTitle: string }
-  | { type: "sync_commerce_intent_receipt"; intentId: string; entitlementId: string }
+  | {
+      type: "save_commerce_intent_draft";
+      productRef: string;
+      productVersion: number;
+      productTitle: string;
+    }
+  | {
+      type: "sync_commerce_intent_receipt";
+      intentId: string;
+      entitlementId: string;
+    }
   | { type: "save_invitation_draft"; productRef: string; productTitle: string }
-  | { type: "save_study_group_draft"; productRef: string; productTitle: string; familyCount: 2 | 3 | 4 }
+  | {
+      type: "save_study_group_draft";
+      productRef: string;
+      productTitle: string;
+      familyCount: 2 | 3 | 4;
+    }
   | { type: "cancel_study_group_draft" }
-  | { type: "save_consultation_need_draft"; offeringRef: string; offeringVersion: number; offeringTitle: string; providerName: string; channel: ConsultationChannel; slotRef: string | null; timePreference: string; ageBand: string; needFocus: string }
-  | { type: "sync_consultation_need_receipt"; bookingRequestId: string; serviceRecordId: string }
-  | { type: "save_activity_interest_draft"; activityRef: string; activityTitle: string }
-  | { type: "save_community_post_draft"; kind: CommunityPostKind; title: string; body: string; topic: string; aiTagDraft?: CommunityAiTagDraft }
+  | {
+      type: "save_consultation_need_draft";
+      offeringRef: string;
+      offeringVersion: number;
+      offeringTitle: string;
+      providerName: string;
+      channel: ConsultationChannel;
+      slotRef: string | null;
+      timePreference: string;
+      ageBand: string;
+      needFocus: string;
+    }
+  | {
+      type: "sync_consultation_need_receipt";
+      bookingRequestId: string;
+      serviceRecordId: string;
+    }
+  | {
+      type: "save_activity_interest_draft";
+      activityRef: string;
+      activityTitle: string;
+    }
+  | {
+      type: "save_community_post_draft";
+      kind: CommunityPostKind;
+      title: string;
+      body: string;
+      topic: string;
+      aiTagDraft?: CommunityAiTagDraft;
+    }
   | { type: "toggle_community_bookmark"; exchangeRef: string }
   | { type: "toggle_community_follow"; exchangeRef: string }
-  | { type: "save_community_response_draft"; exchangeRef: string; responseText: string };
+  | {
+      type: "save_community_response_draft";
+      exchangeRef: string;
+      responseText: string;
+    };
 
 const initialAction: TodayAction = {
   id: "family-listen-one-sentence",
@@ -115,6 +204,8 @@ export const initialFamilyMobileState: FamilyMobileState = {
   retryable: false,
   uiActionReceipts: [],
   selectedGrowthFocus: null,
+  assessmentNeedText: "",
+  assessmentFlowStep: "story",
   assessmentAnswers: {},
   assessmentSyncState: "local",
   activeOnboardingId: null,
@@ -129,19 +220,47 @@ export const initialFamilyMobileState: FamilyMobileState = {
   communityInteractionDrafts: {},
 };
 
-export function familyMobileReducer(state: FamilyMobileState, action: FamilyMobileAction): FamilyMobileState {
-  if (action.type === "hydrate") return { ...state, ...action.payload, hydrated: true, updatedAt: action.payload.updatedAt ?? state.updatedAt };
-  if (action.type === "set_flow_status") return {
-    ...state,
-    ...(action.flowId === undefined ? {} : { flowId: action.flowId }),
-    ...(action.lastAction === undefined ? {} : { lastAction: action.lastAction }),
-    ...(action.remoteSyncState === undefined ? {} : { remoteSyncState: action.remoteSyncState }),
-    ...(action.source === undefined ? {} : { source: action.source }),
-    ...(action.retryable === undefined ? {} : { retryable: action.retryable }),
-    updatedAt: new Date().toISOString(),
-  };
-  if (action.type === "start_action") return { ...state, lastAction: "START_TODAY_ACTION", updatedAt: new Date().toISOString(), todayAction: { ...state.todayAction, status: "in_progress" } };
-  if (action.type === "start_camp") return { ...state, lastAction: "START_CAMP", updatedAt: new Date().toISOString(), campStarted: true };
+export function familyMobileReducer(
+  state: FamilyMobileState,
+  action: FamilyMobileAction,
+): FamilyMobileState {
+  if (action.type === "hydrate")
+    return {
+      ...state,
+      ...action.payload,
+      hydrated: true,
+      updatedAt: action.payload.updatedAt ?? state.updatedAt,
+    };
+  if (action.type === "set_flow_status")
+    return {
+      ...state,
+      ...(action.flowId === undefined ? {} : { flowId: action.flowId }),
+      ...(action.lastAction === undefined
+        ? {}
+        : { lastAction: action.lastAction }),
+      ...(action.remoteSyncState === undefined
+        ? {}
+        : { remoteSyncState: action.remoteSyncState }),
+      ...(action.source === undefined ? {} : { source: action.source }),
+      ...(action.retryable === undefined
+        ? {}
+        : { retryable: action.retryable }),
+      updatedAt: new Date().toISOString(),
+    };
+  if (action.type === "start_action")
+    return {
+      ...state,
+      lastAction: "START_TODAY_ACTION",
+      updatedAt: new Date().toISOString(),
+      todayAction: { ...state.todayAction, status: "in_progress" },
+    };
+  if (action.type === "start_camp")
+    return {
+      ...state,
+      lastAction: "START_CAMP",
+      updatedAt: new Date().toISOString(),
+      campStarted: true,
+    };
   if (action.type === "activate_camp_day") {
     const day = getCamp21Day(action.day);
     return {
@@ -169,10 +288,16 @@ export function familyMobileReducer(state: FamilyMobileState, action: FamilyMobi
     };
   }
   if (action.type === "complete_action") {
-    const completedDays = state.activeCampDay && !state.campCompletedDays.includes(state.activeCampDay)
-      ? [...state.campCompletedDays, state.activeCampDay].sort((a, b) => a - b)
-      : state.campCompletedDays;
-    const nextCampDay = state.activeCampDay ? Math.min(21, state.activeCampDay + 1) : state.campCurrentDay;
+    const completedDays =
+      state.activeCampDay &&
+      !state.campCompletedDays.includes(state.activeCampDay)
+        ? [...state.campCompletedDays, state.activeCampDay].sort(
+            (a, b) => a - b,
+          )
+        : state.campCompletedDays;
+    const nextCampDay = state.activeCampDay
+      ? Math.min(21, state.activeCampDay + 1)
+      : state.campCurrentDay;
     return {
       ...state,
       lastAction: "COMPLETE_TODAY_ACTION",
@@ -192,14 +317,23 @@ export function familyMobileReducer(state: FamilyMobileState, action: FamilyMobi
       },
     };
   }
-  if (action.type === "skip_action") return { ...state, lastAction: "SKIP_TODAY_ACTION", updatedAt: new Date().toISOString(), todayAction: { ...state.todayAction, status: "skipped" } };
+  if (action.type === "skip_action")
+    return {
+      ...state,
+      lastAction: "SKIP_TODAY_ACTION",
+      updatedAt: new Date().toISOString(),
+      todayAction: { ...state.todayAction, status: "skipped" },
+    };
   if (action.type === "record_ui_action") {
     const receipt: UiActionReceipt = {
       ...action.payload,
       recordedAt: new Date().toISOString(),
       externalEffect: false,
     };
-    const withoutReplay = state.uiActionReceipts.filter((item) => !(item.screenId === receipt.screenId && item.kind === receipt.kind));
+    const withoutReplay = state.uiActionReceipts.filter(
+      (item) =>
+        !(item.screenId === receipt.screenId && item.kind === receipt.kind),
+    );
     return { ...state, uiActionReceipts: [...withoutReplay, receipt] };
   }
   if (action.type === "select_growth_focus") {
@@ -210,15 +344,46 @@ export function familyMobileReducer(state: FamilyMobileState, action: FamilyMobi
       assessmentSyncState: "local",
     };
   }
+  if (action.type === "save_assessment_need") {
+    return {
+      ...state,
+      assessmentNeedText: action.text,
+      assessmentSyncState: "local",
+      updatedAt: new Date().toISOString(),
+    };
+  }
+  if (action.type === "restart_assessment") {
+    return {
+      ...state,
+      selectedGrowthFocus: null,
+      assessmentNeedText: "",
+      assessmentFlowStep: "story",
+      assessmentAnswers: {},
+      assessmentSyncState: "local",
+      updatedAt: new Date().toISOString(),
+    };
+  }
+  if (action.type === "set_assessment_step") {
+    return {
+      ...state,
+      assessmentFlowStep: action.step,
+      updatedAt: new Date().toISOString(),
+    };
+  }
   if (action.type === "answer_assessment") {
     return {
       ...state,
-      assessmentAnswers: { ...state.assessmentAnswers, [action.questionId]: action.answer },
+      assessmentAnswers: {
+        ...state.assessmentAnswers,
+        [action.questionId]: action.answer,
+      },
       assessmentSyncState: "local",
     };
   }
-  if (action.type === "set_assessment_sync") return { ...state, assessmentSyncState: action.state };
-  if (action.type === "set_active_onboarding") return { ...state, activeOnboardingId: action.onboardingId };
+  if (action.type === "set_assessment_sync")
+    return { ...state, assessmentSyncState: action.state };
+  if (action.type === "set_active_onboarding")
+    return { ...state, activeOnboardingId: action.onboardingId };
   if (action.type === "record_child_choice") {
     return {
       ...state,
@@ -233,7 +398,8 @@ export function familyMobileReducer(state: FamilyMobileState, action: FamilyMobi
       },
     };
   }
-  if (action.type === "save_private_growth_story") return { ...state, privateGrowthStory: action.draft };
+  if (action.type === "save_private_growth_story")
+    return { ...state, privateGrowthStory: action.draft };
   if (action.type === "save_commerce_intent_draft") {
     return {
       ...state,
@@ -251,7 +417,10 @@ export function familyMobileReducer(state: FamilyMobileState, action: FamilyMobi
       },
     };
   }
-  if (action.type === "sync_commerce_intent_receipt" && state.commerceIntentDraft) {
+  if (
+    action.type === "sync_commerce_intent_receipt" &&
+    state.commerceIntentDraft
+  ) {
     return {
       ...state,
       commerceIntentDraft: {
@@ -292,7 +461,10 @@ export function familyMobileReducer(state: FamilyMobileState, action: FamilyMobi
     };
   }
   if (action.type === "cancel_study_group_draft" && state.studyGroupDraft) {
-    return { ...state, studyGroupDraft: { ...state.studyGroupDraft, state: "CANCELLED" } };
+    return {
+      ...state,
+      studyGroupDraft: { ...state.studyGroupDraft, state: "CANCELLED" },
+    };
   }
   if (action.type === "save_consultation_need_draft") {
     return {
@@ -318,7 +490,10 @@ export function familyMobileReducer(state: FamilyMobileState, action: FamilyMobi
       },
     };
   }
-  if (action.type === "sync_consultation_need_receipt" && state.consultationNeedDraft) {
+  if (
+    action.type === "sync_consultation_need_receipt" &&
+    state.consultationNeedDraft
+  ) {
     return {
       ...state,
       consultationNeedDraft: {
@@ -362,7 +537,11 @@ export function familyMobileReducer(state: FamilyMobileState, action: FamilyMobi
       },
     };
   }
-  if (action.type === "toggle_community_bookmark" || action.type === "toggle_community_follow" || action.type === "save_community_response_draft") {
+  if (
+    action.type === "toggle_community_bookmark" ||
+    action.type === "toggle_community_follow" ||
+    action.type === "save_community_response_draft"
+  ) {
     const current = state.communityInteractionDrafts[action.exchangeRef] ?? {
       exchangeRef: action.exchangeRef,
       bookmarked: false,
@@ -376,12 +555,27 @@ export function familyMobileReducer(state: FamilyMobileState, action: FamilyMobi
     };
     const next: CommunityInteractionDraft = {
       ...current,
-      bookmarked: action.type === "toggle_community_bookmark" ? !current.bookmarked : current.bookmarked,
-      following: action.type === "toggle_community_follow" ? !current.following : current.following,
-      responseText: action.type === "save_community_response_draft" ? action.responseText.trim() : current.responseText,
+      bookmarked:
+        action.type === "toggle_community_bookmark"
+          ? !current.bookmarked
+          : current.bookmarked,
+      following:
+        action.type === "toggle_community_follow"
+          ? !current.following
+          : current.following,
+      responseText:
+        action.type === "save_community_response_draft"
+          ? action.responseText.trim()
+          : current.responseText,
       updatedAt: new Date().toISOString(),
     };
-    return { ...state, communityInteractionDrafts: { ...state.communityInteractionDrafts, [action.exchangeRef]: next } };
+    return {
+      ...state,
+      communityInteractionDrafts: {
+        ...state.communityInteractionDrafts,
+        [action.exchangeRef]: next,
+      },
+    };
   }
   return state;
 }
