@@ -9,14 +9,34 @@ machines, errors or governance gates.
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
 
 from backend.apps.family_api.dev_wiring import install_dev_wiring, is_dev_environment
-from backend.apps.family_api.experience_wiring import (
-    install_experience_runtime_resolver,
-    mount_experience_router,
-)
+
+if TYPE_CHECKING:
+    from backend.intelligence.experience.api import MultimodalDraftRuntimeResolver
+
+# The experience runtime is an optional composition-root capability.  The
+# route remains owned by its domain; this guard only keeps a clean base
+# importable while the reviewed provenance foundation is absent.  Do not turn
+# an arbitrary import failure into a silent route omission: only the exact
+# known missing foundation is accepted here.
+try:
+    from backend.apps.family_api.experience_wiring import (
+        install_experience_runtime_resolver,
+        mount_experience_router,
+    )
+except ModuleNotFoundError as error:
+    if error.name != "backend.intelligence.model_gateway.provenance":
+        raise
+    install_experience_runtime_resolver = None
+    mount_experience_router = None
+    _EXPERIENCE_IMPORT_ERROR = f"missing dependency: {error.name}"
+else:
+    _EXPERIENCE_IMPORT_ERROR = None
+
 from backend.apps.family_api.growth_onboarding_wiring import (
     FakeGrowthOnboardingRuntime,
     InMemoryGrowthOnboardingActorResolver,
@@ -30,7 +50,24 @@ from backend.domains.assessment.api import (
 )
 from backend.domains.assessment.api import router as assessment_router
 from backend.domains.assessment.api.dev_auth import router as dev_auth_router
-from backend.domains.commerce.api.routes import router as commerce_router
+
+# Commerce is a future production-shaped capability, not a reason to fake a
+# catalogue in this process.  Its package is absent from this clean base, so
+# keep the import contract explicit and leave the capability unavailable.
+try:
+    from backend.domains.commerce.api.routes import router as commerce_router
+except ModuleNotFoundError as error:
+    if error.name not in {
+        "backend.domains.commerce",
+        "backend.domains.commerce.api",
+        "backend.domains.commerce.api.routes",
+    }:
+        raise
+    commerce_router = None
+    _COMMERCE_IMPORT_ERROR = f"missing dependency: {error.name}"
+else:
+    _COMMERCE_IMPORT_ERROR = None
+
 from backend.domains.family_need.api.routes import (
     register_exception_handlers as register_family_need_exception_handlers,
 )
@@ -38,23 +75,52 @@ from backend.domains.family_need.api.routes import router as family_need_router
 from backend.domains.journey.api.growth_onboarding_routes import (
     router as growth_onboarding_router,
 )
-from backend.domains.journey.api.routes import (
-    register_exception_handlers as register_journey_exception_handlers,
-)
-from backend.domains.journey.api.routes import router as journey_router
+
+# This legacy Journey router is not part of the clean base.  The canonical
+# GrowthIntent -> Onboarding router above remains mounted independently; do not
+# synthesize a second Journey implementation just to close this import.
+try:
+    from backend.domains.journey.api.routes import (
+        register_exception_handlers as register_journey_exception_handlers,
+    )
+    from backend.domains.journey.api.routes import router as journey_router
+except ModuleNotFoundError as error:
+    if error.name != "backend.domains.journey.api.routes":
+        raise
+    register_journey_exception_handlers = None
+    journey_router = None
+    _JOURNEY_IMPORT_ERROR = f"missing dependency: {error.name}"
+else:
+    _JOURNEY_IMPORT_ERROR = None
+
 from backend.domains.membership.api.routes import router as membership_router
 from backend.domains.service.api.routes import router as service_router
-from backend.domains.service.fgcn.api.dependencies import (
-    clear_session_factory as clear_fgcn_session_factory,
-)
-from backend.domains.service.fgcn.api.dependencies import (
-    configure_session_factory as configure_fgcn_session_factory,
-)
-from backend.domains.service.fgcn.api.routes import (
-    register_exception_handlers as register_fgcn_exception_handlers,
-)
-from backend.domains.service.fgcn.api.routes import router as fgcn_router
-from backend.intelligence.experience.api import MultimodalDraftRuntimeResolver
+
+# FGCN currently shares the same absent provenance foundation as the
+# experience runtime.  Keep its production routes unadvertised until that
+# reviewed dependency is present; never replace it with a fake/NOOP adapter.
+try:
+    from backend.domains.service.fgcn.api.dependencies import (
+        clear_session_factory as clear_fgcn_session_factory,
+    )
+    from backend.domains.service.fgcn.api.dependencies import (
+        configure_session_factory as configure_fgcn_session_factory,
+    )
+    from backend.domains.service.fgcn.api.routes import (
+        register_exception_handlers as register_fgcn_exception_handlers,
+    )
+    from backend.domains.service.fgcn.api.routes import router as fgcn_router
+except ModuleNotFoundError as error:
+    if error.name != "backend.intelligence.model_gateway.provenance":
+        raise
+    clear_fgcn_session_factory = None
+    configure_fgcn_session_factory = None
+    register_fgcn_exception_handlers = None
+    fgcn_router = None
+    _FGCN_IMPORT_ERROR = f"missing dependency: {error.name}"
+else:
+    _FGCN_IMPORT_ERROR = None
+
 from backend.platform.persistence.session import (
     DATABASE_URL_ENV_VAR,
     get_sessionmaker,
@@ -86,6 +152,11 @@ def _runtime_database_url() -> str | None:
 def _configure_fgcn_persistence() -> None:
     """Bind FGCN to the explicit process database, or deliberately unbind it."""
 
+    if (
+        clear_fgcn_session_factory is None
+        or configure_fgcn_session_factory is None
+    ):
+        return
     database_url = _runtime_database_url()
     if database_url is None:
         clear_fgcn_session_factory()
@@ -131,6 +202,73 @@ def _mount_growth_onboarding(
     application.include_router(growth_onboarding_router)
 
 
+def _record_dependency_status(application: FastAPI) -> None:
+    """Expose composition gaps without advertising unavailable endpoints.
+
+    ``app.state`` is intentionally operational metadata, not a fallback data
+    source.  A missing optional dependency therefore remains observable and
+    fail-closed: no synthetic route, repository, or NOOP implementation is
+    installed to make the process look healthy.
+    """
+
+    application.state.composition_dependencies = {
+        "commerce": {
+            "available": commerce_router is not None,
+            "failure_mode": "fail_closed",
+            "reason": _COMMERCE_IMPORT_ERROR,
+        },
+        "experience": {
+            "available": mount_experience_router is not None,
+            "failure_mode": "fail_closed",
+            "reason": _EXPERIENCE_IMPORT_ERROR,
+        },
+        "fgcn": {
+            "available": fgcn_router is not None,
+            "failure_mode": "fail_closed",
+            "reason": _FGCN_IMPORT_ERROR,
+        },
+        "journey_legacy": {
+            "available": journey_router is not None,
+            "failure_mode": "fail_closed",
+            "reason": _JOURNEY_IMPORT_ERROR,
+        },
+    }
+
+    async def capability_readiness(capability_name: str) -> dict[str, str]:
+        """Return an explicit readiness result for an optional capability.
+
+        This is a composition-root health seam, not a substitute API for the
+        missing domain.  In particular, it must never return synthetic data
+        or a successful NOOP when the capability's reviewed dependency is not
+        in the checkout.
+        """
+
+        capability = application.state.composition_dependencies.get(capability_name)
+        if capability is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="capability_not_found",
+            )
+        if not capability["available"]:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="capability_unavailable",
+            )
+        return {"status": "ready"}
+
+    application.add_api_route(
+        "/capabilities/{capability_name}/ready",
+        capability_readiness,
+        methods=["GET"],
+        tags=["readiness"],
+        responses={
+            status.HTTP_503_SERVICE_UNAVAILABLE: {
+                "description": "Capability dependency is not configured"
+            }
+        },
+    )
+
+
 def create_app(
     *,
     experience_runtime_resolver: MultimodalDraftRuntimeResolver | None = None,
@@ -140,7 +278,9 @@ def create_app(
 ) -> FastAPI:
     _configure_fgcn_persistence()
     application = FastAPI(title="AiFamily family_api", version="0.1.0")
-    mount_experience_router(application)
+    _record_dependency_status(application)
+    if mount_experience_router is not None:
+        mount_experience_router(application)
     application.include_router(router)
     # Assessment carries the only end-to-end usable business chain (UI-02 →
     # UI-03). Its router paths are relative, so the `/families` prefix is
@@ -172,9 +312,11 @@ def create_app(
     # registration and OpenAPI visibility, not availability — see
     # governance/DOMAIN_REGISTRY.yaml → membership.known_gaps.
     application.include_router(membership_router)
-    # Product catalogue read. Development/test use fixture data and sandbox
-    # adapters; the route and business contract remain identical to production.
-    application.include_router(commerce_router)
+    # Product catalogue read.  Do not mount anything when the reviewed
+    # Commerce package is absent: a 404/unadvertised endpoint is safer than a
+    # fake catalogue, and the dependency status above makes the gap explicit.
+    if commerce_router is not None:
+        application.include_router(commerce_router)
     # Family Need closes the first platform-level vertical slice: an explicit
     # family expression becomes an N1 need aggregate. The default actor and
     # application dependencies fail closed; dev/test installs synthetic
@@ -183,9 +325,11 @@ def create_app(
     register_family_need_exception_handlers(application)
     # FGCN's AI draft -> Human Gate -> Named Action control plane. Its default
     # identity/session/worker dependencies fail closed; no client can inject
-    # actor or scope fields into these routes.
-    application.include_router(fgcn_router)
-    register_fgcn_exception_handlers(application)
+    # actor or scope fields into these routes. If its provenance foundation is
+    # not present on this base, leave the capability unmounted and observable.
+    if fgcn_router is not None:
+        application.include_router(fgcn_router)
+        register_fgcn_exception_handlers(application)
     _mount_growth_onboarding(
         application,
         runtime=growth_onboarding_runtime,
@@ -204,8 +348,9 @@ def create_app(
     # See governance/DOMAIN_REGISTRY.yaml → service_booking.known_gaps.
     # Journey uses PostgreSQL-backed identity, policy and persistence in the
     # default dependency path; deployments without PostgreSQL fail closed.
-    application.include_router(journey_router)
-    register_journey_exception_handlers(application)
+    if journey_router is not None:
+        application.include_router(journey_router)
+        register_journey_exception_handlers(application)
     # Service declares a legacy route with the same UI-05 path. Mount Journey
     # first so FastAPI selects the canonical private process projection while
     # the remaining service routes (including check-in drafts) stay available.
@@ -229,6 +374,11 @@ def create_app(
     # Install it after dev wiring so a caller cannot accidentally have its
     # durable/production resolver replaced by the synthetic test override.
     if experience_runtime_resolver is not None:
+        if install_experience_runtime_resolver is None:
+            raise RuntimeError(
+                "experience_runtime_unavailable: "
+                f"{_EXPERIENCE_IMPORT_ERROR}"
+            )
         install_experience_runtime_resolver(application, experience_runtime_resolver)
     return application
 
