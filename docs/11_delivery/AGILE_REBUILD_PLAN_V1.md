@@ -388,6 +388,10 @@ pnpm check                                  passed
   挂载 synthetic `dev_auth`，生产 OpenAPI 不含 `/auth/account-session`，Family API 定向
   `39 passed, 1 skipped`；但 `dev_wiring.current_environment()` 缺少 `AIFAMILY_ENV` 时仍回落
   到 `development`，且生产尚无真实 auth 替代端点，不能把环境 P0 标为完成。
+- **Web/Contract-01：新增 P1 阻断**。项目助理复核 `frontend/web` 发现 httpClient 未注入
+  Bearer/session token，而后端体验运行时依赖 Authorization 解析家庭身份；当前 Web 端只能用
+  fake fetch 测试，真实受保护请求会 401/503。后续必须统一 session/token/家庭上下文注入并补
+  OpenAPI/client schema parity；不得让客户端传 tenant/provider/scope 控制字段。
 
 ### 18.1 当前可复现闸门
 
