@@ -384,6 +384,10 @@ pnpm check                                  passed
 - **PMA-1：常驻审查**。项目助理已对以上交付发送反向意见，并将 P0/P1 任务写入审查报告和
   章程；当前发布判定仍为 `NO-GO`，原因是生产 dev_auth/环境默认、身份/同意持久化、架构与
   Ruff 闸门、全量移动端契约漂移等未关闭。
+- **SEC-01：已交付第一切片，ENV-01 仍阻断**。`main.py` 现在只在明确的 dev/test/local 环境
+  挂载 synthetic `dev_auth`，生产 OpenAPI 不含 `/auth/account-session`，Family API 定向
+  `39 passed, 1 skipped`；但 `dev_wiring.current_environment()` 缺少 `AIFAMILY_ENV` 时仍回落
+  到 `development`，且生产尚无真实 auth 替代端点，不能把环境 P0 标为完成。
 
 ### 18.1 当前可复现闸门
 
