@@ -56,6 +56,7 @@ async def _build_chain_with_ai_insight(repo, ai_context):
         ai_context,
         signal_id=signal.id,
         statement="小学高年级家长群体存在学习管理退出困难",
+        evidence_refs=[signal.id],
         model_ref="claude-sonnet-4-6",
         prompt_use_case_version="market.insight.generate@1",
         confidence=0.7,
@@ -104,4 +105,40 @@ async def test_growth_strategy_requires_at_least_one_hypothesis(fake_repo, human
             problem_id=problem.id,
             hypothesis_ids=[],
             statement="empty strategy should be rejected",
+        )
+
+
+@pytest.mark.asyncio
+async def test_ai_customer_insight_requires_traceable_evidence(fake_repo, ai_context):
+    from ..domain.errors import ProductIntelligenceValidationError
+
+    signal = await commands.create_market_signal(fake_repo, ai_context, raw_text="家长反馈")
+    with pytest.raises(
+        ProductIntelligenceValidationError, match="ai_insight_requires_evidence_refs"
+    ):
+        await commands.create_customer_insight(
+            fake_repo,
+            ai_context,
+            signal_id=signal.id,
+            statement="无证据的市场洞察",
+            model_ref="model-v1",
+            prompt_use_case_version="market.insight.generate@1",
+            confidence=0.5,
+        )
+
+
+@pytest.mark.asyncio
+async def test_customer_insight_rejects_blank_evidence_reference(fake_repo, human_context):
+    from ..domain.errors import ProductIntelligenceValidationError
+
+    signal = await commands.create_market_signal(fake_repo, human_context, raw_text="家长反馈")
+    with pytest.raises(
+        ProductIntelligenceValidationError, match="evidence_refs_must_not_contain_empty_values"
+    ):
+        await commands.create_customer_insight(
+            fake_repo,
+            human_context,
+            signal_id=signal.id,
+            statement="洞察",
+            evidence_refs=[" "],
         )

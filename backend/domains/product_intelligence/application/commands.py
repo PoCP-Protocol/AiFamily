@@ -104,10 +104,13 @@ async def create_customer_insight(
     *,
     signal_id: str,
     statement: str,
+    evidence_refs: list[str] | None = None,
     model_ref: str | None = None,
     prompt_use_case_version: str | None = None,
     confidence: float | None = None,
 ) -> CustomerInsight:
+    if context.actor_type == "AI" and not evidence_refs:
+        raise ProductIntelligenceValidationError("ai_insight_requires_evidence_refs")
     _require_ai_provenance_if_ai_actor(
         context,
         model_ref=model_ref,
@@ -125,6 +128,7 @@ async def create_customer_insight(
         tenant_scope=context.tenant_scope,
         statement=statement,
         signal_id=signal_id,
+        evidence_refs=evidence_refs or [],
         generated_by=generated_by,
         model_ref=model_ref,
         prompt_use_case_version=prompt_use_case_version,

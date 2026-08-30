@@ -145,6 +145,13 @@ class CustomerInsight(_CommonFields, _AiProvenanceFields):
     segment_id: str | None = None
     evidence_refs: list[str] = Field(default_factory=list)
 
+    @field_validator("evidence_refs")
+    @classmethod
+    def _evidence_refs_are_non_empty(cls, value: list[str]) -> list[str]:
+        if any(not ref or not ref.strip() for ref in value):
+            raise ProductIntelligenceValidationError("evidence_refs_must_not_contain_empty_values")
+        return value
+
 
 class UnmetNeed(_CommonFields):
     status: GenericRecordStatus = "ACTIVE"

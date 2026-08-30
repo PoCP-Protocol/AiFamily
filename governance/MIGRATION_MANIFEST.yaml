@@ -31,6 +31,22 @@ entries:
       - "唯一域内等价物：50_开发_dev/backend/domains/membership/application/context.py:20-27 的 ActionContext dataclass，仅 membership 域私有，非共享基础设施"
     reason: "计划假设的平台原语在 Python 侧不存在，必须新建，不是迁移"
 
+  - capability: platform_locale_context
+    disposition: REIMPLEMENT
+    target: [backend/platform/localization]
+    status: MIGRATED_TESTED
+    source:
+      - "50_开发_dev/reports/REPO_AUDIT_REPORT.md §3 C-1 / §4 A3"
+      - "50_开发_dev/architecture/FAMILY_AI_PLATFORM_TECH_ARCHITECTURE_V4_1.md §18-19"
+    evidence:
+      - "源仓库只有跨语言边界设计，没有可直接迁入的 LocaleContext 运行时实现"
+      - "AiFamily 已按 Python-only 后端决策重译为四维 locale JSON 契约、Python 值对象、显式 fallback、API middleware 与可靠性 fail-closed 测试"
+      - "补充 canonical concept_id 驱动的 reviewed locale artifact catalog；不把翻译文本作为业务身份，不提供静默机翻"
+    reason: "保留源仓库 A3 与四维 locale 语义，但不引入第二套 TS 业务后端或静默翻译路径"
+    known_gaps:
+      - "尚未由 API Gateway 统一注入 LocaleContext"
+      - "Prompt/Knowledge/Error Code/Human Gate 的 locale 版本库与 locale Eval 尚未建立"
+
   - capability: platform_authorization_policy
     disposition: REIMPLEMENT
     target: [backend/platform/authorization]
@@ -84,6 +100,27 @@ entries:
       - "50_开发_dev/packages/ai-gateway/src/index.ts"
       - "50_开发_dev/packages/principal-ai/src/index.ts"
       - "50_开发_dev/packages/principal-runtime/src/index.ts"
+
+  - capability: family_need_orchestration
+    disposition: REIMPLEMENT
+    target: [backend/domains/family_need]
+    status: MIGRATED_TESTED
+    evidence:
+      - "Family Need 域按 N0-N8 家庭需求闭环重建，含 domain/application/infrastructure 三层及合成仓储"
+      - "覆盖教育入口、需求澄清、资源组织、方案草案、情绪价值闸门、同意/租户/家庭隔离和多模态证据引用"
+      - "领域与 API 适配测试 16 passed，family_api 挂载联调测试通过；未从源仓库直接复制运行时代码"
+    reason: "以核心商业蓝图为准在 Python 架构中重新实现家庭需求编排能力"
+    known_gaps:
+      - "当前使用 Fake 仓储和 dev/test 合成身份/同意；PostgreSQL、真实身份/同意存储和 FGCN 分派仍待接线"
+      - "已挂载 N0→N1 需求入口；N1→N8 的澄清、画像、方案、交付和验收 API 尚未完成"
+
+  - capability: family_context_retrieval
+    disposition: REIMPLEMENT
+    target: [backend/intelligence/context_engine]
+    status: MIGRATED_TESTED
+    evidence:
+      - "docs/05_ai/GENERATIVE_SYSTEM_ARCHITECTURE.md §4 defines append-only StateObservation and context snapshots"
+    reason: "P0 Family Context minimum retrieval layer; pure AI-runtime primitive with no domain repository access"
 
   - capability: fastapi_runtime_entrypoint
     disposition: REIMPLEMENT
@@ -334,12 +371,30 @@ entries:
       发现新事实后的独立裁决，不是重新评价其完整性）。
 
   - capability: growth_plan_python_stub
-    disposition: MIGRATE
+    disposition: RETIRE
     source: ["50_开发_dev/backend/domains/growth_plan"]
     target: [backend/domains/growth_plan]
-    status: PLANNED
+    status: RETIRED_CANONICAL_CONFLICT
     evidence: ["单文件 37行，仅错误类型枚举，注释称'mirroring journey-plan.service.ts'但无实体"]
     project_owner_override: "2026-08-29 project-owner指示先迁移全部Python代码,推翻ARCHIVE判定;迁移后仍是错误类型stub,不假装已有实体模型"
+    correction_to_plan: "ADR-0012 已裁决语义并入 journey；旧目录待 project-owner 二次确认后删除。"
+
+  - capability: journey
+    disposition: REIMPLEMENT
+    source:
+      - "50_开发_dev/apps/api/src/modules/family/journey-plan.service.ts"
+      - "50_开发_dev/apps/api/src/modules/family/journey-plan.dto.ts"
+    target: [backend/domains/journey]
+    status: MIGRATED_TESTED
+    evidence:
+      - "UI-04/UI-05 已建立 Python Journey planned contract，后端按家庭确认型 90 天状态机重译"
+      - "UI-05 service-journey 已接入正式 PostgreSQL 过程投影，仅统计关联计划的 COMPLETED 行动"
+    known_gaps:
+      - "SQL Policy 已实现；legacy consent 表缺年龄/监护关系/到期字段，尚不能声称完整 ConsentGate 接入"
+      - "已增加 AIFAMILY_TEST_DATABASE_URL 门控的真实 PostgreSQL 幂等/回滚集成测试；本机无数据库时明确 skip"
+      - "PostgreSQL Application Adapter 与可信 Actor resolver 已接入默认 dependency；非 PostgreSQL 或无可信上下文均 fail closed"
+      - "已增加独立 Alembic baseline 数据库上的 UI-04→UI-05 Priority→Preview→Plan→Confirm→ServiceJourney HTTP E2E 门禁"
+      - "行动记录写入、current_day 推进与阶段 REVIEW_DUE 到期转换仍待实现"
 
   - capability: design_copilot
     disposition: MIGRATE
@@ -382,6 +437,36 @@ entries:
       product_intelligence 域（见 design_copilot 条目）。本包保留的
       evidence.py / versioned.py / product_learning.py / gamification.py /
       ui_surfaces.py / value_ordering.py 不受影响。
+
+  - capability: knowledge_registry_runtime
+    disposition: REIMPLEMENT
+    source:
+      - "50_开发_dev/knowledge/byresearch/evidence.py"
+      - "50_开发_dev/knowledge/byresearch/schema.py"
+      - "50_开发_dev/knowledge/byresearch/library.py"
+      - "50_开发_dev/knowledge/compiled/*.json"
+    target: [backend/intelligence/knowledge]
+    status: MIGRATED_TESTED
+    evidence:
+      - "当前实现复用 backend.packages.contracts.evidence 的唯一 Evidence/Provenance 词汇，新增来源登记、Claim 生命周期、发布门禁、范围/用途/有效期过滤"
+      - "编译知识快照只读适配为 REVIEWED Claim，必须经过已核验来源与显式 PUBLISHED 转换才可被运行时检索"
+      - "tests/intelligence/knowledge/test_registry.py 覆盖来源绑定、发布门禁、过滤、过期和 E0 非结论性语义"
+    known_gaps:
+      - "当前为内存 registry，尚未接入持久化表、检索索引、删除作业和运营审核 API"
+      - "编译快照的具体理论/方法内容仍需知识 owner、许可和适用范围复核，不代表工具效度或产品疗效"
+
+  - capability: market_insight_ai_analyst
+    disposition: REIMPLEMENT
+    source: []
+    target: [backend/intelligence/market_insight]
+    status: MIGRATED_TESTED
+    evidence:
+      - "AI 可完成市场信号到 CustomerInsight/Opportunity 信号/验证方向的完整分析，不降级为仅摘要"
+      - "通过 Model Gateway 结构化输出，模型引用必须是输入 evidence_refs 的子集"
+      - "tests/intelligence/test_market_insight_analyst.py 覆盖正常 Draft、伪造引用拒绝和输入证据门禁"
+    known_gaps:
+      - "尚未由 product_intelligence 应用命令自动采纳 Draft；canonical 写入仍需业务域 Named Action"
+      - "当前使用 FakeProvider 测试分析协议，真实供应商是否可处理运营数据仍需 Provider Registry 审批"
 
   - capability: ai_runtime_app
     disposition: ARCHIVE
@@ -692,6 +777,46 @@ entries:
       - "50_开发_dev/backend/domains/assessment/infrastructure/claude_interpretation.py"
     evidence:
       - "该文件的 structured output schema 设计(JSON schema 强制 construct_ref 枚举)、边界重校验(不信任 schema 本身，收到输出后再跑一次 assert_interpretation_boundary)、知识库 grounding 注入(system prompt 动态拼接已核验理论依据)、grounding_source 净化(模型自报的引用 id 经白名单核对，编造的一律清空不透传)等具体手法值得重写时参照，但调用方式必须换成走 model_gateway，不能保留 `anthropic.AsyncAnthropic()` 直连"
+
+  - capability: commerce_product_catalog
+    disposition: REIMPLEMENT
+    target: [backend/domains/commerce]
+    status: MIGRATED_TESTED
+    source:
+      - "database/baseline/0034_family_commerce_intent_and_entitlement.sql"
+      - "frontend/mobile/lib/family/commerce-entitlements.ts"
+    evidence:
+      - "ProductOffering 与 family_product_offerings 的 scope/admission/fixture 约束一致"
+      - "UI-13/UI-14 通过 /orchestration/test-loop/commerce/products 获取产品 identity/version"
+    known_gaps:
+      - "仅完成 DEV/TEST 目录读模型；订单意向、权益和真实支付不在本条目"
+      - "生产 SQLAlchemy repository 尚未接入"
+
+  - capability: commerce_order_intent_dev
+    disposition: REIMPLEMENT
+    target: [backend/domains/commerce]
+    status: MIGRATED_TESTED
+    source:
+      - "database/baseline/0034_family_commerce_intent_and_entitlement.sql"
+      - "frontend/mobile/lib/family/family-api-projections.ts"
+    evidence:
+      - "UI-14 order-intents POST 以 idempotency-key 写入家庭私有 DEV/TEST intent"
+      - "customer-projection 仅返回同一 tenant/family 的 intent 与 entitlement"
+    known_gaps:
+      - "不接支付、通知、履约或生产 entitlement"
+
+  - capability: experience_closed_loop_contracts
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/experience
+    status: PLANNED
+    evidence:
+      - "AiFamily 原生契约：ExperienceEvent、RecommendationDecision、FeedbackSignal 和多模态媒体引用"
+      - "已通过 tests/intelligence/experience/test_contracts.py 的成功、拒绝、租户/主体隔离、幂等、语言和媒体边界测试"
+    known_gaps:
+      - "仅有不可变契约和拒绝规则，尚未挂载 Family API、ExperienceProjectionWorker 或 Principal experience_curator runtime"
+      - "开发/测试/生产只允许替换合成媒体和外部适配器，正式 parity gate 尚待实现"
 
 # ============ 待人工裁决清单（disposition = REVIEW_REQUIRED 的完整索引） ============
 review_required_index:
