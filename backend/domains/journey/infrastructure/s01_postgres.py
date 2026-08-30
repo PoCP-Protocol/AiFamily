@@ -33,7 +33,7 @@ from backend.platform.consent import (
     SubjectAge,
 )
 
-from ..application.s01_vertical_slice import AssessmentSignal
+from ..application.s01_vertical_slice import AssessmentSignal, AuditEventName
 from ..domain.errors import JourneyConflictError, JourneyValidationError
 
 
@@ -273,7 +273,7 @@ class S01PostgresAssessmentRepository:
                   family_id,actor_type,actor_id,action_name,resource_type,resource_id,
                   correlation_id,idempotency_key,result,metadata
                 ) values (
-                  :family_id,'USER',:actor_id,'VS-GROWTH-01.SignalAccepted',
+                  :family_id,'USER',:actor_id,:event_name,
                   'AssessmentSignal',:resource_id,:correlation_id,:idempotency_key,
                   'SUCCESS',cast(:metadata as jsonb)
                 )
@@ -283,6 +283,7 @@ class S01PostgresAssessmentRepository:
                 "family_id": signal.family_id,
                 "actor_id": actor_id,
                 "resource_id": resource_id,
+                "event_name": AuditEventName.SIGNAL_ACCEPTED.value,
                 "correlation_id": correlation_id,
                 "idempotency_key": idempotency_key,
                 "metadata": metadata,
@@ -310,13 +311,14 @@ class S01PostgresAssessmentRepository:
                   aggregate_type,aggregate_id,event_name,event_version,event_id,
                   correlation_id,payload,occurred_at
                 ) values (
-                  'VS-GROWTH-01',:resource_id,'VS-GROWTH-01.SignalAccepted',1,
+                  'VS-GROWTH-01',:resource_id,:event_name,1,
                   :event_id,:correlation_id,cast(:payload as jsonb),:occurred_at
                 )
                 """
             ),
             {
                 "resource_id": resource_id,
+                "event_name": AuditEventName.SIGNAL_ACCEPTED.value,
                 "event_id": event_id,
                 "correlation_id": correlation_id,
                 "payload": payload,

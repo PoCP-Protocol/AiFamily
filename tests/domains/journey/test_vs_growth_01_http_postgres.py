@@ -13,7 +13,10 @@ from backend.domains.journey.api.s01_routes import (
     S01HttpDependencies,
     build_vs_growth_01_router,
 )
-from backend.domains.journey.application.s01_vertical_slice import AssessmentSignal
+from backend.domains.journey.application.s01_vertical_slice import (
+    AssessmentSignal,
+    AuditEventName,
+)
 from backend.domains.journey.domain.errors import JourneyConflictError
 from backend.domains.journey.infrastructure.s01_postgres import (
     S01PostgresAssessmentRepository,
@@ -442,6 +445,11 @@ async def test_postgres_acceptance_appends_audit_outbox_and_conflict_is_refused(
     assert any("insert into audit_logs" in sql for sql, _ in connection.calls)
     assert any("insert into outbox_events" in sql for sql, _ in connection.calls)
     assert any("update idempotency_keys" in sql for sql, _ in connection.calls)
+    assert all(
+        params.get("event_name") == AuditEventName.SIGNAL_ACCEPTED.value
+        for sql, params in connection.calls
+        if "insert into audit_logs" in sql or "insert into outbox_events" in sql
+    )
     connection.existing = {
         "action_name": "VS-GROWTH-01.AcceptSignal",
         "request_hash": connection.request_hash,
