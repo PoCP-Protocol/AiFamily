@@ -20,7 +20,10 @@ describe("Xiao Ju Deng read-only live UI", () => {
     expect(screen.getByText("H-LIVE-01 · 只读详情")).toBeInTheDocument();
     expect(screen.getByText("review:H-LIVE-01")).toBeInTheDocument();
     expect(screen.getByText("H-LIVE-01.v1")).toBeInTheDocument();
-    expect(screen.getByText("true · Sandbox only")).toBeInTheDocument();
+    expect(screen.getByText("true · DEV_ONLY")).toBeInTheDocument();
+    expect(screen.getByText("APPROVED")).toBeInTheDocument();
+    expect(screen.getByText("UNEXPIRED")).toBeInTheDocument();
+    expect(screen.getByText("FAMILY")).toBeInTheDocument();
     expect(screen.getByRole("article")).toHaveTextContent("family-private");
     expect(screen.getByText("2026-08-30T18:00:00+08:00")).toBeInTheDocument();
     expect(XIAO_JU_DENG_FIXTURE.source).toBe("SANDBOX_SYNTHETIC");
@@ -42,9 +45,11 @@ describe("Xiao Ju Deng read-only live UI", () => {
     "expired",
     "unauthorized",
     "forbidden",
+    "not-found",
     "conflict",
     "error",
     "backend-missing",
+    "provider-missing",
   ])("renders the %s state without a live action", (state) => {
     render(<LiveExperience viewModel={{ state, record: null }} />);
     expect(screen.getByText(LIVE_STATE_COPY[state].label)).toBeInTheDocument();

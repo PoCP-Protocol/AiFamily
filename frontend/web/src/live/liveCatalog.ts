@@ -7,9 +7,11 @@ export type LiveViewState =
   | "expired"
   | "unauthorized"
   | "forbidden"
+  | "not-found"
   | "conflict"
   | "error"
-  | "backend-missing";
+  | "backend-missing"
+  | "provider-missing";
 
 export type LiveEnvironment = {
   DEV?: boolean;
@@ -24,6 +26,9 @@ export type LiveRecord = {
   review_ref: string;
   version: string;
   status: "SCHEDULED" | "LIVE" | "WITHDRAWN" | "EXPIRED";
+  approval_status: "APPROVED" | "DENIED";
+  expiry_state: "UNEXPIRED" | "EXPIRED";
+  audience_scope: "FAMILY";
   family_visibility: "family-private" | "public";
   as_of: string;
   source: "SANDBOX_SYNTHETIC" | "BACKEND";
@@ -44,6 +49,9 @@ export const XIAO_JU_DENG_FIXTURE: LiveRecord = {
   review_ref: "review:H-LIVE-01",
   version: "H-LIVE-01.v1",
   status: "SCHEDULED",
+  approval_status: "APPROVED",
+  expiry_state: "UNEXPIRED",
+  audience_scope: "FAMILY",
   family_visibility: "family-private",
   as_of: "2026-08-30T18:00:00+08:00",
   source: "SANDBOX_SYNTHETIC",
@@ -64,7 +72,9 @@ export const LIVE_STATE_COPY: Record<LiveViewState, { label: string; message: st
   expired: { label: "已结束", message: "该直播已结束，仅保留审核所需的只读信息。" },
   unauthorized: { label: "401 · 需要登录", message: "请登录后再查看家庭可见直播信息。" },
   forbidden: { label: "403 · 无权查看", message: "当前家庭无权查看这条直播信息。" },
+  "not-found": { label: "404 · 未找到", message: "未找到可展示的直播信息。" },
   conflict: { label: "409 · 版本冲突", message: "直播信息版本发生变化，请稍后重新读取。" },
   error: { label: "读取失败", message: "直播信息暂时不可用。" },
   "backend-missing": { label: "后端未接入", message: "直播后端尚未接入，生产环境保持 fail-closed。" },
+  "provider-missing": { label: "Provider missing", message: "直播提供方不可用，页面保持 fail-closed。" },
 };

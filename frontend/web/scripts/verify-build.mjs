@@ -31,7 +31,7 @@ if (!relativeScriptPath || relativeScriptPath.startsWith("..")) {
 
 const bundle = await read(scriptPath);
 if (!bundle.includes("SYNTHETIC_TEST")) fail("synthetic test marker is absent from the bundle");
-if (!bundle.includes("SANDBOX_SYNTHETIC") || !bundle.includes("fixture_only")) {
+if (!bundle.includes("SANDBOX_SYNTHETIC") || !bundle.includes("fixture_only") || !bundle.includes("DEV_ONLY")) {
   fail("sandbox fixture provenance marker is absent from the bundle");
 }
 if (
@@ -57,7 +57,13 @@ if (!factorySource.includes('environment.VITE_EXPERIENCE_CLIENT === "fake" && en
 const catalogIndex = sourceMap.sources.findIndex((source) => source.endsWith("src/live/liveCatalog.ts"));
 const catalogSource = sourceMap.sourcesContent?.[catalogIndex];
 if (!catalogSource) fail("live catalog source is not traceable from the production artifact");
-if (!catalogSource.includes('source: "SANDBOX_SYNTHETIC"') || !catalogSource.includes("fixture_only: true")) {
+if (
+  !catalogSource.includes('source: "SANDBOX_SYNTHETIC"') ||
+  !catalogSource.includes("fixture_only: true") ||
+  !catalogSource.includes('approval_status: "APPROVED"') ||
+  !catalogSource.includes('expiry_state: "UNEXPIRED"') ||
+  !catalogSource.includes('audience_scope: "FAMILY"')
+) {
   fail("artifact source map does not retain sandbox-only fixture provenance");
 }
 
