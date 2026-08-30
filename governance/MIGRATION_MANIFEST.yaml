@@ -337,9 +337,24 @@ entries:
     disposition: MIGRATE
     source: ["50_开发_dev/backend/domains/growth_plan"]
     target: [backend/domains/growth_plan]
-    status: PLANNED
+    status: RETIRED_CANONICAL_CONFLICT
     evidence: ["单文件 37行，仅错误类型枚举，注释称'mirroring journey-plan.service.ts'但无实体"]
-    project_owner_override: "2026-08-29 project-owner指示先迁移全部Python代码,推翻ARCHIVE判定;迁移后仍是错误类型stub,不假装已有实体模型"
+    project_owner_override: "2026-08-29 project-owner指示先迁移全部Python代码,推翻ARCHIVE判定;迁移后仍是错误类型stub,不假装已有实体模型；ADR-0012 将语义并入 journey，目录删除待二次确认"
+
+  - capability: journey
+    disposition: REIMPLEMENT
+    source:
+      - "50_开发_dev/apps/api/src/modules/family/journey-plan.service.ts"
+      - "50_开发_dev/apps/api/src/modules/family/journey-plan.dto.ts"
+    target: [backend/domains/journey]
+    status: MIGRATED_TESTED
+    evidence:
+      - "Wave B MVP：21 天 Journey 计划创建/读取/确认、首个行动记录、阶段复盘状态机"
+      - "tests/domains/journey/test_journey_mvp.py：家庭作用域、人工 Gate、幂等回放、阶段推进"
+    reason: "按 ADR-0012 将 growth_plan 错误码 stub 的语义归并到唯一 journey canonical domain"
+    known_gaps:
+      - "当前仅有依赖注入 HTTP adapter 与 synthetic in-memory repository，未挂载 family_api"
+      - "真实 PostgreSQL、Consent、Audit/Outbox 同事务及跨进程幂等需后续独立提交和真实环境证据"
 
   - capability: design_copilot
     disposition: MIGRATE

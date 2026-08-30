@@ -276,21 +276,33 @@ entries:
 
   - capability: growth_plan_python_stub
     canonical_path: backend/domains/growth_plan
-    status: MIGRATED_STRUCTURE_ONLY
-    disposition: MIGRATE
+    status: RETIRED_CANONICAL_CONFLICT
+    disposition: RETIRE
     source_reference: "50_开发_dev/backend/domains/growth_plan"
     note: "单文件 37 行，仅错误类型枚举。无实体，无行为，零测试。"
-    override_reference: "MIGRATION_MANIFEST.yaml → growth_plan_python_stub.project_owner_override（2026-08-29 推翻 ARCHIVE；迁移后仍是错误类型 stub，不假装已有实体模型）"
+    override_reference: "MIGRATION_MANIFEST.yaml → growth_plan_python_stub.project_owner_override（2026-08-29 推翻 ARCHIVE；迁移后仍是错误类型 stub，不假装已有实体模型）；ADR-0012 将其语义并入 journey"
     registration_note: "本条目为 2026-08-29 补登记，同 market_intelligence。"
     r2_overlap_risk: >
       **R2 风险已知且未解决**：本 stub 的注释自述"mirroring journey-plan.service.ts"，
       其语义目标（成长计划 / GrowthPlan）与未来的 backend/domains/journey 域重叠——
       CURRENT_DOMAIN_MAP.md §3.4 已把 GrowthPlan 列为 journey 域的 Owns 之一。
-      若 journey 建成而本 stub 保留，即构成"一个能力两个实现位置"的违宪状态。
-      **裁决时点**：MIGRATION_PLAN_V2.md Batch 4（JOURNEY 闭环）开工前，必须以 ADR 决定
-      三者之一：(a) 本 stub 并入 journey 后删除本条目；(b) growth_plan 明确降级为
-      journey 的内部子模块（不再是独立 capability）；(c) 明确 growth_plan 与 journey
-      是两个不同能力并写出边界。在裁决前不得向本 stub 添加实体模型。
+      journey 已按 ADR-0012 成为唯一 GrowthPlan/Journey 实现位置；本 stub 保留为历史目录，
+      待 project-owner 二次确认后删除。在删除确认前不得向本 stub 添加实体模型。
+
+  - capability: journey
+    canonical_path: backend/domains/journey
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "50_开发_dev/apps/api/src/modules/family/journey-plan.service.ts, journey-plan.dto.ts"
+    scope: >
+      Wave B MVP：家庭确认的 21 天成长旅程，包含计划创建/读取/确认、首个家庭行动记录、
+      阶段复盘与暂停/继续状态机。计划进度是过程事实，不代表成长结果；阶段迁移必须由家庭
+      明确决定，AI 仅可作为上游理解草稿，不得直写 Journey 事实。
+    tests: [tests/domains/journey/test_journey_mvp.py]
+    known_gaps: >
+      本提交提供依赖注入的 HTTP adapter 与 synthetic in-memory repository，尚未由 family_api
+      生产组合根挂载；PostgreSQL repository、真实 tenant/family actor resolver、Consent、Audit/
+      Outbox 同事务执行器与跨进程幂等仍需后续 owner 在真实环境闭合。测试替身不等于生产就绪。
 
   - capability: design_copilot
     canonical_path: backend/intelligence/design_copilot
