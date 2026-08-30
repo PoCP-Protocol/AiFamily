@@ -52,6 +52,9 @@ superseded_by: null
    `draft/canonical:false`，且未完全登记在 `SYSTEM_MANIFEST`，不能替换 `CURRENT_*` 真相；
 2. `GENERATIVE_SYSTEM_ARCHITECTURE` 记录“主要矛盾没有一手来源”和旧 FGCN“零代码”的历史，当前代码已出现 FGCN/AI 契约但并不等于生产交付；
 3. 工作树存在 0011-0023 未追踪/未审批迁移，Alembic head=0023 未通过 allow-list；文档、ORM、迁移、对象清单和真实数据库不一致。
+4. 场景编号出现语义冲突：`BUSINESS_SCENARIO_CLOSURE_CATALOG` 的 canonical S01 是“内容/直播/活动触达与家庭进入”，
+   而 `b37b1b6` 曾将 S-01 用作“assessment signal→家庭确认→Action”。现裁决将后者改名为独立交付切片
+   `VS-GROWTH-01`，明确横跨 canonical S01+S04+S05+S07；在 ADR/场景目录更新前，不得让 API/数据/测试出现两套 canonical S01。
 
 ### 1.2 ADR/Manifest 前置
 
@@ -99,10 +102,10 @@ AI 只允许产生 `Perspective`、`Draft`、`Recommendation`、`ActionProposal`
 
 ### 3.1 四区记录
 
-- **Current Truth**：assessment 有测评/证据纵切片；journey/growth 有状态机、Outcome/Annual/Renewal 契约；FGCN S-01 已增加 entry evidence/provenance。
+- **Current Truth**：assessment 有测评/证据纵切片；journey/growth 有状态机、Outcome/Annual/Renewal 契约；FGCN admission 已增加 entry evidence/provenance。
 - **Specification**：`assessment → AI evidence interpretation → family confirmation → GrowthIntent → 21-day action → 90-day outcome → annual/renewal → NextNeed`；S01-S09 属 B1，X0/Principal 嵌入。
-- **Planned**：唯一业务主线先收敛为 `UI-03→UI-05→UI-09`（S-01）：assessment signal→Perspective/Hypothesis draft→人类确认/驳回→GrowthIntent/ActionTask→canonical outcome loop；随后再接 S05-S09。
-- **Evidence**：`b37b1b6` 仅新增 `s01_vertical_slice.py` 与独占测试，9 narrow tests、journey 64 passed/15 PG skipped；内存适配器、无 HTTP/PG/outbox/durable deletion/replay，状态 `CONTRACTED/PARTIAL`。该 SHA 已进入 `origin/codex/cleanup-superseded` 历史，但未通过真实 PG/HTTP/构建/主线合入闸门，不能写成生产完成。Journey 含 PG 44 passed 仍不能替代真实 composition。
+- **Planned**：唯一业务主线先收敛为 `VS-GROWTH-01`（横跨 canonical S01+S04+S05+S07，对应 `UI-03→UI-05→UI-09`）：assessment signal→Perspective/Hypothesis draft→人类确认/驳回→GrowthIntent/ActionTask→canonical outcome loop；随后再接 S06/S08/S09。
+- **Evidence**：`b37b1b6` 的物理文件仍为 `s01_vertical_slice.py`，但业务交付标识统一为 `VS-GROWTH-01`；其独占测试含 9 narrow tests、journey 64 passed/15 PG skipped。当前仅内存适配器、无 HTTP/PG/outbox/durable deletion/replay，状态 `CONTRACTED/PARTIAL`。该 SHA 已进入 `origin/codex/cleanup-superseded` 历史，但未通过真实 PG/HTTP/构建/主线合入闸门，不能写成生产完成。Journey 含 PG 44 passed 仍不能替代真实 composition。
 
 ### 3.2 L0-L5 流程
 
@@ -131,7 +134,7 @@ AI 只允许产生 `Perspective`、`Draft`、`Recommendation`、`ActionProposal`
 - skills：解释测评、形成假设、拆解小行动、复盘提问、沟通改写；tools：只读 Context/Knowledge、`RecordActionFact`、`CloseChallenge` 命令 port；
 - gates：家庭/监护人确认、敏感主题人工升级、Outcome/Story/Recommendation consent；AI 不能确认自己生成的结果。
 
-AI 不是 FGCN 之后才加入的独立阶段：S-01 第一阶段就必须由 Principal/Model Gateway 服务
+AI 不是 FGCN 之后才加入的独立阶段：`VS-GROWTH-01` 第一阶段就必须由 Principal/Model Gateway 服务
 “内容/问题表达→Perspective/Hypothesis/Draft→家庭确认”。产品工厂、知识库和多 Agent
 只以这条主线的输入/输出、来源、同意和 Human Gate 验收；任何 AI 结果都不得越过 Named Action 直写事实。
 
@@ -151,8 +154,8 @@ S05-S09 UI e2e 和中英文 locale 均通过。依赖 P0 ENV-01、DB-01、Princi
 ### 4.1 四区记录
 
 - **Current Truth**：FGCN admission、Human Gate、Named Action、assignment、delivery/quality/contribution contracts 有实现和 113 个 Fresh PG 测试通过。
-- **Specification**：FGCN 不是 S-01 之前的独立入口，而是“问题/授权→内容/AI理解/家庭确认→Action/Review”之后的必要服务路径：家庭需要→ServiceCase→蓝图/任务→资源匹配与授权→交付留痕→质量验收→贡献凭证；一案一管家、一任务一责任人、未验收不贡献。
-- **Planned**：S-01 HTTP+PG+outbox 稳定后再接常驻 durable worker/outbox、容量原子预留、争议/退款/补偿、真实 provider/identity/tenant/consent composition；先补 replay/locale/canonical dependency evidence。
+- **Specification**：FGCN 不是 `VS-GROWTH-01` 之前的独立入口，而是“问题/授权→内容/AI理解/家庭确认→Action/Review”之后的必要服务路径：家庭需要→ServiceCase→蓝图/任务→资源匹配与授权→交付留痕→质量验收→贡献凭证；一案一管家、一任务一责任人、未验收不贡献。
+- **Planned**：`VS-GROWTH-01` HTTP+PG+outbox 稳定后再接常驻 durable worker/outbox、容量原子预留、争议/退款/补偿、真实 provider/identity/tenant/consent composition；先补 replay/locale/canonical dependency evidence。
 - **Evidence**：当前 reviewer/worker/action context 有 RuntimeError 默认；one-shot worker、双事务 crash/retry、replay 状态和多语言校验仍有缺口，生产 `NO-GO`。113 PG tests 只能证明契约，不证明主线接线。
 
 ### 4.2 L0-L5 流程
@@ -447,14 +450,14 @@ P0 技术门是每个节点的放行条件，不是业务终点。
 1. **P0 ENV-01（APLT + 原 dev_wiring owner）**：unset/非法环境 fail-closed、真实 Actor/Consent/Tenant、三环境 401/403/consent parity；不改冲突 WIP，owner 未明确即 BLOCKED。
 2. **P1 DB-01（ADOM）**：0011-0023 ADR/Manifest/ORM/对象清单、Fresh PG up/down/up；unknown head=0023 必须 fail，不能 skip。
 3. **P1 Principal/Context（AAIR）**：单一 session→consent→snapshot→draft→human gate→Named Action，先使用同构 synthetic provider，不添加第二 runtime；未过 AI-01 只做合同。
-4. **P1 S-01（growth + AFE/API）**：唯一业务主线 `UI-03→UI-05→UI-09`：Assessment signal→Perspective/Hypothesis draft→家庭确认→GrowthIntent/ActionTask→回读/ChallengeReview；`b37b1b6` 仅内存 CONTRACTED/PARTIAL，下一阶段必须 HTTP+PG+outbox+deletion/replay。
-5. **P1 FGCN（B2）**：仅在 S-01 已确认 need 后进入 admission→assignment→delivery→quality；先修 replay/locale/dependency evidence，不得抢跑成第二主线。
+4. **P1 `VS-GROWTH-01`（growth + AFE/API）**：唯一业务主线 `UI-03→UI-05→UI-09`，横跨 canonical S01+S04+S05+S07：Assessment signal→Perspective/Hypothesis draft→家庭确认→GrowthIntent/ActionTask→回读/ChallengeReview；`b37b1b6` 仅内存 CONTRACTED/PARTIAL，下一阶段必须 HTTP+PG+outbox+deletion/replay。
+5. **P1 FGCN（B2）**：仅在 `VS-GROWTH-01` 已确认 need 后进入 admission→assignment→delivery→quality；先修 replay/locale/dependency evidence，不得抢跑成第二主线。
 6. **P1 AFE/Web**：34 UI 语义化、多模态/成就、Web/mobile/OpenAPI token/session/locale/idempotency parity；mobile 5 failures→0，Web lint 闭合；`DEV:false + fake` 必须 fail-closed。
 
 本轮明确**暂缓扩张**：Commerce/支付/会员、C2C 社区、B2B2C 学校/机构、直播商品化、更多
 Agent/Skill/Tool、第二个 Gate/Registry。冻结仅针对真实运营、开放流量、商业实验和范围扩张；
 上述能力仍必须保留未来生产形状的状态机、权限、Consent、tenant、幂等、Audit/Outbox、回滚、
-重启、人工审核以及支付/退款/结算契约。待六门 P0 关闭、S-01 HTTP+PG 闭环和唯一写入者稳定后按依赖解冻。
+重启、人工审核以及支付/退款/结算契约。待六门 P0 关闭、`VS-GROWTH-01` HTTP+PG 闭环和唯一写入者稳定后按依赖解冻。
 
 两周退出条件：architecture/Ruff/Fresh PG/HTTP/相关 mobile/Web/删除/审计全部可重复；每个切片标记 `CONTRACTED/PARTIAL`，没有生产升级。
 
