@@ -44,7 +44,7 @@ superseded_by: null
 | 检查 | 实测结果 | 解释 |
 |---|---|---|
 | `uv run pytest tests/architecture -q` | **106 passed, 1 skipped, 4 failed** | DOMAIN_REGISTRY YAML 缩进、Ruff debt 3>0、未登记 `product_management`/`prompt_registry`/`__pycache__` |
-| `uv run ruff check . --output-format concise` | **3 errors** | `family/domain/entities.py:E501`、`prompt_registry/contracts.py:SIM102`、`prompt_registry/registry.py:E501` |
+| `uv run ruff check . --output-format concise` | **1 error** | `backend/domains/family/domain/entities.py:E501`；prompt_registry 两项已在本轮 WIP 修复，其它 architecture 红灯仍未清零 |
 | `uv run alembic heads` | `0010_experience_run_interactions (head)` | 0009/0010/ADR-0047 当前仍有未跟踪文件；未知/未提交 head 必须阻断 |
 | Postgres `tests/database/test_alembic_baseline_applies.py`（`AIFAMILY_TEST_DATABASE_URL`） | **5 passed, 1 failed** | 失败为 0010 追踪/审批闸门；说明“不跳过未知 head”有效，不能报全绿 |
 | `uv run pytest tests/intelligence/context_engine -q` | **18 passed** | durable deletion 6 + legacy worker/其它 12；仍是 synthetic in-memory adapter |
@@ -163,6 +163,32 @@ superseded_by: null
 | Observability/Provenance | trace、token/cost/latency、输入来源、版本、决策、删除引用 | 部分 provenance/value object；无统一 durable trace、指标、告警、事故操作台，P1 |
 | Deletion/多模态 | TEXT/MEDIA/VECTOR/CACHE/DERIVED 五类适配器、收据、重启恢复 | synthetic in-memory worker 6/6；真实外部媒体/vector/供应商回执不存在，RELEASE BLOCKED |
 | 多语言/多租户/规模 | 作用域缓存、分片、区域和 locale 策略；千亿家庭下容量/成本/灾备 | 设计文档定义字段和边界；没有容量压测、分区/归档、跨区灾备和租户配额，P2（但上线前需安全最小集） |
+
+### 6.1 b74 async ledger bridge 复核（2026-08-30）
+
+`b74b29f feat: bridge async run ledger into experience api` 把 Experience API 的同步/异步
+调用统一到 `dispatch_ledger_call`，并允许 `AsyncExperienceRunLedgerPort` 实现
+`preflight_create/finalize_create/release_create`。当前工作树的后续改动已让具有 durable
+lifecycle 的 adapter 直接委托 preflight/finalize，避免原先仅靠进程内 reservation map；
+定向 `test_async_ledger_bridge.py` + `test_sql_run_ledger.py` **14 passed**，说明调用不使用
+`asyncio.run` 阻塞事件循环，输入 scope、幂等键、DRAFT 状态和删除/重放契约在 SQLite 测试中成立。
+
+但这不是生产接线完成：
+
+- `rg AsyncExperienceRunLedgerBridge|SqlAlchemyExperienceRunLedger backend frontend` 显示
+  生产组合根尚未注入 SQL `AsyncSession`/bridge；`dev_wiring.py` 仍使用进程内
+  `InMemoryExperienceRunLedger`，production resolver 默认 503；
+- bridge 的 durable path 只有在组合根把 reservation、model draft、audit/outbox 放到同一
+  事务边界时才成立；当前没有 HTTP TestClient 的真实 production-like transaction/rollback
+  证据，也没有跨进程 concurrent idempotency/lease、进程重启 replay 的 API 验收；
+- SQL ledger 删除目前只 scrub run checkpoint/response，外部媒体、向量、缓存、评估副本和
+  供应商收据仍由 AAIR-6 未实现的 durable deletion worker 负责，不能把 `DELETE` interaction
+  当成完整权利履行。
+
+因此该切片状态为 **CONTRACTED/PARTIAL，P1 发布阻断**。验收前置：production composition
+注入唯一 SQL ledger + bridge；dev/test 只替换数据/外部 adapter；补 401/403、跨租户、并发
+幂等、重启 replay、事务回滚、删除级联收据和 OpenAPI parity 测试。不能因为 14 个 adapter
+测试通过就把 Experience 能力标为 `INTEGRATED` 或 `PRODUCTION`。
 
 ## 7. 当前开发计划与 WIP 偏移
 
