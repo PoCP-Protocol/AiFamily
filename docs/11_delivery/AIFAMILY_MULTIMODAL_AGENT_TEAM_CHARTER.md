@@ -231,7 +231,88 @@ Web 只把上述字段作为“契约质量、安全评估、来源和版本”�
 | Web 的 `MarketInsight`/竞品证据卡片和未知项展示 | US2/US3 只能看到通用 provenance，无法审查证据 | AG-03 + AG-01 | `frontend/web/` 新增证据对象只读投影、来源快照和 `UNKNOWN` 状态测试 |
 | 真实匿名 gold set、供应商正式准入和价格运行记录 | 无法从离线 benchmark 晋级 Pilot/生产 | AG-02 + AG-04 | gold set 版本化、DPIA/安全/转委托/删除资料齐全，Gate 变为 `ELIGIBLE` |
 
-当前没有新增阻塞；上述项目是 Sprint 2 的未决决策/后续任务。唯一已记录的 Web 工程阻塞已在本章程“Sprint 1 历史阻塞（已解除）”中关闭。
+当前没有新增的 Sprint 2 阻塞；上述项目是 Sprint 2 的未决决策/后续任务。唯一已记录的 Web 工程阻塞已在本章程“Sprint 1 历史阻塞（已解除）”中关闭。Sprint 3 另有“真实后端 runtime resolver 尚未接入”的接线前置条件，见下节；在该条件满足前不得宣称生产 API 已接通。
+
+### Sprint 3 下一迭代看板：真实后端 API 接线
+
+Sprint 3 不再以 Fake client 或前端 seam 作为纵向切片的终点，目标是将 `frontend/web` 接到真实的 Family API Experience 路由；Model Gateway 仍是唯一模型入口，后端默认未配置时必须保持 fail-closed。
+
+| 编号 | 工作包 | 状态 | 交付目标 | 进入/退出条件 |
+|---|---|---|---|---|
+| **S3-API-01 / AG-00** | API 路由、依赖注入和集成 | `READY_FOR_DEV` | 将 Web client 接入 `POST /families/{family_id}/experience/multimodal/drafts` 及决策/反馈/删除/回放端点 | 进入：AG-02 契约冻结；退出：真实 runtime resolver 注入且 HTTP 集成测试通过 |
+| **S3-API-02 / AG-02** | 后端 runtime resolver 与 Gateway | `IN_PROGRESS` | 服务端解析 scope/consent/context/environment，组装 `StructuredRequest` 并返回 DRAFT/provenance | 进入：身份/授权/同意端口可用；退出：拒绝路径 provider invocation=0 |
+| **S3-API-03 / AG-03** | Web HTTP client 接线 | `READY_FOR_DEV` | 用真实 API 替换生产路径 fake seam，保留 fake 仅作测试适配器 | 进入：请求/响应字段冻结；退出：Web smoke/e2e 覆盖成功、拒绝、超时、删除、回放 |
+| **S3-API-04 / AG-04** | Contract freeze 与环境 parity Gate | `READY_FOR_REVIEW` | 验证字段、错误语义、租户隔离、DRAFT-only、fail-closed、回放不重算 | 退出：命令输出、trace、审计、回放和回滚证据齐全 |
+| **S3-API-05 / AG-01** | 用户故事与交付反馈对齐 | `IN_PROGRESS` | 将 S2-US1~US5 的来源、草案、人工确认和反馈字段映射到 API | 退出：每条故事均能关联 request/run/draft/decision/feedback |
+
+#### API Contract Freeze 验收标准
+
+以下标准是 Sprint 3 的合约冻结门。未满足任一条，状态只能是 `PARTIAL` 或 `BLOCKED`，不得把前端页面或 Fake client 结果描述为真实后端能力。
+
+**1. 客户端请求只提交生成意图**
+
+`POST /families/{family_id}/experience/multimodal/drafts` 的 JSON 请求允许字段冻结为：
+
+```text
+run_id
+prompt_version
+schema_version
+payload
+output_schema
+modalities
+estimated_input_tokens
+strategy
+max_latency_ms
+max_cost_microusd
+input_refs
+media_inputs
+session_id
+```
+
+请求模型必须 `extra=forbid`；客户端不得嵌套或覆盖 `tenant_id`、`family_id`、`subject_ids`、`purpose`、`consent`、`environment`、`context_snapshot`、provider、secret 等受信字段。`media_inputs` 只传受控 URI/hash，不传原始儿童媒体 bytes。
+
+**2. Scope/Consent 必须由服务端解析**
+
+服务端从已认证的路径、身份、授权和同意解析 `tenant/family/subject/purpose/data_class/locale/consent_version/environment/context_snapshot`，再构造 runtime；不能信任请求体同名字段。缺同意、跨租户/主体、过期或已撤回上下文时，必须在调用 Provider 前拒绝，且证据包含 `provider_invocation=0`、拒绝码、scope 和审计/trace 引用。
+
+**3. 成功响应固定为 DRAFT + Provenance**
+
+成功响应至少冻结以下字段：
+
+```text
+run_id
+status = DRAFT
+output
+requires_human_confirmation = true
+scope{tenant_id, region_id, family_id, subject_ids, purpose,
+      consent_version, consent_granted, data_class, locale}
+context_snapshot_ref
+context_snapshot_expires_at
+provenance{provider_id, model, model_version, prompt_version,
+           schema_version, context_snapshot_ref, latency_ms,
+           data_class, use_case, confidence, generated_at}
+route{provider_id, vendor, model, model_version, strategy,
+      estimated_latency_ms, estimated_cost_microusd,
+      fallback_provider_ids}
+```
+
+输出必须保持 `DRAFT`，不得直接写入 Family/Growth/Service/Commerce canonical Fact；`requires_human_confirmation` 必须为真。Web 可显示契约质量、安全和来源，但不得渲染为孩子或家庭成绩。
+
+**4. Provider 准入与 fail-closed**
+
+未配置 runtime resolver、无有效同意、策略/区域/数据分类不允许、Provider 未通过准入或预算/延迟约束无法满足时，API 必须返回稳定可识别的拒绝/不可用状态，不调用 Provider、不生成确定性假 AI 文案、不自动切换未经准入的 fallback。测试必须证明拒绝情况下 `provider_invocation=0`，并能安全重试或转人工。
+
+**5. 回放只读且不重算**
+
+`GET /families/{family_id}/experience/multimodal/runs/{run_id}/replay`（或等价端点）只能读取已持久化的 run/checkpoint/attempt/event 投影；回放不得重新调用 Gateway、重新计算模型输出、更新业务事实或产生新的 Recommendation/Feedback。相同幂等键重复请求不得产生双重事件、审计或副作用。
+
+**6. 评估与成本字段的诚实边界**
+
+当前后端 response 已有 `route.estimated_cost_microusd`，它只能表示估算；`actual_cost`、`attempt_id`、`benchmark_report_ref` 是否进入生产 response 仍为 `TBD`。在这些字段冻结前，AG-00 不得声称成本账单或模型 benchmark 已与一次真实 API 调用完成绑定；离线评估仍需使用 `education_outcome_status=NOT_MEASURED`。
+
+**7. 接线完成证据**
+
+至少提供：真实 HTTP 成功测试（DRAFT/provenance）、缺同意/跨 scope/未准入测试（provider invocation=0）、超时/重试/幂等测试、删除测试、回放不重算测试、Web smoke/e2e 输出、请求与响应 schema 版本、trace/audit 引用和回滚方式。只有 AG-04 复核通过并由 AG-00 记录集成结论，S3-API-01 才能进入 `DONE_WITH_EVIDENCE`。
 
 ## 5. 通用任务卡格式
 

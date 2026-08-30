@@ -53,16 +53,30 @@ export type CreateDraftInput = {
   input_refs: string[];
   media_inputs: MediaInput[];
   scope: ExperienceScope;
+  output_schema?: Record<string, unknown>;
+  modalities?: Array<"TEXT" | "IMAGE" | "AUDIO" | "VIDEO">;
+  estimated_input_tokens?: number;
+  strategy?: "balanced" | "quality_first" | "latency_first" | "cost_first";
+  limits?: { max_latency_ms?: number; max_cost_microusd?: number };
+  session_id?: string;
 };
 
 export type ExperienceProvenance = {
-  provenance_ref: string;
+  provenance_ref: string | null;
   kind: "AI_DRAFT" | "SYNTHETIC_TEST";
-  model_attempt_ref: string;
+  model_attempt_ref: string | null;
   context_snapshot_ref: string;
   prompt_version: string;
   schema_version: string;
   captured_at: string;
+  provider_id?: string;
+  model?: string;
+  model_version?: string;
+  latency_ms?: number;
+  confidence?: number | null;
+  data_class?: string;
+  use_case?: string;
+  generated_at?: string;
 };
 
 export type BenchmarkMetadata = {
