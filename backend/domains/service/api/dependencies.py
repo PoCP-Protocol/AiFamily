@@ -168,10 +168,12 @@ def get_live_projection() -> LiveSessionProjectionPort:
     raise HTTPException(status_code=503, detail="live_projection_not_configured")
 
 
-def get_live_policy_engine() -> PolicyEngine:
-    """Return the explicit live read policy without changing booking policy."""
+def get_live_policy_engine(
+    tenant_directory: TenantDirectory = Depends(get_tenant_directory),
+) -> PolicyEngine:
+    """Return the live read policy bound to the request tenant directory."""
 
-    engine = PolicyEngine()
+    engine = PolicyEngine(tenant_directory)
     engine.register(
         PolicyRule(action=READ_LIVE_SESSION_ACTION, resource_type=LIVE_SESSION_RESOURCE)
     )

@@ -94,6 +94,7 @@ else:
     _JOURNEY_IMPORT_ERROR = None
 
 from backend.domains.membership.api.routes import router as membership_router
+from backend.domains.service.api.live_routes import router as live_router
 from backend.domains.service.api.routes import router as service_router
 
 # FGCN currently shares the same absent provenance foundation as the
@@ -152,10 +153,7 @@ def _runtime_database_url() -> str | None:
 def _configure_fgcn_persistence() -> None:
     """Bind FGCN to the explicit process database, or deliberately unbind it."""
 
-    if (
-        clear_fgcn_session_factory is None
-        or configure_fgcn_session_factory is None
-    ):
+    if clear_fgcn_session_factory is None or configure_fgcn_session_factory is None:
         return
     database_url = _runtime_database_url()
     if database_url is None:
@@ -355,6 +353,11 @@ def create_app(
     # first so FastAPI selects the canonical private process projection while
     # the remaining service routes (including check-in drafts) stay available.
     application.include_router(service_router)
+    # H-LIVE-01 is a read-only, family-scoped projection. Its provider remains
+    # fail-closed until Route B supplies a canonical live projection, but the
+    # route must be present in every environment so OpenAPI and refusal
+    # semantics stay identical.
+    application.include_router(live_router)
     # In a dev environment, supply the four service dependencies that raise by
     # design, so the six mounted SERVICE endpoints are actually callable instead
     # of returning 500 to every caller. The domain code is untouched and still
@@ -375,10 +378,7 @@ def create_app(
     # durable/production resolver replaced by the synthetic test override.
     if experience_runtime_resolver is not None:
         if install_experience_runtime_resolver is None:
-            raise RuntimeError(
-                "experience_runtime_unavailable: "
-                f"{_EXPERIENCE_IMPORT_ERROR}"
-            )
+            raise RuntimeError(f"experience_runtime_unavailable: {_EXPERIENCE_IMPORT_ERROR}")
         install_experience_runtime_resolver(application, experience_runtime_resolver)
     return application
 
