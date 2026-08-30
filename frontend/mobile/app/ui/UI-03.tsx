@@ -219,12 +219,25 @@ export default function GrowthExplanationScreen() {
         ) : null}
         {!result ? (
           <View style={styles.emptyPage}>
+            <Text style={styles.emptyKicker}>AI 家庭理解</Text>
             <Text style={[styles.emptyTitle, { color: colors.text }]}>
               {unavailableText}
             </Text>
             <Text style={[styles.emptyText, { color: colors.muted }]}>
-              你可以重新确认授权后再开始；内容仅限你的家庭，不是对孩子的评分、排名或诊断。
+              先从一件正在发生的家庭小事开始，完成后你会得到一张支持卡，而不是一份给孩子贴标签的报告；不是对孩子的评分、排名或诊断。
             </Text>
+            <Pressable
+              testID="assessment-empty-start"
+              accessibilityRole="button"
+              onPress={() => router.replace("/ui/UI-02" as Href)}
+              style={({ pressed }) => [
+                styles.primaryButton,
+                { backgroundColor: colors.tint },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.primaryButtonText}>先整理一件家庭小事</Text>
+            </Pressable>
           </View>
         ) : (
           <>
@@ -233,12 +246,12 @@ export default function GrowthExplanationScreen() {
                 <Text style={styles.heroIconText}>✓</Text>
               </View>
               <View style={styles.heroCopy}>
-                <Text style={styles.badge}>家庭范围 · 可回读结果</Text>
+                <Text style={styles.badge}>家庭支持卡 · 家庭范围 · 可回读结果</Text>
                 <Text style={styles.heroTitle}>
-                  这次，我们先帮你理清一件小事
+                  今晚，先让这件事轻一点
                 </Text>
                 <Text style={styles.heroText}>
-                  {result.subject.display_name} · {result.title}
+                  {result.subject.display_name} · {result.title} · 先试一小步，再看有没有变化
                 </Text>
               </View>
             </View>
@@ -395,7 +408,7 @@ export default function GrowthExplanationScreen() {
             </View>
 
             <View testID="assessment-result-action" style={styles.actionCard}>
-              <Text style={styles.sectionLabel}>接下来怎么做，由你决定</Text>
+              <Text style={styles.sectionLabel}>今晚先做一个选择</Text>
               <Pressable
                 testID="assessment-start-small-step"
                 accessibilityRole="button"
@@ -521,6 +534,12 @@ const styles = StyleSheet.create({
     padding: 24,
     justifyContent: "center",
     gap: 13,
+  },
+  emptyKicker: {
+    color: "#1B65C9",
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "900",
   },
   emptyTitle: { fontSize: 25, lineHeight: 33, fontWeight: "900" },
   emptyText: { fontSize: 14, lineHeight: 22 },

@@ -20,7 +20,7 @@ const CHALLENGE_CAMP_TARGET = "/ui/UI-14?productRef=PRODUCT_PARENT_CHILD_CAMP" a
 type HomeIcon = "heart.fill" | "gift.fill" | "calendar.fill" | "photo.fill" | "video.fill" | "headphones.fill" | "checkmark.circle.fill" | "book.fill";
 
 const QUICK_ENTRIES: readonly { featureId: string; label: string; icon: HomeIcon; color: string; target: Href }[] = [
-  { featureId: "ai_diagnostic", label: "AI诊断", icon: "heart.fill", color: "#35B9D7", target: `/ui/${UI01_HOME_TARGETS.aiInterpretation}` as Href },
+  { featureId: "ai_diagnostic", label: "AI家庭理解", icon: "heart.fill", color: "#35B9D7", target: `/ui/${UI01_HOME_TARGETS.aiInterpretation}` as Href },
   { featureId: "challenge_camp", label: "21天挑战营", icon: "gift.fill", color: "#F06863", target: CHALLENGE_CAMP_TARGET },
   { featureId: "plan_90", label: "90天成长计划", icon: "calendar.fill", color: "#36A866", target: `/ui/${UI01_HOME_TARGETS.plan90}` as Href },
   { featureId: "growth_cases", label: "成长案例", icon: "photo.fill", color: "#F0A337", target: `/ui/${UI01_HOME_TARGETS.growthStories}` as Href },
@@ -242,7 +242,7 @@ export default function TodayScreen() {
             {homeLoading ? <View style={styles.statusPanel}><ActivityIndicator color={colors.tint} /><Text style={[styles.statusText, { color: colors.muted }]}>正在同步家庭首页</Text></View> : null}
             {homeError ? <Pressable accessibilityRole="button" accessibilityLabel="重试同步首页" onPress={() => void loadHome()} style={[styles.statusPanel, { borderColor: colors.border }]}><Text style={[styles.statusText, { color: colors.error }]}>{homeError}</Text><Text style={[styles.retryText, { color: colors.tint }]}>点击重试</Text></Pressable> : null}
 
-            <Pressable disabled={home?.assessment_campaign.state === "POLICY_BLOCKED"} accessibilityRole="button" accessibilityLabel="免费家庭测评" onPress={() => open(`/ui/${UI01_HOME_TARGETS.freeAssessment}` as Href)} style={({ pressed }) => [home?.assessment_campaign.state === "POLICY_BLOCKED" && styles.disabled, pressed && styles.pressed]}>
+            <Pressable disabled={home?.assessment_campaign.state === "POLICY_BLOCKED"} accessibilityRole="button" accessibilityLabel="免费家庭小事整理" onPress={() => open(`/ui/${UI01_HOME_TARGETS.freeAssessment}` as Href)} style={({ pressed }) => [home?.assessment_campaign.state === "POLICY_BLOCKED" && styles.disabled, pressed && styles.pressed]}>
               <AssessmentBannerArt />
             </Pressable>
 

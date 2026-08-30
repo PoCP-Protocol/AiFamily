@@ -23,7 +23,11 @@ export default function FamilyAssessmentResultScreen() {
   } = useFamilyMobile();
   const previewNeed =
     assessmentNeedText.trim() || "你想找到一个更少冲突的开始";
-  const firstStep = "今晚先留出十分钟，只听孩子把这件小事说完。";
+  const firstStep = previewNeed.includes("作业") || previewNeed.includes("学习")
+    ? "今晚先只处理“开始”这一刻：给彼此十分钟缓冲，再问最难的是哪一小段。"
+    : previewNeed.includes("手机") || previewNeed.includes("游戏")
+      ? "今晚先约定一个可以停下来的时刻，停下后先听孩子说完这一局为什么还想继续。"
+      : "今晚先留出十分钟，只听孩子把这件小事说完，再一起选一个最小的下一步。";
   const [perspectiveFeedback, setPerspectiveFeedback] = useState<
     "LIKE" | "NOT_LIKE" | "ADD_CONTEXT" | null
   >(null);
@@ -56,10 +60,10 @@ export default function FamilyAssessmentResultScreen() {
         <View style={styles.hero}>
           <Text style={styles.heroBadge}>SANDBOX_LOCAL · 本机预览</Text>
           <Text style={[styles.heroTitle, { color: colors.text }]}>
-            先把这件小事看清楚
+            今晚，先让这件事轻一点
           </Text>
           <Text style={[styles.heroText, { color: colors.muted }]}>
-            这是无连接时的本机预览，未写入服务端，也不与家庭正式结果并列。
+            先带走一张支持卡和一个可以马上试的小动作；连接家庭服务后，才会保存为正式结果。
           </Text>
         </View>
         <View
@@ -74,7 +78,7 @@ export default function FamilyAssessmentResultScreen() {
             {previewNeed}
           </Text>
           <Text style={[styles.cardText, { color: colors.muted }]}>
-            先从你的原话开始；连接家庭服务后，才会生成唯一的可回读理解卡。
+            不替你给孩子下结论，先把这件反复发生的小事说清楚。
           </Text>
         </View>
         <View
@@ -83,7 +87,7 @@ export default function FamilyAssessmentResultScreen() {
         >
           <Text style={styles.sectionLabel}>可能的方向</Text>
           <Text style={styles.directionText}>
-            先从一次短对话和一个小约定开始。
+            先处理一个具体时刻，不要求今晚解决全部问题。
           </Text>
           <Text style={styles.directionHint}>
             这是支持参考，不是对孩子的评分或诊断。
@@ -169,7 +173,7 @@ export default function FamilyAssessmentResultScreen() {
           ) : null}
         </View>
         <View testID="assessment-result-action" style={styles.actionCard}>
-          <Text style={styles.sectionLabel}>接下来怎么做，由你决定</Text>
+          <Text style={styles.sectionLabel}>接下来只选一件事</Text>
           <Pressable
             testID="assessment-start-small-step"
             accessibilityRole="button"
@@ -218,7 +222,7 @@ export default function FamilyAssessmentResultScreen() {
         </View>
         <View testID="assessment-local-boundary" style={styles.localBoundary}>
           <Text style={[styles.localBoundaryText, { color: colors.muted }]}>
-            这次只是 sandbox 预览；连接家庭服务并完成授权后，才会开放唯一的服务端理解卡。
+            这次只是 sandbox 预览，不与家庭正式结果并列；连接家庭服务并完成授权后，才会开放唯一的服务端理解卡。
           </Text>
         </View>
         <Pressable

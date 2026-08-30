@@ -39,7 +39,7 @@ describe("UI-01 original-home hotspot contract", () => {
     expect(homeSource).toContain("今日成长任务");
     expect(homeSource).toContain("推荐内容/服务");
 
-    for (const label of ["AI诊断", "21天挑战营", "90天成长计划", "成长案例", "专家直播", "家庭顾问"]) {
+    for (const label of ["AI家庭理解", "21天挑战营", "90天成长计划", "成长案例", "专家直播", "家庭顾问"]) {
       expect(homeSource).toContain(`label: "${label}"`);
     }
   });

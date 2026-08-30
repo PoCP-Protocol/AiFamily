@@ -34,6 +34,10 @@ describe("UI-02/UI-03 conversation scenario", () => {
     expect(ui02).toContain("没有对错");
     expect(ui02).toContain("跳过这一题");
     expect(ui02).toContain("返回上一题");
+    expect(ui02).toContain("3 分钟后，你会带走");
+    expect(ui02).toContain("STARTER_SCENES");
+    expect(ui02).toContain("testID={`assessment-scene-${label}`}");
+    expect(ui02).toContain("写作业总吵");
   });
 
   it("uses ambiguous or unknown wording only to route questions, never as understanding", () => {
@@ -77,6 +81,10 @@ describe("UI-02/UI-03 conversation scenario", () => {
     expect(ui03).toContain("先保存，明天再看");
     expect(ui03).toContain("测评授权已撤回");
     expect(ui03).toContain("暂时无法读取这次整理");
+    expect(ui03).toContain("AI 家庭理解");
+    expect(ui03).toContain("assessment-empty-start");
+    expect(ui03).toContain("先整理一件家庭小事");
+    expect(ui03).toContain("今晚，先让这件事轻一点");
   });
 
   it("keeps one connected result source and a clearly marked local fallback", () => {

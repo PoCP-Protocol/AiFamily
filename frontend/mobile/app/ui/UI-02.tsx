@@ -97,6 +97,12 @@ const STEP_LABELS: Record<FlowStep, string> = {
   questions: "少量问题",
 };
 
+const STARTER_SCENES = [
+  ["写作业总吵", "一到写作业就容易吵起来"],
+  ["手机放不下", "孩子总想继续玩手机，停下来很难"],
+  ["早上总催促", "每天早上都在催，家里很累"],
+] as const;
+
 const INTERNAL_FOCUS_RULES: {
   focus: GrowthFocusId;
   keywords: string[];
@@ -589,6 +595,38 @@ function StoryStep({
       <Text style={[styles.subtitle, { color: colors.muted }]}>
         先用你自己的话说。不用选标签，也不用把事情讲完整。
       </Text>
+      <View style={styles.storyPromise}>
+        <Text style={styles.storyPromiseTitle}>3 分钟后，你会带走</Text>
+        <View style={styles.storyPromiseRow}>
+          <Text style={styles.storyPromiseItem}>一张听懂你的支持卡</Text>
+          <Text style={styles.storyPromiseDot}>·</Text>
+          <Text style={styles.storyPromiseItem}>今晚能试的一小步</Text>
+        </View>
+      </View>
+      <View style={styles.sceneStarterBlock}>
+        <Text style={[styles.sceneStarterLabel, { color: colors.muted }]}>
+          不知道怎么开始？先选一个最像的
+        </Text>
+        <View style={styles.sceneStarterRow}>
+          {STARTER_SCENES.map(([label, text]) => (
+            <Pressable
+              key={label}
+              testID={`assessment-scene-${label}`}
+              accessibilityRole="button"
+              onPress={() => onChange(text)}
+              style={({ pressed }) => [
+                styles.sceneStarter,
+                { borderColor: colors.border, backgroundColor: colors.surface },
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={[styles.sceneStarterText, { color: colors.text }]}>
+                {label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
       <TextInput
         testID="assessment-need-input"
         accessibilityLabel="你现在最想解决什么"
@@ -624,7 +662,7 @@ function StoryStep({
         <Text style={[styles.voiceButtonText, { color: colors.tint }]}>
           {voiceState === "listening"
             ? "正在听…说完即可"
-            : "🎙 用语音说（sandbox）"}
+            : "用语音说（本机预览）"}
         </Text>
       </Pressable>
       {voiceState === "unsupported" ? (
@@ -1087,6 +1125,37 @@ const styles = StyleSheet.create({
   kicker: { fontSize: 13, lineHeight: 18, fontWeight: "800" },
   title: { fontSize: 28, lineHeight: 36, fontWeight: "900", marginTop: 2 },
   subtitle: { fontSize: 14, lineHeight: 22 },
+  storyPromise: {
+    borderRadius: 16,
+    backgroundColor: "#F2F8FF",
+    borderWidth: 1,
+    borderColor: "#D9E8FA",
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    gap: 5,
+  },
+  storyPromiseTitle: {
+    color: "#1B65C9",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "900",
+  },
+  storyPromiseRow: { flexDirection: "row", alignItems: "center", gap: 7 },
+  storyPromiseItem: { color: "#31557D", fontSize: 12, lineHeight: 18 },
+  storyPromiseDot: { color: "#8CB4DE", fontSize: 14, lineHeight: 18 },
+  sceneStarterBlock: { gap: 8, marginTop: 2 },
+  sceneStarterLabel: { fontSize: 12, lineHeight: 17, fontWeight: "800" },
+  sceneStarterRow: { flexDirection: "row", gap: 8 },
+  sceneStarter: {
+    minHeight: 38,
+    borderWidth: 1,
+    borderRadius: 13,
+    paddingHorizontal: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    flex: 1,
+  },
+  sceneStarterText: { fontSize: 12, lineHeight: 17, fontWeight: "800" },
   storyInput: {
     minHeight: 154,
     borderWidth: 1.2,
