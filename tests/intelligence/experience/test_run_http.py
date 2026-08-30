@@ -8,6 +8,7 @@ from backend.intelligence.experience.run_http import (
     RunHttpConflictError,
     RunHttpError,
     RunScope,
+    fingerprint_request,
 )
 from backend.intelligence.experience.runs import RunState
 
@@ -60,6 +61,118 @@ def test_create_and_interaction_retries_are_idempotent() -> None:
     assert repeated.status == "replayed"
     assert repeated.idempotency_replayed is True
     assert len(ledger.replay(scope=_scope(), run_id="run-1").entries) == 1
+
+
+def test_preflight_reserves_before_gateway_and_finalize_replays_response() -> None:
+    ledger = _ledger()
+    fingerprint = fingerprint_request({"prompt_version": "prompt.v1", "payload": {"x": 1}})
+    reservation = ledger.preflight_create(
+        scope=_scope(),
+        run_id="run-preflight-1",
+        request_ref="request-preflight-1",
+        request_fingerprint=fingerprint,
+        idempotency_key="create-preflight-1",
+    )
+    assert reservation.status == "reserved"
+
+    in_progress = ledger.preflight_create(
+        scope=_scope(),
+        run_id="run-preflight-1",
+        request_ref="request-preflight-1",
+        request_fingerprint=fingerprint,
+        idempotency_key="create-preflight-1",
+    )
+    assert in_progress.status == "in_progress"
+
+    snapshot = ledger.finalize_create(
+        reservation,
+        draft_payload={"status": "DRAFT", "headline": "可回放"},
+        response_payload={"run_id": "run-preflight-1", "status": "DRAFT"},
+    )
+    assert snapshot.status == "DRAFT"
+    replay = ledger.preflight_create(
+        scope=_scope(),
+        run_id="run-preflight-1",
+        request_ref="request-preflight-1",
+        request_fingerprint=fingerprint,
+        idempotency_key="create-preflight-1",
+    )
+    assert replay.status == "replay"
+    assert replay.response_payload == {"run_id": "run-preflight-1", "status": "DRAFT"}
+
+
+def test_failed_preflight_can_be_released_and_retried_without_stale_run() -> None:
+    ledger = _ledger()
+    reservation = ledger.preflight_create(
+        scope=_scope(),
+        run_id="run-preflight-retry",
+        request_ref="request-preflight-retry",
+        request_fingerprint="fingerprint-v1",
+        idempotency_key="create-preflight-retry",
+    )
+    ledger.release_create(reservation)
+    retry = ledger.preflight_create(
+        scope=_scope(),
+        run_id="run-preflight-retry",
+        request_ref="request-preflight-retry",
+        request_fingerprint="fingerprint-v1",
+        idempotency_key="create-preflight-retry",
+    )
+    assert retry.status == "reserved"
+
+
+def test_deleted_run_scrubs_previously_stored_create_response() -> None:
+    ledger = _ledger()
+    fingerprint = "fingerprint-delete-response"
+    reservation = ledger.preflight_create(
+        scope=_scope(),
+        run_id="run-preflight-delete",
+        request_ref="request-preflight-delete",
+        request_fingerprint=fingerprint,
+        idempotency_key="create-preflight-delete",
+    )
+    ledger.finalize_create(
+        reservation,
+        draft_payload={"status": "DRAFT", "headline": "仅供草案"},
+        response_payload={"run_id": "run-preflight-delete", "output": {"headline": "仅供草案"}},
+    )
+    ledger.delete(
+        scope=_scope(),
+        run_id="run-preflight-delete",
+        deletion_ref="delete-preflight-delete",
+        idempotency_key="delete-preflight-delete",
+    )
+
+    replay = ledger.preflight_create(
+        scope=_scope(),
+        run_id="run-preflight-delete",
+        request_ref="request-preflight-delete",
+        request_fingerprint=fingerprint,
+        idempotency_key="create-preflight-delete",
+    )
+    assert replay.status == "replay"
+    assert replay.snapshot is not None
+    assert replay.snapshot.deletion_state == "deleted"
+    assert replay.response_payload is None
+
+
+def test_preflight_rejects_same_key_with_different_request_before_gateway() -> None:
+    ledger = _ledger()
+    ledger.preflight_create(
+        scope=_scope(),
+        run_id="run-preflight-conflict",
+        request_ref="request-preflight-conflict",
+        request_fingerprint="fingerprint-v1",
+        idempotency_key="create-preflight-conflict",
+    )
+    with pytest.raises(RunHttpConflictError, match="IDEMPOTENCY_REPLAY_MISMATCH"):
+        ledger.preflight_create(
+            scope=_scope(),
+            run_id="run-preflight-conflict",
+            request_ref="request-preflight-conflict",
+            request_fingerprint="fingerprint-v2",
+            idempotency_key="create-preflight-conflict",
+        )
 
 
 def test_idempotency_conflict_and_scope_mismatch_are_rejected() -> None:

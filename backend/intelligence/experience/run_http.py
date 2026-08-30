@@ -47,6 +47,7 @@ class InteractionType(StrEnum):
 DecisionStatus = Literal["pending_human_confirmation", "accepted", "rewrite", "rejected"]
 FeedbackStatus = Literal["recorded", "replayed"]
 DeletionState = Literal["active", "deleted"]
+DraftPreflightStatus = Literal["reserved", "replay", "in_progress"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,8 +143,61 @@ class RunReplaySnapshot:
         return False
 
 
+@dataclass(frozen=True, slots=True)
+class DraftPreflight:
+    """Gateway admission result for a draft create request.
+
+    ``reserved`` is the only state that may proceed to model invocation.  A
+    replay carries the previously materialized HTTP response so callers can
+    return it without invoking a provider again.  ``in_progress`` is returned
+    to a concurrent caller for the same run and is deliberately not a second
+    reservation.
+    """
+
+    scope: RunScope
+    run_id: str
+    request_ref: str
+    request_fingerprint: str
+    idempotency_key: str
+    status: DraftPreflightStatus
+    snapshot: RunReplaySnapshot | None = None
+    response_payload: Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if self.status == "replay" and self.snapshot is None:
+            raise RunHttpError("DRAFT_REPLAY_SNAPSHOT_REQUIRED")
+        if self.status == "reserved" and self.snapshot is not None:
+            raise RunHttpError("DRAFT_RESERVATION_SNAPSHOT_INVALID")
+        if self.response_payload is not None:
+            _assert_safe_mapping(self.response_payload)
+            object.__setattr__(
+                self, "response_payload", MappingProxyType(dict(self.response_payload))
+            )
+
+
 class ExperienceRunLedger(Protocol):
     """Port implemented by in-memory or durable AI-runtime ledgers."""
+
+    def preflight_create(
+        self,
+        *,
+        scope: RunScope,
+        run_id: str,
+        request_ref: str,
+        request_fingerprint: str,
+        idempotency_key: str,
+    ) -> DraftPreflight: ...
+
+    def finalize_create(
+        self,
+        reservation: DraftPreflight,
+        *,
+        draft_payload: Mapping[str, Any],
+        artifact_refs: tuple[str, ...] = (),
+        response_payload: Mapping[str, Any] | None = None,
+    ) -> RunReplaySnapshot: ...
+
+    def release_create(self, reservation: DraftPreflight) -> None: ...
 
     def create_draft(
         self,
@@ -174,11 +228,13 @@ class _RunRecord:
     scope: RunScope
     run: DurableExperienceRun
     checkpoint: RunCheckpoint
+    create_request_ref: str
     interactions: list[RunInteractionEntry] = field(default_factory=list)
     idempotency: dict[str, str] = field(default_factory=dict)
     idempotency_results: dict[str, InteractionReceipt | RunReplaySnapshot] = field(
         default_factory=dict
     )
+    create_response_payload: Mapping[str, Any] | None = None
     deleted: bool = False
 
 
@@ -187,6 +243,150 @@ class InMemoryExperienceRunLedger:
 
     def __init__(self) -> None:
         self._records: dict[tuple[tuple[str, str, tuple[str, ...]], str], _RunRecord] = {}
+        self._pending_creates: dict[
+            tuple[tuple[str, str, tuple[str, ...]], str], DraftPreflight
+        ] = {}
+
+    def preflight_create(
+        self,
+        *,
+        scope: RunScope,
+        run_id: str,
+        request_ref: str,
+        request_fingerprint: str,
+        idempotency_key: str,
+    ) -> DraftPreflight:
+        """Reserve a run before Gateway invocation.
+
+        The reservation is process-local for the in-memory implementation;
+        durable adapters must enforce the same uniqueness under a transaction.
+        No provider call is made here.
+        """
+
+        self._assert_scope(scope)
+        self._validate_ids(run_id, request_ref, idempotency_key, request_fingerprint)
+        record_key = (scope.key, run_id)
+        existing = self._records.get(record_key)
+        if existing is not None:
+            previous = existing.idempotency.get(idempotency_key)
+            if previous is None:
+                raise RunHttpConflictError("RUN_ALREADY_EXISTS")
+            if previous != request_fingerprint or existing.create_request_ref != request_ref:
+                raise RunHttpConflictError("IDEMPOTENCY_REPLAY_MISMATCH")
+            snapshot = self._snapshot(existing)
+            return DraftPreflight(
+                scope=scope,
+                run_id=run_id,
+                request_ref=request_ref,
+                request_fingerprint=request_fingerprint,
+                idempotency_key=idempotency_key,
+                status="replay",
+                snapshot=snapshot,
+                response_payload=(
+                    None if existing.deleted else existing.create_response_payload
+                ),
+            )
+        if any(key[1] == run_id for key in self._records):
+            raise RunHttpError("RUN_SCOPE_MISMATCH")
+
+        pending = self._pending_creates.get(record_key)
+        if pending is not None:
+            if pending.idempotency_key == idempotency_key:
+                if (
+                    pending.request_fingerprint != request_fingerprint
+                    or pending.request_ref != request_ref
+                ):
+                    raise RunHttpConflictError("IDEMPOTENCY_REPLAY_MISMATCH")
+                return DraftPreflight(
+                    scope=scope,
+                    run_id=run_id,
+                    request_ref=request_ref,
+                    request_fingerprint=request_fingerprint,
+                    idempotency_key=idempotency_key,
+                    status="in_progress",
+                )
+            raise RunHttpConflictError("DRAFT_CREATE_IN_PROGRESS")
+
+        reservation = DraftPreflight(
+            scope=scope,
+            run_id=run_id,
+            request_ref=request_ref,
+            request_fingerprint=request_fingerprint,
+            idempotency_key=idempotency_key,
+            status="reserved",
+        )
+        self._pending_creates[record_key] = reservation
+        return reservation
+
+    def finalize_create(
+        self,
+        reservation: DraftPreflight,
+        *,
+        draft_payload: Mapping[str, Any],
+        artifact_refs: tuple[str, ...] = (),
+        response_payload: Mapping[str, Any] | None = None,
+    ) -> RunReplaySnapshot:
+        """Commit a reserved draft and its optional HTTP response projection."""
+
+        if reservation.status != "reserved":
+            if reservation.status == "replay" and reservation.snapshot is not None:
+                return reservation.snapshot
+            raise RunHttpConflictError("DRAFT_CREATE_IN_PROGRESS")
+        record_key = (reservation.scope.key, reservation.run_id)
+        pending = self._pending_creates.get(record_key)
+        if pending != reservation:
+            raise RunHttpConflictError("DRAFT_RESERVATION_NOT_FOUND")
+        try:
+            _assert_draft_payload(draft_payload)
+            _assert_artifacts(artifact_refs)
+            if response_payload is not None:
+                _assert_safe_mapping(response_payload)
+        except RunHttpError:
+            self.release_create(reservation)
+            raise
+
+        run = DurableExperienceRun(
+            run_id=reservation.run_id,
+            tenant_id=reservation.scope.tenant_id,
+            family_id=reservation.scope.family_id,
+            subject_ids=reservation.scope.subject_ids,
+            request_ref=reservation.request_ref,
+        )
+        try:
+            run.transition(RunState.RUNNING, event_id=f"{reservation.run_id}:started")
+            checkpoint = run.checkpoint(
+                checkpoint_id=f"{reservation.run_id}:draft",
+                artifact_refs=artifact_refs,
+                draft_payload=dict(draft_payload),
+            )
+            run.transition(RunState.SUCCEEDED, event_id=f"{reservation.run_id}:succeeded")
+        except (RunContractError, RunConflictError) as exc:
+            self.release_create(reservation)
+            raise RunHttpError("DRAFT_CREATE_FAILED", str(exc)) from exc
+
+        record = _RunRecord(
+            scope=reservation.scope,
+            run=run,
+            checkpoint=checkpoint,
+            create_request_ref=reservation.request_ref,
+            create_response_payload=(
+                MappingProxyType(dict(response_payload)) if response_payload is not None else None
+            ),
+        )
+        record.idempotency[reservation.idempotency_key] = reservation.request_fingerprint
+        snapshot = self._snapshot(record)
+        record.idempotency_results[reservation.idempotency_key] = snapshot
+        self._records[record_key] = record
+        self._pending_creates.pop(record_key, None)
+        return snapshot
+
+    def release_create(self, reservation: DraftPreflight) -> None:
+        """Release a failed reservation so the same key can safely retry."""
+
+        record_key = (reservation.scope.key, reservation.run_id)
+        pending = self._pending_creates.get(record_key)
+        if pending == reservation:
+            self._pending_creates.pop(record_key, None)
 
     def create_draft(
         self,
@@ -198,11 +398,6 @@ class InMemoryExperienceRunLedger:
         artifact_refs: tuple[str, ...] = (),
         idempotency_key: str,
     ) -> RunReplaySnapshot:
-        self._assert_scope(scope)
-        self._validate_ids(run_id, request_ref, idempotency_key)
-        _assert_draft_payload(draft_payload)
-        _assert_artifacts(artifact_refs)
-        record_key = (scope.key, run_id)
         fingerprint = _fingerprint(
             {
                 "operation": "create_draft",
@@ -211,36 +406,22 @@ class InMemoryExperienceRunLedger:
                 "artifact_refs": artifact_refs,
             }
         )
-        existing = self._records.get(record_key)
-        if existing is not None:
-            return self._replay_idempotent_create(existing, idempotency_key, fingerprint)
-        if any(key[1] == run_id for key in self._records):
-            raise RunHttpError("RUN_SCOPE_MISMATCH")
-
-        run = DurableExperienceRun(
+        reservation = self.preflight_create(
+            scope=scope,
             run_id=run_id,
-            tenant_id=scope.tenant_id,
-            family_id=scope.family_id,
-            subject_ids=scope.subject_ids,
             request_ref=request_ref,
+            request_fingerprint=fingerprint,
+            idempotency_key=idempotency_key,
         )
-        try:
-            run.transition(RunState.RUNNING, event_id=f"{run_id}:started")
-            checkpoint = run.checkpoint(
-                checkpoint_id=f"{run_id}:draft",
-                artifact_refs=artifact_refs,
-                draft_payload=dict(draft_payload),
-            )
-            run.transition(RunState.SUCCEEDED, event_id=f"{run_id}:succeeded")
-        except (RunContractError, RunConflictError) as exc:
-            raise RunHttpError("DRAFT_CREATE_FAILED", str(exc)) from exc
-
-        record = _RunRecord(scope=scope, run=run, checkpoint=checkpoint)
-        record.idempotency[idempotency_key] = fingerprint
-        snapshot = self._snapshot(record)
-        record.idempotency_results[idempotency_key] = snapshot
-        self._records[record_key] = record
-        return snapshot
+        if reservation.status == "replay" and reservation.snapshot is not None:
+            return reservation.snapshot
+        if reservation.status != "reserved":
+            raise RunHttpConflictError("DRAFT_CREATE_IN_PROGRESS")
+        return self.finalize_create(
+            reservation,
+            draft_payload=draft_payload,
+            artifact_refs=artifact_refs,
+        )
 
     def append_interaction(
         self,
@@ -293,6 +474,7 @@ class InMemoryExperienceRunLedger:
         record.idempotency[idempotency_key] = fingerprint
         if interaction_type is InteractionType.DELETE:
             record.deleted = True
+            record.create_response_payload = None
         receipt = InteractionReceipt(
             run_id=run_id,
             interaction=entry,
@@ -416,19 +598,6 @@ class InMemoryExperienceRunLedger:
             deletion_state="active",
         )
 
-    def _replay_idempotent_create(
-        self, record: _RunRecord, idempotency_key: str, fingerprint: str
-    ) -> RunReplaySnapshot:
-        previous = record.idempotency.get(idempotency_key)
-        if previous is None:
-            raise RunHttpConflictError("RUN_ALREADY_EXISTS")
-        if previous != fingerprint:
-            raise RunHttpConflictError("IDEMPOTENCY_REPLAY_MISMATCH")
-        result = record.idempotency_results[idempotency_key]
-        if not isinstance(result, RunReplaySnapshot):
-            raise RunHttpError("IDEMPOTENCY_RESULT_CORRUPT")
-        return self._snapshot(record)
-
     @staticmethod
     def _assert_scope(scope: RunScope) -> None:
         if not isinstance(scope, RunScope):
@@ -461,6 +630,13 @@ class InMemoryExperienceRunLedger:
 
 def _fingerprint(value: Mapping[str, Any]) -> str:
     return json.dumps(value, sort_keys=True, default=str, separators=(",", ":"))
+
+
+def fingerprint_request(value: Mapping[str, Any]) -> str:
+    """Return a stable digest for generation intent, never raw media bytes."""
+
+    _assert_safe_mapping(value)
+    return _fingerprint(value)
 
 
 _FORBIDDEN_KEYS = frozenset(
@@ -510,6 +686,8 @@ def _assert_artifacts(values: tuple[str, ...]) -> None:
 __all__ = [
     "DecisionStatus",
     "DeletionState",
+    "DraftPreflight",
+    "DraftPreflightStatus",
     "ExperienceRunLedger",
     "FeedbackStatus",
     "InMemoryExperienceRunLedger",
@@ -520,4 +698,5 @@ __all__ = [
     "RunInteractionEntry",
     "RunReplaySnapshot",
     "RunScope",
+    "fingerprint_request",
 ]

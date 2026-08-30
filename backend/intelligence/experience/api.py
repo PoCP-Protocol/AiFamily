@@ -36,6 +36,7 @@ from backend.intelligence.experience.multimodal_routing import (
     RouteStrategy,
 )
 from backend.intelligence.experience.run_http import (
+    DraftPreflight,
     ExperienceRunLedger,
     InteractionReceipt,
     InteractionType,
@@ -43,6 +44,7 @@ from backend.intelligence.experience.run_http import (
     RunHttpError,
     RunReplaySnapshot,
     RunScope,
+    fingerprint_request,
 )
 from backend.intelligence.model_gateway.contracts import MediaInput
 from backend.intelligence.model_gateway.errors import ModelGatewayError
@@ -448,6 +450,53 @@ def _interaction_response(receipt: InteractionReceipt) -> RunInteractionResponse
     )
 
 
+def _draft_request_fingerprint(
+    *, runtime: MultimodalDraftRuntime, body: MultimodalDraftRequest
+) -> str:
+    """Digest generation intent without including secrets or raw media bytes."""
+
+    return fingerprint_request(
+        {
+            "run_id": body.run_id,
+            "prompt_version": body.prompt_version,
+            "schema_version": body.schema_version,
+            "payload": body.payload,
+            "output_schema": body.output_schema,
+            "modalities": body.modalities,
+            "estimated_input_tokens": body.estimated_input_tokens,
+            "strategy": body.strategy,
+            "max_latency_ms": body.max_latency_ms,
+            "max_cost_microusd": body.max_cost_microusd,
+            "input_refs": body.input_refs,
+            "media_inputs": tuple(
+                {
+                    "media_type": item.media_type,
+                    "mime_type": item.mime_type,
+                    "sha256": item.sha256,
+                }
+                for item in body.media_inputs
+            ),
+            "session_id": body.session_id,
+            "environment": runtime.environment,
+            "purpose": runtime.scope.purpose,
+            "data_class": runtime.scope.data_class.value,
+        }
+    )
+
+
+def _release_draft_preflight(
+    ledger: ExperienceRunLedger | None, reservation: DraftPreflight | None
+) -> None:
+    if ledger is None or reservation is None:
+        return
+    try:
+        ledger.release_create(reservation)
+    except RunHttpError:
+        # Preserve the original provider/validation failure.  A durable
+        # implementation must make release idempotent and transaction-safe.
+        return
+
+
 def _replay_response(snapshot: RunReplaySnapshot) -> RunReplayResponse:
     return RunReplayResponse(
         run_id=snapshot.run_id,
@@ -519,8 +568,10 @@ def _to_response(result: ContextBoundMultimodalDraft) -> MultimodalDraftResponse
     route_provenance = route.provenance_input
     return MultimodalDraftResponse(
         run_id=experience.run_id,
-        draft_id=experience.draft_id,
-        provenance_ref=experience.provenance_ref,
+        # Registry-backed runtimes may expose durable draft identity. Keep
+        # the HTTP contract honest for legacy/test runtimes without it.
+        draft_id=getattr(experience, "draft_id", None),
+        provenance_ref=getattr(experience, "provenance_ref", None),
         status=draft.status,
         output=dict(draft.output),
         requires_human_confirmation=draft.requires_human_confirmation,
@@ -591,6 +642,49 @@ async def create_multimodal_draft(
         max_latency_ms=body.max_latency_ms,
         max_cost_microusd=body.max_cost_microusd,
     )
+    ledger = runtime.run_ledger
+    reservation: DraftPreflight | None = None
+    create_idempotency_key: str | None = None
+    if ledger is not None:
+        if not all(
+            callable(getattr(ledger, method_name, None))
+            for method_name in ("preflight_create", "finalize_create", "release_create")
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="experience_run_preflight_not_configured",
+            )
+        create_idempotency_key = _require_idempotency_key(idempotency_key or body.run_id)
+        try:
+            reservation = ledger.preflight_create(
+                scope=_run_scope(runtime),
+                run_id=body.run_id,
+                request_ref=body.run_id,
+                request_fingerprint=_draft_request_fingerprint(runtime=runtime, body=body),
+                idempotency_key=create_idempotency_key,
+            )
+        except RunHttpError as error:
+            raise _map_run_error(error) from error
+        if reservation.status == "replay":
+            if (
+                reservation.snapshot is not None
+                and reservation.snapshot.deletion_state == "deleted"
+            ):
+                raise _map_run_error(RunHttpError("RUN_DELETED"))
+            if reservation.response_payload is None:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="DRAFT_REPLAY_RESPONSE_UNAVAILABLE",
+                )
+            try:
+                return MultimodalDraftResponse.model_validate(dict(reservation.response_payload))
+            except (TypeError, ValueError) as error:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="DRAFT_REPLAY_RESPONSE_INVALID",
+                ) from error
+        if reservation.status != "reserved":
+            raise _map_run_error(RunHttpConflictError("DRAFT_CREATE_IN_PROGRESS"))
     try:
         command = ContextBoundMultimodalCommand(
             run_id=body.run_id,
@@ -606,10 +700,12 @@ async def create_multimodal_draft(
         )
         result = await runtime.application.generate_draft(command)
     except MultimodalRouteError as error:
+        _release_draft_preflight(ledger, reservation)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=error.reason
         ) from error
     except ModelGatewayError as error:
+        _release_draft_preflight(ledger, reservation)
         # Never expose provider text or request payloads through HTTP.  The
         # gateway's closed failure taxonomy is the only stable detail allowed
         # across this boundary; retryability is represented by the status.
@@ -620,26 +716,31 @@ async def create_multimodal_draft(
         )
         raise HTTPException(status_code=error_status, detail=error.kind) from error
     except (ValueError, TypeError) as error:
+        _release_draft_preflight(ledger, reservation)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
         ) from error
-    if runtime.run_ledger is not None:
+    try:
+        response = _to_response(result)
+    except (TypeError, ValueError) as error:
+        _release_draft_preflight(ledger, reservation)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="DRAFT_RESPONSE_INVALID",
+        ) from error
+    if ledger is not None and reservation is not None and create_idempotency_key is not None:
         try:
-            runtime.run_ledger.create_draft(
-                scope=_run_scope(runtime),
-                run_id=body.run_id,
-                request_ref=body.run_id,
+            ledger.finalize_create(
+                reservation,
                 draft_payload=result.output,
                 artifact_refs=tuple(
                     f"media:sha256:{item.sha256}" for item in body.media_inputs
                 ),
-                # Existing callers without a header remain compatible while
-                # still getting deterministic idempotency in the test runtime.
-                idempotency_key=_require_idempotency_key(idempotency_key or body.run_id),
+                response_payload=response.model_dump(mode="json"),
             )
         except RunHttpError as error:
             raise _map_run_error(error) from error
-    return _to_response(result)
+    return response
 
 
 async def _runtime_for_run(
