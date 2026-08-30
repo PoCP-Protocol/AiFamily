@@ -1,0 +1,240 @@
+---
+id: AGILE-REBUILD-PLAN-001
+title: Family 家庭需求平台敏捷重建计划
+type: delivery-plan
+status: current
+version: 0.3
+owner: chief-architect
+created: 2026-08-30
+updated: 2026-08-30
+canonical: false
+---
+
+# Family 家庭需求平台敏捷重建计划
+
+## 1. 目标
+
+以家庭教育为第一个可验收的需求闭环，逐步扩展为围绕家庭需求提供产品、服务和组合
+解决方案的平台。第一阶段不追求一次性完成所有 34 UI，而是先证明一条真实路径，并让
+孩子、家长、家庭关系的记忆体在同一条链路中可控地积累：
+
+```text
+家庭表达/测评
+  → 需求澄清
+  → 教育解决方案草案
+  → 家庭确认
+  → 21 天小行动
+  → 反馈/过程证据
+  → 记忆候选/家庭确认
+  → 下一步服务需要
+```
+
+平台精神贯穿每个 Sprint：**We are 伐木累！We are family！**
+
+## 2. 敏捷运行规则
+
+- 以 1 周为一个 Sprint；每个 Sprint 只承诺可验收的纵向切片。
+- 任务必须绑定业务场景、流程节点、权威数据对象、应用入口和测试证据。
+- 34 UI 只是视觉/迁移/回归基线，不是产品上限；新增、合并、拆分或淘汰页面必须由用户
+  场景和体验证据驱动，并保留迁移映射和回归证据。
+- UI 必须支持多模态演进：文字、语音、图片、音频、视频和互动卡片按场景接入；测试环境
+  只替换合成媒体和适配器，不删除模态能力或失败/删除路径。
+- Agent 只能修改自己的战场；跨战场问题通过交付说明报告，不顺手修改。
+- 每个任务使用分支和 pathspec 提交，不使用 `git add -A`、`git add .` 或 `git commit -a`。
+- 每轮结束必须执行：目标范围测试、架构测试、范围 Ruff、全量 Ruff/pytest 结果登记。
+- 设计、路由、fixture 或 SQL 存在不等于能力完成；完成必须有可调用路径和拒绝路径。
+
+## 3. 团队与战场
+
+| 角色/编号 | 责任 | 本 Sprint 战场 | 不得修改 |
+|---|---|---|---|
+| Lead/ARCH-1 | 目标、切片、Family API 集成、评审和发布闸门 | `docs/11_delivery/`、`backend/apps/family_api/` 集成文件 | Agent 的专属实现文件 |
+| AAIR-2 | Experience/Recommendation AI 技术契约 | `backend/intelligence/experience/`、对应 tests | `backend/intelligence/principal/`、治理 YAML |
+| ADOM-2 | Family Need 领域模型和策略 | `backend/domains/family_need/`、`tests/domains/family_need/`、DOMAIN_REGISTRY 登记 | `backend/apps/`、`backend/intelligence/` |
+| AFE-1 | 移动端 UI-03/05/09 纵向体验和 API 对接 | `frontend/mobile/app/ui/`、对应 `lib/` 和 tests | `backend/`、其他 Agent 文件 |
+| QA gate | 由 Lead 集成执行；后续 Sprint 单独派 QA | `tests/architecture/`、CI 结果 | 未授权业务实现 |
+
+## 4. Sprint 0：契约和团队启动
+
+### 目标
+
+把“家庭需求平台”从战略表述变成四个可独立开发的契约：需求事实、体验事件、需求入口和
+孩子/家长/家庭关系记忆候选。记忆候选未经家庭或人工确认不得成为长期记忆。
+
+### Backlog
+
+| ID | 任务 | Owner | 验收 |
+|---|---|---|---|
+| S0-01 | ExperienceEvent/RecommendationDecision/FeedbackSignal 契约 | AAIR-2 | 数据边界、幂等、provenance、租户/语言字段测试 |
+| S0-02 | FamilyNeed/NeedSignal/NeedProfile 领域对象、策略和端口 | ADOM-2 | 正常、拒绝、跨租户、主体范围测试；registry 同步 |
+| S0-03 | `POST /families/{id}/needs/signals` 需求入口路由与应用集成 | Lead | DTO、错误码、授权/同意前置、路由级测试；接入 Agent 契约 |
+| S0-04 | Principal `experience_curator` Registry/路由设计评审 | Lead + AAIR-2 | 不进入生产运行；补 Registry/ADR/contract test 清单 |
+| S0-05 | UI-03/05/09 接入需求/方案/行动 API 与多模态契约 | AFE-1 + Lead | 不再读取假成功 fixture；加载/错误/拒绝/确认/媒体失败状态可验收 |
+| S0-06 | 集成检查和 Sprint Review | Lead | 目标测试通过；偏差和债务登记 |
+| S0-07 | Child/Guardian/Relationship Memory 候选与检索合同 | AAIR-2 + ADOM-2 | M0-M3 生命周期、同意/确认/纠正/删除证明、跨家庭拒绝和多模态派生测试 |
+
+### Sprint 0 完成定义
+
+- 三个 Agent 交付均有实际测试输出和变更文件清单；
+- 前端 UI-03/05/09 与后端接口在同一轮可联调，成功和拒绝状态一致；
+- 不新增容器目录 `__init__.py`；不直连模型供应商；不写家庭事实的旁路；
+- dev/test/prod 的接口、状态机、错误码和闸门契约一致；
+- 三类记忆体只能经候选→同意→确认形成；检索带最小范围和审计；删除覆盖媒体派生物、缓存与 Embedding；
+- 全量架构测试只允许已有债务失败，不能新增错误。
+
+### Sprint 0 当前看板
+
+| 任务 | 状态 | 当前负责人 | 集成依赖 |
+|---|---|---|---|
+| S0-01 体验事件/推荐技术契约 | COMPLETED | AAIR-2 | 143 intelligence tests；生产运行时接入仍在后续 Sprint |
+| S0-02 Family Need 领域契约 | COMPLETED | ADOM-2 | N0→N1、13 个领域测试 + 4 个 API 适配测试 |
+| S0-03 需求入口 API | COMPLETED | Lead/ARCH-1 | `POST /families/{id}/needs/signals` 已挂载；dev/test 合成适配器同构 |
+| S0-04 experience_curator 路由评审 | COMPLETED | Lead + AAIR-2 | Registry/ADR/contract 清单完成；未进入生产 Agent 运行时 |
+| S0-05 UI-03/05/09 联调 | COMPLETED | AFE-1 + Lead | 27 个 Vitest + `pnpm check` 通过；R9 与多模态状态守住 |
+| S0-06 集成与 Review | IN_PROGRESS | Lead | 目标测试已通过；等待全量架构/Ruff 结果登记 |
+| S0-07 记忆体合同与审计 | COMPLETED（适配器级） | AAIR-2 + ADOM-2 | Child/Guardian/Relationship、M0-M3、确认/撤回/检索/删除证明；耐久存储待后续 |
+
+## 5. Sprint 1：家庭教育需求纵向切片
+
+```text
+UI-03 测评解释/需求澄清
+  → UI-05 教育方案草案
+  → UI-09 一个小行动
+  → 家庭确认
+  → Named Action
+  → FeedbackSignal
+```
+
+交付包括：PrincipalApplicationFacade、ContextSnapshot 只读投影、教育 SolutionBlueprint
+草案、ActionProposal→确认桥接、记忆候选→家庭确认桥接、审计/Outbox、成功/拒绝/暂停/重放/
+删除测试和 dev/test/prod 功能等价证明。
+
+## 6. Sprint 2：资源组织与高质量服务
+
+接入 FGCN 的 ServiceCase、ServiceTask、Assignment、DeliveryRecord、QualityDecision 和
+Contribution。先做到“资源不足可解释、任务责任明确、交付可验收、失败可补救”，再扩大
+专家、教师、管家和服务产品目录。
+
+## 7. Sprint 3：产品、服务和解决方案目录
+
+把教育方案抽象为 `SolutionBlueprintVersion`，接入 Product、Service 和 Solution 三种
+供给形态，完成组件、模式、编译、模拟、人工发布和交付反馈闭环。
+
+## 8. Sprint 4+：商业增长、社区和全球化
+
+在情绪价值和成长证据稳定后，接入会员、复购、邀请、案例传播、社区和区域 Cell；同步
+完成多语言、租户隔离、删除、容量、灾备和三环境 parity。不得以商城先行替代需求闭环。
+
+## 9. 每个任务卡必须包含
+
+```text
+编号/角色/战场
+业务场景与流程节点
+输入/活动/输出/规则/异常
+权威数据对象和禁止写入边界
+API/Command/Event/Job/Human Task
+成功/拒绝/重放/超时/删除测试
+三环境差异（只允许数据和外部适配器差异）
+实际命令输出和未解决债务
+```
+
+## 10. 项目健康指标
+
+- 纵向切片完成数，而不是文档或目录数量；
+- 每个场景的成功/拒绝/人工升级/重放覆盖率；
+- 情绪价值：首次被理解时间、主动返回、暂停后安全返回；
+- 成长价值：家庭确认、行动证据、质量验收；
+- 经济价值：家长主动服务意向、复购和推荐；
+- 平台健康：租户隔离、删除完成、投诉、人工 SLA、成本和区域可用性；
+- 质量债：全量 Ruff/pytest 和外部适配器失败演练。
+
+## 11. 本轮退出条件
+
+Sprint 0 未完成前，不进入支付、自动续费、未成年人商业推荐或大规模基础设施建设；
+Sprint 1 未完成前，不宣称“法咪莉校长已上线”或“家庭需求平台已完成”。
+
+## 12. 架构对齐闸门
+
+每个实现任务合并前必须提交一条可追踪链：
+
+```text
+商业目标/六引擎/平台精神
+  → 业务能力/业务场景
+  → L0-L5 流程节点（输入/活动/输出/规则/异常）
+  → 主数据/业务数据/AI 技术数据/事件
+  → Application Service/API/Command/Event/Projection
+  → Principal capability/Knowledge/Safety/Human Gate
+  → 34 UI 或运营入口
+  → 成功/拒绝/重放/删除/环境 parity 测试
+```
+
+缺任一层只能标 `DESIGN_ONLY` 或 `PARTIAL`。不能以“模型能回答”“页面能打开”“数据库
+有表”“fixture 有数据”作为完整能力证明；不能为了本 Sprint 进度绕过既有 ADR、宪章或
+`docs/00_system/ARCHITECTURE_BENCHMARK_REVIEW_V3.md`。
+
+### 12.1 UI 体验闸门
+
+新增或改造 UI 必须同时证明：
+
+1. 它解决一个真实家庭需求或运营职责，而不是复制已有页面；
+2. 它绑定 N0-N8 流程节点、权威投影和 Named Action；
+3. 它覆盖情绪承接、选择、暂停、错误、拒绝和确认状态；
+4. 它保留多语言、租户、隐私、无障碍和环境等价能力；
+5. 它为适用场景提供文字、语音、图片、音频、视频或互动卡片的多模态入口/输出，并覆盖
+   同意、解析失败、低带宽、替代文本和删除；
+6. 它通过交互测试后，才可替换或合并原 34 UI 基线页面。
+
+## 13. Sprint 0 Review（2026-08-30）
+
+### 已交付
+
+- `VS-01`：Family Need N0→N1 已通过 Family API 可调用；成功、跨家庭、缺同意、缺幂等和
+  重放路径均有测试。
+- Experience 闭环合同已冻结，覆盖 N0-N8、推荐解释、反馈、六种模态和四类 locale。
+- Child/Guardian/Relationship Memory 的 M0-M3 候选、确认、撤回、最小检索和删除证明适配器
+  已完成；AI 不直接写入记忆事实。
+- UI-03/05/09 已接入真实 API 状态和多模态合同；UI-03 已移除总分、排名、雷达图语义。
+
+### 验证记录
+
+```text
+uv run pytest -q                         702 passed, 43 skipped, 1 known lint-gate failure
+uv run pytest tests/architecture -v       109 passed, 1 skipped, 1 known lint-gate failure
+uv run pytest tests/intelligence -q        180 passed
+uv run pytest tests/apps/family_api -q      16 passed, 1 skipped
+pnpm exec vitest run（UI-03/05/09）          27 passed
+pnpm check                                  passed
+```
+
+### 仍未完成（不宣称生产就绪）
+
+- `family_need` 仍使用 Fake 仓储和 dev/test 合成身份/同意；需要 PostgreSQL、真实身份、同意
+  存储和 FGCN 适配器。
+- N1→N8 的需求澄清、画像、方案、资源分派、交付、验收和回流 API 尚未完成。
+- Memory adapter 还未接入 Principal/Context Broker、Family API、持久化表和删除 Worker。
+- `experience_curator` 目前只有 Registry/合同设计，未开启生产 Agent 或模型供应商调用。
+- L0 现状文档中的历史断言（例如“零业务 API”“Memory ABSENT”）尚未完成与本 Sprint
+  证据的同步；在同步前不得把旧基线当作当前实现清单。
+- 全量 Ruff 的唯一失败为并发 WIP 文件 `backend/domains/family/domain/entities.py:331` 的
+  E501；本轮未改动该文件，避免吞并他人工作区。
+
+## 14. Sprint 1 并行开发评审（2026-08-30）
+
+### 已交付的三条战线
+
+- **S1-A Principal AI + 知识库**：Principal 作为 AI 控制平面完成能力路由、知识检索、
+  Model Gateway 结构化生成和不可提升的 `DRAFT` 输出；24 个 Principal/knowledge 测试、
+  18 个架构测试通过。真实 Context Broker、Human Gate、持久化和生产模型仍保持 `PLANNED`。
+- **S1-B Family Need N1→N2**：完成需求澄清、需求画像、Solution Draft 和资源缺口；
+  `SupplyReferencePort` 只读解析 Product/Service 引用，不写 canonical 事实；20 个领域测试通过。
+- **S1-C 服务/产品体验**：新增服务/产品发现体验，保留 UI-13/14/19/20/31 基线，支持
+  多模态和 loading/empty/denied/error/synthetic 状态；专项 Vitest 4 个通过、`pnpm check` 通过。
+
+### 集成阻塞与下一步
+
+- S1-B 的 N1→N2 应用服务尚未接入 Family API 路由和持久化仓储；下一任务由 Lead 负责
+  API/依赖注入/端到端契约，不能用 fixture 代替。
+- S1-A 的 Principal 运行时尚未接入 Context Broker、Human Gate、Action Bridge、审计与
+  Outbox；当前只能标记 `PARTIAL`，不能宣称“法咪莉校长已上线”。
+- 架构测试另发现并发 WIP 新增 `backend/intelligence/product_management/` 尚未在
+  `MIGRATION_MANIFEST.yaml` 登记；该目录不属于本 Sprint 三条战线，待其 owner 处理。
