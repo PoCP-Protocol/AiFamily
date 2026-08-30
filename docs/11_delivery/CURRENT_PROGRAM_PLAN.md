@@ -124,7 +124,7 @@ remote ref、命令、原始摘要、数据集/`AIFAMILY_TEST_DATABASE_URL`、�
 | Sprint | owner 角色 | 文件边界 | 依赖与输入→活动→输出 | 正向/反向测试 | 退出门 |
 |---|---|---|---|---|---|
 | S0（当前，P0 阻断） | PMA 协调；APLT/Platform/ADOM/AAIR/AFE 各 gate owner | 仅各 owner 已声明文件；不覆盖 `dev_wiring.py` 等共享 WIP | 身份/授权问题→六门技术闸门→家长确认一个问题/主结果→S-01 contract | TestClient 三环境、Fresh PG up/down/up、tenant/consent/idempotency、audit/outbox crash/retry、AI gate、Web/mobile parity | 六门全绿且 S-01 业务链可回读；任一缺失 `BLOCKED/NOT_DONE` |
-| S1（S-01 真实闭环） | Growth + AFE/API + AAIR | `s01_vertical_slice.py`、Journey application/HTTP、独占测试；不改 FGCN/Commerce writer | `b37b1b6`（local only，未推送）signal→Perspective/Hypothesis/Draft→家庭确认→GrowthIntent/ActionTask→Review | 正向家长流程；反向 AI actor/跨 tenant/撤回 consent/新 key replay/conflict/删除/断电重试/多 locale | HTTP+PG+outbox+audit+deletion/replay；UI-03→05→09 可回读；远端出现该 SHA 且 fresh evidence 后才可关闭 |
+| S1（S-01 真实闭环） | Growth + AFE/API + AAIR | `s01_vertical_slice.py`、Journey application/HTTP、独占测试；不改 FGCN/Commerce writer | `b37b1b6`（已在 `origin/codex/cleanup-superseded`，仍非生产完成）signal→Perspective/Hypothesis/Draft→家庭确认→GrowthIntent/ActionTask→Review | 正向家长流程；反向 AI actor/跨 tenant/撤回 consent/新 key replay/conflict/删除/断电重试/多 locale | HTTP+PG+outbox+audit+deletion/replay；UI-03→05→09 可回读；当前仍缺真实 PG/HTTP/构建/主线合入证据，保持 PARTIAL |
 | S2（S-01 后续 FGCN） | FGCN/Service + Operations | FGCN admission/assignment/delivery/quality ports、worker；不新增第二 writer | 已确认 need→provider admission→case/task→delivery→quality/`RESOURCE_GAP` | capacity 并发、assignment 完成/撤回 replay、locale、reviewer/tenant/consent、worker restart/DLQ/争议 | Fresh PG/HTTP 常驻 worker、唯一 writer、quality/audit/outbox；否则 `PARTIAL` |
 | S3（平台账与体验扩展，条件解冻） | Commerce/Community/B5/AFE | 保留生产形状契约；暂不开放真实流量/实验 | S-01/FGCN 质量门→四本账、Content/Live、C2C/B2B2C、Product Factory | 订单/支付/退款/权益/结算/社区撤回/机构授权/多 Agent fail-closed；无家庭总分/排名/儿童营销 | 仅在 P0+S1+S2 全绿后；PG/HTTP/审计/回滚/重启/人工 gate/四端 parity 全绿 |
 | S4（生产候选与全球 cell） | Chief Architect + PLT/GOV/AAIR | region/cell、容量、灾备、真实 adapters、PLM | S1-S3 稳定事实→生产身份/支付/模型/媒体/vector/运营事故→candidate release | failover、备份恢复、DPIA/删除、成本/配额、多语言四维、license/CI/事故演练 | 所有 P0/P1 关闭、unknown head 清零、architecture/Ruff/PG/HTTP/删除/审计全绿；才可 `PRODUCTION_CANDIDATE` |
@@ -172,8 +172,9 @@ P0 任一任务没有真实 PostgreSQL 或 HTTP 证据，Sprint 保持 `NOT_DONE
 
 **总闸门（快照）**：architecture `109 passed/1 skipped/1 failed`（Ruff ratchet）、全量 Ruff
 `3 errors (1 E501 + 2 I001)`、Alembic unknown 0023、mobile `249/1/5`，因此当前测试候选只能在受控环境继续；
-生产发布明确 `NO-GO`。远端当前为 `bd59c91`（含 V2 Change Log/Execution Plan）；本地未推送
-`9eeb19a`（文档原子场景清单）及 `b37b1b6`（S-01 slice）不得写成远端或主线完成；工作树仍有其它 Agent WIP，禁止将其一并推送。
+生产发布明确 `NO-GO`。旧远端快照 `bd59c91` 已过时；当前 `origin/codex/cleanup-superseded=70eda7d`，其历史含
+`9eeb19a`（文档原子场景清单）、`b37b1b6`（S-01 slice）和 `e0c16d0`（场景计划）。这些提交虽已进入该
+分支历史，仍缺真实 PG/HTTP/构建/主线合入证据，不能写成生产完成；工作树仍有其它 Agent WIP，禁止将其一并推送。
 
 ### P1-P6 的首个可实现任务
 

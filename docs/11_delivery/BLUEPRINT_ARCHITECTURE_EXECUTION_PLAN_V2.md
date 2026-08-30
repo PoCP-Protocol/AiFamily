@@ -102,7 +102,7 @@ AI 只允许产生 `Perspective`、`Draft`、`Recommendation`、`ActionProposal`
 - **Current Truth**：assessment 有测评/证据纵切片；journey/growth 有状态机、Outcome/Annual/Renewal 契约；FGCN S-01 已增加 entry evidence/provenance。
 - **Specification**：`assessment → AI evidence interpretation → family confirmation → GrowthIntent → 21-day action → 90-day outcome → annual/renewal → NextNeed`；S01-S09 属 B1，X0/Principal 嵌入。
 - **Planned**：唯一业务主线先收敛为 `UI-03→UI-05→UI-09`（S-01）：assessment signal→Perspective/Hypothesis draft→人类确认/驳回→GrowthIntent/ActionTask→canonical outcome loop；随后再接 S05-S09。
-- **Evidence**：`b37b1b6` 仅新增 `s01_vertical_slice.py` 与独占测试，9 narrow tests、journey 64 passed/15 PG skipped；内存适配器、无 HTTP/PG/outbox/durable deletion/replay，状态 `CONTRACTED/PARTIAL`、未推送。Journey 含 PG 44 passed 仍不能替代真实 composition。
+- **Evidence**：`b37b1b6` 仅新增 `s01_vertical_slice.py` 与独占测试，9 narrow tests、journey 64 passed/15 PG skipped；内存适配器、无 HTTP/PG/outbox/durable deletion/replay，状态 `CONTRACTED/PARTIAL`。该 SHA 已进入 `origin/codex/cleanup-superseded` 历史，但未通过真实 PG/HTTP/构建/主线合入闸门，不能写成生产完成。Journey 含 PG 44 passed 仍不能替代真实 composition。
 
 ### 3.2 L0-L5 流程
 
@@ -432,8 +432,10 @@ migration head。测试环境必须保留生产同样的路由、权限、状态
 **真实 PG URL 缺失是硬阻断**：任何 `skip`、`create_all`、同进程 disposable probe 或未设置
 `AIFAMILY_TEST_DATABASE_URL` 的成功都只能记作 `CONTRACTED`，不得关闭 DATA-01/LEDGER-01。
 **远端 push 443 失败也是交付阻断证据**：提交未出现在 remote 前不能称“已推送”，必须记录 local SHA、
-remote SHA、命令和 exact error；当前远端基线为 `bd59c91`，本地 `9eeb19a`（原子场景清单）和
-`b37b1b6`（S-01 slice）均未推送，必须保持 `LOCAL_ONLY`，不能写成主线完成。
+remote SHA、命令和 exact error；本轮复测前远端曾为 `bd59c91`，随后远端已出现
+`9eeb19a`、`b37b1b6` 和 `e0c16d0`，当前推送后为 `70eda7d`。这些 SHA 进入分支只证明提交可追踪，
+不等于生产完成：`b37b1b6` 仍是内存 CONTRACTED/PARTIAL，需 HTTP+PG+outbox+deletion/replay；
+`e0c16d0` 仅为场景计划。任何未出现在 remote 的 SHA 仍保持 `LOCAL_ONLY`，必须记录 exact error。
 
 六门 P0 必须绑定同一条业务验收，而不是只做技术绿灯：一个真实（测试数据可合成）家庭由家长进入，
 完成身份/目的化授权，确认一个家庭问题和一个主结果，收到一个可执行的 ActionProposal，家庭确认后
