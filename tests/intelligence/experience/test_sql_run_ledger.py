@@ -8,6 +8,11 @@ from sqlalchemy.pool import StaticPool
 from backend.intelligence.experience.async_ledger_bridge import (
     AsyncExperienceRunLedgerBridge,
 )
+from backend.intelligence.experience.multimodal_eval import (
+    MultimodalEvaluationReport,
+    ProviderEvaluationSummary,
+    persist_evaluation_projection,
+)
 from backend.intelligence.experience.run_http import (
     InteractionType,
     RunHttpConflictError,
@@ -178,6 +183,55 @@ async def test_sql_evaluation_projection_replays_after_a_new_session(session_fac
             scope=_scope(), run_id="run-sql-1"
         )
     assert snapshot.entries[-1].interaction_type is InteractionType.EVALUATION
+
+
+@pytest.mark.asyncio
+async def test_evaluation_coordinator_persists_through_session_per_call_ledger(
+    session_factory,
+) -> None:
+    """The report coordinator must exercise the durable async ledger seam."""
+
+    async with session_factory() as writer:
+        await _create(writer)
+
+    report = MultimodalEvaluationReport(
+        case_version="gold.v1",
+        total_cases=1,
+        summaries=(
+            ProviderEvaluationSummary(
+                provider_id="qwen",
+                model="qwen-omni",
+                model_version="2026-08",
+                total_cases=1,
+                passed_cases=1,
+                quality_score=1.0,
+                schema_pass_rate=1.0,
+                refusal_accuracy_rate=1.0,
+                safety_pass_rate=1.0,
+                provenance_pass_rate=1.0,
+                latency_ms_p50=120,
+                latency_ms_p95=120,
+                cost_microusd_total=10,
+            ),
+        ),
+    )
+    ledger = SessionPerCallExperienceRunLedger(session_factory)
+    receipt = await persist_evaluation_projection(
+        ledger,
+        scope=_scope(),
+        run_id="run-sql-1",
+        report=report,
+        idempotency_key="evaluation-coordinator-sql-1",
+    )
+
+    assert receipt.status == "recorded"
+    async with session_factory() as reader:
+        snapshot = await SqlAlchemyExperienceRunLedger(reader).replay(
+            scope=_scope(), run_id="run-sql-1"
+        )
+    projection = snapshot.entries[-1].payload
+    assert projection["report_ref"] == report.report_ref
+    assert projection["release_gate"] == {"status": "ELIGIBLE", "reasons": []}
     assert snapshot.entries[-1].payload["education_outcome_status"] == "NOT_MEASURED"
 
 
