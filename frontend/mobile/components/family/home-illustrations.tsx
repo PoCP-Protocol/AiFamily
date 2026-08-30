@@ -48,7 +48,7 @@ function Figure({ size, skin, body, head, lift }: FigureProps): React.JSX.Elemen
   );
 }
 
-/** 免费家庭小事整理横幅（自绘）。 */
+/** 免费家庭成长测评横幅（自绘）。 */
 export function AssessmentBannerArt(): React.JSX.Element {
   return (
     <View style={styles.banner}>
@@ -58,11 +58,11 @@ export function AssessmentBannerArt(): React.JSX.Element {
       <View style={styles.bannerBlobB} />
       <View style={styles.bannerContent}>
         <View style={styles.bannerText}>
-          <Text numberOfLines={1} style={styles.bannerTitle}>免费家庭小事整理</Text>
-          <Text numberOfLines={1} style={styles.bannerSubtitle}>3 分钟，把一件家庭小事理清</Text>
-          <Text numberOfLines={1} style={styles.bannerSubtitle}>带走今晚可以试的一小步</Text>
+          <Text numberOfLines={1} style={styles.bannerTitle}>免费家庭成长测评</Text>
+          <Text numberOfLines={1} style={styles.bannerSubtitle}>3 分钟，看见家庭的五个方向</Text>
+          <Text numberOfLines={1} style={styles.bannerSubtitle}>带走一份可以继续修订的成长方案</Text>
           <View style={styles.bannerCta}>
-            <Text style={styles.bannerCtaText}>开始整理</Text>
+            <Text style={styles.bannerCtaText}>开始测评</Text>
             <IconSymbol name="chevron.right" size={15} color="#1D4ED8" />
           </View>
         </View>

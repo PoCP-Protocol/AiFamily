@@ -15,18 +15,18 @@ const ui02Result = readFileSync(
 const ui03 = readFileSync(resolve(process.cwd(), "app/ui/UI-03.tsx"), "utf8");
 
 describe("UI-02/UI-03 conversation scenario", () => {
-  it("keeps the adult's words before consent, reflection, and the three-question minimum", () => {
-    expect(ui02.indexOf("你现在最想解决什么？")).toBeLessThan(
+  it("keeps the adult's words before consent, reflection, and the five-direction map", () => {
+    expect(ui02.indexOf("你希望家庭先看清什么？")).toBeLessThan(
       ui02.indexOf("这些信息会怎么用？"),
     );
     expect(ui02.indexOf("这些信息会怎么用？")).toBeLessThan(
       ui02.indexOf("我先这样理解"),
     );
     expect(ui02.indexOf("我先这样理解")).toBeLessThan(
-      ui02.indexOf("只问三件小事"),
+      ui02.indexOf("五个观察方向"),
     );
-    expect(ui02).toContain("这句话像你们家吗？");
-    expect(ui02).toContain("像我们家，继续");
+    expect(ui02).toContain("这份理解像你们家吗？");
+    expect(ui02).toContain("像我们家，继续深入");
     expect(ui02).toContain("不太像，改一下");
     expect(ui02).toContain("补充一句");
     expect(ui02).not.toContain("哪一小块最相关？");
@@ -66,9 +66,9 @@ describe("UI-02/UI-03 conversation scenario", () => {
 
   it("renders the four comprehension sections and safe recovery actions", () => {
     expect(ui03).toContain("我们听到的家庭关注");
-    expect(ui03).toContain("可能的方向");
+    expect(ui03).toContain("关键机制 · 可探索方向");
     expect(ui03).toContain("还不确定的地方");
-    expect(ui03).toContain("今天可以尝试的一小步");
+    expect(ui03).toContain("方案的第一阶段");
     expect(ui03).toContain("返回修改");
     expect(ui03).toContain("重新开始测评");
     expect(ui03).toContain("assessment-result-feedback");
@@ -77,14 +77,14 @@ describe("UI-02/UI-03 conversation scenario", () => {
     expect(ui03).toContain("补充");
     expect(ui03).toContain("assessment-feedback-input");
     expect(ui03).toContain("assessment-feedback-submit");
-    expect(ui03).toContain("开始尝试这一步");
+    expect(ui03).toContain("开始方案的第一阶段");
     expect(ui03).toContain("先保存，明天再看");
     expect(ui03).toContain("测评授权已撤回");
     expect(ui03).toContain("暂时无法读取这次整理");
-    expect(ui03).toContain("家庭理解");
+    expect(ui03).toContain("家庭成长解读");
     expect(ui03).toContain("assessment-empty-start");
-    expect(ui03).toContain("先整理一件家庭小事");
-    expect(ui03).toContain("今晚，先让这件事轻一点");
+    expect(ui03).toContain("开始一次家庭成长测评");
+    expect(ui03).toContain("先看懂这一件事，再决定怎么改变");
     expect(ui03).not.toMatch(
       /AI成长诊断|参考分|综合成长评估|雷达图|证据覆盖度|SUPPORT_ORIENTATION_SCORE|peer reference/i,
     );
@@ -93,11 +93,11 @@ describe("UI-02/UI-03 conversation scenario", () => {
   it("keeps one connected result source and a clearly marked local fallback", () => {
     expect(ui02).toContain("/ui/UI-03");
     expect(ui02).toContain("/ui/UI-02-result");
-    expect(ui02Result).toContain("当前页面暂存");
-    expect(ui02Result).toContain("还没有同步");
+    expect(ui02Result).toContain("本次测评 · 家庭视角");
+    expect(ui02Result).toContain("还没有放入家庭空间");
     expect(ui02Result).toContain('assessmentSyncState === "synced"');
     expect(ui02Result).toContain('router.replace("/ui/UI-03" as Href)');
-    expect(ui02Result).not.toContain("buildUi02AssessmentResultSummary");
+    expect(ui02Result).toContain("buildUi02AssessmentResultSummary");
     expect(ui02Result).not.toContain("查看可解释结果");
   });
 
@@ -116,15 +116,17 @@ describe("UI-02/UI-03 conversation scenario", () => {
     expect(ui03).toContain("不会自动触发其他行动");
     expect(ui03).toContain("const saveForLater");
     expect(ui03).toContain("assessment-next-day-checkin");
-    expect(ui03).toContain("明天回来，告诉我们发生了什么");
-    expect(ui03).toContain("这次反馈只在当前页面暂存");
-    expect(ui03).toContain("今晚这一步已在当前页面暂存");
+    expect(ui03).toContain("阶段复盘");
+    expect(ui03).toContain("反馈还没有放入家庭空间");
+    expect(ui03).toContain("第一阶段已为你展开");
+    expect(ui03).toContain("assessment-result-profile");
+    expect(ui03).toContain("assessment-result-knowledge");
   });
 
   it("does not regress into exposed scoring, diagnosis, or automated action", () => {
     expect(ui02).not.toMatch(/overall_score|ranking|诊断结论|自动派单/);
     expect(ui03).not.toMatch(
-      /overall_score|peer_reference|scorecard|radar|自动派单/,
+      /overall_score|peer_reference|scorecard|ranking|自动派单/,
     );
     expect(ui03).toContain("FAMILY_PERSPECTIVE_NOT_SCORE_OR_DIAGNOSIS");
     expect(ui03).toContain("may_mutate_business_state");

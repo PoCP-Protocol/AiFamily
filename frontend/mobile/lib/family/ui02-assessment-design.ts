@@ -10,6 +10,12 @@ export type Ui02AssessmentQuestion = {
   evidenceAnchor: string;
 };
 
+export type Ui02AssessmentQuestionPlan = Ui02AssessmentQuestion & {
+  focusId: GrowthFocusId;
+  focusTitle: string;
+  depth: "OVERVIEW" | "DEEP_DIVE";
+};
+
 export const UI02_ASSESSMENT_VERSION = "FAMILY_SUPPORT_NEEDS/v2";
 
 export const UI02_ASSESSMENT_ANSWER_OPTIONS = FAMILY_ASSESSMENT_AI_CAPABILITY_MEMORY.answerOptions;
@@ -22,6 +28,36 @@ export const UI02_DEEP_ASSESSMENT_ITEM_REFS = Object.values(UI02_DEEP_ASSESSMENT
 
 export function getUi02DeepAssessmentQuestions(focusId: GrowthFocusId | null) {
   return getFamilyAssessmentMemoryQuestions(focusId);
+}
+
+/**
+ * Give every direction one observable, then deepen the direction the family
+ * cares about. This keeps the map useful without turning the first visit into
+ * a long questionnaire.
+ */
+export function buildUi02AssessmentQuestionPlan(
+  focusId: GrowthFocusId | null,
+): readonly Ui02AssessmentQuestionPlan[] {
+  const overviewQuestions = FAMILY_ASSESSMENT_AI_CAPABILITY_MEMORY.dimensions.map(
+    (dimension) => ({
+      ...dimension.questions[0],
+      focusId: dimension.focusId,
+      focusTitle: dimension.title,
+      depth: "OVERVIEW" as const,
+    }),
+  );
+  const focus = FAMILY_ASSESSMENT_AI_CAPABILITY_MEMORY.dimensions.find(
+    (dimension) => dimension.focusId === focusId,
+  );
+  const deepQuestions = focus
+    ? focus.questions.slice(1).map((question) => ({
+        ...question,
+        focusId: focus.focusId,
+        focusTitle: focus.title,
+        depth: "DEEP_DIVE" as const,
+      }))
+    : [];
+  return [...overviewQuestions, ...deepQuestions];
 }
 
 export function buildUi02AssessmentResultSummary(focusId: GrowthFocusId | null, answers: Record<string, string | undefined>) {

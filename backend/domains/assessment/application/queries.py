@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..domain.errors import AssessmentForbiddenError
+from ..domain.knowledge_grounding import family_facing_grounding
 from ..domain.value_objects import Ui02AssessmentAvailability
 from .ports import AssessmentInterpretationPort, AssessmentRepositoryPort
 
@@ -241,20 +242,75 @@ def _assessment_result_projection(
 def _map_assessment_result(evidence, interpretation: dict) -> dict:
     """Map submitted evidence into a bounded, explainable result projection."""
     draft = interpretation.get("interpretation", {}).get("draft", {})
+    knowledge = family_facing_grounding(evidence.focus_ref)
     source_refs = [
         evidence.assessment_evidence_id,
         evidence.assessment_session_id,
         evidence.assessment_response_id,
     ]
+    recommendation_text = knowledge.get("core_claim") or evidence.description
     recommendations = [
         {
             "text": evidence.description,
-            "source": "DETERMINISTIC_TEST_BASELINE",
+            "source": "FAMILY_ASSESSMENT_EVIDENCE",
             "status": "DRAFT",
-        }
+        },
+        {
+            "text": recommendation_text,
+            "source": (
+                knowledge.get("primary_card_ref")
+                if knowledge.get("status") == "GROUNDED"
+                else "FAMILY_ASSESSMENT_EVIDENCE"
+            ),
+            "status": "DRAFT",
+        },
     ]
+    hypothesis_ref = f"ASSESSMENT:{evidence.assessment_session_id}:H1"
+    hypotheses = [
+        {
+            "hypothesis_ref": hypothesis_ref,
+            "text": (
+                f"家庭可能正在围绕“{evidence.title}”经历一个需要共同调整的循环，"
+                "先改变互动与环境，再观察孩子的回应。"
+            ),
+            "basis": "本次家庭回答与已审核知识参考",
+            "status": "DRAFT",
+        },
+        {
+            "hypothesis_ref": f"ASSESSMENT:{evidence.assessment_session_id}:H2",
+            "text": (
+                "也可能是当前信息还不足以判断主要卡点，需要在不同日常场景中继续观察，"
+                "再决定先调整沟通、节奏还是家庭约定。"
+            ),
+            "basis": "本次回答范围有限",
+            "status": "DRAFT",
+        },
+    ]
+    dimension_titles = {
+        "LEARNING_HABITS": "学习习惯",
+        "EMOTION_REGULATION": "情绪管理",
+        "PARENT_CHILD_COMMUNICATION": "亲子沟通",
+        "DEVICE_USE_CONTEXT": "手机依赖",
+        "SELF_REGULATION": "自律能力",
+    }
+    response_refs = {str(response["item_ref"]) for response in evidence.response_set}
+    dimension_snapshots = [
+        {
+            "focus_ref": focus_ref,
+            "title": title,
+            "observation_status": (
+                "OBSERVED" if f"{focus_ref}_Q01" in response_refs else "NOT_YET_OBSERVED"
+            ),
+            "observed_item_refs": sorted(
+                ref for ref in response_refs if ref.startswith(f"{focus_ref}_")
+            ),
+        }
+        for focus_ref, title in dimension_titles.items()
+    ]
+    plan_source_refs = source_refs + knowledge.get("card_refs", [])
     return {
         "result_id": f"ASSESSMENT_RESULT:{evidence.assessment_session_id}",
+        "assessment_session_id": evidence.assessment_session_id,
         "subject": {
             "person_id": evidence.subject_person_id,
             "display_name": evidence.subject_display_name,
@@ -277,7 +333,40 @@ def _map_assessment_result(evidence, interpretation: dict) -> dict:
                 "这是基于本次家庭回答整理出的待验证支持方向，"
                 "你可以拒绝它或重新开始一次测评。"
             ),
+            "hypotheses": hypotheses,
+            "mechanism": knowledge.get("mechanism"),
             "recommendations": recommendations,
+        },
+        "dimensions": dimension_snapshots,
+        "knowledge_grounding": knowledge,
+        "growth_plan": {
+            "plan_ref": f"ASSESSMENT_PLAN:{evidence.assessment_session_id}",
+            "status": "DRAFT",
+            "goal": (
+                f"让家庭围绕“{evidence.title}”形成共同参与、共同调整的日常节奏。"
+            ),
+            "phases": [
+                {
+                    "phase_ref": "OBSERVE_7D",
+                    "title": "看见循环",
+                    "duration_days": 7,
+                    "prompt": "记录触发、回应和结果，不急着评价谁做得对。",
+                },
+                {
+                    "phase_ref": "PRACTICE_21D",
+                    "title": "共同练习",
+                    "duration_days": 21,
+                    "prompt": "选择一种家庭回应方式，由家长和孩子一起调整。",
+                },
+                {
+                    "phase_ref": "REVIEW_90D",
+                    "title": "形成节奏",
+                    "duration_days": 90,
+                    "prompt": "每周回看一次：什么更顺了，什么需要换一种方法。",
+                },
+            ],
+            "source_refs": plan_source_refs,
+            "boundary": "FAMILY_PLAN_DRAFT_REQUIRES_FAMILY_CONFIRMATION",
         },
         "evidence_lineage": {
             "source_refs": source_refs,
