@@ -17,6 +17,7 @@ from backend.domains.assessment.api import (
 from backend.domains.assessment.api import router as assessment_router
 from backend.domains.assessment.api.dev_auth import router as dev_auth_router
 from backend.domains.membership.api.routes import router as membership_router
+from backend.domains.service.api.live_routes import router as live_router
 from backend.domains.service.api.routes import router as service_router
 
 
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
     # dependency rather than a booking made on behalf of an invented family.
     # See governance/DOMAIN_REGISTRY.yaml → service_booking.known_gaps.
     application.include_router(service_router)
+    application.include_router(live_router)
     # In a dev environment, supply the four service dependencies that raise by
     # design, so the six mounted SERVICE endpoints are actually callable instead
     # of returning 500 to every caller. The domain code is untouched and still

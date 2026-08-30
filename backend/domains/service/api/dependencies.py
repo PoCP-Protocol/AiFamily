@@ -34,6 +34,7 @@ from backend.platform.authorization.policy import PolicyEngine, PolicyRule
 from backend.platform.identity.context import ActorContext, ActorType
 
 from ..application.context import ActionContext
+from ..application.live_ports import LiveSessionReadPort
 from ..application.ports import ConsentQueryPort, ServiceRepositoryPort
 from ..infrastructure.sqlalchemy_repository import SqlAlchemyServiceRepository
 
@@ -41,6 +42,7 @@ _session_factory = None  # set by the owning app at startup; not configured yet
 
 SERVICE_SUPPLY_RESOURCE = "service_supply"
 SERVICE_BOOKING_RESOURCE = "service_booking"
+LIVE_SESSION_RESOURCE = "live_session"
 
 # Actions R8 classifies as high-impact. Confirming a booking commits a named
 # human being's time and fulfilling one asserts that a service was delivered;
@@ -66,7 +68,10 @@ _NON_GATED_ACTIONS: dict[str, str] = {
 _READ_ACTIONS: dict[str, str] = {
     "read_service_supply": SERVICE_SUPPLY_RESOURCE,
     "read_service_booking": SERVICE_BOOKING_RESOURCE,
+    "read_live_session": LIVE_SESSION_RESOURCE,
 }
+
+_HUMAN_ONLY_READ_ACTIONS = frozenset({"read_live_session"})
 
 
 def resource_for(action: str) -> str:
@@ -100,7 +105,17 @@ def build_policy_engine() -> PolicyEngine:
     # URL), so an AI actor may read within the family it is already acting for.
     # It still cannot write anything.
     for action, resource in _READ_ACTIONS.items():
-        engine.register(PolicyRule(action=action, resource_type=resource))
+        engine.register(
+            PolicyRule(
+                action=action,
+                resource_type=resource,
+                allowed_actor_types=(
+                    frozenset({ActorType.HUMAN})
+                    if action in _HUMAN_ONLY_READ_ACTIONS
+                    else frozenset()
+                ),
+            )
+        )
     return engine
 
 
@@ -135,6 +150,17 @@ async def get_actor_context() -> ActorContext:
         "service actor context resolver not configured — must be derived from the "
         "authenticated session; a default actor would fail open"
     )
+
+
+async def get_live_session_reader() -> LiveSessionReadPort | None:
+    """Return the admitted live source when one is configured.
+
+    H-LIVE-01 deliberately has no synthetic production fallback.  Until a
+    reviewed provider is wired, the route turns ``None`` into a 503 and never
+    fabricates a session or reuses the service-booking slot repository.
+    """
+
+    return None
 
 
 def get_policy_engine() -> PolicyEngine:
