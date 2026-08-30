@@ -86,7 +86,10 @@ export default function FamilyAssessmentScreen() {
   const selectedFocusId = (selectedGrowthFocus ?? DEFAULT_GROWTH_FOCUS) as GrowthFocusId;
   const selectedQuestions = getUi02DeepAssessmentQuestions(selectedFocusId);
   const answeredQuestionCount = selectedQuestions.filter((question) => deepAnswers[question.itemRef]).length;
-  const canSubmitAssessment = boundaryAccepted && !!selectedGrowthFocus && answeredQuestionCount === selectedQuestions.length;
+  // The first slice is intentionally a one-answer assessment: FOCUS is the
+  // only required server-side item. The deep questions are optional context
+  // and must never turn a minimum completion into a forced questionnaire.
+  const canSubmitAssessment = boundaryAccepted && !!selectedGrowthFocus;
 
   const keyFor = (fingerprint: string) => {
     retryKeys.current[fingerprint] ??= createMobileRequestId(fingerprint.replace(/[^a-z0-9]+/gi, "-").toLowerCase());
@@ -329,7 +332,7 @@ export default function FamilyAssessmentScreen() {
         {submissionError && assessmentSyncState !== "error" ? <Text style={[styles.saveHint, { color: colors.muted }]}>{submissionError}</Text> : null}
         <Pressable
           accessibilityRole="button"
-          accessibilityHint={`${ASSESSMENT_BOUNDARY_TEXT}${boundaryAccepted ? " 已确认。" : " 请先确认。"}${answeredQuestionCount === selectedQuestions.length ? " 已完成补充问题。" : " 请完成补充问题。"}`}
+          accessibilityHint={`${ASSESSMENT_BOUNDARY_TEXT}${boundaryAccepted ? " 已确认。" : " 请先确认。"}${answeredQuestionCount > 0 ? " 已补充可选问题。" : " 可直接提交最小测评。"}`}
           disabled={!canSubmitAssessment || assessmentSyncState === "syncing" || (session.status === "connected" && (!subjectId || projection?.availability !== "AVAILABLE"))}
           onPress={() => { void saveFocus(); }}
           style={({ pressed }) => [

@@ -1,9 +1,6 @@
 """HTTP response models for OpenAPI generation only.
 
-These mirror the hand-written TypeScript contracts in
-`packages/contracts/src/ui02-assessment.ts` and
-`packages/contracts/src/ui03-growth-hypothesis.ts` field-for-field (including
-every optional field), NOT a fresh design. They exist purely so
+These mirror the assessment route contracts and exist purely so
 `app.openapi()` (see `export_openapi.py`) produces a real schema instead of
 `{"type": "object"}`.
 
@@ -13,8 +10,8 @@ dict but absent from the model (verified empirically — this is
 `pydantic`/FastAPI's documented filtering behavior, not a bug). The six
 handlers in `application/commands.py`, `application/queries.py`, and
 `application/growth_hypothesis_commands.py` return plain dicts with some
-genuinely dynamic shape (e.g. `scorecard` differs between the deterministic
-and live-Claude interpretation adapters — see `infrastructure/*.py`), so
+genuinely dynamic shape (the interpretation adapter is replaceable — see
+`infrastructure/*.py`), so
 wiring these models as `response_model` would risk silently truncating a
 real field the frontend depends on. Until every one of those dicts is
 replaced by a real typed return value at the application layer (a bigger,
@@ -140,23 +137,6 @@ class Ui03PrincipalInterpretationModel(BaseModel):
     boundary_labels: list[str]
 
 
-class Ui03GrowthScoreDimensionModel(BaseModel):
-    dimension_ref: str
-    label: str
-    score: float
-    peer_reference: float
-
-
-class Ui03GrowthScorecardModel(BaseModel):
-    generated_by: Literal["FAMILI_PRINCIPAL_FAMILY_EDUCATION_MODEL"]
-    overall_score: float
-    overall_band: str
-    dimensions: list[Ui03GrowthScoreDimensionModel]
-    core_issue_tags: list[str]
-    recommendations: list[str]
-    score_boundary: Literal["SUPPORT_ORIENTATION_SCORE_NOT_CHILD_DIAGNOSIS_OR_RANKING"]
-
-
 class Ui03GrowthHypothesisModel(BaseModel):
     hypothesis_ref: str
     subject_person_id: str
@@ -186,7 +166,6 @@ class Ui03GrowthHypothesisModel(BaseModel):
     action_candidate_refs: list[str] | None = None
     fact_boundary: Literal["HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS"]
     principal: Ui03PrincipalInterpretationModel | None = None
-    scorecard: Ui03GrowthScorecardModel | None = None
 
 
 class Ui03NamedActionsModel(BaseModel):
@@ -202,6 +181,16 @@ class Ui03GrowthHypothesisProjectionResponse(BaseModel):
     hypothesis: Ui03GrowthHypothesisModel | None
     named_actions: Ui03NamedActionsModel
     ai_state: Literal["NOT_INVOKED", "MODEL_DRAFT_READY", "MODEL_GATEWAY_BLOCKED"]
+
+
+class AssessmentResultProjectionResponse(BaseModel):
+    """Schema hint for the family-scoped, read-only assessment result."""
+
+    projection_version: Literal["ASSESSMENT_RESULT_V1"]
+    tenant_id: str
+    family_id: str
+    status: Literal["READY", "NO_RESULT", "CONSENT_REQUIRED", "POLICY_BLOCKED"]
+    result: dict | None
 
 
 class GrowthIntentModel(BaseModel):

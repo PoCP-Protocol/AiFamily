@@ -67,7 +67,7 @@ describe("UI-02 original step-two assessment contract", () => {
     expect(source).toContain("getUi02DeepAssessmentQuestions");
     expect(source).toContain("UI02_ASSESSMENT_ANSWER_OPTIONS");
     expect(source).toContain("question.itemRef");
-    expect(source).toContain("answerAssessment(question.itemRef, option.id)");
+    expect(source).toContain("setDeepAnswers((current) => ({ ...current, [question.itemRef]: option.id }))");
   });
 
   it("builds a structured result summary from the assessment model and saved answers", () => {
@@ -147,11 +147,10 @@ describe("UI-02 original step-two assessment contract", () => {
     expect(source).not.toContain("SELECT_SYNTHETIC_ASSESSMENT_DIMENSION");
   });
 
-  it("does not allow next step until the family boundary and all selected deep questions are complete", () => {
-    expect(source).toContain("answeredQuestionCount === selectedQuestions.length");
-    expect(source).toContain("boundaryAccepted && !!selectedGrowthFocus && answeredQuestionCount === selectedQuestions.length");
+  it("allows the first slice to submit with the required focus and optional deep questions", () => {
+    expect(source).toContain("const canSubmitAssessment = boundaryAccepted && !!selectedGrowthFocus");
+    expect(source).toContain("可直接提交最小测评");
     expect(source).toContain("请先确认。");
-    expect(source).toContain("请完成补充问题。");
     expect(source).toContain('disabled={!canSubmitAssessment || assessmentSyncState === "syncing"');
   });
 
@@ -171,16 +170,16 @@ describe("UI-02 original step-two assessment contract", () => {
     expect(resultSource).toContain("接下来可以继续");
     expect(resultSource).toContain("buildUi02AssessmentResultSummary");
     expect(resultSource).toContain("返回调整免费测评");
-    expect(resultSource).toContain("升级到 AI 成长诊断，看更完整的分析");
+    expect(resultSource).toContain("查看家庭支持解释");
     expect(resultSource).toContain("不是对孩子的评分、排名或诊断");
     expect(resultSource).not.toContain("FAMILY_ASSESSMENT_AI_CAPABILITY");
     expect(resultSource).not.toContain("模型来源");
     expect(resultSource).not.toContain("UI02_ASSESSMENT_METHOD_SOURCE");
 
     const explanationSource = readFileSync(resolve(process.cwd(), "app/ui/UI-03.tsx"), "utf8");
-    expect(explanationSource).toContain("AI成长诊断");
-    expect(explanationSource).toContain("综合成长评估");
-    expect(explanationSource).toContain("生成个性化方案");
-    expect(explanationSource).toContain("不是儿童诊断结论、能力测验或排名");
+    expect(explanationSource).toContain("家庭范围 · 可回读结果");
+    expect(explanationSource).toContain("重新开始测评");
+    expect(explanationSource).toContain("退出");
+    expect(explanationSource).toContain("不是对孩子的评分、排名或诊断");
   });
 });

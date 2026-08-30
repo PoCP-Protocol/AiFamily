@@ -416,6 +416,10 @@ export class FamilyApiClient {
     return this.request<T>(`/families/${familyId}/ui/03/growth-hypothesis`, { token });
   }
 
+  getLatestAssessmentResult<T>(token: string, familyId: string) {
+    return this.request<T>(`/families/${familyId}/assessments/results/latest`, { token });
+  }
+
   generateGrowthHypothesis<T>(token: string, familyId: string, sessionId: string, idempotencyKey: string) {
     return this.request<T>(`/families/${familyId}/assessments/${sessionId}/growth-hypothesis`, {
       method: "POST", token, body: {},

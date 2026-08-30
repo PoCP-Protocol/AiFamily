@@ -26,24 +26,63 @@ DEFAULT_TEST_ACTOR = "actor-1"
 
 
 def default_tool() -> AssessmentTool:
-    """Port of the seed `FAMILY_SUPPORT_NEEDS` tool used by
-    `AssessmentService.loadActiveTool` default (`toolRef = 'FAMILY_SUPPORT_NEEDS'`).
+    """Dev/test mirror of the admitted ``FAMILY_SUPPORT_NEEDS`` v2 tool.
+
+    The first slice only requires ``FOCUS``. The remaining v2 items stay
+    optional so the same fixture can replay the mobile flow when a guardian
+    chooses to add context, without inventing a second tool contract.
     """
+    frequency_options = ["OFTEN", "SOMETIMES", "RARELY", "NOT_SURE"]
+    optional_items = [
+        AssessmentToolItem(
+            item_ref="FAMILY_STRUCTURE",
+            response_type="SINGLE_CHOICE",
+            required=False,
+            options=["TWO_PARENT", "SINGLE_PARENT", "BLENDED", "PREFER_NOT_TO_SAY"],
+        ),
+        AssessmentToolItem(
+            item_ref="CHILD_GENDER",
+            response_type="SINGLE_CHOICE",
+            required=False,
+            options=["BOY", "GIRL", "SELF_DESCRIBED", "PREFER_NOT_TO_SAY"],
+        ),
+    ]
+    for focus_ref in (
+        "LEARNING_HABITS",
+        "EMOTION_REGULATION",
+        "PARENT_CHILD_COMMUNICATION",
+        "DEVICE_USE_CONTEXT",
+        "SELF_REGULATION",
+    ):
+        for question_number in ("Q01", "Q02", "Q03"):
+            optional_items.append(
+                AssessmentToolItem(
+                    item_ref=f"{focus_ref}_{question_number}",
+                    response_type="SINGLE_CHOICE",
+                    required=False,
+                    options=frequency_options,
+                )
+            )
     return AssessmentTool(
         tool_ref="FAMILY_SUPPORT_NEEDS",
-        version_no=1,
-        title="家庭支持需求",
-        purpose="了解家庭当前最需要支持的方向",
-        schema_ref="FAMILY_SUPPORT_NEEDS_V1",
+        version_no=2,
+        title="智能家庭支持需要测评",
+        purpose="通过五维入口与方向深追题，帮助家庭形成下一步支持建议",
+        schema_ref="family://assessment/FAMILY_SUPPORT_NEEDS/v2",
         items=[
             AssessmentToolItem(
                 item_ref="FOCUS",
                 response_type="SINGLE_CHOICE",
-                required=False,
-                options=["COMMUNICATION", "HOMEWORK", "SCREEN_TIME"],
+                required=True,
+                options=[
+                    "LEARNING_HABITS",
+                    "EMOTION_REGULATION",
+                    "PARENT_CHILD_COMMUNICATION",
+                    "DEVICE_USE_CONTEXT",
+                    "SELF_REGULATION",
+                ],
             ),
-            AssessmentToolItem(item_ref="item-1", response_type="TEXT", required=False),
-            AssessmentToolItem(item_ref="NOTE", response_type="TEXT", required=False),
+            *optional_items,
         ],
     )
 
@@ -84,7 +123,8 @@ class FakeAssessmentRepository:
         self.families.add(family_id)
         self.tenant_family_bindings.add((tenant_id, family_id))
         self.tenant_allowed_pages.setdefault(tenant_id, set()).update({"UI-02", "UI-03"})
-        self.tools[("FAMILY_SUPPORT_NEEDS", 1)] = default_tool()
+        tool = default_tool()
+        self.tools[(tool.tool_ref, tool.version_no)] = tool
         # Every existing test drives commands/queries as actor `"actor-1"`
         # without separately seeding a membership — grant it OWNER_GUARDIAN
         # here (mirrors a family always having its creator as an

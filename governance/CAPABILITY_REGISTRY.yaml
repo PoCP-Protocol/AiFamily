@@ -438,6 +438,42 @@ capabilities:
       - "非四层结构（api.py + service.py 两模块），落 Postgres 时须重构 —— T-05"
       - "AssessmentSession/AssessmentTool/AssessmentResponse 实体尚未建模"
 
+  - capability: assessment_result_projection
+    business_capability: family_growth_assessment
+    domain: domains/assessment
+    purpose: >
+      从已提交的 family-scoped AssessmentSession 与 Evidence 派生可回读的支持方向、
+      解释和建议草案；不计算、不存储、不暴露家庭总分或排名。
+    actor: [guardian]
+    command: null
+    api: "GET /families/{family_id}/assessments/results/latest"
+    code:
+      api: backend/domains/assessment/api/routes.py
+      application: backend/domains/assessment/application/queries.py
+    tests:
+      - tests/domains/assessment/test_assessment_flow.py
+      - tests/apps/family_api/test_assessment_routes.py
+    consent:
+      required: true
+      note: "读取时重新校验现行 ASSESSMENT grant；撤回只返回 CONSENT_REQUIRED，不返回结果内容"
+    audit:
+      required: true
+      note: "读取审计需接入 platform/audit 的 READ 记录；当前为依赖项，尚未宣称生产完成"
+    idempotency:
+      required: false
+      note: "只读投影不改变状态"
+    ai:
+      involved: true
+      constraint: >
+        当前结果使用 DETERMINISTIC_TEST_BASELINE，model_gateway_status=NOT_INVOKED；
+        未来模型只可经 backend/intelligence/model_gateway，完整 provenance 且
+        may_mutate_business_state=false。
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - "当前实现使用进程内 fake repository，真实 Postgres 与并发证据待真实环境轨"
+      - "Consent record store 与读取 AuditEvent 业务路径尚未接线"
+      - "UI-03 前端正在移除历史 scorecard 形状，前端测试尚未完成验证"
+
   - capability: service_booking_chain
     business_capability: service_delivery
     domain: domains/service

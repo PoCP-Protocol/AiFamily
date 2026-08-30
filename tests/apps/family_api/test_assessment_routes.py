@@ -94,13 +94,13 @@ def _seed_need_type_catalog() -> None:
     catalog reference data, not a permission: seeding it grants no access that
     the consent and family-scope checks would otherwise refuse.
 
-    `COMMUNICATION` is one of the three options `fake_repository.default_tool()`
-    offers for the `FOCUS` item, which is why the response below answers it.
+    `PARENT_CHILD_COMMUNICATION` is one of the admitted v2 options the
+    `fake_repository.default_tool()` offers for the `FOCUS` item.
     """
     from backend.apps.family_api import dev_wiring
 
     dev_wiring._assessment_repository.seed_need_type(
-        "COMMUNICATION",
+        "PARENT_CHILD_COMMUNICATION",
         "NEED_PARENT_CHILD_COMMUNICATION",
         "亲子沟通支持",
         "先从倾听开始",
@@ -142,7 +142,7 @@ def test_http_chain_is_idempotent_end_to_end(client: TestClient) -> None:
 
     session_id = start.json()["session"]["assessment_session_id"]
 
-    # `FOCUS`, answered with one of the options `default_tool()` declares for it.
+    # `FOCUS`, answered with one of the v2 options `default_tool()` declares for it.
     # `save_response` validates the item against the session's tool version
     # (`commands.save_response` -> `tool.find_item` -> `assert_response_value`),
     # so an invented item_ref or a free-text answer to a SINGLE_CHOICE item is
@@ -152,7 +152,7 @@ def test_http_chain_is_idempotent_end_to_end(client: TestClient) -> None:
         json={
             "item_ref": "FOCUS",
             "response_type": "SINGLE_CHOICE",
-            "response_value": "COMMUNICATION",
+            "response_value": "PARENT_CHILD_COMMUNICATION",
         },
         headers={**auth, "idempotency-key": "response-1"},
     )
@@ -177,6 +177,18 @@ def test_http_chain_is_idempotent_end_to_end(client: TestClient) -> None:
     # itself. A projection that presented this as established fact is the exact
     # failure R9 exists to prevent.
     assert hypothesis["fact_boundary"] == "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS"
+
+    result = client.get(f"/families/{FAMILY}/assessments/results/latest", headers=auth)
+    assert result.status_code == 200, result.text
+    result_body = result.json()
+    assert result_body["projection_version"] == "ASSESSMENT_RESULT_V1"
+    assert result_body["status"] == "READY"
+    assert result_body["family_id"] == FAMILY
+    assert result_body["result"]["boundary"] == "FAMILY_PERSPECTIVE_NOT_SCORE_OR_DIAGNOSIS"
+    assert result_body["result"]["ai"]["may_mutate_business_state"] is False
+    result_keys = str(result_body).lower()
+    assert "'score':" not in result_keys
+    assert "'ranking':" not in result_keys
 
     decision = client.post(
         f"/families/{FAMILY}/growth-hypotheses/decisions",
@@ -209,6 +221,10 @@ def test_missing_credential_is_401_not_403(client: TestClient) -> None:
 def test_cross_family_request_is_rejected(client: TestClient) -> None:
     auth = _auth(client, family=FAMILY)
     assert client.get(f"/families/{OTHER_FAMILY}/ui/02/assessment", headers=auth).status_code == 403
+    assert (
+        client.get(f"/families/{OTHER_FAMILY}/assessments/results/latest", headers=auth).status_code
+        == 403
+    )
 
 
 def test_mutation_without_idempotency_key_is_rejected(client: TestClient) -> None:
