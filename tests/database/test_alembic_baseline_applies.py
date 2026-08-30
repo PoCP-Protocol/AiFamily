@@ -83,8 +83,14 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
 _MODEL_DRAFTS_ADR = (
     REPO_ROOT / "governance" / "ADR" / "ADR-0045-durable-model-draft-provenance-registry.md"
 )
+_MODEL_DRAFTS_MIGRATION = (
+    REPO_ROOT / "database" / "migrations" / "versions" / "0009_ai_model_drafts.py"
+)
 _EXPERIENCE_INTERACTIONS_ADR = (
     REPO_ROOT / "governance" / "ADR" / "ADR-0047-async-sql-experience-run-ledger.md"
+)
+_EXPERIENCE_INTERACTIONS_MIGRATION = (
+    REPO_ROOT / "database" / "migrations" / "versions" / "0010_experience_run_interactions.py"
 )
 _MIGRATION_MANIFEST = REPO_ROOT / "governance" / "MIGRATION_MANIFEST.yaml"
 
@@ -148,10 +154,30 @@ def _head_from_result(result: subprocess.CompletedProcess[str]) -> str:
     return lines[0].split(maxsplit=1)[0]
 
 
+def _migration_is_tracked(path: pathlib.Path) -> bool:
+    """Require a migration to be tracked before governance can approve it."""
+
+    try:
+        relative_path = path.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return False
+    result = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", "--", relative_path],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and relative_path in result.stdout.splitlines()
+
+
 def _model_drafts_head_is_approved() -> bool:
     """Require both the exact ADR and an approved manifest entry for 0009."""
 
-    if not _MODEL_DRAFTS_ADR.is_file() or not _MIGRATION_MANIFEST.is_file():
+    if (
+        not _migration_is_tracked(_MODEL_DRAFTS_MIGRATION)
+        or not _MODEL_DRAFTS_ADR.is_file()
+        or not _MIGRATION_MANIFEST.is_file()
+    ):
         return False
     try:
         manifest = yaml.safe_load(_MIGRATION_MANIFEST.read_text(encoding="utf-8"))
@@ -172,7 +198,11 @@ def _model_drafts_head_is_approved() -> bool:
 def _experience_interactions_head_is_approved() -> bool:
     """Require ADR-0047 and its explicit migration-manifest registration."""
 
-    if not _EXPERIENCE_INTERACTIONS_ADR.is_file() or not _MIGRATION_MANIFEST.is_file():
+    if (
+        not _migration_is_tracked(_EXPERIENCE_INTERACTIONS_MIGRATION)
+        or not _EXPERIENCE_INTERACTIONS_ADR.is_file()
+        or not _MIGRATION_MANIFEST.is_file()
+    ):
         return False
     try:
         manifest = yaml.safe_load(_MIGRATION_MANIFEST.read_text(encoding="utf-8"))
@@ -299,10 +329,7 @@ async def test_upgrade_0008_applies_fgcn_human_gate_additive_revisions(
 def test_unregistered_0009_head_is_blocked() -> None:
     """A concurrent 0009 file must not become an accepted head by presence alone."""
 
-    model_drafts_migration = (
-        REPO_ROOT / "database" / "migrations" / "versions" / "0009_ai_model_drafts.py"
-    )
-    if not model_drafts_migration.is_file():
+    if not _MODEL_DRAFTS_MIGRATION.is_file():
         pytest.skip("0009_ai_model_drafts is not present in this checkout")
     assert _MODEL_DRAFTS_ADR.is_file(), (
         "0009 approval requires the canonical ADR file: "
@@ -312,6 +339,17 @@ def test_unregistered_0009_head_is_blocked() -> None:
         pytest.skip("0009_ai_model_drafts is registered and approved in this checkout")
     with pytest.raises(AssertionError, match="0009_ai_model_drafts.*not approved"):
         _assert_accepted_head("0009_ai_model_drafts")
+
+
+def test_untracked_0010_head_is_blocked() -> None:
+    """An unapproved 0010 migration cannot pass the head approval gate."""
+
+    if not _EXPERIENCE_INTERACTIONS_MIGRATION.is_file():
+        pytest.skip("0010_experience_run_interactions is not present in this checkout")
+    if _experience_interactions_head_is_approved():
+        pytest.skip("0010_experience_run_interactions is registered and approved in this checkout")
+    with pytest.raises(AssertionError, match="0010_experience_run_interactions.*not approved"):
+        _assert_accepted_head("0010_experience_run_interactions")
 
 
 def test_unknown_migration_head_is_blocked() -> None:
