@@ -80,7 +80,7 @@ superseded_by: null
 | 六引擎 | 拼多多、字节、海底捞、贝壳、教育、游戏作为对标描述 | 变成六个能力引擎：增长裂变、分发、服务体验、供需匹配、教育结果、游戏化成就；借机制，不复制副作用 | V3 映射为 DESIGN；当前无统一引擎指标/归因 | B3/B4/X0；建立可解释事件与质量指标，禁止刷屏、家庭总分、跨家庭排名 |
 | 平台精神 | `We are 伐木累！We are family！` 品牌叙事 | 变成产品约束：先温暖和安全，再行动和经济价值；家庭是关系单元而不是流量对象 | ADR/蓝图有原则，尚无端到端体验闸门 | X0/AFE；把欢迎、陪伴、暂停、求助、复盘和投诉纳入 UI/API 验收 |
 | 供给形态 | 内容、课程、专家服务 | Product、Service、Solution 三种供给；SolutionBlueprint 是可执行版本，不得由 AI 直接发布 | 产品设计工厂/目标模型为 DESIGN；`design_copilot` 仍占位 | B2/B3/B5；完成 ProductPackage/Blueprint/Compiler/Gate/Pilot/Release 链路 |
-| 经济账 | 会员/商品/服务收入分散描述 | 四本账（成长、奖励/贡献、服务履约、现金/订单）分离；贡献不能伪装成成长分数或家庭分红 | loyalty/commerce WIP，未完成 durable ledger/结算/退款 | B3/B5；先完成唯一 writer、幂等、退款/争议/审计，再开放外部支付 |
+| 经济账 | 会员/商品/服务收入分散描述 | 四本账严格分离：产品账（Offer/Order/Payment/Entitlement）、交付账（ServiceCase/Task/Delivery/Verification）、贡献账（Contribution/AllocationStatement）、质量账（投诉/返工/退款/质量储备）；贡献不能伪装成成长分数或家庭分红 | loyalty/commerce WIP，未完成 durable ledger/结算/退款 | B3/B5；先完成唯一 writer、幂等、退款/争议/审计，再开放外部支付 |
 | 规模目标 | 单区域、家庭级应用 | 千亿级家庭、全球 cell、冷热分层、分片/配额/区域故障切换 | 规模/多租户设计为 DESIGN；尚无容量压测、分区、灾备证据 | PLT/B5；先做 tenant/region/locale 基础字段与压测预算，不能用架构图宣称可扩展 |
 
 ## 2. 业务与流程架构变更
