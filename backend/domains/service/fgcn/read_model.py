@@ -406,6 +406,12 @@ def build_case_progress_projection(
     for task in sorted(task_by_id.values(), key=lambda item: item.task_id):
         delivery = delivery_by_task.get(task.task_id)
         review = review_by_task.get(task.task_id)
+        verified_delivery = (
+            delivery is not None
+            and task.status is TaskStatus.VERIFIED
+            and review is not None
+            and review.quality_state is TaskQualityState.PASSED
+        )
         task_projections.append(
             ServiceTaskProgressProjection(
                 task_id=task.task_id,
@@ -413,10 +419,10 @@ def build_case_progress_projection(
                 status=task.status,
                 responsible_ref=task.responsible_ref,
                 delivery_id=delivery.delivery_id if delivery is not None else None,
-                # ``task.deliverable_ref`` is only a legacy/task payload.  It
-                # is not projected as delivery evidence unless a concrete
-                # immutable ServiceDelivery fact is present.
-                evidence_ref=delivery.evidence_ref if delivery is not None else None,
+                # An unverified delivery is progress metadata only.  Its
+                # evidence cannot be exposed as accepted proof or reused as a
+                # contribution basis until the immutable PASSED review exists.
+                evidence_ref=delivery.evidence_ref if verified_delivery else None,
                 quality_review_id=review.quality_review_id if review is not None else None,
                 quality_state=review.quality_state if review is not None else None,
                 verified_at=task.verified_at,

@@ -199,6 +199,7 @@ def test_projection_shows_unverified_delivery_without_contribution() -> None:
     assert task.delivery_id == "delivery-1"
     assert task.delivery_verified is False
     assert task.quality_state is None
+    assert task.evidence_ref is None
     assert projection.verified_contributions == ()
 
 
