@@ -107,6 +107,20 @@ FIRST_SCENARIO_OUTCOME_REF = "stable_evening_start_and_reduced_parent_child_conf
 CONFIRMED_BOOKING_STATUS = "CONFIRMED"
 
 
+def _assert_service_context(ctx: ActionContext) -> None:
+    """Keep replay paths inside the fixture-only production boundary.
+
+    A replay must not become a loophole: returning an existing DEV/TEST fact
+    still cannot be requested from a production-shaped context.
+    """
+    assert_fixture_boundary(
+        environment=ctx.environment,
+        source_system="TEST_FIXTURE",
+        external_effect=False,
+        allowed_source_system="TEST_FIXTURE",
+    )
+
+
 def _new_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4()}"
 
@@ -586,6 +600,7 @@ async def confirm_booking_request(
     booking already has a delivery obligation attached; creating the receipt
     only at completion would leave "confirmed but never delivered" unrepresented.
     """
+    _assert_service_context(ctx)
     # Must run before the state-idempotency return below: an AI caller may not
     # learn or replay a human confirmation through a second command path.
     assert_human_actor(ctx.actor, code="booking_confirm")
@@ -677,8 +692,20 @@ async def cancel_booking_request(
     keeps its reservation makes the inventory permanently wrong, and nothing in
     the chain would ever notice.
     """
+    _assert_service_context(ctx)
+    assert_human_actor(ctx.actor, code="booking_cancel")
     booking = await repo.load_booking(booking_request_id)
     assert_family_scope(expected_family_id=ctx.family_id, actual_family_id=booking.family_id)
+    # A completed delivery is a terminal service fact. It can be reviewed,
+    # remedied or sent to the refund Gate, but it cannot be rewritten as a
+    # cancellation (and its slot must not be released after the fact).
+    if booking.status == "CANCELLED":
+        return booking
+    record = await repo.find_service_record_for_booking(
+        ctx.tenant_id, ctx.family_id, booking_request_id
+    )
+    if record is not None and record.status == "COMPLETED":
+        raise ServiceConflictError("completed_delivery_cannot_be_cancelled")
     cancelled = booking.cancel(actor=ctx.actor)
 
     slot = await repo.load_slot_for_update(booking.availability_slot_id)
@@ -686,11 +713,10 @@ async def cancel_booking_request(
     await repo.save_slot(released)
     await repo.save_booking(cancelled)
 
-    record = await repo.find_service_record_for_booking(
-        ctx.tenant_id, ctx.family_id, booking_request_id
-    )
+    cancelled_record = None
     if record is not None and record.status in ("PENDING", "SCHEDULED"):
-        await repo.save_service_record(record.cancel(actor=ctx.actor))
+        cancelled_record = record.cancel(actor=ctx.actor)
+        await repo.save_service_record(cancelled_record)
 
     _audit(
         recorder,
@@ -710,6 +736,16 @@ async def cancel_booking_request(
         before={"reserved_count": slot.reserved_count, "status": slot.status},
         after={"reserved_count": released.reserved_count, "status": released.status},
     )
+    if cancelled_record is not None:
+        _audit(
+            recorder,
+            ctx,
+            action="cancel_service_record",
+            resource_type=RECORD_RESOURCE,
+            resource_id=cancelled_record.booking_service_record_id,
+            before={"status": record.status},
+            after={"status": cancelled_record.status},
+        )
     await _event(
         repo,
         ctx,
@@ -717,7 +753,10 @@ async def cancel_booking_request(
         aggregate_type=BOOKING_RESOURCE,
         aggregate_id=booking_request_id,
         idempotency_key=_event_key(ctx, "cancel_booking_request", booking_request_id),
-        payload={"booking_request_id": booking_request_id},
+        payload={
+            "booking_request_id": booking_request_id,
+            "delivery_record_id": record.booking_service_record_id if record else None,
+        },
     )
     await repo.commit()
     return cancelled
@@ -737,12 +776,18 @@ async def fulfil_service_record(
     `ServiceRecord`'s docstring for why that distinction is structural rather
     than a naming convention.
     """
+    _assert_service_context(ctx)
+    assert_human_actor(ctx.actor, code="record_complete")
     record = await repo.load_service_record(booking_service_record_id)
     assert_family_scope(expected_family_id=ctx.family_id, actual_family_id=record.family_id)
     booking = await repo.load_booking(record.source_booking_request_id)
     assert_family_scope(expected_family_id=ctx.family_id, actual_family_id=booking.family_id)
     if booking.status != CONFIRMED_BOOKING_STATUS:
         raise ServiceConflictError("delivery_requires_confirmed_booking")
+    if record.status == "COMPLETED":
+        if record.service_quality_rating != quality_rating:
+            raise ServiceConflictError("delivery_idempotency_replay_mismatch")
+        return record
     completed = record.complete(actor=ctx.actor, quality_rating=quality_rating)
     await repo.save_service_record(completed)
     _audit(
@@ -842,6 +887,7 @@ async def record_family_feedback(
     consent_ref: str,
 ) -> FamilyFeedback:
     """Record an adult's bounded response after a completed delivery."""
+    _assert_service_context(ctx)
     assert_human_actor(ctx.actor, code="family_feedback")
     if any(code not in FEEDBACK_ISSUE_CODES for code in issue_codes):
         raise ServiceValidationError("family_feedback_issue_code_not_allowed")
@@ -888,6 +934,7 @@ async def record_family_feedback(
                 or existing.delivery_record_id != delivery_record_id
                 or existing.outcome != outcome
                 or existing.author_person_id != ctx.actor_person_id
+                or existing.author_role != author_role
                 or existing.consent_ref != consent_ref
                 or sorted(existing.issue_codes) != sorted(issue_codes)
             ):
@@ -954,13 +1001,19 @@ async def decide_service_quality(
     family_feedback_id: str | None = None,
 ) -> QualityDecision:
     """Apply the human acceptance gate; never release contribution or cash."""
+    _assert_service_context(ctx)
     assert_human_actor(ctx.actor, code="quality_decision")
     if ctx.idempotency_key:
         existing = await repo.find_quality_decision_by_idempotency_key(
             ctx.tenant_id, ctx.family_id, ctx.idempotency_key
         )
         if existing is not None:
-            if existing.status != status or existing.delivery_record_id != delivery_record_id:
+            if (
+                existing.status != status
+                or existing.booking_request_id != booking_request_id
+                or existing.delivery_record_id != delivery_record_id
+                or existing.family_feedback_id != family_feedback_id
+            ):
                 raise ServiceConflictError("quality_decision_idempotency_replay_mismatch")
             return existing
 
@@ -1044,6 +1097,7 @@ async def record_service_action(
     occurred_at: datetime | None = None,
 ) -> ServiceAction:
     """Execute one human Named Action from the welcome/SLA/remedy playbook."""
+    _assert_service_context(ctx)
     assert_human_actor(ctx.actor, code="service_action")
     if action_type not in SERVICE_ACTION_TYPES:
         raise ServiceValidationError("service_action_type_not_allowed")
@@ -1055,6 +1109,9 @@ async def record_service_action(
             if (
                 existing.action_type != action_type
                 or existing.booking_request_id != booking_request_id
+                or existing.delivery_record_id != delivery_record_id
+                or existing.family_feedback_id != family_feedback_id
+                or existing.sla_due_at != sla_due_at
             ):
                 raise ServiceConflictError("service_action_idempotency_replay_mismatch")
             return existing
