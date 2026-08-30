@@ -76,7 +76,7 @@ synthetic adapter、内存 repository、mock provider、设计稿和“应该可
 - **家庭尊严**：不设计家庭总分、家庭排名、跨家庭比较；游戏感来自自己的节奏、阶段、徽章和陪伴，不来自羞辱性竞争。
 - **身份与同意**：Account→TenantMembership→Family 主体绑定、session revoke、Consent grant/withdraw/expiry、租户隔离、审计和删除必须持久化。
 - **迁移可审计**：baseline、责任边界和动态 head 必须分层；未登记的 WIP migration 不得被测试或发布闸门默认为已完成，未知 head 必须阻断。
-- **数据删除**：删除命令幂等、有租户边界、可重试、可审计，并覆盖文本、媒体、向量、缓存和派生 projection；内存删除不能宣称完成。
+- **数据删除**：删除命令幂等、有租户边界、可重试、可审计，并覆盖文本、媒体、向量、缓存和派生 projection；`InMemoryDurableDeletionStore` 即使契约测试通过也只能是 `CONTRACTED / adapter-only`，内存删除不能宣称完成。
 - **多语言多端**：locale/region/tenant 是数据边界，不是 UI 字符串替换；Android、iOS、Harmony、小程序和 Web 的核心流程、错误和权限一致。
 - **技术边界**：正式业务事实只走 Python/FastAPI/PostgreSQL；Node/Express/tRPC/MySQL 只能经 ADR 证明为非业务工具。
 
@@ -118,13 +118,13 @@ P0 发现后立即通知 Lead，不等待下一次站会；P1 必须有本 Sprin
 | 第 1 周前半 | SEC-01/ENV-01 P0 负向测试；Registry/Ruff/architecture 修复 | production 无 dev_auth；缺 env 启动拒绝；YAML/Ruff/architecture 绿 | BLOCKED，等待 APLT/AQA/GOV/ARCH |
 | 第 1 周后半 | DB-01 migration/ORM 对齐；身份、租户、同意模型 | Fresh Postgres 单 head、可逆；跨租户和 consent 负向测试 | PARTIAL，ADOM 已返工 |
 | 第 2 周前半 | PERSIST-01 + CONTRACT-01 | service/membership 真实 UoW；OpenAPI/client CI；移动端全量绿 | NOT STARTED/返工中 |
-| 第 2 周后半 | AI-01 + DATA-01 + UX-01 | 一条 draft→human gate→audit→deletion 可回放；四端体验证据 | PARTIAL，等待 AAIR/AFE |
+| 第 2 周后半 | AI-01 + DATA-01 + UX-01 | 一条 draft→human gate→audit→deletion 可回放；四端体验证据 | PARTIAL；AAIR-6 仍 adapter-only |
 
 ## 8. 本轮审查记录（2026-08-30）
 
 1. AFE-4：语义化服务列表目标测试 5 项通过、`pnpm check` 通过；因全量 5 失败和跨 UI/跨端审计缺失，结论为 `PARTIAL`，已发 AFE 返工意见。
 2. ADOM-5：FGCN migration chain 2 项通过且 Fresh Postgres 可逆；未跟踪 `0009_ai_model_drafts.py` 使动态 head=0009/160，manifest/ADR 登记仍缺，结论为 `PARTIAL`，已发 ADOM 返工意见。
-3. AAIR-5：删除 worker 7 项通过，幂等/租户/重试/审计契约成立；内存 job、无 durable queue 和外部 projection cascade，结论为 `PARTIAL / RELEASE BLOCKED`，已通知 AAIR/Lead。
+3. AAIR-5/6：删除 worker 7 项、durable deletion 契约 6 项通过；`InMemoryDurableDeletionStore.production_ready=False`，无 Postgres/outbox 和真实 projection cascade，结论为 `CONTRACTED / adapter-only / RELEASE BLOCKED`，已通知 AAIR/Lead。
 4. 平台闸门：生产 dev_auth probe 返回 200，环境缺失默认 development；结论为 `P0 NO-GO`，已立即通知 Lead 并要求 APLT/ARCH 负向测试。
 
 这些记录是可追溯的审查输入，不是对 owner 的替代实现。返工完成后必须重新读取文件并运行新鲜命令，才能更新状态。

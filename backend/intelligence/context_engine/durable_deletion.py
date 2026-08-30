@@ -367,6 +367,8 @@ class InMemoryDurableDeletionStore:
 
     def append_audit(self, event: DurableDeletionAuditEvent) -> None:
         with self._lock:
+            if any(item.audit_id == event.audit_id for item in self._audit):
+                return
             self._audit.append(event)
 
     def audits(self, *, tenant_id: str | None = None) -> tuple[DurableDeletionAuditEvent, ...]:
@@ -635,7 +637,8 @@ class DurableDeletionWorker:
             DurableDeletionAuditEvent(
                 audit_id=(
                     f"audit:{job.command.tenant_id}:{job.command.command_id}:"
-                    f"{len(self._store.audits(tenant_id=job.command.tenant_id)) + 1}"
+                    f"{event_type.value}:{job.attempts}:"
+                    f"{projection.value if projection is not None else 'none'}"
                 ),
                 event_type=event_type,
                 tenant_id=job.command.tenant_id,

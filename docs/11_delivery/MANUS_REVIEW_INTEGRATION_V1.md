@@ -66,6 +66,12 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 - **缺口/风险**：`_jobs`/`_audit` 和 `ContextBroker` 为进程内存，重启丢作业；没有 durable queue/outbox/lease/DLQ，也没有媒体、向量、缓存等外部投影删除回执。因此不能声称完成生产删除或外部 provider deletion。
 - **补测与验收**：增加 Postgres job/outbox、抢占租约、重启恢复、DLQ、全 data-class projection cascade 和审计关联测试；在此之前明确 `adapter-only/RELEASE BLOCKED`。
 
+### 3.4 AAIR-6 Durable Deletion 返工复核
+
+- **证据**：新增 `backend/intelligence/context_engine/durable_deletion.py` 和 `tests/intelligence/context_engine/test_durable_deletion.py`；定向测试 6 项通过，Ruff 通过。契约覆盖 lease、retryable/dead-letter、租户幂等、五类 projection receipt 和未确认回执拒绝。
+- **状态**：`CONTRACTED / adapter-only`，不是 `INTEGRATED` 或 `PRODUCTION`。`InMemoryDurableDeletionStore.production_ready = False`，job/audit/dead-letter 仍在内存；没有 Postgres/outbox、跨进程抢占、真实文本/媒体/向量/缓存/derived adapters，也没有生产 wiring。
+- **风险与验收**：重启仍会丢队列状态，外部删除只能由注入 port 自行保证。AAIR 必须提供 SQLAlchemy/Postgres store、事务 outbox、lease/重试/DLQ、每类 projection 的真实删除回执和审计关联，或在发布清单中保持 `RELEASE BLOCKED`。在此之前不能把 6 项测试通过描述为删除能力已上线。
+
 这些意见已分别发送给 ADOM-2、AFE-1，并由 Lead 转交 APLT-1、AQA-1、AGOV-1、AAIR-5。未收到返工命令和新鲜输出前，不更新为 DONE。
 
 ## 4. P0/P1/P2 执行清单
@@ -89,7 +95,7 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 | CONTRACT-01 / API + AFE | 从 FastAPI 生成 OpenAPI，校验移动端方法/路径/参数/错误 schema；重建 endpoint inventory。 | CI 兼容检查；55 条路径与 client 逐项有 owner/状态；移动端全量 Vitest 0 failures。 | API、应用、体验 |
 | PERSIST-01 / DOM + DATA | service/membership/commerce/family_need repository/UoW 接入 Postgres、同意、actor、tenant 解析。 | 每域成功/拒绝/重放/删除/审计 Fresh Postgres 测试；生产路径无 fake fallback。 | 数据、领域、应用 |
 | AI-01 / AAIR + PLT | Principal→reviewed knowledge→Model Gateway→Draft→Human Gate 完成一个低风险用例；持久化 run/context/gate。 | 不直接写事实；draft/review/approve/reject/replay 可追踪；provider admission 和成本/质量记录；registry 仅凭证据升阶。 | AI、平台、合规 |
-| DATA-01 / AAIR + DATA | 删除 worker 从内存 adapter 升级 durable job/outbox；定义文本、媒体、向量、缓存、日志的级联回执。 | 重启恢复、租户隔离、幂等、租约重试、DLQ、审计 correlation 的集成测试；未完成项显式阻断。 | 数据、AI、合规 |
+| DATA-01 / AAIR + DATA | 将 AAIR-6 的 adapter-only durable deletion 升级为 Postgres/outbox durable job；定义文本、媒体、向量、缓存、derived projection 的级联回执。 | 重启恢复、租户隔离、幂等、租约重试、DLQ、审计 correlation 的集成测试；未完成项显式阻断。当前 `InMemoryDurableDeletionStore` 仅 CONTRACTED。 | 数据、AI、合规 |
 | UX-01 / AFE + QA | 扫描 34 个基线及新增语义路由，移除所有可见内部编号，补四端视觉/动效/可访问性回归。 | 全量 check/test 绿；无 `UI-xx` 可见文本；Android/iOS/Harmony/小程序/Web 证据；情绪价值优先且无家庭总分/排名。 | 体验、应用、治理 |
 
 ### P2（发布前或规模化前）
