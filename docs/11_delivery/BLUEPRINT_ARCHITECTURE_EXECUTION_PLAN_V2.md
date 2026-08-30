@@ -37,7 +37,8 @@ superseded_by: null
 - Alembic：HEAD 仅追踪 `0001..0010`；工作树存在未追踪 `0011..0029`，Alembic 单头为 `0029`。Docker healthy 下真实 PG `test_full_chain_up_0016_down_and_rebuild` 运行 154s，`1 failed`：`0016→0025` 升降通过，但 `0025→0026` 在写入 `0026_experience_outbox_delivery_attempts`（40 chars）时触发 `alembic_version.version_num VARCHAR(32)` `StringDataRightTruncationError`；`0027`（35）与 `0029`（39）同类风险。结构测试 FULL_CHAIN 仍旧只覆盖到 `0023`，不能证明 `0024..0029`。DATA-01 保持 BLOCKED。
 - FGCN：`31c95cb` 补质量重做 replay 契约；本轮无 PG 执行 `uv run pytest tests/domains/service/fgcn -q` = 133 passed/3 skipped（真实 PG 用例因未设 URL 跳过）；历史 Fresh Postgres 113 passed 证据仍不能替代真实 production composition/worker/outbox/audit。
 - Journey/growth：`VS-GROWTH-01` HTTP/PG seam（`78fff77`、`520e2ed`、`e5f7c41`、`c60729b`、`090976e`）独占测试 11 passed/1 warning；`090976e` 将 PG audit/outbox event name 对齐 canonical `AssessmentSignalAccepted`。本轮全 journey `uv run pytest tests/domains/journey -q` = 75 passed/15 skipped（未设 PG URL）。路由未挂载 `family_api`，`production_ready=False`，Hypothesis/Intent/Action/Review 仍未 durable；仍缺真实 HTTP/PG composition、常驻 worker、identity/consent sink。
-- Web：候选 `5cfccee` 的 Web 26 tests/typecheck 0；lint 未配置，后端 401/403/tenant/consent smoke 未闭合。
+- Web：`766c164` 的 `clientFactory` 定向验收通过；但生产 build 缺 `index.html`、lint 未配置且未进入默认检查，后端 401/403/tenant/consent smoke 未闭合，CLIENT-01 仍 BLOCKED。
+- Service P1.1：`d9a130b` 隔离 PostgreSQL 测试 95 passed；共享库迁移仍漂移，不能据此宣称主线或生产完成。
 - AI experience/evaluation/agent：定向契约测试通过，但 Model Gateway/Principal/Memory/Deletion/Release Gate 尚非生产接线。
 
 这些数字只说明某次测试环境的证据，不代表生产能力；下一轮必须重新运行，不得复用缓存。
@@ -105,7 +106,7 @@ AI 只允许产生 `Perspective`、`Draft`、`Recommendation`、`ActionProposal`
 - **Current Truth**：assessment 有测评/证据纵切片；journey/growth 有状态机、Outcome/Annual/Renewal 契约；FGCN admission 已增加 entry evidence/provenance。
 - **Specification**：`assessment → AI evidence interpretation → family confirmation → GrowthIntent → 21-day action → 90-day outcome → annual/renewal → NextNeed`；S01-S09 属 B1，X0/Principal 嵌入。
 - **Planned**：唯一业务主线先收敛为 `VS-GROWTH-01`（横跨 canonical S01+S04+S05+S07，对应 `UI-03→UI-05→UI-09`）：assessment signal→Perspective/Hypothesis draft→人类确认/驳回→GrowthIntent/ActionTask→canonical outcome loop；随后再接 S06/S08/S09。
-- **Evidence**：`b37b1b6` 的物理文件仍为 `s01_vertical_slice.py`，但业务交付标识统一为 `VS-GROWTH-01`；随后 `78fff77` 新增独立 HTTP/PG seam，`520e2ed` 修 replay hash，`e5f7c41` 补事务 rollback，`c60729b` 强化 consent subject-family binding，`090976e` 将 PG audit/outbox event name 对齐 canonical `AssessmentSignalAccepted`。独占测试 11 passed/1 warning，本轮全 journey 75 passed/15 skipped（PG URL 未设）；路由未挂 `family_api`，`production_ready=False`，Hypothesis/Intent/Action/Review 仍未 durable，且 legacy `audit_logs/outbox_events` 尚未统一 canonical platform ledger。状态仍 `CONTRACTED/PARTIAL`，所有提交虽在分支历史，未通过真实 PG/HTTP/构建/主线合入闸门，不能写成生产完成。
+- **Evidence**：`b37b1b6` 的物理文件仍为 `s01_vertical_slice.py`，但业务交付标识统一为 `VS-GROWTH-01`；随后 `78fff77` 新增独立 HTTP/PG seam，`520e2ed` 修 replay hash，`e5f7c41` 补事务 rollback，`c60729b` 强化 consent subject-family binding，`090976e` 将 PG audit/outbox event name 对齐 canonical `AssessmentSignalAccepted`。独占测试 11 passed/1 warning，本轮全 journey 75 passed/15 skipped（PG URL 未设）；clean snapshot 仍缺共享 `journey/domain/errors.py`（被多模块引用，owner 未定）。路由未挂 `family_api`，`production_ready=False`，Hypothesis/Intent/Action/Review 仍未 durable，且 legacy `audit_logs/outbox_events` 尚未统一 canonical platform ledger。状态仍 `CONTRACTED/PARTIAL`，所有提交虽在分支历史，未通过真实 PG/HTTP/构建/主线合入闸门，不能写成生产完成。
 
 ### 3.2 L0-L5 流程
 
@@ -430,7 +431,7 @@ migration head。测试环境必须保留生产同样的路由、权限、状态
 | IDP-01 tenant/consent/idempotency | Platform/API | `ActorContext`、`ConsentResolver`、tenant scoped `IdempotencyStore`；不得信任 body tenant | ENV-01、DB-01 | 同 key 跨 tenant 不污染；重复 replay 返回同结果；冲突拒绝；撤回/过期/跨主体拒绝 | Fake 与 PG 同契约，401/403/CONSENT_REQUIRED、删除后 replay 负向；当前 platform store 仍 InMemory/未生产接线，BLOCKED |
 | LEDGER-01 Audit/Outbox | Platform/AAIR | canonical AuditEvent、Outbox、worker/lease/DLQ/restart；各域只接 port | IDP-01、DB-01 | 命令与 audit/outbox 同事务；crash/retry 不重复；DLQ/补偿/重启可恢复 | PG 事务日志、audit correlation、outbox receipt、worker restart；各切片局部证据，跨域组合缺，BLOCKED |
 | AI-01 唯一准入与 Principal 边界 | AAIR/GOV | `AiReleaseGate`、EvalReport registry、Principal/Context/Memory/Delete；冻结第二 gate | ENV-01、IDP-01、DB-01 | unknown/revoked/deleted/mismatch benchmark、跨 tenant/locale 拒绝；AI 只能 Draft/Proposal，Named Action 才写事实 | 单一 gate architecture test、registry/version/provenance/consent 证据；当前双 gate/报告 lookup 缺，BLOCKED |
-| CLIENT-01 Web/mobile 生产安全 | AFE/APLT | Web `clientFactory`、mobile contracts、OpenAPI error/locale/session；不改后端 WIP | ENV-01、IDP-01 | `DEV:false + fake` 必须 fail-closed；token/session/locale/idempotency 注入；五端错误/重放一致；lint/typecheck | Web 26+lint/typecheck、mobile 全量 5 failures→0、OpenAPI parity；当前 Web lint 未配置，BLOCKED |
+| CLIENT-01 Web/mobile 生产安全 | AFE/APLT | Web `clientFactory`、mobile contracts、OpenAPI error/locale/session；不改后端 WIP | ENV-01、IDP-01 | `DEV:false + fake` 必须 fail-closed；token/session/locale/idempotency 注入；五端错误/重放一致；build/lint/typecheck | `766c164` clientFactory 定向验收通过；生产 build 缺 `index.html`，lint 未配置且未进默认检查，mobile 全量 5 failures→0、OpenAPI parity 未闭合，BLOCKED |
 
 **真实 PG URL 缺失是硬阻断**：任何 `skip`、`create_all`、同进程 disposable probe 或未设置
 `AIFAMILY_TEST_DATABASE_URL` 的成功都只能记作 `CONTRACTED`，不得关闭 DATA-01/LEDGER-01。
