@@ -172,9 +172,9 @@ P0 任一任务没有真实 PostgreSQL 或 HTTP 证据，Sprint 保持 `NOT_DONE
 
 **总闸门（快照）**：architecture `109 passed/1 skipped/1 failed`（Ruff ratchet）、全量 Ruff
 `3 errors (1 E501 + 2 I001)`、Alembic unknown 0023、mobile `249/1/5`，因此当前测试候选只能在受控环境继续；
-生产发布明确 `NO-GO`。旧远端快照 `bd59c91` 已过时；当前 `origin/codex/cleanup-superseded=82f038c`，其历史含
-`9eeb19a`（文档原子场景清单）、`b37b1b6`（S-01 slice）和 `e0c16d0`（场景计划）。这些提交虽已进入该
-分支历史，仍缺真实 PG/HTTP/构建/主线合入证据，不能写成生产完成；工作树仍有其它 Agent WIP，禁止将其一并推送。
+生产发布明确 `NO-GO`。旧远端快照 `bd59c91` 已过时；本计划证据快照基线为 `82f038c`，其后
+`7355ca5` 更新了本计划。`9eeb19a`（文档原子场景清单）、`b37b1b6`（S-01 slice）和 `e0c16d0`（场景计划）
+均在分支历史，但仍缺真实 PG/HTTP/构建/主线合入证据，不能写成生产完成；工作树仍有其它 Agent WIP，禁止将其一并推送。
 
 ### P1-P6 的首个可实现任务
 
