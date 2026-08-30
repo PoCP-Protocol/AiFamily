@@ -1,35 +1,16 @@
-"""FastAPI dependencies for the service booking domain.
+"""FastAPI dependencies for the service booking and live read boundaries.
 
-Four of these deliberately raise instead of returning a default.
-
-`get_repository`, `get_consent_query`, `get_action_context` and
-`get_actor_context` have nothing to resolve from yet: no session factory is
-wired, and the Account → TenantMembership → Family binding chain that answers
-"which family is this caller acting for" is a later capability
-(`governance/DOMAIN_REGISTRY.yaml` → `family_core`, `auth_identity`). A "sensible
-default" for any of them would be an authorization hole that fails *open* —
-handing out some tenant/family, or an empty consent list that a buggy gate might
-read as "nothing withheld". Tests supply them via `app.dependency_overrides`;
-that is the intended mechanism, and it is why production code must not grow
-test-friendly defaults.
-
-`get_consent_query` raising is the load-bearing one. An implementation that
-returned `[]` would be *safer* than a wrong grant (the gate would refuse
-everything), but it would also mean a misconfigured deployment silently refuses
-every booking with a consent error, which is indistinguishable from a genuine
-consent problem. Failing at the dependency names the actual fault.
-
-The policy engine is registered here rather than inline in the routes so the set
-of human-gated actions is one readable list. It fails closed, so a route
-performing an unregistered action returns 403 — a forgotten registration breaks
-the feature loudly instead of silently permitting it.
+The booking dependencies deliberately raise instead of returning a default:
+there is no session factory or authenticated family resolver in this baseline.
+H-LIVE-01 adds its canonical projection seam below without changing any
+booking or AvailabilitySlot semantics.
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 
 from backend.platform.audit.recorder import AuditRecorder
 from backend.platform.authorization.policy import PolicyEngine, PolicyRule
@@ -37,6 +18,7 @@ from backend.platform.identity.context import ActorContext, ActorType
 from backend.platform.identity.directory import DenyAllTenantDirectory, TenantDirectory
 
 from ..application.context import ActionContext
+from ..application.live_ports import LiveSessionProjectionPort
 from ..application.ports import ConsentQueryPort, ServiceRepositoryPort
 from ..infrastructure.sqlalchemy_repository import SqlAlchemyServiceRepository
 
@@ -45,11 +27,6 @@ _session_factory = None  # set by the owning app at startup; not configured yet
 SERVICE_SUPPLY_RESOURCE = "service_supply"
 SERVICE_BOOKING_RESOURCE = "service_booking"
 
-# Actions R8 classifies as high-impact. Confirming a booking commits a named
-# human being's time and fulfilling one asserts that a service was delivered;
-# both are decisions a family or an operator must own, so an AI actor is denied
-# unconditionally by the engine's own `human_only` override rather than by
-# convention of what got registered.
 HUMAN_GATED_ACTIONS: frozenset[str] = frozenset(
     {
         "confirm_booking_request",
@@ -106,9 +83,6 @@ def build_policy_engine(tenant_directory: TenantDirectory) -> PolicyEngine:
             )
         )
 
-    # Reads are scoped by construction (scope comes from the context, never the
-    # URL), so an AI actor may read within the family it is already acting for.
-    # It still cannot write anything.
     for action, resource in _READ_ACTIONS.items():
         engine.register(PolicyRule(action=action, resource_type=resource))
     return engine
@@ -180,3 +154,25 @@ def get_policy_engine(
 
 def get_audit_recorder() -> AuditRecorder:
     return _audit_recorder
+
+
+# H-LIVE-01: this dependency is intentionally unavailable until Route B wires a
+# real canonical projection provider. It must not return a local fixture.
+LIVE_SESSION_RESOURCE = "live_session"
+READ_LIVE_SESSION_ACTION = "read_live_session_detail"
+
+
+def get_live_projection() -> LiveSessionProjectionPort:
+    """Fail closed until Route B supplies a real canonical projection provider."""
+
+    raise HTTPException(status_code=503, detail="live_projection_not_configured")
+
+
+def get_live_policy_engine() -> PolicyEngine:
+    """Return the explicit live read policy without changing booking policy."""
+
+    engine = PolicyEngine()
+    engine.register(
+        PolicyRule(action=READ_LIVE_SESSION_ACTION, resource_type=LIVE_SESSION_RESOURCE)
+    )
+    return engine
