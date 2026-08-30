@@ -37,11 +37,15 @@ describe("UI-02 family conversation assessment contract", () => {
     expect(source).not.toContain("assessment-focus-");
   });
 
-  it("starts from the adult's own words and offers a sandbox voice entry", () => {
+  it("starts from the adult's own words and offers a voice entry", () => {
     expect(source).toContain("你现在最想解决什么？");
     expect(source).toContain("assessment-need-input");
     expect(source).toContain("assessment-voice-sandbox");
-    expect(source).toContain("语音转写只在当前设备完成");
+    expect(source).toContain("结果仍需你确认");
+    expect(source).not.toContain("sandbox 语音");
+    expect(source).not.toContain("sandbox 结果");
+    expect(source).not.toContain("DEV_ONLY");
+    expect(source).not.toContain("fixture");
     expect(source).toContain("保存并退出");
   });
 
