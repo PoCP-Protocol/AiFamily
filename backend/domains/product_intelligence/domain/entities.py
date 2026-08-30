@@ -26,6 +26,7 @@ in `architecture/FAMILY_AI_PYTHON_ONLY_MIGRATION_PLAN_V1.md` section 3.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -428,16 +429,103 @@ class ProductConcept(_CommonFields, _AiProvenanceFields):
         return _require_non_empty(value, "title")
 
 
+ProductZone = Literal["HOMOGENEOUS", "ADVANTAGE", "UNIQUE_CANDIDATE"]
+GrowthProductKind = Literal["MICRO_CAMP", "SCALE_PLAN", "CUSTOM"]
+
+
+class EducationProductSpec(BaseModel):
+    """Family-education product configuration carried by a product definition.
+
+    This is a design-time contract, not a family outcome or a child profile.
+    It lets the Web product factory compose 21-day and 90-day products from
+    versioned components while keeping execution facts in Journey/Service.
+    """
+
+    product_kind: GrowthProductKind
+    duration_days: int
+    zone: ProductZone
+    primary_contradiction: str
+    component_ids: list[str] = Field(default_factory=list)
+    skill_ids: list[str] = Field(default_factory=list)
+    success_metric_ids: list[str] = Field(default_factory=list)
+    guardrail_ids: list[str] = Field(default_factory=list)
+    stop_conditions: list[str] = Field(default_factory=list)
+    pause_policy: str
+    human_gate_policy: str
+
+    @field_validator("primary_contradiction", "pause_policy", "human_gate_policy")
+    @classmethod
+    def _required_text_non_empty(cls, value: str, info) -> str:
+        return _require_non_empty(value, info.field_name)
+
+    @field_validator(
+        "component_ids",
+        "skill_ids",
+        "success_metric_ids",
+        "guardrail_ids",
+        "stop_conditions",
+    )
+    @classmethod
+    def _refs_must_be_non_empty(cls, values: list[str]) -> list[str]:
+        if any(not value or not value.strip() for value in values):
+            raise ProductIntelligenceValidationError("education_product_refs_must_not_be_empty")
+        if len(set(values)) != len(values):
+            raise ProductIntelligenceValidationError("education_product_refs_must_be_unique")
+        return values
+
+    @model_validator(mode="after")
+    def _duration_matches_product_kind(self) -> EducationProductSpec:
+        if self.duration_days <= 0 or self.duration_days > 180:
+            raise ProductIntelligenceValidationError("education_product_duration_invalid")
+        if self.product_kind == "MICRO_CAMP" and self.duration_days != 21:
+            raise ProductIntelligenceValidationError("micro_camp_duration_must_be_21")
+        if self.product_kind == "SCALE_PLAN" and self.duration_days != 90:
+            raise ProductIntelligenceValidationError("scale_plan_duration_must_be_90")
+        if not self.component_ids or not self.skill_ids or not self.success_metric_ids:
+            raise ProductIntelligenceValidationError("education_product_design_refs_required")
+        if not self.stop_conditions:
+            raise ProductIntelligenceValidationError("education_product_stop_conditions_required")
+        return self
+
+
 class ProductComponent(_CommonFields):
     status: GenericRecordStatus = "DRAFT"
     component_type: str
     title: str
+    zone: ProductZone = "HOMOGENEOUS"
+    purpose: str | None = None
+    input_refs: list[str] = Field(default_factory=list)
+    output_refs: list[str] = Field(default_factory=list)
+    required_skill_ids: list[str] = Field(default_factory=list)
+    evidence_refs: list[str] = Field(default_factory=list)
+    metric_ids: list[str] = Field(default_factory=list)
+    owner_ref: str | None = None
+
+    @field_validator("component_type", "title")
+    @classmethod
+    def _component_text_non_empty(cls, value: str, info) -> str:
+        return _require_non_empty(value, info.field_name)
+
+    @field_validator(
+        "input_refs", "output_refs", "required_skill_ids", "evidence_refs", "metric_ids"
+    )
+    @classmethod
+    def _component_refs_unique(cls, values: list[str]) -> list[str]:
+        if any(not value or not value.strip() for value in values):
+            raise ProductIntelligenceValidationError("product_component_refs_must_not_be_empty")
+        if len(set(values)) != len(values):
+            raise ProductIntelligenceValidationError("product_component_refs_must_be_unique")
+        return values
 
 
 class ProductPattern(_CommonFields):
     status: GenericRecordStatus = "DRAFT"
     title: str
     component_ids: list[str] = Field(default_factory=list)
+    zone: ProductZone = "HOMOGENEOUS"
+    duration_days: int | None = None
+    primary_contradiction: str | None = None
+    required_skill_ids: list[str] = Field(default_factory=list)
 
 
 class ProductDefinition(_CommonFields):
@@ -445,6 +533,28 @@ class ProductDefinition(_CommonFields):
     concept_id: str
     pattern_id: str | None = None
     component_ids: list[str] = Field(default_factory=list)
+    product_kind: GrowthProductKind = "CUSTOM"
+    duration_days: int | None = None
+    zone: ProductZone = "HOMOGENEOUS"
+    primary_contradiction: str | None = None
+    education_spec: EducationProductSpec | None = None
+
+    @model_validator(mode="after")
+    def _education_spec_matches_definition(self) -> ProductDefinition:
+        if self.education_spec is None:
+            return self
+        if self.education_spec.product_kind != self.product_kind:
+            raise ProductIntelligenceValidationError("education_product_kind_mismatch")
+        if (
+            self.duration_days is not None
+            and self.education_spec.duration_days != self.duration_days
+        ):
+            raise ProductIntelligenceValidationError("education_product_duration_mismatch")
+        if self.education_spec.zone != self.zone:
+            raise ProductIntelligenceValidationError("education_product_zone_mismatch")
+        if self.component_ids and set(self.education_spec.component_ids) - set(self.component_ids):
+            raise ProductIntelligenceValidationError("education_product_components_mismatch")
+        return self
 
 
 class ServiceBlueprintVersion(_CommonFields):
