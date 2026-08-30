@@ -47,6 +47,7 @@ from backend.domains.service.domain.errors import (
     ServiceNotFoundError,
     ServiceValidationError,
 )
+from backend.platform.audit import AuditRecorder
 
 from .contracts import (
     AllocationBasisType,
@@ -200,6 +201,13 @@ class TaskAssignmentRow(FGCNBase):
             unique=True,
             postgresql_where=sa.text("status = 'ACCEPTED'"),
             sqlite_where=sa.text("status = 'ACCEPTED'"),
+        ),
+        Index(
+            "uq_task_assignments_source_request",
+            "source_request_id",
+            unique=True,
+            postgresql_where=sa.text("source_request_id IS NOT NULL"),
+            sqlite_where=sa.text("source_request_id IS NOT NULL"),
         ),
     )
 
@@ -536,6 +544,17 @@ class SqlAlchemyFGCNRepository:
             raise ServiceNotFoundError(code)
         return row
 
+    async def flush_audit(self, recorder: AuditRecorder) -> int:
+        """Flush audit events through this repository's transaction.
+
+        The application command uses this explicit seam before ``commit()`` so
+        a Human Gate decision and its TaskAssignment cannot commit separately.
+        Keeping the session hidden also prevents the command layer from
+        reaching around the repository and opening a second transaction.
+        """
+
+        return await recorder.flush(self._session)
+
     async def commit(self) -> None:
         """Compatibility seam for the existing service repository protocol."""
 
@@ -653,10 +672,15 @@ class SqlAlchemyFGCNRepository:
             case_status = CaseStatus(case.status)
         except (TypeError, ValueError) as exc:
             raise ServiceValidationError("fgcn_case_status_invalid") from exc
-        if case_status in {CaseStatus.COMPLETED, CaseStatus.CANCELLED} and task_status in {
-            TaskStatus.DELIVERED,
-            TaskStatus.VERIFIED,
-        } and (existing is None or existing.status != task_status.value):
+        if (
+            case_status in {CaseStatus.COMPLETED, CaseStatus.CANCELLED}
+            and task_status
+            in {
+                TaskStatus.DELIVERED,
+                TaskStatus.VERIFIED,
+            }
+            and (existing is None or existing.status != task_status.value)
+        ):
             # A stale worker must not append a delivery/verification after the
             # case reached its terminal state.  An exact persisted replay is
             # still allowed so rehydration remains idempotent.
@@ -883,13 +907,17 @@ class SqlAlchemyFGCNRepository:
         _human_actor(row.accepted_by_actor_id)
         task = await self._get(ServiceTaskRow, row.task_id, "fgcn_service_task_not_found")
         await self._get(ServiceCaseRow, task.case_ref, "fgcn_service_case_not_found")
-        if task.status not in {
-            TaskStatus.ACCEPTED.value,
-            TaskStatus.IN_PROGRESS.value,
-            TaskStatus.DELIVERED.value,
-            TaskStatus.VERIFIED.value,
-            TaskStatus.CLOSED.value,
-        } or task.responsible_ref != row.assignee_ref:
+        if (
+            task.status
+            not in {
+                TaskStatus.ACCEPTED.value,
+                TaskStatus.IN_PROGRESS.value,
+                TaskStatus.DELIVERED.value,
+                TaskStatus.VERIFIED.value,
+                TaskStatus.CLOSED.value,
+            }
+            or task.responsible_ref != row.assignee_ref
+        ):
             raise ServiceValidationError("fgcn_assignment_task_state_mismatch")
         return TaskAssignment(
             assignment_id=row.assignment_id,
@@ -906,6 +934,33 @@ class SqlAlchemyFGCNRepository:
             ),
             accepted_at=_required_utc(row.accepted_at, "fgcn_assignment_accepted_at_required"),
         )
+
+    async def find_assignment_by_source_request_id(
+        self, *, source_request_id: str
+    ) -> TaskAssignment | None:
+        """Find the durable result of one Named Action request.
+
+        ``source_request_id`` is the durable replay key for the P0 bridge and
+        is globally unique when non-null. Querying globally lets a request id
+        accidentally reused for another task fail as a domain conflict instead
+        of surfacing a raw database uniqueness error; the application command
+        checks the loaded assignment against its task and case.
+        The partial unique index is the database-side concurrency guard for
+        non-null request ids.
+        """
+
+        rows = (
+            await self._session.scalars(
+                sa.select(TaskAssignmentRow).where(
+                    TaskAssignmentRow.source_request_id == source_request_id,
+                )
+            )
+        ).all()
+        if not rows:
+            return None
+        if len(rows) != 1:
+            raise ServiceConflictError("fgcn_assignment_source_request_ambiguous")
+        return await self.load_assignment(rows[0].assignment_id)
 
     async def load_quality_review(self, quality_review_id: str) -> TaskQualityReview:
         row = await self._get(

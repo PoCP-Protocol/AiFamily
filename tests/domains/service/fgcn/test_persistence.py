@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
@@ -16,6 +16,7 @@ from backend.domains.service.domain.errors import (
     ServiceNotFoundError,
     ServiceValidationError,
 )
+from backend.domains.service.fgcn.application import execute_task_assignment_named_action
 from backend.domains.service.fgcn.contracts import (
     AllocationBucket,
     AllocationLine,
@@ -41,6 +42,13 @@ from backend.domains.service.fgcn.persistence import (
     ServiceCaseRow,
     ServiceContributionRow,
     SqlAlchemyFGCNRepository,
+    TaskAssignmentRow,
+)
+from backend.intelligence.human_gate import (
+    ActorType,
+    GateScope,
+    HumanGateError,
+    NamedActionRequest,
 )
 from backend.platform.audit import AuditBase, AuditEvent, AuditRecorder, read_all_events
 from backend.platform.persistence.unit_of_work import SqlAlchemyUnitOfWork
@@ -566,8 +574,8 @@ async def test_persistence_replays_delivery_and_contribution_without_duplicates(
         await repo.save_contribution(_contribution())
         await repo.save_contribution(_contribution())
         contribution_rows = (
-            await session.execute(sa.select(ServiceContributionRow))
-        ).scalars().all()
+            (await session.execute(sa.select(ServiceContributionRow))).scalars().all()
+        )
         assert len(contribution_rows) == 1
 
 
@@ -606,3 +614,233 @@ async def test_fgcn_repository_round_trips_on_real_postgres(postgres_session_fac
         assert (await repo.load_assignment(ASSIGNMENT)).assignee_ref == "expert-1"
         assert (await repo.load_contribution(CONTRIBUTION)).delivery_id == "delivery-1"
         assert (await repo.load_allocation_statement(CASE)).total_units == Decimal("100.00")
+
+
+def _named_action_request(
+    *,
+    scope: GateScope | None = None,
+    provider_id: str = "expert-1",
+    request_id: str = "named-action-request:assignment-1",
+    assignment_id: str | None = ASSIGNMENT,
+    actor_id: str = "guardian-1",
+    actor_type: ActorType = ActorType.GUARDIAN,
+) -> NamedActionRequest:
+    action_arguments = {
+        "service_task_id": TASK,
+        "provider_id": provider_id,
+        "assignee_kind": "EXPERT",
+    }
+    if assignment_id is not None:
+        action_arguments["assignment_id"] = assignment_id
+    return NamedActionRequest(
+        request_id=request_id,
+        action_name="CONFIRM_SERVICE_TASK_ASSIGNMENT",
+        action_arguments=action_arguments,
+        task_id="human-task:assignment-1",
+        proposal_id="proposal:assignment-1",
+        decision_id="decision:assignment-1",
+        actor_id=actor_id,
+        actor_type=actor_type,
+        scope=scope
+        or GateScope(
+            tenant_id=TENANT,
+            family_id=FAMILY,
+            subject_ids=(CHILD,),
+            purpose="service_collaboration",
+            consent_version="consent.v1",
+            correlation_id="corr-persistence-1",
+        ),
+        provenance_ref="model-draft:service-matching-1",
+        idempotency_key="tenant-1:CONFIRM_SERVICE_TASK_ASSIGNMENT:proposal:assignment-1",
+    )
+
+
+@pytest.mark.asyncio
+async def test_named_action_application_command_persists_assignment_and_audit(
+    session_factory,
+):
+    recorder = AuditRecorder()
+    request = _named_action_request()
+    accepted_at = NOW + timedelta(minutes=1)
+
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        await repo.save_case(_case())
+        await repo.save_task(_task(status=TaskStatus.PENDING))
+        assignment = await execute_task_assignment_named_action(
+            repo, request, recorder=recorder, accepted_at=accepted_at
+        )
+
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        loaded_assignment = await repo.load_assignment(ASSIGNMENT)
+        loaded_task = await repo.load_task(TASK)
+        loaded_case = await repo.load_case(CASE)
+        events = await read_all_events(session, tenant_id=TENANT)
+
+    assert assignment == loaded_assignment
+    assert loaded_task.status is TaskStatus.ACCEPTED
+    assert loaded_task.responsible_ref == "expert-1"
+    assert loaded_case.status is CaseStatus.ASSIGNED
+    assert [event.action for event in events] == [
+        "CONFIRM_SERVICE_TASK_ASSIGNMENT",
+        "ACCEPT_SERVICE_TASK",
+        "ASSIGN_SERVICE_CASE",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_named_action_without_assignment_id_generates_a_durable_uuid(session_factory):
+    request = _named_action_request(
+        assignment_id=None,
+        request_id="named-action-request:generated-assignment-id",
+    )
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        await repo.save_case(_case())
+        await repo.save_task(_task(status=TaskStatus.PENDING))
+        assignment = await execute_task_assignment_named_action(
+            repo, request, recorder=AuditRecorder(), accepted_at=NOW
+        )
+
+    assert UUID(assignment.assignment_id).version == 5
+
+
+@pytest.mark.asyncio
+async def test_named_action_application_command_replays_without_duplicate_assignment_or_audit(
+    session_factory,
+):
+    request = _named_action_request()
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        await repo.save_case(_case())
+        await repo.save_task(_task(status=TaskStatus.PENDING))
+        first = await execute_task_assignment_named_action(
+            repo, request, recorder=AuditRecorder(), accepted_at=NOW
+        )
+
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        replay = await execute_task_assignment_named_action(
+            repo,
+            request,
+            recorder=AuditRecorder(),
+            accepted_at=NOW + timedelta(hours=1),
+        )
+        rows = (await session.execute(sa.select(TaskAssignmentRow))).scalars().all()
+        events = await read_all_events(session, tenant_id=TENANT)
+
+    assert replay == first
+    assert len(rows) == 1
+    assert len(events) == 3
+
+    changed_request = _named_action_request(provider_id="expert-2")
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        with pytest.raises(
+            ServiceConflictError, match="fgcn_assignment_idempotency_replay_mismatch"
+        ):
+            await execute_task_assignment_named_action(
+                repo, changed_request, recorder=AuditRecorder()
+            )
+
+
+@pytest.mark.asyncio
+async def test_named_action_application_command_rejects_foreign_scope_and_leaves_no_write(
+    session_factory,
+):
+    foreign_scope = GateScope(
+        tenant_id=TENANT,
+        family_id="00000000-0000-4000-8000-000000000099",
+        subject_ids=(CHILD,),
+        purpose="service_collaboration",
+        consent_version="consent.v1",
+        correlation_id="corr-persistence-1",
+    )
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        await repo.save_case(_case())
+        await repo.save_task(_task(status=TaskStatus.PENDING))
+        await session.commit()
+
+        with pytest.raises(ServiceForbiddenError, match="fgcn_family_scope_violation"):
+            await execute_task_assignment_named_action(
+                repo, _named_action_request(scope=foreign_scope), recorder=AuditRecorder()
+            )
+        assert (await session.execute(sa.select(TaskAssignmentRow))).scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_named_action_application_command_rejects_correlation_replay(
+    session_factory,
+):
+    mismatched_scope = GateScope(
+        tenant_id=TENANT,
+        family_id=FAMILY,
+        subject_ids=(CHILD,),
+        purpose="service_collaboration",
+        consent_version="consent.v1",
+        correlation_id="corr-other-request",
+    )
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        await repo.save_case(_case())
+        await repo.save_task(_task(status=TaskStatus.PENDING))
+        with pytest.raises(ServiceForbiddenError, match="fgcn_correlation_scope_violation"):
+            await execute_task_assignment_named_action(
+                repo,
+                _named_action_request(scope=mismatched_scope),
+                recorder=AuditRecorder(),
+            )
+
+
+@pytest.mark.asyncio
+async def test_named_action_application_command_does_not_claim_success_when_audit_flush_fails(
+    session_factory,
+):
+    class _FailingAuditRecorder(AuditRecorder):
+        async def flush(self, session):
+            raise RuntimeError("audit store unavailable")
+
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        await repo.save_case(_case())
+        await repo.save_task(_task(status=TaskStatus.PENDING))
+        await session.commit()
+
+        with pytest.raises(RuntimeError, match="audit store unavailable"):
+            await execute_task_assignment_named_action(
+                repo,
+                _named_action_request(),
+                recorder=_FailingAuditRecorder(),
+                accepted_at=NOW,
+            )
+        await session.rollback()
+
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        assert (await repo.load_task(TASK)).status is TaskStatus.PENDING
+        with pytest.raises(ServiceNotFoundError, match="fgcn_task_assignment_not_found"):
+            await repo.load_assignment(ASSIGNMENT)
+        assert await read_all_events(session, tenant_id=TENANT) == []
+
+
+@pytest.mark.asyncio
+async def test_named_action_application_command_rejects_ai_looking_human_id(
+    session_factory,
+):
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        await repo.save_case(_case())
+        await repo.save_task(_task(status=TaskStatus.PENDING))
+        with pytest.raises(ServiceForbiddenError, match="fgcn_requires_human_actor"):
+            await execute_task_assignment_named_action(
+                repo,
+                _named_action_request(actor_id="AI:agent-1"),
+                recorder=AuditRecorder(),
+            )
+
+
+def test_named_action_request_contract_rejects_ai_as_confirmation_actor():
+    with pytest.raises(HumanGateError, match="HUMAN_REVIEWER_REQUIRED"):
+        _named_action_request(actor_type=ActorType.AI)

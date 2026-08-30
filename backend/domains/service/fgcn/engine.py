@@ -653,6 +653,8 @@ class FGCNEngine:
             raise ServiceForbiddenError("fgcn_consent_version_scope_violation")
         if case.scope.subject_person_id not in request_scope.subject_ids:
             raise ServiceForbiddenError("fgcn_subject_scope_violation")
+        if request_scope.correlation_id != case.scope.correlation_id:
+            raise ServiceForbiddenError("fgcn_correlation_scope_violation")
 
     @staticmethod
     def _fixed_beneficiary(case: ServiceCase, bucket: AllocationBucket) -> tuple[str, str, str]:
