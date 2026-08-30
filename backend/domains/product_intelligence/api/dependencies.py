@@ -26,6 +26,7 @@ longer commit.
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from typing import Any
 
 from fastapi import Request
 
@@ -35,6 +36,24 @@ from ..infrastructure.sqlalchemy_repository import SqlAlchemyProductIntelligence
 from ..infrastructure.unit_of_work import SqlAlchemyUnitOfWork
 
 _session_factory = None  # set by the owning app at startup; not configured in this PR
+
+
+def configure_session_factory(session_factory: Any | None) -> None:
+    """Install the owning application's explicit async session factory.
+
+    Product Intelligence never chooses a local fallback database.  The
+    composition root must call this setter during startup and may clear it
+    when an app instance is torn down or has no configured database.
+    """
+
+    global _session_factory
+    _session_factory = session_factory
+
+
+def clear_session_factory() -> None:
+    """Remove process wiring so a later app cannot inherit stale state."""
+
+    configure_session_factory(None)
 
 
 async def get_actor_context(request: Request) -> ActorContext:
@@ -59,3 +78,11 @@ async def get_repository() -> AsyncGenerator[ProductIntelligenceRepositoryPort, 
         SqlAlchemyUnitOfWork(session),
     ):
         yield SqlAlchemyProductIntelligenceRepository(session)
+
+
+__all__ = [
+    "clear_session_factory",
+    "configure_session_factory",
+    "get_actor_context",
+    "get_repository",
+]
