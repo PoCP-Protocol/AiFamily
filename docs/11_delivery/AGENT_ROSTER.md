@@ -69,7 +69,7 @@ A<角色码>-<序号>
 | AFE-4 语义服务体验 | `PARTIAL` | 专项 5 tests + `pnpm check` 通过；全量移动端仍 5 failures，其他基线页面仍需语义编号扫描 |
 | ADOM-5 / DB-01 migration acceptance | `PARTIAL` | baseline/0008 分层 3 passed、FGCN chain 2 passed；未登记 0009/0010 使 head 漂移，unknown head 必须阻断 |
 | AAIR-6 durable deletion boundary | `CONTRACTED` | context-engine 18 passed；InMemory adapter 明确非生产，缺 Postgres/outbox/真实 projection |
-| APLT-2 SEC-01 production dev auth gate | `DELIVERED` | production route 不再广告或可调用 `/auth/account-session`；ENV-01 默认 development 仍是 P0 |
+| APLT-2 SEC-01 production dev auth gate | `PARTIAL` | production route 不再广告或可调用 `/auth/account-session`；ENV-01 默认 development、真实 auth 替代和环境同构仍是 P0 |
 | PMA-1 project assistant | `ACTIVE` | 每次交付独立读取 diff/测试/架构链并向 owner 发返工意见；发布结论当前 `NO-GO` |
 
 ### DAT 数据与迁移
