@@ -101,6 +101,20 @@ entries:
       - "50_开发_dev/packages/principal-ai/src/index.ts"
       - "50_开发_dev/packages/principal-runtime/src/index.ts"
 
+  - capability: agent_runtime
+    disposition: REIMPLEMENT
+    source: []
+    target: [backend/intelligence/agent_runtime]
+    status: MIGRATED_TESTED
+    evidence:
+      - "AI 原生运行时规格要求的 AgentDefinition、动态 AgentAuthorization 和 provider-neutral execution port 已在 Python 侧重建"
+      - "AgentAuthorizer 对缺失授权、scope/TTL/撤回、用例/工具白名单和预算超限采用 fail-closed；拒绝路径在 Model Gateway 请求构造前结束"
+      - "tests/intelligence/agent_runtime/test_runtime.py 覆盖授权成功、缺授权、scope/tool 越权和过期拒绝"
+    reason: "源仓库无可复用的 Python Agent Runtime；依据 AI_ARCHITECTURE 与 AI_PLATFORM_FORWARD_ARCHITECTURE 重建唯一 AI Runtime 边界"
+    known_gaps:
+      - "当前授权与 AgentRun 为进程内值对象，尚未接入持久化授权租约、Tool Runtime 或 workflow worker"
+      - "真实身份/同意组合根和生产 AgentDefinition registry 接线待后续迭代"
+
   - capability: family_need_orchestration
     disposition: REIMPLEMENT
     target: [backend/domains/family_need]
@@ -271,6 +285,29 @@ entries:
       2026-08-29 T-15 重派指令要求"宁可交付 3 个端点完整可用 + 3 个明确标注未做，
       也不要 6 个都是半成品"。实际交付：6 个端点全部落地且有 HTTP 测试，
       生产可调用性统一受上述 dependencies 缺口限制（非部分完成，而是全部同等待接线）。
+
+  - capability: service_fgcn_collaboration
+    disposition: REIMPLEMENT
+    source:
+      - "database/baseline/0020_growth_orchestration_v1.sql"
+      - "database/baseline/0057_service_task_allocation_dev.sql"
+      - "database/baseline/0059_service_collaboration_allocation_policy.sql"
+      - "database/baseline/0060_service_case_allocation_basis_and_runs.sql"
+      - "database/baseline/0061_service_task_rework_and_reviewer_gate.sql"
+    target: [backend/domains/service/fgcn]
+    status: MIGRATED_TESTED
+    evidence:
+      - "已运行 published blueprint → ServiceCase → ServiceTask → Human Gate NamedActionRequest → TaskAssignment → Delivery → Quality → Contribution → AllocationStatement 链路测试"
+      - "单任务单 ACCEPTED 责任人、冻结蓝图模板、验收前不得贡献、一个案件一次分配和总池 100 单位均有正向/反向测试"
+      - "每次权威状态变更由 AuditRecorder 产生 AuditEvent；实现不导入模型 provider，不触发支付或外部通知"
+      - "0004_fgcn_p0_persistence + SqlAlchemyFGCNRepository 已通过 SQLite round-trip、贡献 delivery_ref 来源追溯与 UoW 回滚测试；同事务审计写入可验证"
+      - "FGCN NamedAction application command 已通过 SQLite 新 session 重建、审计同事务提交、精确重放和 scope/actor 反向测试"
+      - "0006_ai_human_tasks + SqlAlchemyHumanGate 持久化 HumanTask 后，one-shot workflow handler 已通过重启消费、request replay、拒绝任务、scope 重验和审计失败回滚测试"
+    known_gaps:
+      - "FGCNEngine 仍是内存业务编排；family_api 已接入 Human Gate 控制面和受保护的 one-shot consume，但常驻队列/lease、完整重启重建和生产 wiring 尚未完成"
+      - "FGCN API 默认 session、真实 identity/reviewer role、worker auth 和 consent factory 仍 fail-closed，必须完成生产接线后才可承载真实流量"
+      - "生产库必须先执行 Alembic 0004_fgcn_p0_persistence、0005_fgcn_assignment_request_idempotency 与 0006_ai_human_tasks；未迁移的旧库不得加载 P0 ORM"
+      - "返工任务、质量池释放、资源准入关系、争议裁决和真实资金结算未实现"
 
   - capability: loyalty_points
     disposition: NET_NEW
@@ -550,6 +587,19 @@ entries:
     status: PLANNED
     evidence: ["2337行，真实 Postgres(principal_* 表)，明确不写 Growth 权威状态，DI 工厂 fail-closed 最严格"]
 
+  - capability: ai_human_gate
+    disposition: REIMPLEMENT
+    source: ["docs/05_ai/AI_TECHNICAL_ARCHITECTURE.md §5.2", "docs/05_ai/AI_TECHNICAL_ARCHITECTURE_DEEP_DESIGN.md §D09"]
+    target: [backend/intelligence/human_gate]
+    status: MIGRATED_TESTED
+    evidence:
+      - "HumanTask 生命周期、真人审查角色、租户/家庭范围、过期与幂等均有可运行契约测试"
+      - "接受只产生 NamedActionRequest；Human Gate 不导入业务 domain repository/application/infrastructure，也不执行业务事实写入"
+      - "SqlAlchemyHumanGate + 0006_ai_human_tasks 已持久化 proposal、decision、scope、provenance reference 和 accepted request；新 session 回读与同事务审计有测试"
+    known_gaps:
+      - "尚无常驻队列/lease、通知、dead-letter 和生产 identity/consent factory；expire_due 与 one-shot consumer 不是完整调度器"
+      - "FGCN 的 ServiceTask/TaskAssignment Named Action 已接入 durable application command，family_api 控制面已挂载；完整 workflow worker、生产 identity/session wiring 和资源协作仍未完成；本条目不等于完整 FGCN 分派能力已完成"
+
   - capability: principal_livecheck_scripts
     disposition: TEST_ORACLE
     source: ["50_开发_dev/apps/api/src/modules/principal/*.livecheck.ts"]
@@ -815,8 +865,63 @@ entries:
       - "AiFamily 原生契约：ExperienceEvent、RecommendationDecision、FeedbackSignal 和多模态媒体引用"
       - "已通过 tests/intelligence/experience/test_contracts.py 的成功、拒绝、租户/主体隔离、幂等、语言和媒体边界测试"
     known_gaps:
-      - "仅有不可变契约和拒绝规则，尚未挂载 Family API、ExperienceProjectionWorker 或 Principal experience_curator runtime"
+      - "闭环契约与 durable outbox worker 已存在，但尚未接入真实业务域 projection/Named Action consumer 或 Principal experience_curator runtime"
       - "开发/测试/生产只允许替换合成媒体和外部适配器，正式 parity gate 尚待实现"
+
+  - capability: experience_run_http_sql_ledger
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/experience/sql_run_ledger.py
+      - database/migrations/versions/0010_experience_run_interactions.py
+    status: MIGRATED_TESTED
+    evidence:
+      - "异步 SQLAlchemy adapter 复用 ExperienceRun 状态/事件/checkpoint 表，交互事件追加写入独立表"
+      - "tests/intelligence/experience/test_sql_run_ledger.py 覆盖 SQLite round-trip、幂等重放、scope 隔离、删除擦除与显式事务回滚"
+      - "ADR-0047 明确同步 HTTP Protocol 与 AsyncSession 的注入边界，禁止阻塞式伪同步"
+    known_gaps:
+      - "family_api 已支持 awaitable ledger dispatch；目标部署仍需在 composition root 注入 AsyncSession/UoW 与 SQL adapter"
+      - "生产环境仍需执行目标数据库 migration、并发压测和 outbox/worker 运行态验收"
+
+# ============ AI Runtime Registry 能力 ============
+
+  - capability: prompt_schema_registry_runtime
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/prompt_registry
+      - backend/intelligence/schema_registry
+    status: MIGRATED_TESTED
+    evidence:
+      - "PromptBundle/SchemaDefinition 为不可变版本值对象，重复版本注册 fail-closed"
+      - "resolve 按 use_case、agent、status、effective window 做严格绑定，禁止孤立 prompt/schema 字符串"
+      - "SchemaValidator 执行 required/evidence_refs/forbidden fields/enum/JSON Schema 边界与 human gate 元数据"
+      - "tests/intelligence/prompt_registry 与 tests/intelligence/schema_registry focused tests"
+    reason: "AI 原生运行时需要可审计、可回滚且与 Agent/use case 绑定的 Prompt/Schema 资产边界"
+    known_gaps:
+      - "当前为进程内 adapter，尚未接入 ai_runtime 持久化版本库、运营审批工作流和统一治理 YAML loader"
+      - "AgentRuntime 组合根仍需显式 resolve 后把版本内容装配到 AgentTask；缺版本必须拒绝模型调用"
+
+  - capability: experience_outbox_worker
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/experience/outbox_worker.py
+      - backend/intelligence/experience/achievement_consumer.py
+      - tests/intelligence/experience/test_outbox_worker.py
+      - tests/intelligence/experience/test_achievement_consumer.py
+      - governance/ADR/ADR-0051-experience-outbox-worker.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "provider-neutral ExperienceOutboxConsumer 与 ExperienceDeadLetterSink 不依赖模型供应商或业务域"
+      - "worker 仅在 consumer/Sink 成功后调用 SqlAlchemyExperienceOutbox.mark_published；失败保留 pending，支持重试与死信幂等"
+      - "tests/intelligence/experience/test_outbox_worker.py 覆盖 SQLite pending 拉取、pull limit、成功后幂等确认、瞬时失败重试、永久失败死信和 Sink 故障保留"
+      - "ExperienceAchievementConsumer 完整校验事件 envelope/scope/provenance/idempotency 后调用 AchievementEngine，生成携带原 event evidence 的成就；非法或非事件 envelope 进入 DLQ"
+      - "tests/intelligence/experience/test_achievement_consumer.py 覆盖 SQLite outbox→achievement 投影、崩溃后重复投影幂等和 malformed/non-event 拒绝"
+    reason: "体验闭环需要可重启的至少一次投递边界；源仓库无可复用的 Python worker，实现唯一 AI Runtime outbox consumer seam"
+    known_gaps:
+      - "attempt counter 当前为进程内策略；生产需接入带租约/attempt 持久化的 worker 与 durable DLQ"
+      - "achievement consumer 已接入契约级投影；尚未接入 family_api 组合根、durable achievement projection 与 analytics projection，不能据此声称生产消息链已上线"
 
 # ============ 待人工裁决清单（disposition = REVIEW_REQUIRED 的完整索引） ============
 review_required_index:
