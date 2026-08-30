@@ -23,6 +23,11 @@ describe("UI-03 family assessment result contract", () => {
     expect(source).toContain("FAMILY_PERSPECTIVE_NOT_SCORE_OR_DIAGNOSIS");
     expect(source).toContain("may_mutate_business_state");
     expect(source).toContain("NOT_INVOKED");
+    expect(source).toContain("assessment-human-gate");
+    expect(source).toContain("decideGrowthHypothesis");
+    expect(source).toContain("确认这份理解");
+    expect(source).toContain("暂不采用");
+    expect(source).toContain("确认后才会记录为这次家庭关注");
     expect(source).not.toMatch(/overall_score|peer_reference|scorecard|ranking/);
   });
 
@@ -40,7 +45,6 @@ describe("UI-03 family assessment result contract", () => {
     expect(source).toContain("重新开始测评");
     expect(source).toContain("router.back()");
     expect(source).toContain(">退出<");
-    expect(source).not.toContain("decideGrowthHypothesis");
     expect(source).not.toContain("startGrowthOnboarding");
   });
 });

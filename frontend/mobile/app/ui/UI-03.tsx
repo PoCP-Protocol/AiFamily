@@ -228,11 +228,37 @@ export default function GrowthExplanationScreen() {
   ];
   const planGoal = result?.growth_plan?.goal ?? `让「${displayedKnowledge?.title ?? result?.title ?? "家庭互动"}」回到家庭可以共同参与、共同调整的日常里。`;
 
+  const [interpretationDecision, setInterpretationDecision] = useState<
+    "idle" | "saving" | "confirmed" | "dismissed" | "retry"
+  >("idle");
+
   const keyFor = (fingerprint: string) => {
     operationKeys.current[fingerprint] ??= createMobileRequestId(
       fingerprint.replace(/[^a-z0-9]+/gi, "-").toLowerCase(),
     );
     return operationKeys.current[fingerprint];
+  };
+
+  const decideInterpretation = (decision: "CONFIRM" | "DISMISS") => {
+    const hypothesis = interpretationHypotheses[0];
+    if (!connected || !assessmentSessionId || !hypothesis) {
+      setInterpretationDecision("retry");
+      return;
+    }
+    setInterpretationDecision("saving");
+    void familyApi
+      .decideGrowthHypothesis(
+        session.token!,
+        session.selectedFamily!.family_id,
+        {
+          assessment_session_id: assessmentSessionId,
+          hypothesis_ref: hypothesis.hypothesis_ref,
+          decision_type: decision,
+        },
+        keyFor(`assessment-interpretation:${assessmentSessionId}:${hypothesis.hypothesis_ref}:${decision}`),
+      )
+      .then(() => setInterpretationDecision(decision === "CONFIRM" ? "confirmed" : "dismissed"))
+      .catch(() => setInterpretationDecision("retry"));
   };
 
   const submitPerspectiveFeedback = async (
@@ -612,6 +638,57 @@ export default function GrowthExplanationScreen() {
                 <Text style={[styles.cardText, { color: colors.muted }]}>可能的关系机制：{result.explanation.mechanism}</Text>
               ) : null}
               <Text style={[styles.boundaryText, { color: colors.muted }]}>你可以确认、补充或否定这份理解；不贴近你们家的部分，就停在这里。</Text>
+              <View testID="assessment-human-gate" style={styles.humanGate}>
+                <Text style={styles.humanGateTitle}>由你决定要不要把它带回家庭</Text>
+                <Text style={[styles.humanGateText, { color: colors.muted }]}>
+                  确认后才会记录为这次家庭关注；拒绝不会创建后续方案。
+                </Text>
+                <View style={styles.feedbackRow}>
+                  <Pressable
+                    accessibilityRole="button"
+                    testID="assessment-hypothesis-confirm"
+                    disabled={interpretationDecision === "saving" || interpretationDecision === "confirmed"}
+                    onPress={() => decideInterpretation("CONFIRM")}
+                    style={({ pressed }) => [
+                      styles.gatePrimary,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text style={styles.gatePrimaryText}>
+                      {interpretationDecision === "saving" ? "正在记录…" : "确认这份理解"}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    testID="assessment-hypothesis-dismiss"
+                    disabled={interpretationDecision === "saving" || interpretationDecision === "dismissed"}
+                    onPress={() => decideInterpretation("DISMISS")}
+                    style={({ pressed }) => [
+                      styles.gateSecondary,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text style={styles.gateSecondaryText}>暂不采用</Text>
+                  </Pressable>
+                </View>
+                {interpretationDecision !== "idle" ? (
+                  <Text
+                    accessibilityRole="alert"
+                    style={[
+                      styles.feedbackStatus,
+                      { color: interpretationDecision === "retry" ? "#B42318" : colors.muted },
+                    ]}
+                  >
+                    {interpretationDecision === "confirmed"
+                      ? "已按你的确认记录这次家庭关注；是否继续形成方案，由你决定。"
+                      : interpretationDecision === "dismissed"
+                        ? "已暂不采用这份理解；没有创建后续方案。"
+                        : interpretationDecision === "retry"
+                          ? "暂时无法记录你的选择，请稍后重试。"
+                          : "正在记录你的选择…"}
+                  </Text>
+                ) : null}
+              </View>
             </View>
 
             <View
@@ -1114,6 +1191,13 @@ const styles = StyleSheet.create({
   interpretationQuoteLabel: { color: "#7665D8", fontSize: 11, lineHeight: 16, fontWeight: "900" },
   interpretationQuoteText: { fontSize: 15, lineHeight: 23, fontWeight: "800" },
   hypothesisBasis: { color: "#7D769F", fontSize: 11, lineHeight: 17 },
+  humanGate: { borderRadius: 15, backgroundColor: "#FFFFFF", padding: 12, gap: 7 },
+  humanGateTitle: { color: "#2A245B", fontSize: 14, lineHeight: 20, fontWeight: "900" },
+  humanGateText: { fontSize: 12, lineHeight: 18 },
+  gatePrimary: { flex: 1, minHeight: 40, borderRadius: 13, backgroundColor: "#7665D8", alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  gatePrimaryText: { color: "#FFFFFF", fontSize: 12, lineHeight: 17, fontWeight: "900" },
+  gateSecondary: { flex: 1, minHeight: 40, borderRadius: 13, borderWidth: 1, borderColor: "#C9C2EE", alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  gateSecondaryText: { color: "#5C4DB0", fontSize: 12, lineHeight: 17, fontWeight: "900" },
   planCard: {
     borderRadius: 19,
     backgroundColor: "#F4FBF7",
