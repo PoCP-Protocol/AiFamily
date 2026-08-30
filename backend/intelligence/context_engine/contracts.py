@@ -125,6 +125,22 @@ class ContextScope:
         if not self.consent_granted:
             raise ContextContractError("CONSENT_REVOKED")
 
+    @property
+    def subject_id(self) -> str | None:
+        return self.subject_ids[0] if len(self.subject_ids) == 1 else None
+
+    @property
+    def effective_content_locale(self) -> str:
+        return self.content_locale or self.locale
+
+    @property
+    def effective_model_locale(self) -> str:
+        return self.model_locale or self.locale
+
+    @property
+    def effective_policy_locale(self) -> str:
+        return self.policy_locale or self.locale
+
 
 @dataclass(frozen=True, slots=True)
 class StateObservation:
@@ -199,6 +215,8 @@ class StateObservation:
             raise ContextScopeError("CROSS_FAMILY_CONTEXT_READ")
         if self.subject_id not in scope.subject_ids:
             raise ContextScopeError("CONTEXT_SUBJECT_READ_DENIED")
+        if self.data_class != scope.data_class:
+            raise ContextContractError("CONTEXT_DATA_CLASS_MISMATCH")
         if self.purpose != scope.purpose:
             raise ContextContractError("CONTEXT_PURPOSE_MISMATCH")
         if self.consent_version != scope.consent_version:
