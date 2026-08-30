@@ -136,6 +136,40 @@ def test_request_rejects_client_identity_and_missing_evidence(repo, human_contex
     assert response.status_code == 422
 
 
+def test_expired_draft_is_rejected_before_parent_is_persisted(repo, human_context) -> None:
+    client = _client(repo, human_context)
+    response = client.post(
+        "/product-intelligence/product-factory/demand-frames",
+        json=_payload(
+            statement="过期需求草案",
+            scenario="家庭沟通",
+            source_refs=["source:one"],
+            target_segment="家长",
+            expires_at=(datetime.now(UTC) - timedelta(seconds=1)).isoformat(),
+        ),
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["msg"] == "Value error, expires_at_must_be_in_the_future"
+    assert repo._market_signals == {}
+
+
+def test_naive_draft_expiry_is_rejected_at_http_boundary(repo, human_context) -> None:
+    client = _client(repo, human_context)
+    response = client.post(
+        "/product-intelligence/product-factory/demand-frames",
+        json=_payload(
+            statement="无时区需求草案",
+            scenario="家庭沟通",
+            source_refs=["source:one"],
+            target_segment="家长",
+            expires_at="2099-01-01T00:00:00",
+        ),
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["msg"] == "Value error, expires_at_must_be_timezone_aware"
+    assert repo._market_signals == {}
+
+
 def test_competitor_route_fails_closed_until_repository_port_exists(repo, human_context) -> None:
     response = _client(repo, human_context).post(
         "/product-intelligence/product-factory/competitor-evidence",

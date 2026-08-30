@@ -7,7 +7,7 @@ putting them in JSON would allow a caller to impersonate another tenant.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -54,6 +54,23 @@ class _DraftRequest(BaseModel):
     @classmethod
     def text_is_trimmed(cls, value: str | None) -> str | None:
         return value.strip() if value is not None else value
+
+    @field_validator("expires_at")
+    @classmethod
+    def expiry_is_aware_and_future(cls, value: datetime) -> datetime:
+        """Reject invalid drafts before an application command can persist anything.
+
+        The route creates the parent domain record before constructing its draft
+        envelope.  Keeping this guard in the request contract makes expiry
+        validation fail-closed at the HTTP boundary and avoids an orphaned
+        ``MarketSignal``/``CustomerInsight`` when a caller sends a stale draft.
+        """
+
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("expires_at_must_be_timezone_aware")
+        if value <= datetime.now(UTC):
+            raise ValueError("expires_at_must_be_in_the_future")
+        return value
 
 
 class CreateDemandFrameRequest(_DraftRequest):

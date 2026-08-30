@@ -330,6 +330,21 @@ class ProductDefinitionRow(Base):
     concept_id = Column(String, nullable=False)
     pattern_id = Column(String, nullable=True)
     component_ids = Column(JSON, nullable=False, default=list)
+    # Education-product design fields were added after the provisional 0058
+    # SQL snapshot.  They remain nullable/defaulted for backward-compatible
+    # reads of legacy definitions; the domain model enforces the stronger
+    # education_spec invariants when present.
+    product_kind = Column(String, nullable=False, default="CUSTOM")
+    duration_days = Column(Integer, nullable=True)
+    zone = Column(String, nullable=False, default="HOMOGENEOUS")
+    primary_contradiction = Column(Text, nullable=True)
+    demand_ref = Column(String, nullable=True)
+    market_insight_refs = Column(JSON, nullable=False, default=list)
+    education_spec = Column(JSON, nullable=True)
+    generated_by = Column(String, nullable=True)
+    model_ref = Column(String, nullable=True)
+    prompt_use_case_version = Column(String, nullable=True)
+    confidence = Column(Float, nullable=True)
 
 
 class ServiceBlueprintVersionRow(Base):
