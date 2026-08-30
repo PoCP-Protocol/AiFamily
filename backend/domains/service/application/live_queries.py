@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from .live_ports import (
@@ -10,7 +11,44 @@ from .live_ports import (
     LiveReadScope,
     LiveSessionReadPort,
 )
-from .live_read_models import LiveSessionDetail, public_detail
+from .live_read_models import LiveSessionCandidate, LiveSessionDetail, public_detail
+
+
+async def list_live_sessions(
+    port: LiveSessionReadPort,
+    *,
+    scope: LiveReadScope,
+    now: datetime | None = None,
+) -> tuple[LiveSessionDetail, ...]:
+    """Return approved, currently discoverable sessions for one guardian.
+
+    The adapter is expected to scope its query, but every returned row is
+    checked again here. Any cross-tenant/family row is a source-integrity
+    failure rather than something to filter silently. Approval, audience,
+    effective-window, and ended-session gates are applied before projection.
+    """
+
+    if scope.actor_type.value != "human":
+        raise LiveReadForbiddenError("live_session_guardian_human_required")
+
+    candidates: Sequence[LiveSessionCandidate] = await port.list_sessions(
+        tenant_id=scope.tenant_id,
+        family_id=scope.family_id,
+    )
+    current = now or datetime.now(UTC)
+    visible: list[LiveSessionDetail] = []
+    for candidate in candidates:
+        if candidate.tenant_id != scope.tenant_id or candidate.family_id != scope.family_id:
+            raise LiveReadForbiddenError("live_session_scope_violation")
+        if scope.actor_person_id not in candidate.guardian_person_ids:
+            continue
+        if not candidate.approved or not candidate.is_unexpired_at(current):
+            continue
+        if candidate.ends_at <= current:
+            continue
+        visible.append(public_detail(candidate))
+
+    return tuple(sorted(visible, key=lambda item: (item.starts_at, item.session_ref)))
 
 
 async def get_live_session_detail(
@@ -52,4 +90,4 @@ async def get_live_session_detail(
     return public_detail(candidate)
 
 
-__all__ = ["get_live_session_detail"]
+__all__ = ["get_live_session_detail", "list_live_sessions"]

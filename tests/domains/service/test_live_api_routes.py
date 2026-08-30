@@ -76,7 +76,15 @@ def _candidate(**overrides: object) -> LiveSessionCandidate:
 class FakeLiveReader:
     def __init__(self, candidate: LiveSessionCandidate | None) -> None:
         self.candidate = candidate
+        self.candidates = [candidate] if candidate is not None else []
+        self.list_calls: list[tuple[str, str]] = []
         self.calls: list[tuple[str, str, str]] = []
+
+    async def list_sessions(
+        self, *, tenant_id: str, family_id: str
+    ) -> tuple[LiveSessionCandidate, ...]:
+        self.list_calls.append((tenant_id, family_id))
+        return tuple(self.candidates)
 
     async def get_session(
         self, *, tenant_id: str, family_id: str, session_ref: str
@@ -138,6 +146,56 @@ def test_import_openapi_and_success_shape(
     assert "session_ref" in reads[0].accessed_fields
 
 
+def test_discovery_lists_only_approved_active_guardian_sessions(
+    wiring: tuple[TestClient, FakeLiveReader, AuditRecorder],
+) -> None:
+    client, reader, recorder = wiring
+    now = datetime.now(UTC)
+    reader.candidates = [
+        _candidate(
+            session_ref="later",
+            starts_at=now + timedelta(hours=3),
+            ends_at=now + timedelta(hours=4),
+        ),
+        _candidate(
+            session_ref="earlier",
+            starts_at=now + timedelta(hours=1),
+            ends_at=now + timedelta(hours=2),
+        ),
+        _candidate(session_ref="unapproved", approved=False),
+        _candidate(session_ref="expired", effective_to=now - timedelta(seconds=1)),
+        _candidate(session_ref="other-guardian", guardian_person_ids=("person-other",)),
+        _candidate(
+            session_ref="ended",
+            starts_at=now - timedelta(hours=2),
+            ends_at=now - timedelta(seconds=1),
+        ),
+    ]
+
+    response = client.get(f"/families/{FAMILY}/live-sessions")
+
+    assert response.status_code == 200, response.text
+    assert [item["session_ref"] for item in response.json()] == ["earlier", "later"]
+    assert reader.list_calls == [(TENANT, FAMILY)]
+    assert len(recorder.all_events()) == 1
+    assert recorder.all_events()[0].action == "read_live_session_discovery"
+    assert recorder.all_events()[0].access_purpose == "service_live_session_discovery"
+
+
+def test_discovery_is_empty_without_visible_sessions_and_has_no_external_effect(
+    wiring: tuple[TestClient, FakeLiveReader, AuditRecorder],
+) -> None:
+    client, reader, recorder = wiring
+    reader.candidates = [_candidate(approved=False)]
+
+    response = client.get(f"/families/{FAMILY}/live-sessions")
+
+    assert response.status_code == 200
+    assert response.json() == []
+    assert len(recorder.all_events()) == 1
+    assert response.headers.get("location") is None
+
+
 def test_repeated_read_is_idempotent_and_has_no_external_effect(
     wiring: tuple[TestClient, FakeLiveReader, AuditRecorder],
 ) -> None:
@@ -158,6 +216,9 @@ def test_openapi_exposes_only_get_detail() -> None:
     app.include_router(router)
     operations = app.openapi()["paths"]["/families/{family_id}/live-sessions/{session_ref}"]
     assert set(operations) == {"get"}
+
+    discovery = app.openapi()["paths"]["/families/{family_id}/live-sessions"]
+    assert set(discovery) == {"get"}
 
 
 def test_read_adapter_conflict_is_409() -> None:
@@ -203,6 +264,16 @@ def test_cross_family_path_is_forbidden(
     assert reader.calls == []
 
 
+def test_cross_family_discovery_path_is_forbidden(
+    wiring: tuple[TestClient, FakeLiveReader, AuditRecorder],
+) -> None:
+    client, reader, _recorder = wiring
+    response = client.get("/families/family-other/live-sessions")
+    assert response.status_code == 403
+    assert response.json()["detail"] == "family_scope_violation"
+    assert reader.list_calls == []
+
+
 def test_actor_tenant_scope_is_forbidden(
     wiring: tuple[TestClient, FakeLiveReader, AuditRecorder],
 ) -> None:
@@ -232,6 +303,29 @@ def test_non_guardian_and_ai_are_forbidden(
     response = client.get(f"/families/{FAMILY}/live-sessions/{SESSION}")
     assert response.status_code == 403
     assert response.json()["detail"] == "guardian_human_required"
+
+
+def test_ai_cannot_discover_sessions(
+    wiring: tuple[TestClient, FakeLiveReader, AuditRecorder],
+) -> None:
+    client, reader, _recorder = wiring
+    client.app.dependency_overrides[deps.get_actor_context] = lambda: _actor(
+        actor_type=ActorType.AI
+    )
+    response = client.get(f"/families/{FAMILY}/live-sessions")
+    assert response.status_code == 403
+    assert response.json()["detail"] == "guardian_human_required"
+    assert reader.list_calls == []
+
+
+def test_discovery_rejects_cross_scope_adapter_row(
+    wiring: tuple[TestClient, FakeLiveReader, AuditRecorder],
+) -> None:
+    client, reader, _recorder = wiring
+    reader.candidates = [_candidate(tenant_id="tenant-other")]
+    response = client.get(f"/families/{FAMILY}/live-sessions")
+    assert response.status_code == 403
+    assert response.json()["detail"] == "live_session_scope_violation"
 
 
 @pytest.mark.parametrize(

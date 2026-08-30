@@ -7,6 +7,7 @@ starting, replaying, or mutating a session.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -60,7 +61,14 @@ class LiveReadScope:
 
 
 class LiveSessionReadPort(Protocol):
-    """Canonical source adapter for one tenant/family-scoped read."""
+    """Canonical source adapter for tenant/family-scoped read operations."""
+
+    async def list_sessions(
+        self, *, tenant_id: str, family_id: str
+    ) -> Sequence[LiveSessionCandidate]:
+        """Return candidates already scoped by tenant/family, or an empty sequence."""
+
+        ...
 
     async def get_session(
         self, *, tenant_id: str, family_id: str, session_ref: str
