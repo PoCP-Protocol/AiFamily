@@ -50,8 +50,8 @@ Manus 报告指出的主风险仍然有效，但报告中的历史数字不能�
 
 ### 3.1 AFE-4 服务体验列表
 
-- **证据**：`frontend/mobile/components/family/family-experience-list.tsx` 使用语义图标、阶段和成就文案，未把 `UI-xx` 渲染为可见标签；`family-experience-list.test.ts` 定向 5 项通过，`pnpm check` 通过。
-- **缺口/风险**：仅覆盖 services surface；全量移动端仍有 5 个失败，UI-19～34 其它列表和 `family-screen-list.tsx` 未完成跨端视觉/语义编号扫描。
+- **证据**：`frontend/mobile/components/family/family-experience-list.tsx` 使用语义图标、阶段和成就文案，未把 `UI-xx` 渲染为可见标签；`family-experience-list.test.ts` 定向 5 项通过，`pnpm check` 通过。最新全量 `pnpm test -- --run` 为 249 passed、1 skipped、5 failed（55 files）。
+- **缺口/风险**：仅覆盖 services surface；全量移动端仍有 5 个失败，UI-19～34 其它列表和 `family-screen-list.tsx` 未完成跨端视觉/语义编号扫描。敏捷计划先前记录的 247 passed 已过时。
 - **补测与验收**：`cd frontend/mobile; pnpm check; pnpm test -- --run` 必须 0 failures；新增 app/components 可见文本扫描和 Android/iOS/Harmony/web golden/e2e；内部 ID 只能留在 registry/导航。
 
 ### 3.2 ADOM-5 FGCN 迁移链

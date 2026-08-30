@@ -122,7 +122,7 @@ P0 发现后立即通知 Lead，不等待下一次站会；P1 必须有本 Sprin
 
 ## 8. 本轮审查记录（2026-08-30）
 
-1. AFE-4：语义化服务列表目标测试 5 项通过、`pnpm check` 通过；因全量 5 失败和跨 UI/跨端审计缺失，结论为 `PARTIAL`，已发 AFE 返工意见。
+1. AFE-4：语义化服务列表目标测试 5 项通过、`pnpm check` 通过；最新全量 `pnpm test -- --run` 为 249 passed、1 skipped、5 failed（敏捷计划旧记录 247 passed 已过时）。因全量 5 失败和跨 UI/跨端审计缺失，结论为 `PARTIAL`，已发 AFE 返工意见。
 2. ADOM-5/DB-01：commit `981343b` 后 Fresh Postgres baseline/head 分层测试 3 passed、FGCN migration chain 2 passed；未跟踪 `0009_ai_model_drafts.py`（及未正式提交的 ADR-0045）使动态 head=0009/160，manifest/ORM 登记仍缺。结论为 `PARTIAL`；下一步是完成 0009 registry/ADR/ORM 证据后纳入，或在批准前移出/隔离，不能仅改计数。
 3. AAIR-5/6：删除 worker 7 项、durable deletion 契约 6 项通过；Fresh `tests/intelligence/context_engine` 为 18 passed，敏捷计划旧记录“13 passed”已校正。`InMemoryDurableDeletionStore.production_ready=False`，无 Postgres/outbox 和真实 projection cascade，结论为 `CONTRACTED / adapter-only / RELEASE BLOCKED`，已通知 AAIR/Lead。
 4. 平台闸门（复核前）：生产 dev_auth probe 返回 200，环境缺失默认 development；结论为 `P0 NO-GO`，已立即通知 Lead 并要求 APLT/ARCH 负向测试。
