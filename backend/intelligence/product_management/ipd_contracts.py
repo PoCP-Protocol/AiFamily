@@ -98,14 +98,14 @@ def _require_refs(values: tuple[str, ...], code: str) -> None:
 
 def _require_human(actor: str, code: str = "HUMAN_DECIDER_REQUIRED") -> None:
     candidate = actor.strip().lower()
-    if not candidate or candidate.startswith(("ai:", "agent:", "model:")):
+    if not candidate or candidate.startswith(("ai:", "agent:", "model:", "system:")):
         raise IPDContractError(code)
 
 
 def _require_ai_draft(status: ArtifactStatus, generated_by: str | None) -> None:
     if (
         generated_by
-        and generated_by.strip().lower().startswith(("ai:", "agent:", "model:"))
+        and generated_by.strip().lower().startswith(("ai:", "agent:", "model:", "system:"))
         and status is not ArtifactStatus.DRAFT
     ):
         raise IPDContractError("AI_ARTIFACT_MUST_REMAIN_DRAFT")

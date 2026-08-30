@@ -236,6 +236,13 @@ def test_product_package_gate_is_sequential_and_requires_human_evidence() -> Non
             decided_by="human:ipmt",
             evidence=_gate_evidence("conditional"),
         )
+    with pytest.raises(IPDContractError, match="HUMAN_DECIDER_REQUIRED"):
+        package.advance(
+            ArtifactStatus.PILOT,
+            decision=GateDecision.GO,
+            decided_by="system:release-worker",
+            evidence=_gate_evidence("system"),
+        )
     pilot = package.advance(
         ArtifactStatus.PILOT,
         decision=GateDecision.GO,
