@@ -413,7 +413,6 @@ def _request_hash(
             "family_id": signal.family_id,
             "signal_id": signal.signal_id,
             "actor_id": actor_id,
-            "correlation_id": correlation_id,
             "evidence_refs": signal.evidence_refs,
             "response": response,
         },

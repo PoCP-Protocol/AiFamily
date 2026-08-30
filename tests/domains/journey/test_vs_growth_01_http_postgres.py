@@ -444,7 +444,7 @@ async def test_postgres_acceptance_appends_audit_outbox_and_conflict_is_refused(
         signal=signal,
         actor_id="123e4567-e89b-12d3-a456-426614174006",
         idempotency_key="accept-1",
-        correlation_id="corr-1",
+        correlation_id="corr-retry",
         response=response,
     )
     assert replayed == response
