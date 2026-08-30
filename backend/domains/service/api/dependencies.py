@@ -37,6 +37,7 @@ from backend.platform.identity.context import ActorContext, ActorType
 from backend.platform.identity.directory import DenyAllTenantDirectory, TenantDirectory
 
 from ..application.context import ActionContext
+from ..application.live_ports import LiveSessionReadPort
 from ..application.ports import ConsentQueryPort, ServiceRepositoryPort
 from ..infrastructure.sqlalchemy_repository import SqlAlchemyServiceRepository
 
@@ -69,6 +70,7 @@ _NON_GATED_ACTIONS: dict[str, str] = {
 _READ_ACTIONS: dict[str, str] = {
     "read_service_supply": SERVICE_SUPPLY_RESOURCE,
     "read_service_booking": SERVICE_BOOKING_RESOURCE,
+    "read_live_session": SERVICE_BOOKING_RESOURCE,
 }
 
 
@@ -129,6 +131,19 @@ async def get_consent_query() -> ConsentQueryPort:
         "service consent query not configured — consent grants must be read from live "
         "state on every booking; an empty default would report a configuration fault "
         "as a consent refusal"
+    )
+
+
+async def get_live_session_read_port() -> LiveSessionReadPort:
+    """Resolve the canonical live-session read adapter, fail-closed by default.
+
+    H-LIVE-01 is a read-only contract.  Returning a fixture here would make a
+    production process appear to have live-session data, so composition must
+    explicitly provide the adapter (tests override this dependency).
+    """
+    raise RuntimeError(
+        "service live-session read port not configured — no synthetic or implicit "
+        "live-session source is allowed"
     )
 
 
