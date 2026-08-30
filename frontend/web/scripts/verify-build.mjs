@@ -90,7 +90,12 @@ if (
 const detailIndex = sourceMap.sources.findIndex((source) => source.endsWith("src/components/LiveDetailPage.tsx"));
 const detailSource = sourceMap.sourcesContent?.[detailIndex];
 if (!detailSource) fail("detail page source is not traceable from the production artifact");
-if (!detailSource.includes("<video") || !detailSource.includes("playback.playback_url") || !detailSource.includes("playsInline")) {
+if (
+  !detailSource.includes("<video") ||
+  !detailSource.includes("playback.playback_url") ||
+  !detailSource.includes("playsInline") ||
+  !detailSource.includes("下一步")
+) {
   fail("artifact source map does not retain the authorized video surface");
 }
 

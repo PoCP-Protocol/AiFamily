@@ -29,6 +29,7 @@ test("Xiao Ju Deng homepage card opens the H-LIVE-01 read-only detail", async ({
   await page.getByRole("button", { name: "查看直播详情" }).click();
 
   await expect(page.getByText("H-LIVE-01 · 只读详情")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "下一步" })).toBeVisible();
   await expect(page.getByRole("article")).toContainText("APPROVED");
   await expect(page.getByRole("article")).toContainText("UNEXPIRED");
   await expect(page.getByRole("article")).toContainText("FAMILY");
@@ -42,11 +43,13 @@ test("Xiao Ju Deng homepage card opens the H-LIVE-01 read-only detail", async ({
     await expect(page.locator("video")).toHaveAttribute("src", /127\.0\.0\.1/);
     await expect(page.locator("video")).not.toHaveAttribute("autoplay");
     await expect(page.getByText("SANDBOX_SYNTHETIC · FIXTURE_ONLY")).toBeVisible();
+    await expect(page.getByText("由成人手动点击播放；当前不会自动播放。")).toBeVisible();
   } else {
     await expect(page.getByText("视频暂不可用")).toBeVisible();
     await expect(page.getByText("WAITING_AUTHORIZATION")).toBeVisible();
     await expect(page.locator("video")).toHaveCount(0);
     await expect(page.locator("[data-playback-url]")).toHaveCount(0);
+    await expect(page.getByText("先核对适用范围与时间；播放授权就绪后再评估。")).toBeVisible();
   }
   await expect(page.getByRole("article")).not.toContainText("token");
   await expect(page.getByRole("article")).not.toContainText("预约");

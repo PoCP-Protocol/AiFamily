@@ -36,6 +36,8 @@ describe("Xiao Ju Deng read-only live UI", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "查看直播详情" }));
 
     expect(screen.getByText("H-LIVE-01 · 只读详情")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "下一步" })).toBeInTheDocument();
+    expect(screen.getByText("先核对适用范围与时间；播放授权就绪后再评估。")).toBeInTheDocument();
     expect(screen.getByText("review:H-LIVE-01")).toBeInTheDocument();
     expect(screen.getByText("H-LIVE-01.v1")).toBeInTheDocument();
     expect(screen.getByText("true · DEV_ONLY")).toBeInTheDocument();
@@ -74,6 +76,7 @@ describe("Xiao Ju Deng read-only live UI", () => {
     expect(video?.hasAttribute("playsinline")).toBe(true);
     expect(screen.getByText("SANDBOX_SYNTHETIC · FIXTURE_ONLY")).toBeInTheDocument();
     expect(container.querySelector(".live-video-state")?.textContent).toBe("LIVE");
+    expect(screen.getByText("由成人手动点击播放；当前不会自动播放。")).toBeInTheDocument();
     expect(screen.queryByText("视频暂不可用")).not.toBeInTheDocument();
   });
 

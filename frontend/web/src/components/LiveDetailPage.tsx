@@ -13,6 +13,11 @@ export function LiveDetailPage({ record, onBack }: Props) {
   );
   const canRenderVideo = playback?.source === "synthetic" && playback.fixture_only && playback.state === "LIVE" && isLocalPlaybackUrl(playback.playback_url);
   const playbackMessage = getPlaybackMessage(surfaceState);
+  const nextStep = canRenderVideo
+    ? "由成人手动点击播放；当前不会自动播放。"
+    : playback
+      ? "等待媒体服务恢复；当前不会尝试播放。"
+      : "先核对适用范围与时间；播放授权就绪后再评估。";
 
   return (
     <article className="live-detail-page" aria-labelledby="live-detail-heading">
@@ -53,6 +58,10 @@ export function LiveDetailPage({ record, onBack }: Props) {
             <span className="live-video-state">{surfaceState}</span>
           </div>
         )}
+      </section>
+      <section className="live-next-step" aria-labelledby="live-next-step-heading">
+        <h4 id="live-next-step-heading">下一步</h4>
+        <p>{nextStep}</p>
       </section>
       <dl className="live-detail-grid">
         <div><dt>主讲人</dt><dd>{record.speaker}</dd></div>
