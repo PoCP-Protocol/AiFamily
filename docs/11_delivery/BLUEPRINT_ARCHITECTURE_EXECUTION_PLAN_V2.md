@@ -34,7 +34,7 @@ superseded_by: null
 
 - Architecture：`uv run pytest tests/architecture -q` = 109 passed、1 skipped、1 failed；Ruff debt ratchet 失败。
 - Ruff：`uv run ruff check . --output-format concise` = 3 errors（1 E501、2 I001）。
-- Alembic：`uv run alembic heads` = `0023_ai_growth_graph_projection`；Fresh Postgres baseline gate = 8 passed、1 skipped、1 failed（未知 head）。
+- Alembic：HEAD 仅追踪 `0001..0010`；工作树存在未追踪 `0011..0029`，Alembic 单头为 `0029`。Docker healthy 下真实 PG `test_full_chain_up_0016_down_and_rebuild` 运行 154s，`1 failed`：`0016→0025` 升降通过，但 `0025→0026` 在写入 `0026_experience_outbox_delivery_attempts`（40 chars）时触发 `alembic_version.version_num VARCHAR(32)` `StringDataRightTruncationError`；`0027`（35）与 `0029`（39）同类风险。结构测试 FULL_CHAIN 仍旧只覆盖到 `0023`，不能证明 `0024..0029`。DATA-01 保持 BLOCKED。
 - FGCN：`31c95cb` 补质量重做 replay 契约；本轮无 PG 执行 `uv run pytest tests/domains/service/fgcn -q` = 133 passed/3 skipped（真实 PG 用例因未设 URL 跳过）；历史 Fresh Postgres 113 passed 证据仍不能替代真实 production composition/worker/outbox/audit。
 - Journey/growth：`VS-GROWTH-01` HTTP/PG seam（`78fff77`、`520e2ed`、`e5f7c41`、`c60729b`）独占测试 11 passed/1 warning；本轮全 journey `uv run pytest tests/domains/journey -q` = 75 passed/15 skipped（未设 PG URL）。路由未挂载 `family_api`，`production_ready=False`，Hypothesis/Intent/Action/Review 仍未 durable；仍缺真实 HTTP/PG composition、常驻 worker、identity/consent sink。
 - Web：候选 `5cfccee` 的 Web 26 tests/typecheck 0；lint 未配置，后端 401/403/tenant/consent smoke 未闭合。
@@ -51,7 +51,7 @@ superseded_by: null
 1. 新蓝图（V2/V3/CORE/FAMILY_NEEDS/IPD/AI Deep Design/Master Design）均标注
    `draft/canonical:false`，且未完全登记在 `SYSTEM_MANIFEST`，不能替换 `CURRENT_*` 真相；
 2. `GENERATIVE_SYSTEM_ARCHITECTURE` 记录“主要矛盾没有一手来源”和旧 FGCN“零代码”的历史，当前代码已出现 FGCN/AI 契约但并不等于生产交付；
-3. 工作树存在 0011-0023 未追踪/未审批迁移，Alembic head=0023 未通过 allow-list；文档、ORM、迁移、对象清单和真实数据库不一致。
+3. HEAD 仅追踪 `0001..0010`，工作树 `0011..0029` 均未登记/未审批；Docker 真实 PG 在 `0025→0026` 因 `alembic_version` 32 字符限制失败，结构 FULL_CHAIN 测试仍旧于 `0024..0029`。文档、ORM、迁移、对象清单和真实数据库不一致，DATA-01 必须 BLOCKED。
 4. 场景编号出现语义冲突：`BUSINESS_SCENARIO_CLOSURE_CATALOG` 的 canonical S01 是“内容/直播/活动触达与家庭进入”，
    而 `b37b1b6` 曾将 S-01 用作“assessment signal→家庭确认→Action”。现裁决将后者改名为独立交付切片
    `VS-GROWTH-01`，明确横跨 canonical S01+S04+S05+S07；在 ADR/场景目录更新前，不得让 API/数据/测试出现两套 canonical S01。
@@ -426,7 +426,7 @@ migration head。测试环境必须保留生产同样的路由、权限、状态
 | P0 门 | owner 角色 | 明确文件边界 | 依赖 | 正向/反向验收 | 退出证据 |
 |---|---|---|---|---|---|
 | ENV-01 环境与真实身份 | APLT + 原 `dev_wiring.py` WIP owner | `main.py`、`dev_wiring.py`、production composition、Actor/Session/Consent resolver；不覆盖并发 WIP | ADR-0069、trusted auth port | unset/非法 env fail-closed；无 token→401；跨 tenant→403；撤回→CONSENT_REQUIRED；dev/test/prod route/error parity | 三环境 OpenAPI/404/401/403 TestClient、启动日志和 owner sign-off；当前 unset acceptance 仍 expected-red，BLOCKED |
-| DATA-01 迁移与真实 PG | ADOM/ARCH | migrations 0011-0023、ORM、Manifest/ADR、对象清单 | DB-01、Fresh Postgres URL | upgrade→downgrade→upgrade、重启、并发、未知 head 必须 fail；未设 `AIFAMILY_TEST_DATABASE_URL` 的 skip 不算通过 | `git ls-files`+Manifest/ADR/ORM 一致、Fresh PG 原始 stdout；当前 head=0023 unknown，BLOCKED |
+| DATA-01 迁移与真实 PG | ADOM/ARCH | migrations 0011-0029、ORM、Manifest/ADR、对象清单 | DB-01、Fresh Postgres URL | upgrade→downgrade→upgrade、重启、并发、未知 head 必须 fail；未设 `AIFAMILY_TEST_DATABASE_URL` 的 skip 不算通过 | Docker healthy 真实 PG：`test_full_chain_up_0016_down_and_rebuild` 154s，1 failed；0016→0025 通过，0025→0026 因 `alembic_version VARCHAR(32)` 写入 40 字符 revision 失败；0027/0029 同类；FULL_CHAIN 旧于 0024-0029，BLOCKED |
 | IDP-01 tenant/consent/idempotency | Platform/API | `ActorContext`、`ConsentResolver`、tenant scoped `IdempotencyStore`；不得信任 body tenant | ENV-01、DB-01 | 同 key 跨 tenant 不污染；重复 replay 返回同结果；冲突拒绝；撤回/过期/跨主体拒绝 | Fake 与 PG 同契约，401/403/CONSENT_REQUIRED、删除后 replay 负向；当前 platform store 仍 InMemory/未生产接线，BLOCKED |
 | LEDGER-01 Audit/Outbox | Platform/AAIR | canonical AuditEvent、Outbox、worker/lease/DLQ/restart；各域只接 port | IDP-01、DB-01 | 命令与 audit/outbox 同事务；crash/retry 不重复；DLQ/补偿/重启可恢复 | PG 事务日志、audit correlation、outbox receipt、worker restart；各切片局部证据，跨域组合缺，BLOCKED |
 | AI-01 唯一准入与 Principal 边界 | AAIR/GOV | `AiReleaseGate`、EvalReport registry、Principal/Context/Memory/Delete；冻结第二 gate | ENV-01、IDP-01、DB-01 | unknown/revoked/deleted/mismatch benchmark、跨 tenant/locale 拒绝；AI 只能 Draft/Proposal，Named Action 才写事实 | 单一 gate architecture test、registry/version/provenance/consent 证据；当前双 gate/报告 lookup 缺，BLOCKED |
@@ -448,7 +448,7 @@ remote SHA、命令和 exact error；本轮复测前远端曾为 `bd59c91`，随
 P0 技术门是每个节点的放行条件，不是业务终点。
 
 1. **P0 ENV-01（APLT + 原 dev_wiring owner）**：unset/非法环境 fail-closed、真实 Actor/Consent/Tenant、三环境 401/403/consent parity；不改冲突 WIP，owner 未明确即 BLOCKED。
-2. **P1 DB-01（ADOM）**：0011-0023 ADR/Manifest/ORM/对象清单、Fresh PG up/down/up；unknown head=0023 必须 fail，不能 skip。
+2. **P1 DB-01（ADOM）**：0011-0029 ADR/Manifest/ORM/对象清单、Fresh PG up/down/up；Docker 实测 0016→0025 通过、0025→0026 因 revision 长度失败，unknown head=0029 必须 fail，不能 skip；结构 FULL_CHAIN 需升级覆盖 0024-0029。
 3. **P1 Principal/Context（AAIR）**：单一 session→consent→snapshot→draft→human gate→Named Action，先使用同构 synthetic provider，不添加第二 runtime；未过 AI-01 只做合同。
 4. **P1 `VS-GROWTH-01`（growth + AFE/API）**：唯一业务主线 `UI-03→UI-05→UI-09`，横跨 canonical S01+S04+S05+S07：Assessment signal→Perspective/Hypothesis draft→家庭确认→GrowthIntent/ActionTask→回读/ChallengeReview；`b37b1b6` 仅内存 CONTRACTED/PARTIAL，下一阶段必须 HTTP+PG+outbox+deletion/replay。
 5. **P1 FGCN（B2）**：仅在 `VS-GROWTH-01` 已确认 need 后进入 admission→assignment→delivery→quality；先修 replay/locale/dependency evidence，不得抢跑成第二主线。

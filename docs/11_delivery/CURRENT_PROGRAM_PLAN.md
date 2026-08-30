@@ -112,7 +112,7 @@ assessment signal→Perspective/Hypothesis→家庭确认→Action/Review 切片
 | P0 门 | owner 角色与文件边界 | 依赖 | 正向/反向测试 | 退出证据 |
 |---|---|---|---|---|
 | ENV-01 | APLT + 原 `dev_wiring.py` WIP owner；`main.py`/`dev_wiring.py`/production composition/Actor/Session/Consent resolver，不覆盖并发 WIP | ADR-0069、trusted auth port | unset/非法 env fail-closed；无 token 401；跨 tenant 403；撤回 CONSENT_REQUIRED；三环境 route/error parity | TestClient/OpenAPI/启动日志+owner sign-off；当前 unset acceptance 仍 expected-red，BLOCKED |
-| DATA-01 | ADOM/ARCH；migration 0011-0023、ORM、Manifest/ADR、对象清单 | DB-01、Fresh PG | up→down→up、重启、并发、unknown head fail；未设 `AIFAMILY_TEST_DATABASE_URL` 的 skip 不算通过 | tracked 文件与登记一致、Fresh PG 原始 stdout；当前 0023 unknown，BLOCKED |
+| DATA-01 | ADOM/ARCH；migration 0011-0029、ORM、Manifest/ADR、对象清单 | DB-01、Fresh PG | up→down→up、重启、并发、unknown head fail；未设 `AIFAMILY_TEST_DATABASE_URL` 的 skip 不算通过 | Docker healthy 真实 PG：`test_full_chain_up_0016_down_and_rebuild` 154s，1 failed；0016→0025 升降通过，0025→0026 写入 40 字符 revision 时触发 `alembic_version VARCHAR(32)` `StringDataRightTruncationError`，0027/0029 同类；FULL_CHAIN 结构测试仍旧于 0024-0029；BLOCKED |
 | IDP-01 | Platform/API；trusted ActorContext、ConsentResolver、tenant-scoped IdempotencyStore | ENV-01、DATA-01 | 同 key 跨 tenant 隔离；同输入 replay 同结果；冲突拒绝；撤回/过期/跨主体拒绝 | Fake/PG 同契约、删除后 replay 负向；当前 IdempotencyStore 仍 InMemory/无生产接线，BLOCKED |
 | LEDGER-01 | Platform/AAIR；canonical AuditEvent、Outbox、worker/lease/DLQ/restart ports | IDP-01、DATA-01 | 命令与 audit/outbox 同事务；crash/retry 不重复；DLQ/补偿/重启可恢复 | PG 事务和 receipt；目前仅切片局部 evidence，跨域 composition 缺，BLOCKED |
 | AI-01 | AAIR/GOV；唯一 `AiReleaseGate`、EvalReport registry、Principal/Context/Memory/Delete，冻结第二 gate | ENV-01、IDP-01、DATA-01 | benchmark unknown/revoked/deleted/mismatch、跨 tenant/locale；AI draft-only，Named Action 才写事实 | 单 gate architecture test、registry/version/provenance；当前双 gate/lookup 缺，BLOCKED |
@@ -161,7 +161,7 @@ P0 任一任务没有真实 PostgreSQL 或 HTTP 证据，Sprint 保持 `NOT_DONE
 | Thread/标题 | Scope | Owner / commit | PASS 证据 | 当前状态 | 未闭合阻断与下一动作 |
 |---|---|---|---|---|---|
 | APLT-2 / security gate | 环境 fail-closed、Experience 401/403/Consent 错误码 | APLT / `cbc055e`、`736ae19`、`d2196bc` | 定向 7 passed/1 expected-red；非法环境与错误映射通过 | `PARTIAL/BLOCKED (P0)` | unset `AIFAMILY_ENV` 仍默认为 development；真实 auth/session/tenant/consent 未接线。原 WIP owner 收口后补三环境 TestClient 和 OpenAPI/404/401/403 |
-| ADOM-5 / DB-01 migration | Alembic baseline/head、ORM/Manifest/ADR | ADOM/ARCH / `5a67a1b`；0011–0023 WIP | FGCN chain 2 passed；baseline PG 分层 8 passed/1 failed/1 skipped | `PARTIAL/BLOCKED (P1)` | `alembic heads=0023`，未知 head 失败；0011–0023 未形成 tracked/审批链。补对象清单、可逆 Fresh PG、单 head 后才 allow-list |
+| ADOM-5 / DB-01 migration | Alembic baseline/head、ORM/Manifest/ADR | ADOM/ARCH / `5a67a1b`；0011–0029 WIP | Docker healthy Fresh PG `test_full_chain_up_0016_down_and_rebuild` 154s：1 failed；0016→0025 升降通过，0025→0026 因 revision 40 字符超过 `alembic_version VARCHAR(32)` 失败；结构 FULL_CHAIN 仍旧于 0024–0029 | `PARTIAL/BLOCKED (P1)` | HEAD 仅追踪 0001–0010，0011–0029 未形成 tracked/审批链；0027/0029 同类长度风险。补 ADR/Manifest/ORM/对象清单、修复 revision 存储与可逆 Fresh PG，单 head 后才 allow-list |
 | AAIR-6 / durable deletion | deletion queue、lease/retry/DLQ、五类回执 | AAIR / durable deletion slice | durable 子集 6 项；context-engine 25 passed | `CONTRACTED/adapter-only` | InMemory store、无 PG/outbox/跨进程 lease/真实 receipts；补 durable worker 与审计删除证明 |
 | AFE-4 / UI experience | 34 UI 语义图标、成就、多模态、跨端 | AFE / UI slice、Web `4b9a4b4` | 专项 5 passed、mobile `pnpm check` passed；Web clientFactory 26 passed/typecheck 0 | `PARTIAL` | mobile 全量 249 passed/1 skipped/5 failed；修 UI-02、registry/service contract 与四端视觉/无障碍/locale parity；生产 `DEV:false + VITE_EXPERIENCE_CLIENT=fake` 必须 fail-closed/强制 HTTP |
 | GROWTH / `VS-GROWTH-01` 主线 | `UI-03→UI-05→UI-09`：assessment signal→Perspective/Hypothesis draft→家庭确认→GrowthIntent/ActionTask→回读/ChallengeReview，横跨 canonical S01+S04+S05+S07 | growth owner / `b37b1b6`→`78fff77`→`520e2ed`→`e5f7c41`→`c60729b`（均在远端历史，仍非生产完成） | VS seam 11 passed/1 warning；本轮全 journey 75 passed/15 skipped（PG URL 未设）；architecture 109/1/1 | `CONTRACTED/PARTIAL (P0 业务主线)` | 路由未挂 `family_api`、`production_ready=False`；Hypothesis/Intent/Action/Review 未 durable；legacy audit/outbox 非 canonical、无 worker/restart/deletion/replay 真实证据；下一阶段必须接真实 FastAPI+Postgres+outbox+deletion/replay，且绑定家长确认一个问题/主结果 |
@@ -175,7 +175,7 @@ P0 任一任务没有真实 PostgreSQL 或 HTTP 证据，Sprint 保持 `NOT_DONE
 | 运营 Chat / 运营可观测性（只读回传） | S21/S24/O13 运营触达、S22/S23/O12/O14 运营服务与事故闭环 | 运营 Chat（未提供 commit/owner） | 79 passed/1 skipped/1 warning；唯一 skip 为真实 PG WORM；Onboarding 35/11 skipped | `PARTIAL/DESIGN_ONLY` | 主动欢迎/SLA/补救/回访、可信分享/组队、机构运营、发布/事故闭环均未实现；指派 owner，补真实 PG WORM、HTTP/租户/审计/删除/通知 worker 后再评估 |
 
 **总闸门（快照）**：architecture `109 passed/1 skipped/1 failed`（Ruff ratchet）、全量 Ruff
-`3 errors (1 E501 + 2 I001)`、Alembic unknown 0023、mobile `249/1/5`，因此当前测试候选只能在受控环境继续；
+`3 errors (1 E501 + 2 I001)`、Alembic Docker 真实 PG `test_full_chain_up_0016_down_and_rebuild` 1 failed/154s（0025→0026 revision 截断，0027/0029 同类；FULL_CHAIN 旧于 0024-0029）、mobile `249/1/5`，因此当前测试候选只能在受控环境继续；
 生产发布明确 `NO-GO`。旧远端快照 `bd59c91` 已过时；本计划证据快照基线为 `82f038c`，其后
 `7355ca5` 更新了本计划。`9eeb19a`（文档原子场景清单）、`b37b1b6`（`VS-GROWTH-01` slice）和 `e0c16d0`（场景计划）
 均在分支历史，但仍缺真实 PG/HTTP/构建/主线合入证据，不能写成生产完成；工作树仍有其它 Agent WIP，禁止将其一并推送。
