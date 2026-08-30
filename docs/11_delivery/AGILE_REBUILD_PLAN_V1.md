@@ -3,7 +3,7 @@ id: AGILE-REBUILD-PLAN-001
 title: Family 家庭需求平台敏捷重建计划
 type: delivery-plan
 status: current
-version: 0.4
+version: 0.5
 owner: chief-architect
 created: 2026-08-30
 updated: 2026-08-30
@@ -310,3 +310,59 @@ pnpm check                                  passed
   版本链的前提下改为不超过 32 字符并验证 0004→0006 全链路。
 - 未设置 `DATABASE_URL` 时 Alembic 会落到 SQLite，而基线包含 Postgres 专用 SQL；这不是可接受的
   测试降级，开发规范必须要求显式 Postgres URL 后再执行 migration。
+
+## 17. 外部审查整合与项目助理机制（2026-08-30）
+
+本节吸收 Manus 审查报告，但报告只作为待核验输入；当前代码、注册表、测试命令和运行日志
+才是交付判断依据。审查中指出的“代码存在”不得自动升级为“能力完成”，也不得因为当前处于
+测试环境而删除生产功能。开发、测试、生产必须共享同一 API、状态机、权限、同意、审计、删除、
+多模态和错误处理契约，只允许数据来源与外部适配器配置不同。
+
+### 17.1 已核验的本轮结果
+
+- **AFE-4 UI 体验重构：已交付**。服务列表不再渲染 `UI-19` 等内部编号；内部 ID 仅用于
+  registry 导航，用户看到语义图标、服务阶段、可暂停提示和轻量家庭成就。专项 Vitest 5
+  tests passed，`pnpm check` passed；仍需后续接入真实进度投影与多语言资源。
+- **ADOM-5 迁移链路：已验证切片**。`0005` revision 已收敛到不超过 32 字符，并新增真实
+  Postgres disposable database 的 0004→0005→0006 升级、降级和版本落库测试；0004 及后续
+  迁移仍需随其 owner 的 WIP 一并完成提交，不能只凭测试文件宣称全量 migration head 已完成。
+- **外部审查中的 P0 风险仍未关闭**：开发会话端点仍在应用工厂中无条件导入，默认环境仍可能
+  回落到 development；真实身份/同意/家庭绑定/持久化、OpenAPI 契约自动比对和分支保护仍是
+  发布前阻断项。报告中关于具体测试数量、旧目录和旧提交的历史数字不作为当前统计。
+
+### 17.2 项目助理（Project Assistant）职责
+
+新增专门的项目助理 Agent，作为 ARCH-1 的常驻质量与架构对齐角色，维护
+`docs/11_delivery/MANUS_REVIEW_INTEGRATION_V1.md` 与 `PROJECT_ASSISTANT_CHARTER_V1.md`。
+它每轮必须：
+
+1. 对照核心商业蓝图（家庭成长操作系统、增长/分发/服务/长期陪伴、FGCN 协作网络和
+   “We are 伐木累！We are family！”）核验新增能力是否有业务场景、分级流程节点、数据对象、
+   应用入口和 AI/人工闸门；
+2. 对照业务、流程、数据、应用、AI 技术五层架构，抽查代码路径、API/OpenAPI、迁移、测试和
+   注册表；不接受“页面能打开、fixture 有数据、模型能回答”作为完成证据；
+3. 每轮记录成功、拒绝、人工升级、重放、超时、删除、跨租户和三环境 parity 证据，并指出
+   新增债务；发现阻断项时提出纠偏任务，不能以文档覆盖代码缺口；
+4. 维护发布闸门：P0 安全/数据合规、P1 真实持久化与契约一致性、P2 体验/AI 增强。闸门未通过
+   时只允许发布到受控开发/测试环境，并明确 `PARTIAL`，不得对外宣称生产就绪；
+5. 与各 Agent 保持独占战场；项目助理可以直接修改自己负责的交付计划、审查和质量文档，
+   跨战场代码问题通过任务卡和验收证据转交 owner，不覆盖他人 WIP。
+
+### 17.3 外部审查转化的下一批任务
+
+| 编号 | 优先级 | 任务 | Owner | 完成证据 |
+|---|---|---|---|---|
+| PA-SEC-01 | P0 | 生产配置下隔离 dev auth；统一 `AIFAMILY_ENV`，空值/拼写错误 fail-closed | ARCH-1 + APLT | 生产 OpenAPI 不含 `/auth/account-session`；负向启动和 404 测试 |
+| PA-QUAL-01 | P0 | 清理/隔离并发 Ruff 债务，恢复 CI 绿灯和分支保护 | AQA-1 | `ruff check .` 清零；架构/全量测试为 required checks |
+| PA-DATA-01 | P1 | 真实 Identity、Tenant–Family、Consent store、Postgres UoW 与审计持久化 | APLT + ADOM | 真实数据库完成认证、同意撤回、跨家庭拒绝和审计查询 |
+| PA-API-01 | P1 | 从 FastAPI OpenAPI 生成并校验移动端 API 契约 | AAPI + AFE | CI 能检测动词、路径、参数、schema 和状态码漂移 |
+| PA-AI-01 | P1 | Context Broker → Principal → Human Gate → Named Action → Outbox 的可回放链路 | AAIR | 首个低风险场景仅产出 draft，人工确认后才写事实 |
+| PA-UX-01 | P1 | 将 AFE-4 的语义图标/成就反馈推广到其余服务与成长入口 | AFE | UI 不显示研发编号；多模态、暂停、拒绝、删除和无障碍测试齐全 |
+| PA-OPS-01 | P2 | 明确 Node/Express/tRPC 模板层边界并补 SPDX/素材权属说明 | ARCH-1 + GOV | ADR、构建排除证明、许可证和第三方清单齐全 |
+
+### 17.4 两周滚动节奏
+
+每个 Sprint 开始由项目助理出具“架构对齐清单”，中途检查一次阻断项，结束时发布一页
+“事实复盘”：代码/迁移/测试/运行证据、已关闭债务、未关闭债务、下一轮任务和可发布环境。
+任何新任务必须挂接到商业目标 → 场景 → 分级流程 → 数据 → 应用 → AI/人工控制 → UI/运营
+入口 → 验收测试链；缺链的任务只能进入设计 backlog。

@@ -3,10 +3,10 @@ id: DELIVERY-ROSTER-001
 title: AiFamily Agent 团队花名册
 type: delivery
 status: current
-version: 1.0
+version: 1.1
 owner: project-manager
 created: 2026-08-29
-updated: 2026-08-29
+updated: 2026-08-30
 canonical: true
 supersedes: null
 superseded_by: null
@@ -37,6 +37,7 @@ A<角色码>-<序号>
 | **APLT-1** | 平台内核 | T-14 修复平台内核四缺陷 | `backend/platform/` `tests/platform/` | 🔄 在途 |
 | **AGOV-1** | 治理 | 移植 vs 自研分类台账 | `docs/11_delivery/PORT_VS_BUILD_LEDGER.md` | 🔄 在途 |
 | **AQA-1** | 质量守护 | 修 CI 红（398 ruff）+ 建防复发机制 | `.github/workflows/` `pyproject.toml` + lint 清理 | 🔄 在途 |
+| **PMA-1** | 项目助理 | 持续进度/质量检查、五层架构对齐、外部审查整合、纠偏与发布闸门 | `docs/11_delivery/MANUS_REVIEW_INTEGRATION_V1.md`、`PROJECT_ASSISTANT_CHARTER_V1.md` | 🔄 常驻 |
 
 ### 7.1 Sprint 2 并行派工（2026-08-30）
 
