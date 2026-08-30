@@ -190,6 +190,32 @@ def test_competitor_route_persists_draft_with_tenant_scope(repo, human_context) 
     assert tenant_scope == "tenant-a"
     assert created_by == "human:pm"
 
+    read = _client(repo, human_context).get(
+        f"/product-intelligence/product-factory/competitor-evidence/{body['evidence_id']}"
+    )
+    assert read.status_code == 200
+    assert read.json()["claim"] == "公开资料显示其提供提醒功能"
+
+
+def test_competitor_read_is_tenant_scoped(repo, human_context) -> None:
+    create = _client(repo, human_context).post(
+        "/product-intelligence/product-factory/competitor-evidence",
+        json=_payload(
+            competitor_ref="competitor:example",
+            claim="租户隔离证据",
+            source_refs=["source:public:one"],
+            demand_ref="demand:one",
+        ),
+    )
+    evidence_id = create.json()["evidence_id"]
+    other_context = ActorContext(
+        actor_id="human:other", actor_type="HUMAN", tenant_scope="tenant-b"
+    )
+    read = _client(repo, other_context).get(
+        f"/product-intelligence/product-factory/competitor-evidence/{evidence_id}"
+    )
+    assert read.status_code == 404
+
 
 def test_competitor_route_fails_closed_without_repository_saver(human_context) -> None:
     class RepositoryWithoutCompetitorSaver:

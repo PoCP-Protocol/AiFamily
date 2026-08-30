@@ -248,6 +248,29 @@ async def create_competitor_evidence(
     return _competitor_response(card)
 
 
+@router.get(
+    "/competitor-evidence/{evidence_id}",
+    response_model=CompetitorEvidenceCardResponse,
+    status_code=200,
+)
+async def get_competitor_evidence(
+    evidence_id: str,
+    repo: ProductIntelligenceRepositoryPort = Depends(get_repository),
+    context: ActorContext = Depends(get_actor_context),
+) -> CompetitorEvidenceCardResponse:
+    loader = getattr(repo, "load_competitor_evidence", None)
+    if loader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="competitor_evidence_persistence_not_configured",
+        )
+    try:
+        card = await loader(evidence_id, context.tenant_scope)
+    except ProductIntelligenceDomainError as exc:
+        _raise_domain_http(exc)
+    return _competitor_response(card)
+
+
 @router.post(
     "/product-packages",
     response_model=ProductPackageDraftResponse,

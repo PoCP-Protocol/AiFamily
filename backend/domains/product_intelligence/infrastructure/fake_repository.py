@@ -85,6 +85,12 @@ class FakeProductIntelligenceRepository:
             created_by,
         )
 
+    async def load_competitor_evidence(self, entity_id: str, tenant_scope: str) -> object:
+        stored = self._competitor_evidence.get(entity_id)
+        if stored is None or stored[1] != tenant_scope:
+            raise ProductIntelligenceNotFoundError("competitor_evidence_not_found")
+        return stored[0]
+
     async def save_customer_insight(self, entity: CustomerInsight) -> None:
         self._customer_insights[entity.id] = entity
 

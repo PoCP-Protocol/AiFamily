@@ -45,3 +45,9 @@ async def test_sqlalchemy_repository_persists_scoped_competitor_draft(sqlalchemy
     assert row.created_by == "human:reviewer"
     assert row.evidence_status == "UNKNOWN"
     assert row.source_refs == ["source:public:one"]
+
+    loaded = await sqlalchemy_repo.load_competitor_evidence(
+        card.evidence_id, "tenant-a"
+    )
+    assert loaded.claim == card.claim
+    assert loaded.status == "DRAFT"
