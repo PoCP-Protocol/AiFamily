@@ -348,6 +348,18 @@ entries:
     tests: [tests/domains/assessment/test_acceptance_chain.py, tests/apps/family_api/test_assessment_routes.py]
     known_gaps: ["内存 repository，仅供 dev/test；尚未接入 SQLAlchemy/PostgreSQL", "确定性 Hypothesis 生成器尚未接入 Model Gateway"]
 
+  - capability: growth_intent_confirmation
+    canonical_path: backend/domains/growth
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "database/baseline/0020_growth_orchestration_v1.sql + 0044_ui03_growth_hypothesis_confirmation.sql"
+    scope: >
+      GrowthIntent canonical confirmation：消费 Assessment 已验证的 reviewed binding，
+      在 caller-owned AsyncSession 内幂等写入 OPEN intent、canonical Audit、Outbox 与 receipt。
+      不拥有 Assessment/Human Gate/Consent ledger，不创建 Outcome、计划、任务或诊断。
+    tests: [tests/domains/growth/test_growth_intent_confirmation_postgres.py]
+    known_gaps: ["尚未接入 production composition/main", "Outbox worker/DLQ 属 Platform 后续能力"]
+
   - capability: orchestration_core
     canonical_path: backend/platform/orchestration
     status: NOT_STARTED

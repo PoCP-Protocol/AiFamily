@@ -448,6 +448,14 @@ entries:
     evidence: ["Batch 1 UI-02 -> UI-03 首批可运行闭环；只产 Hypothesis，确认后产 GrowthIntent，不计算 score/ranking/diagnosis"]
     note: "当前为显式非生产、进程内 dev/test 实现；repository port 为后续 SQLAlchemy 替换 seam。"
 
+  - capability: growth_intent_confirmation
+    disposition: REIMPLEMENT
+    source: ["database/baseline/0020_growth_orchestration_v1.sql", "database/baseline/0044_ui03_growth_hypothesis_confirmation.sql"]
+    target: [backend/domains/growth]
+    status: MIGRATED_TESTED
+    evidence: ["Assessment validated binding -> same-session GrowthIntent + Audit + Outbox + idempotency receipt；真实 PostgreSQL 正反测试，不复制 Consent/Human Gate ledger"]
+    known_gaps: ["尚未接入 production composition/main", "worker/retry/DLQ/retention 不在本 capability 范围"]
+
   - capability: model_provider_assessment
     disposition: REVIEW_REQUIRED
     source: ["50_开发_dev/apps/api/src/modules/model/family-assessment-model.provider.ts"]
