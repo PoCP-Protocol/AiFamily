@@ -41,9 +41,10 @@ export function LiveDetailPage({ record, onBack }: Props) {
         <span className="live-status-badge">{getSessionLabel(record.status)}</span>
       </div>
 
-      <section className="live-video-container" aria-labelledby="live-video-heading" data-playback-state={surfaceState}>
-        {canRenderVideo ? (
-          <div className="live-video-frame live-video-authorized">
+      <div className="live-watch-layout">
+        <section className="live-video-container" aria-labelledby="live-video-heading" data-playback-state={surfaceState}>
+          {canRenderVideo ? (
+            <div className="live-video-frame live-video-authorized">
             <h4 id="live-video-heading" className="visually-hidden">视频播放区域</h4>
             <video
               aria-label="小橘灯合成视频播放区域"
@@ -77,9 +78,9 @@ export function LiveDetailPage({ record, onBack }: Props) {
               <span className="live-video-state">{getPlaybackLabel(surfaceState)}</span>
               <p>{playbackMessage}</p>
             </div>
-          </div>
-        ) : (
-          <div className="live-video-frame" role="status">
+            </div>
+          ) : (
+            <div className="live-video-frame" role="status">
             <span className="live-video-placeholder-icon" aria-hidden="true">▶</span>
             <h4 id="live-video-heading">
               {surfaceState === "WAITING_AUTHORIZATION" ? "视频暂不可用" : playbackMessage}
@@ -92,9 +93,38 @@ export function LiveDetailPage({ record, onBack }: Props) {
                 重新连接
               </button>
             ) : null}
+            </div>
+          )}
+        </section>
+
+        <aside className="live-room-rail" aria-label="直播间信息">
+          <div className="live-room-host">
+            <span className="live-room-avatar" aria-hidden="true">小</span>
+            <div>
+              <strong>{record.speaker}</strong>
+              <span>家庭沟通专家</span>
+            </div>
+            <span className="live-room-on-air">直播中</span>
           </div>
-        )}
-      </section>
+          <div className="live-room-topic">
+            <span>正在讲</span>
+            <strong>先听懂，再回应</strong>
+            <p>把冲突拆成一个今天就能练习的小动作。</p>
+          </div>
+          <div className="live-room-chat" aria-label="Sandbox 直播讨论预览">
+            <div className="live-room-chat-heading">
+              <strong>直播讨论</strong>
+              <span>演示</span>
+            </div>
+            <p><b>主持人</b> 欢迎来到小橘灯直播间</p>
+            <p><b>小橘灯老师</b> 今天只练习一个方法</p>
+          </div>
+          <div className="live-room-composer" aria-label="互动能力状态">
+            <span>互动能力尚未接入</span>
+            <button type="button" disabled>发送</button>
+          </div>
+        </aside>
+      </div>
 
       <div className="live-detail-content">
         <section className="live-value-panel" aria-labelledby="live-value-heading">

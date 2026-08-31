@@ -541,3 +541,138 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
   .live-service-next-step { align-items: start; grid-template-columns: 1fr; }
   .live-service-detail { grid-column: 1; }
 }
+
+/* Xiao Ju Deng V2: an immersive watch room, not a documentation page. */
+.live-watch-layout {
+  background: #160b07;
+  border-radius: 24px;
+  box-shadow: 0 24px 70px rgb(28 8 2 / 22%);
+  display: grid;
+  gap: 0;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  min-height: 560px;
+  overflow: hidden;
+}
+.live-watch-layout .live-video-container {
+  align-self: stretch;
+  background: #090504;
+  border-radius: 0;
+  box-shadow: none;
+  height: 100%;
+  margin: 0;
+}
+.live-watch-layout .live-video-frame {
+  border-radius: 0;
+  height: 100%;
+  min-height: 560px;
+}
+.live-watch-layout .live-video-authorized {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+.live-watch-layout .live-video-authorized video {
+  height: 100%;
+  min-height: 0;
+  object-fit: contain;
+  width: 100%;
+}
+.live-room-rail {
+  background: linear-gradient(180deg, #2a130c, #170b07);
+  color: #fff7ed;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 20px;
+}
+.live-room-host {
+  align-items: center;
+  border-bottom: 1px solid rgb(255 237 213 / 12%);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding-bottom: 18px;
+}
+.live-room-host > div { display: grid; gap: 3px; }
+.live-room-host strong { font-size: 0.9rem; }
+.live-room-host span:not(.live-room-avatar, .live-room-on-air) { color: #fdba74; font-size: 0.72rem; }
+.live-room-avatar {
+  align-items: center;
+  background: linear-gradient(145deg, #fb923c, #c2410c);
+  border: 2px solid rgb(255 255 255 / 26%);
+  border-radius: 50%;
+  display: flex;
+  font-size: 0.78rem;
+  font-weight: 900;
+  height: 38px;
+  justify-content: center;
+  width: 38px;
+}
+.live-room-on-air {
+  background: #f97316;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 850;
+  padding: 5px 8px;
+}
+.live-room-topic {
+  background: rgb(255 247 237 / 7%);
+  border: 1px solid rgb(255 237 213 / 10%);
+  border-radius: 16px;
+  display: grid;
+  gap: 7px;
+  margin-top: 18px;
+  padding: 16px;
+}
+.live-room-topic > span { color: #fb923c; font-size: 0.68rem; font-weight: 850; }
+.live-room-topic strong { font-size: 1.02rem; }
+.live-room-topic p { color: #fed7aa; font-size: 0.76rem; line-height: 1.5; margin: 0; }
+.live-room-chat { display: grid; gap: 12px; margin-top: 22px; }
+.live-room-chat-heading { align-items: center; display: flex; justify-content: space-between; }
+.live-room-chat-heading strong { font-size: 0.82rem; }
+.live-room-chat-heading span {
+  background: rgb(251 146 60 / 16%);
+  border-radius: 999px;
+  color: #fdba74;
+  font-size: 0.62rem;
+  padding: 4px 7px;
+}
+.live-room-chat p { color: #ffedd5; font-size: 0.74rem; line-height: 1.45; margin: 0; }
+.live-room-chat b { color: #fb923c; font-weight: 800; }
+.live-room-composer {
+  align-items: center;
+  background: rgb(255 255 255 / 7%);
+  border: 1px solid rgb(255 237 213 / 10%);
+  border-radius: 999px;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  margin-top: auto;
+  padding: 6px 6px 6px 14px;
+}
+.live-room-composer span { color: #fdba74; font-size: 0.68rem; }
+.live-room-composer button {
+  background: #f97316;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 8px 12px;
+}
+.live-detail-content { margin-top: 20px; }
+
+@media (max-width: 900px) {
+  .live-watch-layout { grid-template-columns: 1fr; }
+  .live-room-rail { min-height: 280px; }
+  .live-watch-layout .live-video-frame { min-height: min(60vw, 480px); }
+}
+
+@media (max-width: 620px) {
+  .live-detail-header h3 { font-size: 1.45rem; }
+  .live-watch-layout { border-radius: 16px; min-height: 0; }
+  .live-watch-layout .live-video-frame { min-height: 230px; }
+  .live-room-rail { min-height: 260px; padding: 16px; }
+  .live-room-topic { margin-top: 14px; }
+  .live-room-chat { margin-top: 16px; }
+}

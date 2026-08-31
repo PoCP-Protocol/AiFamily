@@ -74,6 +74,9 @@ describe("Xiao Ju Deng live product surface", () => {
     expect(video?.getAttribute("preload")).toBe("none");
     expect(video?.hasAttribute("autoplay")).toBe(false);
     expect(screen.getByText("可以播放")).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "直播间信息" })).toBeInTheDocument();
+    expect(screen.getByText("直播讨论")).toBeInTheDocument();
+    expect(screen.getByText("互动能力尚未接入")).toBeInTheDocument();
     expect(screen.queryByText("LIVE")).not.toBeInTheDocument();
   });
 
