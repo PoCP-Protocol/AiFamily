@@ -99,16 +99,52 @@ class SqlViewedSignalsStub:
 
 
 class GrowthIntentsStub:
+    """Test-only stand-in for the external Growth owner in one DB transaction."""
+
+    def __init__(self, connection, *, fail_after_insert: bool = False) -> None:
+        self.connection = connection
+        self.fail_after_insert = fail_after_insert
+
     async def confirm_growth_intent(
         self, command: ConfirmGrowthIntentInput
     ) -> GrowthIntentReceipt:
-        return GrowthIntentReceipt(
-            intent_id=str(
-                uuid.uuid5(
-                    uuid.NAMESPACE_URL,
-                    f"growth-intent:{command.family_id}:{command.signal_ref}",
+        intent_id = str(
+            uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"growth-intent:{command.family_id}:{command.signal_ref}",
+            )
+        )
+        await self.connection.execute(
+            text(
+                """
+                insert into growth_intents(
+                    intent_id,family_id,subject_person_id,signal_ref,need_type,goal_text,
+                    required_capability_keys,status,confirmed_by,source_type,source_ref,
+                    evidence_refs,boundary
+                ) values (
+                    :intent_id,:family_id,:subject_person_id,null,:need_type,:goal_text,
+                    :required_capability_keys,'OPEN',:confirmed_by,'ASSESSMENT_HYPOTHESIS',
+                    :source_ref,:evidence_refs,'HUMAN_CONFIRMED_INTENT_NOT_OUTCOME'
                 )
+                on conflict (intent_id) do nothing
+                """
             ),
+            {
+                "intent_id": intent_id,
+                "family_id": command.family_id,
+                "subject_person_id": command.subject_person_id,
+                "need_type": command.need_type,
+                "goal_text": command.goal_text,
+                "required_capability_keys": list(command.required_capability_keys),
+                "confirmed_by": command.actor_id,
+                "source_ref": command.signal_ref,
+                "evidence_refs": list(command.evidence_refs),
+            },
+        )
+        if self.fail_after_insert:
+            raise RuntimeError("synthetic growth failure after insert")
+        return GrowthIntentReceipt(
+            intent_id=intent_id,
             signal_ref=command.signal_ref,
             signal_version=command.signal_version,
             scope_ref=command.scope_ref,
@@ -277,9 +313,6 @@ class TestSqlAlchemyRepositoryRealPostgres:
         repo = SqlAlchemyAssessmentRepository(connection)
         commands = AssessmentCommandHandler(repo)
         queries = AssessmentQueryHandler(repo, DeterministicInterpretationAdapter())
-        growth_commands = GrowthHypothesisCommandHandler(
-            repo, SqlViewedSignalsStub(repo, guardian_id), GrowthIntentsStub()
-        )
 
         start = await commands.start(
             StartAssessmentCommand(family_id, tenant_id, guardian_id, child_id, None, _meta("g1"))
@@ -306,6 +339,56 @@ class TestSqlAlchemyRepositoryRealPostgres:
         )
         assert projection["availability"] == "READY"
         hypothesis_ref = projection["hypothesis"]["hypothesis_ref"]
+
+        failed_command = DecideGrowthHypothesisCommand(
+            family_id,
+            tenant_id,
+            guardian_id,
+            session_id,
+            hypothesis_ref,
+            "CONFIRM",
+            "corr-int-fail",
+            "decide-real-fail",
+            scope_ref=f"family://{tenant_id}/{family_id}/assessment",
+            signal_version=2,
+            reviewed_draft_ref="draft-real-1",
+            draft_version=1,
+            provenance_ref="provenance-real-1",
+            human_gate_receipt_ref="human-gate-real-1",
+        )
+        failed_intent_id = str(
+            uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"growth-intent:{family_id}:{hypothesis_ref}",
+            )
+        )
+        savepoint = await connection.begin_nested()
+        failing_growth_commands = GrowthHypothesisCommandHandler(
+            repo,
+            SqlViewedSignalsStub(repo, guardian_id),
+            GrowthIntentsStub(connection, fail_after_insert=True),
+        )
+        with pytest.raises(RuntimeError, match="synthetic growth failure after insert"):
+            await failing_growth_commands.decide(failed_command)
+        await savepoint.rollback()
+
+        intent_count = await connection.scalar(
+            text("select count(*) from growth_intents where intent_id=:intent_id"),
+            {"intent_id": failed_intent_id},
+        )
+        decision_count = await connection.scalar(
+            text(
+                "select count(*) from family_growth_hypothesis_decisions "
+                "where idempotency_key=:idempotency_key"
+            ),
+            {"idempotency_key": failed_command.idempotency_key},
+        )
+        assert intent_count == 0
+        assert decision_count == 0
+
+        growth_commands = GrowthHypothesisCommandHandler(
+            repo, SqlViewedSignalsStub(repo, guardian_id), GrowthIntentsStub(connection)
+        )
 
         receipt = await growth_commands.decide(
             DecideGrowthHypothesisCommand(
