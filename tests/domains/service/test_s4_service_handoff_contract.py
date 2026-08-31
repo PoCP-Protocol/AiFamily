@@ -13,26 +13,22 @@ is not a family feedback aggregate or a remedy decision.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import pytest
 
 from backend.domains.service.application import commands
-from backend.domains.service.domain.errors import ServiceConflictError, ServiceForbiddenError
+from backend.domains.service.application.handoff import (
+    HumanHelpHandoffReceipt,
+    submit_confirmed_human_help,
+)
+from backend.domains.service.domain.errors import (
+    ServiceConflictError,
+    ServiceForbiddenError,
+    ServiceValidationError,
+)
 
 from .helpers import CHILD, CONSENT_REF, FAMILY, granted, make_ctx, seed_supply
 
 pytestmark = pytest.mark.asyncio
-
-
-@dataclass(frozen=True)
-class ConfirmedNeedReceipt:
-    """Temporary consumer-side shape; not a new canonical business object."""
-
-    receipt_ref: str
-    tenant_id: str
-    family_id: str
-    decision: str
 
 
 async def _request_human_help(
@@ -40,33 +36,26 @@ async def _request_human_help(
     consent,
     recorder,
     *,
-    receipt: ConfirmedNeedReceipt,
+    receipt: HumanHelpHandoffReceipt,
     offering_id: str,
     slot_id: str,
 ):
-    """Fail closed before delegating to the canonical booking command."""
-
+    """Call the production handoff seam with the test's canonical context."""
     ctx = make_ctx(idempotency_key=f"s4:{receipt.receipt_ref}")
-    if receipt.tenant_id != ctx.tenant_id or receipt.family_id != ctx.family_id:
-        raise ServiceForbiddenError("confirmed_need_scope_mismatch")
-    if receipt.decision != "HUMAN_HELP_CONFIRMED":
-        raise ServiceForbiddenError("human_help_not_confirmed")
-
-    return await commands.submit_booking_request(
+    return await submit_confirmed_human_help(
         repo,
         ctx,
         recorder,
         consent,
+        receipt=receipt,
         service_offering_id=offering_id,
         availability_slot_id=slot_id,
-        booking_ref=receipt.receipt_ref,
-        source_page_id="UI-21",
         subject_person_id=CHILD,
         consent_ref=CONSENT_REF,
     )
 
 
-def _confirmed_receipt(**overrides) -> ConfirmedNeedReceipt:
+def _confirmed_receipt(**overrides) -> HumanHelpHandoffReceipt:
     values = {
         "receipt_ref": "need-confirmation-001",
         "tenant_id": "tenant-001",
@@ -74,7 +63,7 @@ def _confirmed_receipt(**overrides) -> ConfirmedNeedReceipt:
         "decision": "HUMAN_HELP_CONFIRMED",
     }
     values.update(overrides)
-    return ConfirmedNeedReceipt(**values)
+    return HumanHelpHandoffReceipt(**values)
 
 
 async def test_confirmed_need_enters_canonical_booking_and_delivery(repo, consent, recorder):
@@ -139,6 +128,23 @@ async def test_unconfirmed_or_out_of_scope_need_creates_no_booking(
     assert await repo.list_bookings("tenant-001", FAMILY) == []
     unchanged = await repo.load_slot(slot.availability_slot_id)
     assert (unchanged.reserved_count, unchanged.status) == (0, "AVAILABLE")
+
+
+async def test_blank_receipt_reference_fails_before_booking(repo, consent, recorder):
+    consent.add(granted())
+    _provider, offering, slot = await seed_supply(repo, recorder=recorder)
+
+    with pytest.raises(ServiceValidationError, match="human_help_receipt_ref_required"):
+        await _request_human_help(
+            repo,
+            consent,
+            recorder,
+            receipt=_confirmed_receipt(receipt_ref="  "),
+            offering_id=offering.service_offering_id,
+            slot_id=slot.availability_slot_id,
+        )
+
+    assert await repo.list_bookings("tenant-001", FAMILY) == []
 
 
 async def test_cancelled_handoff_releases_capacity_and_cannot_be_delivered(
