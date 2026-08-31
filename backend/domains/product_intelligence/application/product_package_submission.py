@@ -1,0 +1,364 @@
+"""Persist one immutable ProductPackage DRAFT and open its Human Gate proposal."""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
+from hashlib import sha256
+from typing import Protocol
+from uuid import NAMESPACE_URL, uuid5
+
+from backend.intelligence.human_gate.contracts import (
+    ActionProposal,
+    ActorType,
+    GateScope,
+    HumanTask,
+)
+
+from ..domain.entities import ProductConcept
+from ..domain.product_package_draft import (
+    ProductPackageDraftContent,
+    ProductPackageDraftVersion,
+    product_package_content_hash,
+)
+from ..domain.zone_entities import ProductZoneAssessment
+from .context import ActorContext
+from .product_definition_adoption import (
+    ADOPT_PRODUCT_DEFINITION_ACTION,
+    ADOPTION_PURPOSE,
+    ProductDefinitionAdoptionArguments,
+)
+
+PRODUCT_PACKAGE_SUBMIT_PERMISSION = "product_intelligence.product_package.submit"
+PRODUCT_PACKAGE_PROCESSING_BASIS = "processing-basis:internal-product-design:v1"
+
+
+class ProductPackageSubmissionError(Exception):
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+class ProductPackageSubmissionForbiddenError(ProductPackageSubmissionError):
+    pass
+
+
+class ProductPackageSubmissionConflictError(ProductPackageSubmissionError):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class ProductPackageSubmissionInput:
+    concept_id: str
+    zone_assessment_id: str
+    upstream_decision_draft_ref: str
+    product_kind: str
+    duration_days: int
+    primary_contradiction: str
+    demand_ref: str
+    market_insight_refs: tuple[str, ...]
+    competitor_evidence_refs: tuple[str, ...]
+    component_ids: tuple[str, ...]
+    skill_ids: tuple[str, ...]
+    success_metric_ids: tuple[str, ...]
+    guardrail_ids: tuple[str, ...]
+    stop_conditions: tuple[str, ...]
+    pause_policy: str
+    human_gate_policy: str
+    evidence_refs: tuple[str, ...]
+    evidence_statuses: Mapping[str, str]
+    assumptions: tuple[str, ...]
+    unknowns: tuple[str, ...]
+    next_validation: str
+    expires_at: datetime
+    source_provenance_ref: str
+    model_ref: str
+    prompt_use_case_version: str
+    confidence: float
+
+
+@dataclass(frozen=True, slots=True)
+class ProductPackageSubmissionResult:
+    draft: ProductPackageDraftVersion
+    task: HumanTask
+    replayed: bool = False
+
+
+class ProductPackageSubmissionRepository(Protocol):
+    async def find_replay(
+        self,
+        *,
+        tenant_scope: str,
+        actor_id: str,
+        idempotency_key: str,
+        request_hash: str,
+    ) -> ProductPackageSubmissionResult | None: ...
+
+    async def load_product_concept(self, entity_id: str, tenant_scope: str) -> ProductConcept: ...
+
+    async def load_zone_assessment(
+        self, entity_id: str, tenant_scope: str
+    ) -> ProductZoneAssessment: ...
+
+    async def persist_submission(
+        self,
+        *,
+        draft: ProductPackageDraftVersion,
+        proposal: ActionProposal,
+        task_id: str,
+        actor_id: str,
+        idempotency_key: str,
+        request_hash: str,
+    ) -> ProductPackageSubmissionResult: ...
+
+
+def _required_text(value: str, code: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ProductPackageSubmissionError(code)
+    return value.strip()
+
+
+def _bounded_text(value: str, code: str, maximum: int) -> str:
+    normalized = _required_text(value, code)
+    if len(normalized) > maximum:
+        raise ProductPackageSubmissionError(f"{code}_TOO_LONG")
+    return normalized
+
+
+def _refs(values: tuple[str, ...], code: str) -> tuple[str, ...]:
+    normalized = tuple(_required_text(value, code) for value in values)
+    if not normalized:
+        raise ProductPackageSubmissionError(code)
+    if len(set(normalized)) != len(normalized):
+        raise ProductPackageSubmissionError(f"{code}_MUST_BE_UNIQUE")
+    return normalized
+
+
+def _canonical_hash(value: object) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=lambda item: item.isoformat() if isinstance(item, datetime) else str(item),
+    ).encode("utf-8")
+    return sha256(encoded).hexdigest()
+
+
+def _request_payload(source: ProductPackageSubmissionInput) -> dict[str, object]:
+    return {
+        "concept_id": source.concept_id,
+        "zone_assessment_id": source.zone_assessment_id,
+        "upstream_decision_draft_ref": source.upstream_decision_draft_ref,
+        "product_kind": source.product_kind,
+        "duration_days": source.duration_days,
+        "primary_contradiction": source.primary_contradiction,
+        "demand_ref": source.demand_ref,
+        "market_insight_refs": source.market_insight_refs,
+        "competitor_evidence_refs": source.competitor_evidence_refs,
+        "component_ids": source.component_ids,
+        "skill_ids": source.skill_ids,
+        "success_metric_ids": source.success_metric_ids,
+        "guardrail_ids": source.guardrail_ids,
+        "stop_conditions": source.stop_conditions,
+        "pause_policy": source.pause_policy,
+        "human_gate_policy": source.human_gate_policy,
+        "evidence_refs": source.evidence_refs,
+        "evidence_statuses": dict(source.evidence_statuses),
+        "assumptions": source.assumptions,
+        "unknowns": source.unknowns,
+        "next_validation": source.next_validation,
+        "expires_at": source.expires_at,
+        "source_provenance_ref": source.source_provenance_ref,
+        "model_ref": source.model_ref,
+        "prompt_use_case_version": source.prompt_use_case_version,
+        "confidence": source.confidence,
+    }
+
+
+def _stable_id(kind: str, tenant_scope: str, actor_id: str, idempotency_key: str) -> str:
+    seed = json.dumps(
+        [tenant_scope, actor_id, idempotency_key],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return f"{kind}:{uuid5(NAMESPACE_URL, seed)}"
+
+
+def _authorize(context: ActorContext) -> None:
+    if (
+        context.actor_type not in {"HUMAN", "AI"}
+        or PRODUCT_PACKAGE_SUBMIT_PERMISSION not in context.permissions
+    ):
+        raise ProductPackageSubmissionForbiddenError("product_package_submit_permission_required")
+
+
+async def submit_product_package_draft(
+    repo: ProductPackageSubmissionRepository,
+    context: ActorContext,
+    source: ProductPackageSubmissionInput,
+    *,
+    idempotency_key: str,
+    now: datetime | None = None,
+) -> ProductPackageSubmissionResult:
+    """Freeze the server-resolved design and atomically open an OPEN proposal."""
+
+    _authorize(context)
+    tenant_scope = _bounded_text(context.tenant_scope, "TENANT_SCOPE_REQUIRED", 128)
+    actor_id = _bounded_text(context.actor_id, "ACTOR_ID_REQUIRED", 128)
+    key = _bounded_text(idempotency_key, "IDEMPOTENCY_KEY_REQUIRED", 256)
+    request_hash = _canonical_hash(_request_payload(source))
+    replay = await repo.find_replay(
+        tenant_scope=tenant_scope,
+        actor_id=actor_id,
+        idempotency_key=key,
+        request_hash=request_hash,
+    )
+    if replay is not None:
+        return replace(replay, replayed=True)
+
+    created_at = now or datetime.now(UTC)
+    if created_at.tzinfo is None or created_at.utcoffset() is None:
+        raise ProductPackageSubmissionError("CREATED_AT_MUST_BE_TIMEZONE_AWARE")
+    if source.expires_at.tzinfo is None or source.expires_at.utcoffset() is None:
+        raise ProductPackageSubmissionError("EXPIRES_AT_MUST_BE_TIMEZONE_AWARE")
+    if source.expires_at <= created_at:
+        raise ProductPackageSubmissionError("PRODUCT_PACKAGE_DRAFT_EXPIRED")
+
+    concept = await repo.load_product_concept(source.concept_id, tenant_scope)
+    assessment = await repo.load_zone_assessment(source.zone_assessment_id, tenant_scope)
+    if assessment.status != "APPROVED" or assessment.approved_zone is None:
+        raise ProductPackageSubmissionError("APPROVED_ZONE_ASSESSMENT_REQUIRED")
+    if assessment.subject_ref != concept.id:
+        raise ProductPackageSubmissionError("ZONE_ASSESSMENT_CONCEPT_MISMATCH")
+
+    evidence_refs = _refs(source.evidence_refs, "EVIDENCE_REFS_REQUIRED")
+    evidence_statuses = {
+        _required_text(ref, "EVIDENCE_REF_INVALID"): _required_text(
+            status, "EVIDENCE_STATUS_INVALID"
+        ).upper()
+        for ref, status in source.evidence_statuses.items()
+    }
+    if set(evidence_statuses) != set(evidence_refs):
+        raise ProductPackageSubmissionError("EVIDENCE_STATUSES_MUST_MATCH_REFS")
+    if any(status != "VERIFIED" for status in evidence_statuses.values()):
+        raise ProductPackageSubmissionError("EVIDENCE_MUST_BE_VERIFIED")
+
+    draft_id = _stable_id("product-package-draft", tenant_scope, actor_id, key)
+    version_id = _stable_id("product-package-version", tenant_scope, actor_id, key)
+    proposal_id = _stable_id("proposal", tenant_scope, actor_id, key)
+    task_id = _stable_id("human-task", tenant_scope, actor_id, key)
+    content = ProductPackageDraftContent(
+        draft_id=draft_id,
+        version_id=version_id,
+        tenant_scope=tenant_scope,
+        authored_by=actor_id,
+        author_type=context.actor_type,
+        created_at=created_at,
+        expires_at=source.expires_at,
+        concept_id=concept.id,
+        zone_assessment_id=assessment.id,
+        zone_assessment_version=assessment.version,
+        zone_policy_version_id=assessment.zone_policy_version_id,
+        approved_zone=assessment.approved_zone,
+        upstream_decision_draft_ref=_required_text(
+            source.upstream_decision_draft_ref, "UPSTREAM_DECISION_DRAFT_REF_REQUIRED"
+        ),
+        product_kind=source.product_kind,
+        duration_days=source.duration_days,
+        primary_contradiction=source.primary_contradiction,
+        demand_ref=source.demand_ref,
+        market_insight_refs=_refs(source.market_insight_refs, "MARKET_INSIGHT_REFS_REQUIRED"),
+        competitor_evidence_refs=_refs(
+            source.competitor_evidence_refs, "COMPETITOR_EVIDENCE_REFS_REQUIRED"
+        ),
+        component_ids=_refs(source.component_ids, "COMPONENT_IDS_REQUIRED"),
+        skill_ids=_refs(source.skill_ids, "SKILL_IDS_REQUIRED"),
+        success_metric_ids=_refs(source.success_metric_ids, "SUCCESS_METRIC_IDS_REQUIRED"),
+        guardrail_ids=_refs(source.guardrail_ids, "GUARDRAIL_IDS_REQUIRED"),
+        stop_conditions=_refs(source.stop_conditions, "STOP_CONDITIONS_REQUIRED"),
+        pause_policy=source.pause_policy,
+        human_gate_policy=source.human_gate_policy,
+        evidence_refs=evidence_refs,
+        evidence_statuses=tuple(
+            {"evidence_ref": ref, "status": evidence_statuses[ref]}
+            for ref in sorted(evidence_statuses)
+        ),
+        assumptions=_refs(source.assumptions, "ASSUMPTIONS_REQUIRED"),
+        unknowns=_refs(source.unknowns, "UNKNOWNS_REQUIRED"),
+        next_validation=source.next_validation,
+        source_provenance_ref=source.source_provenance_ref,
+        model_ref=source.model_ref,
+        prompt_use_case_version=source.prompt_use_case_version,
+        confidence=source.confidence,
+    )
+    draft = ProductPackageDraftVersion(
+        **content.model_dump(mode="python"),
+        content_hash=product_package_content_hash(content),
+    )
+    action_arguments = ProductDefinitionAdoptionArguments.model_validate(
+        {
+            "concept_id": draft.concept_id,
+            "zone_assessment_id": draft.zone_assessment_id,
+            "source_decision_draft_ref": draft.draft_id,
+            "product_kind": draft.product_kind,
+            "duration_days": draft.duration_days,
+            "primary_contradiction": draft.primary_contradiction,
+            "demand_ref": draft.demand_ref,
+            "market_insight_refs": draft.market_insight_refs,
+            "component_ids": draft.component_ids,
+            "skill_ids": draft.skill_ids,
+            "success_metric_ids": draft.success_metric_ids,
+            "guardrail_ids": draft.guardrail_ids,
+            "stop_conditions": draft.stop_conditions,
+            "pause_policy": draft.pause_policy,
+            "human_gate_policy": draft.human_gate_policy,
+        }
+    )
+    proposal = ActionProposal(
+        proposal_id=proposal_id,
+        draft_id=draft.draft_id,
+        draft_status="DRAFT",
+        action_name=ADOPT_PRODUCT_DEFINITION_ACTION,
+        action_arguments={
+            key: tuple(value) if isinstance(value, list) else value
+            for key, value in action_arguments.model_dump(mode="python").items()
+        },
+        scope=GateScope(
+            tenant_id=tenant_scope,
+            family_id=None,
+            subject_ids=(draft.concept_id, draft.zone_assessment_id),
+            purpose=ADOPTION_PURPOSE,
+            consent_version=PRODUCT_PACKAGE_PROCESSING_BASIS,
+            correlation_id=context.trace_id or f"trace:{draft.draft_id}",
+        ),
+        allowed_actor_types=(ActorType.OPERATOR,),
+        risk_level="MEDIUM",
+        provenance_ref=f"product-package-draft:{draft.draft_id}:{draft.content_hash}",
+        created_at=draft.created_at,
+        expires_at=draft.expires_at,
+    )
+    result = await repo.persist_submission(
+        draft=draft,
+        proposal=proposal,
+        task_id=task_id,
+        actor_id=actor_id,
+        idempotency_key=key,
+        request_hash=request_hash,
+    )
+    return result
+
+
+__all__ = [
+    "PRODUCT_PACKAGE_PROCESSING_BASIS",
+    "PRODUCT_PACKAGE_SUBMIT_PERMISSION",
+    "ProductPackageSubmissionConflictError",
+    "ProductPackageSubmissionError",
+    "ProductPackageSubmissionForbiddenError",
+    "ProductPackageSubmissionInput",
+    "ProductPackageSubmissionRepository",
+    "ProductPackageSubmissionResult",
+    "submit_product_package_draft",
+]
