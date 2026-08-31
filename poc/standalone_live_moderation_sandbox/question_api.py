@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 import uvicorn
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -73,20 +73,33 @@ def create_app(database_path: Path) -> FastAPI:
     )
     def list_questions(
         session_ref: str,
+        response: Response,
         actor: Annotated[SyntheticActor, Depends(actor_headers())],
     ) -> list[QuestionView]:
+        response.headers["Cache-Control"] = "no-store"
         require_role(actor, {"ADULT_VIEWER", "HUMAN_MODERATOR"})
         with connect(database_path) as database:
-            rows = database.execute(
-                """
-                SELECT question_ref, session_ref, text, status, actor_id
-                FROM live_questions
-                WHERE session_ref = ? AND tenant_id = ? AND family_id = ?
-                  AND (status = 'APPROVED' OR actor_id = ?)
-                ORDER BY created_at ASC
-                """,
-                (session_ref, actor.tenant_id, actor.family_id, actor.actor_id),
-            ).fetchall()
+            if actor.role == "HUMAN_MODERATOR":
+                rows = database.execute(
+                    """
+                    SELECT question_ref, session_ref, text, status, actor_id
+                    FROM live_questions
+                    WHERE session_ref = ? AND tenant_id = ? AND family_id = ?
+                    ORDER BY created_at ASC
+                    """,
+                    (session_ref, actor.tenant_id, actor.family_id),
+                ).fetchall()
+            else:
+                rows = database.execute(
+                    """
+                    SELECT question_ref, session_ref, text, status, actor_id
+                    FROM live_questions
+                    WHERE session_ref = ? AND tenant_id = ? AND family_id = ?
+                      AND (status = 'APPROVED' OR actor_id = ?)
+                    ORDER BY created_at ASC
+                    """,
+                    (session_ref, actor.tenant_id, actor.family_id, actor.actor_id),
+                ).fetchall()
         return [QuestionView(**dict(row)) for row in rows]
 
     @app.post(

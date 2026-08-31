@@ -57,6 +57,7 @@ export function LiveDetailPage({ record, interactionBaseUrl, onBack }: Props) {
     if (!interactionBaseUrl) return;
     const controller = new AbortController();
     void fetch(`${interactionBaseUrl}/sandbox/live/sessions/media.synthetic.1/questions`, {
+      cache: "no-store",
       headers: SYNTHETIC_ACTOR_HEADERS,
       signal: controller.signal,
     })

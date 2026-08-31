@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { tmpdir } from "node:os";
+import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 
@@ -24,8 +25,8 @@ const pythonExecutable = process.platform === "win32"
 const noProviderUrl = "http://127.0.0.1:4181/";
 const mediaUrl = "http://127.0.0.1:4182/";
 const mediaBrowserOrigin = "http://127.0.0.1:4173/";
-const questionApiUrl = "http://127.0.0.1:55200";
-const browserQuestionApiUrl = "http://127.0.0.1:4173/sandbox-question";
+let questionApiUrl: string;
+let browserQuestionApiUrl: string;
 const processes: ChildProcess[] = [];
 let sandboxDto: SandboxDto;
 let browserMediaDto: SandboxDto;
@@ -33,7 +34,10 @@ let browserMediaDto: SandboxDto;
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
-  await startQuestionSandbox();
+  const questionPort = await reserveFreePort();
+  questionApiUrl = `http://127.0.0.1:${questionPort}`;
+  browserQuestionApiUrl = "http://127.0.0.1:4173/sandbox-question";
+  await startQuestionSandbox(questionPort);
   sandboxDto = await startMediaSandbox();
   browserMediaDto = {
     ...sandboxDto,
@@ -129,26 +133,13 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
   await page.getByRole("textbox", { name: "向专家提问" }).fill("怎样先听懂再回应？");
   await page.getByRole("button", { name: "提交" }).click();
   await expect(page.getByText("问题已提交，等待人工审核")).toBeVisible();
-  await expect(page.getByText("等待人工审核", { exact: true })).toBeVisible();
-  const pendingQuestions = await page.request.get(
-    `${questionApiUrl}/sandbox/live/sessions/media.synthetic.1/questions`,
-    { headers: syntheticActorHeaders("ADULT_VIEWER") },
-  );
-  expect(pendingQuestions.status()).toBe(200);
-  const [pendingQuestion] = await pendingQuestions.json() as Array<{ question_ref: string }>;
-  const reviewed = await page.request.post(
-    `${questionApiUrl}/sandbox/moderation/questions/${pendingQuestion.question_ref}/decision`,
-    {
-      headers: syntheticActorHeaders("HUMAN_MODERATOR"),
-      data: {
-        decision_key: `decision.${pendingQuestion.question_ref}`,
-        action: "APPROVE",
-        reason: "人工审核确认可展示",
-      },
-    },
-  );
-  expect(reviewed.status()).toBe(200);
-  await page.reload();
+  await expect(page.getByText("等待人工审核", { exact: true }).last()).toBeVisible();
+  await page.getByRole("link", { name: "专家工作台" }).click();
+  await expect(page.getByRole("heading", { name: "直播提问审核" })).toBeVisible();
+  await expect(page.getByText("怎样先听懂再回应？")).toBeVisible();
+  await page.getByRole("button", { name: "批准展示" }).click();
+  await expect(page.getByText("当前没有待审核问题")).toBeVisible();
+  await page.getByRole("link", { name: "直播首页" }).click();
   await page.getByRole("button", { name: "进入直播间" }).click();
   await expect(page.getByText("家长提问")).toBeVisible();
   await expect(page.getByText("怎样先听懂再回应？")).toBeVisible();
@@ -254,7 +245,7 @@ async function startVite(port: number, mediaDto?: string, interactionBaseUrl?: s
   await waitForUrl(`http://127.0.0.1:${port}/`);
 }
 
-async function startQuestionSandbox(): Promise<void> {
+async function startQuestionSandbox(port: number): Promise<void> {
   const child = spawn(
     pythonExecutable,
     [
@@ -264,7 +255,7 @@ async function startQuestionSandbox(): Promise<void> {
       "--database",
       resolve(tmpdir(), `xiaojudeng-questions-${Date.now()}.sqlite3`),
       "--port",
-      "55200",
+      String(port),
     ],
     { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
   );
@@ -274,15 +265,20 @@ async function startQuestionSandbox(): Promise<void> {
   await waitForUrl(`${questionApiUrl}/health`);
 }
 
-function syntheticActorHeaders(role: "ADULT_VIEWER" | "HUMAN_MODERATOR"): Record<string, string> {
-  return {
-    "X-Sandbox-Source": "SANDBOX_SYNTHETIC",
-    "X-Fixture-Only": "true",
-    "X-Tenant-Id": "tenant.synthetic.alpha",
-    "X-Family-Id": "family.synthetic.alpha",
-    "X-Actor-Id": role === "ADULT_VIEWER" ? "actor.synthetic.adult" : "actor.synthetic.moderator",
-    "X-Actor-Role": role,
-  };
+async function reserveFreePort(): Promise<number> {
+  const server = createServer();
+  return await new Promise<number>((resolvePort, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close();
+        reject(new Error("unable to reserve question sandbox port"));
+        return;
+      }
+      server.close(() => resolvePort(address.port));
+    });
+  });
 }
 
 async function readFirstJsonLine(child: ChildProcess): Promise<string> {

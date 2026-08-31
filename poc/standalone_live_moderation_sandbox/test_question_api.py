@@ -35,6 +35,13 @@ def test_question_requires_human_review_and_survives_app_restart(tmp_path: Path)
     assert submitted.status_code == 202
     assert submitted.json()["status"] == "PENDING"
 
+    moderator_queue = client.get(
+        "/sandbox/live/sessions/live.synthetic.1/questions",
+        headers=headers(role="HUMAN_MODERATOR"),
+    )
+    assert moderator_queue.status_code == 200
+    assert moderator_queue.json()[0]["status"] == "PENDING"
+
     another_family = client.get(
         "/sandbox/live/sessions/live.synthetic.1/questions",
         headers=headers(family="family.synthetic.other"),

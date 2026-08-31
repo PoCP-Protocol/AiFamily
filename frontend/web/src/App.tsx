@@ -1,4 +1,4 @@
-import { useMemo, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer, useState } from "react";
 import {
   type ExperienceApiClient,
   ExperienceApiError,
@@ -11,6 +11,8 @@ import { ExpressionInput, type ExpressionForm } from "./components/ExpressionInp
 import { RunStatus } from "./components/RunStatus";
 import { ReplayTimeline } from "./components/ReplayTimeline";
 import { LiveExperience } from "./components/LiveExperience";
+import { LiveModeratorConsole } from "./components/LiveModeratorConsole";
+import { resolveLiveInteractionBaseUrl } from "./live/liveCatalog";
 import { initialStudioState, studioReducer } from "./state/experienceStudio";
 
 type Props = { client?: ExperienceApiClient };
@@ -32,6 +34,9 @@ const newRunId = () =>
 const defaultClient: ExperienceApiClient = createDefaultExperienceApiClient(import.meta.env);
 
 export default function App({ client = defaultClient }: Props) {
+  const [liveSurface, setLiveSurface] = useState<"viewer" | "ops">(
+    window.location.hash === "#live-ops" ? "ops" : "viewer",
+  );
   const [state, dispatch] = useReducer(studioReducer, initialStudioState);
   const [runId, setRunId] = useState(newRunId);
   const [form, setForm] = useState<ExpressionForm>({
@@ -146,6 +151,12 @@ export default function App({ client = defaultClient }: Props) {
   const hasDraft = Boolean(state.draft);
   const canAct = hasDraft && state.status === "success";
 
+  useEffect(() => {
+    const updateSurface = () => setLiveSurface(window.location.hash === "#live-ops" ? "ops" : "viewer");
+    window.addEventListener("hashchange", updateSurface);
+    return () => window.removeEventListener("hashchange", updateSurface);
+  }, []);
+
   return (
     <main className="app-shell">
       <header className="topbar live-topbar">
@@ -155,11 +166,15 @@ export default function App({ client = defaultClient }: Props) {
         </div>
         <nav className="live-nav" aria-label="直播导航">
           <a href="#live-home">直播首页</a>
-          <a href="#live-status">安全状态</a>
+          {import.meta.env.DEV ? <a href="#live-ops">专家工作台</a> : null}
         </nav>
         <span className="environment-tag">SANDBOX · DEV_ONLY</span>
       </header>
-      <LiveExperience environment={import.meta.env} />
+      {liveSurface === "ops" ? (
+        <LiveModeratorConsole interactionBaseUrl={resolveLiveInteractionBaseUrl(import.meta.env)} />
+      ) : (
+        <LiveExperience environment={import.meta.env} />
+      )}
       <details className="secondary-experience">
         <summary>家庭理解工作台（次级入口）</summary>
         <div className="page-grid">

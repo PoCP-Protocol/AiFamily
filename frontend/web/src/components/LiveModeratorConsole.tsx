@@ -1,0 +1,110 @@
+import { useEffect, useState } from "react";
+
+type Question = {
+  question_ref: string;
+  text: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  source: "SANDBOX_SYNTHETIC";
+  fixture_only: true;
+};
+
+type Props = { interactionBaseUrl?: string };
+
+const MODERATOR_HEADERS = {
+  "Content-Type": "application/json",
+  "X-Sandbox-Source": "SANDBOX_SYNTHETIC",
+  "X-Fixture-Only": "true",
+  "X-Tenant-Id": "tenant.synthetic.alpha",
+  "X-Family-Id": "family.synthetic.alpha",
+  "X-Actor-Id": "actor.synthetic.moderator",
+  "X-Actor-Role": "HUMAN_MODERATOR",
+};
+
+export function LiveModeratorConsole({ interactionBaseUrl }: Props) {
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [state, setState] = useState<"loading" | "ready" | "missing" | "error">(
+    interactionBaseUrl ? "loading" : "missing",
+  );
+
+  useEffect(() => {
+    if (!interactionBaseUrl) return;
+    void loadQuestions();
+  }, [interactionBaseUrl]);
+
+  const pending = questions.filter((question) => question.status === "PENDING");
+
+  return (
+    <section className="live-ops-shell" aria-labelledby="live-ops-heading">
+      <header className="live-ops-heading">
+        <div>
+          <p className="live-kicker">小橘灯专家工作台</p>
+          <h2 id="live-ops-heading">直播提问审核</h2>
+          <p>成人问题先由人工判断，再决定是否进入直播讨论区。</p>
+        </div>
+        <span>{pending.length} 条待审核</span>
+      </header>
+
+      {state === "loading" ? <p className="live-ops-state">正在读取审核队列…</p> : null}
+      {state === "missing" ? <p className="live-ops-state">审核服务暂不可用。</p> : null}
+      {state === "error" ? <p className="live-ops-state">审核队列读取失败，请稍后重试。</p> : null}
+      {state === "ready" && pending.length === 0 ? (
+        <div className="live-ops-empty"><strong>当前没有待审核问题</strong><p>新问题提交后会出现在这里。</p></div>
+      ) : null}
+
+      <div className="live-ops-list">
+        {pending.map((question) => (
+          <article className="live-ops-card" key={question.question_ref}>
+            <div>
+              <span>家长提问</span>
+              <strong>{question.text}</strong>
+              <small>等待人工判断 · 不会自动展示</small>
+            </div>
+            <div className="live-ops-actions">
+              <button type="button" onClick={() => void decide(question, "APPROVE")}>批准展示</button>
+              <button className="live-ops-reject" type="button" onClick={() => void decide(question, "REJECT")}>不予展示</button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+
+  async function loadQuestions() {
+    if (!interactionBaseUrl) return;
+    try {
+      const response = await fetch(
+        `${interactionBaseUrl}/sandbox/live/sessions/media.synthetic.1/questions`,
+        { cache: "no-store", headers: MODERATOR_HEADERS },
+      );
+      if (!response.ok) throw new Error("queue failed");
+      const result = (await response.json()) as Question[];
+      setQuestions(result.filter((question) => question.fixture_only === true));
+      setState("ready");
+    } catch {
+      setState("error");
+    }
+  }
+
+  async function decide(question: Question, action: "APPROVE" | "REJECT") {
+    if (!interactionBaseUrl) return;
+    try {
+      const response = await fetch(
+        `${interactionBaseUrl}/sandbox/moderation/questions/${question.question_ref}/decision`,
+        {
+          method: "POST",
+          headers: MODERATOR_HEADERS,
+          body: JSON.stringify({
+            decision_key: `decision.${question.question_ref}.${action.toLowerCase()}`,
+            action,
+            reason: action === "APPROVE" ? "人工审核确认可展示" : "人工审核决定不展示",
+          }),
+        },
+      );
+      if (!response.ok) throw new Error("decision failed");
+      const decided = (await response.json()) as Question;
+      setQuestions((current) => current.map((item) => item.question_ref === decided.question_ref ? decided : item));
+    } catch {
+      setState("error");
+    }
+  }
+}
