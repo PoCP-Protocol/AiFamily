@@ -17,7 +17,9 @@ export function LiveDiscoveryCard({ record, onOpenDetail }: Props) {
         aria-label={mediaReady ? "直播视频已准备好" : "专家直播预告封面"}
       >
         <span className="live-visual-badge">{runtimeLabel}</span>
-        <span className="live-cover-avatar" aria-hidden="true">{record.speaker.slice(0, 1)}</span>
+        <span className="live-cover-avatar" role="img" aria-label="合成专家形象">
+          <span className="visually-hidden">合成专家形象</span>
+        </span>
         <strong>{record.speaker}</strong>
         <span className="live-cover-topic">聊聊「{record.problem_tags[0]}」</span>
         {mediaReady ? <span className="live-play-glyph" aria-hidden="true">▶</span> : null}

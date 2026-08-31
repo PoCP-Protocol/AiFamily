@@ -151,7 +151,7 @@ function isLocalPlaybackUrl(value: string): boolean {
 function getPlaybackMessage(state: SurfaceState): string {
   switch (state) {
     case "WAITING_AUTHORIZATION":
-      return "直播视频尚未获得播放授权。";
+      return "视频服务暂未连接，请稍后刷新或返回直播首页。";
     case "LOADING":
       return "视频正在准备。";
     case "LIVE":

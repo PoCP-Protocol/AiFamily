@@ -9,6 +9,7 @@ test("desktop: expert discovery opens a concise video-first detail", async ({ pa
   await expect(page.getByText("小橘灯：家庭沟通中的温柔练习")).toBeVisible();
   await expect(page.getByText("真实场景、清楚方法、当下就能用。")).toBeVisible();
   await expect(page.getByText("内容已审核").first()).toBeVisible();
+  await expect(page.getByRole("img", { name: "合成专家形象" }).first()).toBeVisible();
   await expect(page.getByText("family-private")).not.toBeVisible();
   await expect(page.getByText("APPROVED")).not.toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("desktop-discovery.png"), fullPage: true });
@@ -48,7 +49,7 @@ test("desktop: expert discovery opens a concise video-first detail", async ({ pa
     await page.screenshot({ path: testInfo.outputPath("desktop-revoked.png"), fullPage: true });
   } else {
     await expect(page.getByText("视频暂不可用")).toBeVisible();
-    await expect(page.getByText("直播视频尚未获得播放授权。")).toBeVisible();
+    await expect(page.getByText("视频服务暂未连接，请稍后刷新或返回直播首页。")).toBeVisible();
     await expect(page.locator("video")).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("desktop-no-provider.png"), fullPage: true });
   }

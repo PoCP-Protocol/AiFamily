@@ -31,6 +31,7 @@ describe("Xiao Ju Deng live product surface", () => {
     expect(screen.getByText("往期直播", { selector: "h3" })).toBeInTheDocument();
     expect(screen.getAllByText("#家庭沟通")).toHaveLength(2);
     expect(screen.getAllByText("内容已审核")).toHaveLength(2);
+    expect(screen.getAllByRole("img", { name: "合成专家形象" })).toHaveLength(2);
     expect(screen.queryByText("MEDIA_READY")).not.toBeInTheDocument();
     expect(screen.queryByText("NO_MEDIA")).not.toBeInTheDocument();
 
@@ -38,7 +39,7 @@ describe("Xiao Ju Deng live product surface", () => {
 
     expect(screen.getByRole("heading", { name: "一个可以马上练习的沟通方法" })).toBeInTheDocument();
     expect(screen.getByText("围绕家庭沟通中的具体场景，练习可核对、可暂停的表达方式。")).toBeInTheDocument();
-    expect(screen.getByText("直播视频尚未获得播放授权。")).toBeInTheDocument();
+    expect(screen.getByText("视频服务暂未连接，请稍后刷新或返回直播首页。")).toBeInTheDocument();
     expect(screen.getByText("收藏与回看将在获得明确授权后开放。")).toBeInTheDocument();
     const diagnostics = screen.getByText("开发诊断信息").closest("details");
     expect(diagnostics).not.toHaveAttribute("open");
