@@ -8,15 +8,22 @@ const originalPath = window.location.pathname;
 afterEach(() => window.history.replaceState({}, "", originalPath));
 
 describe("Web Product Studio route", () => {
-  it("enters the independent Sandbox Product Studio page", () => {
+  it("enters the staged Product Studio workspace on Demand", async () => {
     window.history.replaceState({}, "", "/product-studio");
     render(<WebRoot />);
-    expect(screen.getByRole("heading", { name: "产品设计工厂" })).toBeInTheDocument();
-    expect(screen.getByTestId("product-studio-environment")).toHaveTextContent("Sandbox");
+    expect(screen.getByRole("heading", { name: "服务产品 AI 研发工作台" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Demand/ })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("heading", { name: "创建需求草案" })).toBeInTheDocument();
+
+    await userEvent.setup().click(screen.getByRole("tab", { name: /Market Evidence/ }));
     expect(screen.getByRole("heading", { name: "市场与竞品证据工作台" })).toBeInTheDocument();
     expect(screen.getByText(/新证据固定以 UNKNOWN 创建/)).toBeInTheDocument();
-    expect(screen.getByText(/提交后仅显示 DRAFT 和可追溯 provenance/)).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("tab", { name: /Concept Decision/ }));
+    expect(screen.getByRole("heading", { name: "产品概念候选决策台" })).toBeInTheDocument();
+    expect(screen.getByText(/不会排序或自动选择赢家/)).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("tab", { name: /Sandbox/ }));
+    expect(screen.getByRole("heading", { name: "产品设计工厂" })).toBeInTheDocument();
+    expect(screen.getByTestId("product-studio-environment")).toHaveTextContent("Sandbox");
     expect(screen.getByText(/所有 AI 内容均为 DRAFT/)).toBeInTheDocument();
   });
 
@@ -30,6 +37,7 @@ describe("Web Product Studio route", () => {
     window.history.replaceState({}, "", "/product-studio");
     const user = userEvent.setup();
     render(<WebRoot />);
+    await user.click(screen.getByRole("tab", { name: /Sandbox/ }));
     const advance = screen.getByRole("button", { name: "推进到下一阶段" });
     await user.click(advance);
     await user.click(advance);
