@@ -35,6 +35,7 @@ from backend.domains.assessment.infrastructure.fake_repository import FakeAssess
 from backend.domains.journey.application.plan_service import (
     ConfirmedGrowthIntent,
     JourneyPlanService,
+    PhaseReviewDecision,
 )
 from backend.domains.journey.domain.errors import JourneyForbiddenError
 
@@ -179,12 +180,23 @@ def test_parent_can_complete_first_arrival_growth_loop_with_simulated_data() -> 
         blocker="晚饭后剩余时间不足",
         idempotency_key="synthetic-record-1",
     )
+    review = service.review_phase(
+        tenant_id=family["tenant_id"],
+        family_id=family["family_id"],
+        actor_id=family["actor_id"],
+        plan_id=plan_id,
+        decision=PhaseReviewDecision.CONTINUE,
+        observation="家长识别出冲突起点，决定进入下一阶段继续观察",
+        idempotency_key="synthetic-review-1",
+    )
     readback = service.read_plan(
         tenant_id=family["tenant_id"], family_id=family["family_id"], plan_id=plan_id
     )
     assert readback["plan"]["focus_id"] == "HOMEWORK_PROCESS"
     assert readback["records"][0]["observation"].startswith("孩子说出")
     assert readback["records"][0]["blocker"] == "晚饭后剩余时间不足"
+    assert review["review"]["decision"] == "CONTINUE"
+    assert readback["reviews"][0]["observation"].startswith("家长识别出")
     assert family["source"] == SYNTHETIC_SOURCE
 
 

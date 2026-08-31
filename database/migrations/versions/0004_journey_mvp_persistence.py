@@ -77,9 +77,33 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["practice_id"], ["family_mvp_journey_practices.practice_id"]),
         sa.ForeignKeyConstraint(["plan_id"], ["family_mvp_journey_plans.plan_id"]),
     )
+    op.create_table(
+        "family_mvp_journey_phase_reviews",
+        sa.Column("review_id", sa.String(128), primary_key=True),
+        sa.Column("plan_id", sa.String(128), nullable=False),
+        sa.Column("tenant_id", sa.String(128), nullable=False),
+        sa.Column("family_id", sa.String(128), nullable=False),
+        sa.Column("decision", sa.String(24), nullable=False),
+        sa.Column("observation", sa.String(2000), nullable=False),
+        sa.ForeignKeyConstraint(["plan_id"], ["family_mvp_journey_plans.plan_id"]),
+        sa.CheckConstraint(
+            "decision IN ('CONTINUE','ADJUST','PAUSE')",
+            name="ck_mvp_journey_phase_review_decision",
+        ),
+    )
+    op.create_index(
+        "ix_mvp_journey_phase_reviews_plan_id",
+        "family_mvp_journey_phase_reviews",
+        ["plan_id"],
+    )
 
 
 def downgrade() -> None:
+    op.drop_index(
+        "ix_mvp_journey_phase_reviews_plan_id",
+        table_name="family_mvp_journey_phase_reviews",
+    )
+    op.drop_table("family_mvp_journey_phase_reviews")
     op.drop_table("family_mvp_journey_practice_records")
     op.drop_index("uq_mvp_journey_practice_day", table_name="family_mvp_journey_practices")
     op.drop_table("family_mvp_journey_practices")

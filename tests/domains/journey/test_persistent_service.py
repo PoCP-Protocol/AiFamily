@@ -5,7 +5,10 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from backend.domains.journey.application.persistent_service import PersistentJourneyPlanService
-from backend.domains.journey.application.plan_service import ConfirmedGrowthIntent
+from backend.domains.journey.application.plan_service import (
+    ConfirmedGrowthIntent,
+    PhaseReviewDecision,
+)
 from backend.domains.journey.infrastructure.sqlalchemy_repository import JourneyBase
 
 
@@ -51,5 +54,17 @@ async def test_persistent_facade_supports_user_journey(service) -> None:
         idempotency_key="confirm-1",
     )
     assert confirmed["plan"]["status"] == "ACTIVE"
+    reviewed = await service.review_phase(
+        tenant_id="tenant-a",
+        family_id="family-a",
+        actor_id="parent-a",
+        plan_id=plan_id,
+        decision=PhaseReviewDecision.CONTINUE,
+        observation="模拟回访：家长能描述一次具体变化，继续观察下一阶段",
+        idempotency_key="review-1",
+    )
+    assert reviewed["review"]["decision"] == "CONTINUE"
+    assert reviewed["plan"]["current_phase"] == 2
     readback = await service.read_plan(plan_id=plan_id, tenant_id="tenant-a", family_id="family-a")
     assert readback["plan"]["intent_id"] == "intent-1"
+    assert readback["reviews"][0]["observation"].startswith("模拟回访")

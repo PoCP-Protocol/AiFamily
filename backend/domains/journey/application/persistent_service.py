@@ -25,6 +25,8 @@ from .plan_service import (
     FamilyPractice,
     JourneyPlan,
     JourneyPlanStatus,
+    PhaseReview,
+    PhaseReviewDecision,
     PracticeRecord,
 )
 
@@ -159,6 +161,40 @@ class PersistentJourneyPlanService:
             return await repository.read_plan(
                 plan_id=plan_id, tenant_id=tenant_id, family_id=family_id
             )
+
+    async def review_phase(
+        self,
+        *,
+        tenant_id: str,
+        family_id: str,
+        actor_id: str,
+        plan_id: str,
+        decision: PhaseReviewDecision,
+        observation: str,
+        idempotency_key: str,
+    ) -> dict[str, object]:
+        self._require_key(idempotency_key)
+        if not observation.strip() or len(observation) > 2000:
+            raise JourneyValidationError("journey_observation_invalid")
+        review = PhaseReview(
+            review_id=str(uuid5(NAMESPACE_URL, f"journey-review:{plan_id}:{idempotency_key}")),
+            plan_id=plan_id,
+            tenant_id=tenant_id,
+            family_id=family_id,
+            decision=decision,
+            observation=observation.strip(),
+        )
+        async with self._session_factory() as session:
+            repository = SqlAlchemyJourneyRepository(session, self._event_writer_factory(session))
+            row = await repository._get_plan(plan_id, tenant_id, family_id)
+            if row.status != JourneyPlanStatus.ACTIVE.value:
+                raise JourneyConflictError("journey_plan_not_active")
+            await repository.review_phase(review, actor_id=actor_id)
+            await session.commit()
+            result = await repository.read_plan(
+                plan_id=plan_id, tenant_id=tenant_id, family_id=family_id
+            )
+        return {"plan": result["plan"], "review": review.as_dict(), "replayed": False}
 
     @staticmethod
     def _require_key(key: str) -> None:

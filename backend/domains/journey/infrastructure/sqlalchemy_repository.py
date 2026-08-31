@@ -22,6 +22,8 @@ from ..application.plan_service import (
     FamilyPractice,
     JourneyPlan,
     JourneyPlanStatus,
+    PhaseReview,
+    PhaseReviewDecision,
     PracticeRecord,
     PracticeStatus,
 )
@@ -74,6 +76,17 @@ class JourneyPracticeRecordRow(JourneyBase):
     family_id: Mapped[str] = mapped_column(String(128), nullable=False)
     observation: Mapped[str] = mapped_column(String(2000), nullable=False)
     blocker: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class JourneyPhaseReviewRow(JourneyBase):
+    __tablename__ = "family_mvp_journey_phase_reviews"
+
+    review_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    plan_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    family_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    decision: Mapped[str] = mapped_column(String(24), nullable=False)
+    observation: Mapped[str] = mapped_column(String(2000), nullable=False)
 
 
 EventWriter = Callable[[str, str, str, str, str], Any]
@@ -221,6 +234,29 @@ class SqlAlchemyJourneyRepository:
             "PRACTICE_RECORDED", record.record_id, actor_id, record.tenant_id, record.family_id
         )
 
+    async def review_phase(self, review: PhaseReview, *, actor_id: str) -> None:
+        row = await self._get_plan(review.plan_id, review.tenant_id, review.family_id)
+        row.status = (
+            JourneyPlanStatus.PAUSED.value
+            if review.decision is not PhaseReviewDecision.CONTINUE
+            else JourneyPlanStatus.ACTIVE.value
+        )
+        row.current_phase += 1
+        row.review_count += 1
+        self._session.add(
+            JourneyPhaseReviewRow(
+                review_id=review.review_id,
+                plan_id=review.plan_id,
+                tenant_id=review.tenant_id,
+                family_id=review.family_id,
+                decision=review.decision.value,
+                observation=review.observation,
+            )
+        )
+        await self._event_writer(
+            "PHASE_REVIEWED", review.review_id, actor_id, review.tenant_id, review.family_id
+        )
+
     async def read_plan(self, *, plan_id: str, tenant_id: str, family_id: str) -> dict[str, object]:
         row = await self._get_plan(plan_id, tenant_id, family_id)
         practices = (
@@ -231,6 +267,11 @@ class SqlAlchemyJourneyRepository:
         records = (
             await self._session.scalars(
                 select(JourneyPracticeRecordRow).where(JourneyPracticeRecordRow.plan_id == plan_id)
+            )
+        ).all()
+        reviews = (
+            await self._session.scalars(
+                select(JourneyPhaseReviewRow).where(JourneyPhaseReviewRow.plan_id == plan_id)
             )
         ).all()
         plan = JourneyPlan(
@@ -269,6 +310,15 @@ class SqlAlchemyJourneyRepository:
                     "blocker": item.blocker,
                 }
                 for item in records
+            ],
+            "reviews": [
+                {
+                    "review_id": item.review_id,
+                    "plan_id": item.plan_id,
+                    "decision": item.decision,
+                    "observation": item.observation,
+                }
+                for item in reviews
             ],
         }
 
