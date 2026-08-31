@@ -1,5 +1,6 @@
 export * from "./components";
 export * from "./controller";
+export * from "./dev-synthetic-fixture";
 export type {
   ConfirmationBinding,
   ProblemUnderstandingPhase,

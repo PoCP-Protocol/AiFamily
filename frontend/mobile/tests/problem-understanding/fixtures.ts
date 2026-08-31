@@ -13,6 +13,11 @@ export const concernInput: UnderstandingInput = {
 export const initialUnderstanding: UnderstandingDraft = {
   signalRef: "signal-test-001",
   signalVersion: 1,
+  scopeRef: "family://tenant-test/family-test/problem-understanding",
+  reviewedDraftRef: "draft-test-001",
+  draftVersion: 3,
+  provenanceRef: "source-test-001",
+  humanGateReceiptRef: "review-test-001",
   summary: "你在意的不只是作业是否完成，也希望彼此说话时少一些对抗。",
   explicitClaims: ["一到写作业就容易争吵"],
   alternativeExplanations: ["疲惫可能让双方更难听见彼此"],
