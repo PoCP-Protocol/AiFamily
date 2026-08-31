@@ -195,7 +195,12 @@ class ProductPackageDraftContent(BaseModel):
     next_validation: str
     source_draft_locator: str
     intent_hash: str
-    resolved_request_hash: str
+    resolved_request_hash: str = Field(
+        description=(
+            "Idempotency identity for trusted resolved facts; excludes admitted_at "
+            "and expires_at. Use content_hash for complete snapshot integrity."
+        )
+    )
     source_provenance_ref: str
     model_ref: str
     prompt_use_case_version: str

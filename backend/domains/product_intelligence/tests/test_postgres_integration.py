@@ -148,6 +148,7 @@ async def test_migration_applies_and_full_chain_creates_and_traces(pg_repo):
         ai,
         signal_id=signal.id,
         statement="小学高年级家长群体存在学习管理退出困难",
+        evidence_refs=[f"market-signal:{signal.id}"],
         model_ref="claude-sonnet-4-6",
         prompt_use_case_version="v1",
         confidence=0.7,

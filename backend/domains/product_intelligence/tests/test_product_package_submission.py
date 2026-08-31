@@ -38,6 +38,7 @@ from ..domain.evidence_verification import (
 from ..domain.product_package_draft import (
     EvidenceAdmissionSnapshot,
     ProductPackageEvidenceRequirement,
+    product_package_content_hash,
 )
 from ..domain.zone_entities import DimensionAssessment, ProductZoneAssessment
 from ..infrastructure.evidence_verification_repository import (
@@ -502,7 +503,7 @@ async def test_final_revalidation_uses_commit_time_and_rolls_back_expired_receip
 
 
 @pytest.mark.asyncio
-async def test_admission_evaluation_time_does_not_change_idempotency_identity() -> None:
+async def test_operational_times_do_not_change_idempotency_identity() -> None:
     engine, factory = await _factory()
     async with factory() as session:
         await _seed(session)
@@ -521,14 +522,26 @@ async def test_admission_evaluation_time_does_not_change_idempotency_identity() 
         replay = await submit_product_package_draft(
             repo,
             _context(),
-            _source(evidence_admissions=shifted),
+            _source(
+                evidence_admissions=shifted,
+                expires_at=NOW + timedelta(days=7, minutes=1),
+            ),
             idempotency_key="admission-time-is-operational",
             now=NOW + timedelta(minutes=1),
+        )
+
+        changed_snapshot = first.draft.model_copy(
+            update={
+                "evidence_admissions": shifted,
+                "expires_at": NOW + timedelta(days=7, minutes=1),
+            }
         )
 
     await engine.dispose()
     assert replay.replayed is True
     assert replay.draft == first.draft
+    assert replay.draft.resolved_request_hash == first.draft.resolved_request_hash
+    assert product_package_content_hash(changed_snapshot) != first.draft.content_hash
 
 
 @pytest.mark.asyncio

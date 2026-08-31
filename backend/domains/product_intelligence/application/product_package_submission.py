@@ -198,7 +198,9 @@ def _request_payload(source: ProductPackageSubmissionInput) -> dict[str, object]
         "assumptions": source.assumptions,
         "unknowns": source.unknowns,
         "next_validation": source.next_validation,
-        "expires_at": source.expires_at,
+        # Resolver evaluation time can differ across concurrent executions of
+        # the same intent. The winning draft still binds expiry in its content
+        # hash; expiry is not part of idempotency identity.
         "source_provenance_ref": source.source_provenance_ref,
         "model_ref": source.model_ref,
         "prompt_use_case_version": source.prompt_use_case_version,

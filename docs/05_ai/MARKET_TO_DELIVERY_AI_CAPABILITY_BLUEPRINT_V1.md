@@ -220,8 +220,9 @@ PPT、图片、视频和短剧都必须反链到产品版本与需求证据。
   hash，并与 OPEN HumanTask 在同一事务提交。严格 HTTP create/read 测试面只接受业务意图和
   opaque locator，拒绝浏览器提供 zone、claim/applicability 要求、证据状态、AI provenance、
   身份和 Gate 字段；可信服务端 source resolver 必须为每个 locator 给出精确证据要求，随后由
-  receipt-backed resolver 编译准入快照。Alembic、registry、生产挂载、前端 Web 工作台和真实
-  PostgreSQL 并发仍未落地，因此不能把 HTTP 测试面称为 Web 或生产能力。
+  receipt-backed resolver 编译准入快照。真实 PostgreSQL metadata-schema 测试已覆盖同意图
+  并发和 Evidence 行锁漂移；Alembic-schema parity、registry、生产挂载和前端 Web 工作台仍未
+  落地，因此不能把 HTTP 测试面称为 Web 或生产能力。
 - 证据治理测试面已按 ADR-0146 增加不可变 `EvidenceVerificationReceipt`：只有已接受的
   `VERIFY_PRODUCT_EVIDENCE` NamedAction 才能物化，冻结证据版本/哈希、claim scope、适用范围、
   方法、策略、验证人和 Human Gate lineage；旧竞品来源卡 HTTP 只允许 `UNKNOWN`，不能由客户端
@@ -265,21 +266,23 @@ PPT、图片、视频和短剧都必须反链到产品版本与需求证据。
 - HTTP 幂等键尚未真正接入平台幂等执行；
 - DemandFrame 与 MarketInsight 的完整 envelope 缺少独立持久化回读；
 - EvidenceVerificationReceipt 已有 accepted-action/SQL 测试接缝，但尚无提案 Web、撤销影响账本、
-  Alembic、PostgreSQL 并发和 ProductPackage resolver 生产接入；
+  Alembic、独立收据创建并发证明和 ProductPackage resolver 生产接入；
 - ProductPackage HTTP 已按 ADR-0147 在可信来源解析前执行 durable intent replay：浏览器意图、
   source locator 和 requested TTL 进入 canonical hash，相同 key/相同 intent 返回冻结结果，
   相同 key/不同 intent 在 resolver 前冲突；resolver 暂不可用时历史 exact replay 仍可回读。
-  新列尚无 Alembic 与 PostgreSQL 并发证明，因此仍不是生产挂载能力；
+  metadata-schema PostgreSQL 同键竞态已通过确定性 barrier 验证；新列尚无 Alembic 及
+  Alembic-schema parity 证明，因此仍不是生产挂载能力；
 - ProductPackage v1.2 已按 ADR-0148 用 `EvidenceAdmissionSnapshot` 替代来源解析器自报的
   `VERIFIED` 字符串：冻结 receipt/evidence 版本与哈希、claim/applicability scope、策略、
   Human Gate lineage 和有效期；浏览器只提交 locator，claim/applicability 要求由可信服务端
   source resolver 提供并与 locator 序列精确匹配；写 draft/HumanTask/audit 前以最新提交时钟在
   同一 SQL session 重读收据、锁定 Evidence 后精确复核，失败即回滚。缺少撤销/替代影响账本、
-  typed EvidenceDescriptor、Alembic 与
-  PostgreSQL race proof，故仍只是一条非生产但可验证的可信证据准入接缝；
+  typed EvidenceDescriptor 与 Alembic。真实 PostgreSQL 的 metadata-schema 测试已证明同意图
+  并发收敛及行锁等待后的证据漂移会 fail closed，但尚未证明 Alembic 产出的结构具备同等行为，
+  故仍只是一条非生产但可验证的可信证据准入接缝；
 - ProductPackage 已有独立可测的 SQL DRAFT→OPEN ActionProposal、receipt-backed resolver 与严格
   HTTP create/read 接缝，但尚无生产 source/provenance resolver、Alembic、生产挂载、前端 Web 工作台、
-  十二项编译报告绑定和真实 PostgreSQL 并发证明；
+  十二项编译报告绑定和 Alembic-schema PostgreSQL 并发证明；
 - Component/Skill Catalog、PilotRun、GateRecord、ReleaseBaseline 和多模态资产主数据尚未形成
   可运行闭环；
 - Web 的历史 `ProductStudio` 状态机仍是 Sandbox，不得作为真实 Gate 或能力完成证明。

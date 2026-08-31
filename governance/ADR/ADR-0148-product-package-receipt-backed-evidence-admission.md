@@ -79,6 +79,13 @@ the session and fails the whole transaction before writes.
 Historical exact replay remains replay-first and does not re-evaluate current
 evidence. A changed browser intent still conflicts.
 
+Admission evaluation time and resolver-derived package expiry are operational
+times, not idempotency identity. Concurrent resolutions of the same intent can
+differ by microseconds, so `admitted_at` and `expires_at` are excluded from the
+resolved-request hash. The winning immutable draft still freezes both values
+and binds them through its content hash. All evidence facts, requirements,
+receipt hashes and trusted provenance remain in the resolved-request hash.
+
 ## Versioning
 
 New writes use ProductPackage schema `1.2` / version `1.2.0`. This is an
@@ -91,10 +98,14 @@ reader and migration decision are required before release.
 
 This iteration provides the domain snapshot, deterministic admission compiler,
 request-scoped SQL reader, evidence row lock, final revalidation, HTTP
-composition and SQLite tests. It is not production available until:
+composition, SQLite tests and opt-in real-PostgreSQL concurrency tests. The
+PostgreSQL tests prove same-intent unique-key convergence and fail-closed
+evidence drift while a submission waits for `FOR UPDATE`; they currently build
+an isolated schema from SQLAlchemy metadata and do not prove Alembic parity.
+It is not production available until:
 
 1. the linear Alembic chain creates both receipt and v1.2 package structures;
-2. PostgreSQL lock, same-key race and evidence-drift races pass;
+2. the same PostgreSQL races pass against the Alembic-produced schema;
 3. append-only receipt revocation/supersession and impact projection exist;
 4. Evidence master data has typed source/evidence descriptors so claim-type
    minimum-source rules can be enforced;
