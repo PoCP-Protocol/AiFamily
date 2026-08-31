@@ -76,8 +76,43 @@ describe("Xiao Ju Deng live product surface", () => {
     expect(screen.getByText("可以播放")).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "直播间信息" })).toBeInTheDocument();
     expect(screen.getByText("直播讨论")).toBeInTheDocument();
-    expect(screen.getByText("互动能力尚未接入")).toBeInTheDocument();
+    expect(screen.getByText("互动服务暂不可用")).toBeInTheDocument();
     expect(screen.queryByText("LIVE")).not.toBeInTheDocument();
+  });
+
+  it("submits an adult question for human review through the local sandbox", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => [] })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          question_ref: "question.test",
+          session_ref: "media.synthetic.1",
+          text: "怎样先听懂再回应？",
+          status: "PENDING",
+          source: "SANDBOX_SYNTHETIC",
+          fixture_only: true,
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <LiveExperience
+        environment={{
+          DEV: true,
+          VITE_MEDIA_PLAYBACK_DTO: SYNTHETIC_PLAYBACK_DTO,
+          VITE_LIVE_INTERACTION_BASE_URL: "http://127.0.0.1:55200",
+        }}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "进入直播间" }));
+    await user.type(screen.getByRole("textbox", { name: "向专家提问" }), "怎样先听懂再回应？");
+    await user.click(screen.getByRole("button", { name: "提交" }));
+    expect(await screen.findByText("问题已提交，等待人工审核")).toBeInTheDocument();
+    expect(screen.getByText("等待人工审核", { selector: "em" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    vi.unstubAllGlobals();
   });
 
   it("rejects a non-local playback URL and keeps the surface fail-closed", () => {

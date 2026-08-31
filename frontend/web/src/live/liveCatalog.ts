@@ -16,6 +16,18 @@ export type LiveViewState =
 export type LiveEnvironment = {
   DEV?: boolean;
   VITE_MEDIA_PLAYBACK_DTO?: string;
+  VITE_LIVE_INTERACTION_BASE_URL?: string;
+};
+
+export const resolveLiveInteractionBaseUrl = (environment: LiveEnvironment): string | undefined => {
+  if (environment.DEV !== true || !environment.VITE_LIVE_INTERACTION_BASE_URL) return undefined;
+  try {
+    const url = new URL(environment.VITE_LIVE_INTERACTION_BASE_URL);
+    if (!["localhost", "127.0.0.1"].includes(url.hostname)) return undefined;
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return undefined;
+  }
 };
 
 export type LiveSectionKey = "live-now" | "upcoming" | "ended";

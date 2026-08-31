@@ -3,6 +3,7 @@ import { LiveDiscoveryCard } from "./LiveDiscoveryCard";
 import { LiveDetailPage } from "./LiveDetailPage";
 import {
   LIVE_STATE_COPY,
+  resolveLiveInteractionBaseUrl,
   resolveLiveView,
   type LiveEnvironment,
   type LiveSectionKey,
@@ -81,7 +82,11 @@ export function LiveExperience({ environment = import.meta.env, viewModel }: Pro
 
       {model.state === "success" && model.record ? (
         showDetail ? (
-          <LiveDetailPage record={model.record} onBack={() => setShowDetail(false)} />
+          <LiveDetailPage
+            record={model.record}
+            interactionBaseUrl={resolveLiveInteractionBaseUrl(environment)}
+            onBack={() => setShowDetail(false)}
+          />
         ) : (
           <div id="live-status" className="live-sections">
             {query.trim() && SECTION_ORDER.every((key) => filteredSections[key].length === 0) ? (

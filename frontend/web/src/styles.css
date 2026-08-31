@@ -651,6 +651,14 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
   padding: 6px 6px 6px 14px;
 }
 .live-room-composer span { color: #fdba74; font-size: 0.68rem; }
+.live-room-composer input {
+  background: transparent;
+  border: 0;
+  color: #fff7ed;
+  min-width: 0;
+  padding: 7px 2px;
+}
+.live-room-composer input::placeholder { color: #d6a98f; }
 .live-room-composer button {
   background: #f97316;
   border: 0;
@@ -659,6 +667,21 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
   font-size: 0.7rem;
   font-weight: 800;
   padding: 8px 12px;
+}
+.live-room-chat em {
+  background: rgb(251 146 60 / 15%);
+  border-radius: 999px;
+  color: #fdba74;
+  display: inline-block;
+  font-size: 0.6rem;
+  font-style: normal;
+  margin-left: 6px;
+  padding: 3px 6px;
+}
+.live-question-feedback {
+  color: #fdba74;
+  font-size: 0.68rem;
+  margin: 8px 4px 0;
 }
 .live-detail-content { margin-top: 20px; }
 

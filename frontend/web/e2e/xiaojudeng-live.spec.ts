@@ -24,6 +24,8 @@ const pythonExecutable = process.platform === "win32"
 const noProviderUrl = "http://127.0.0.1:4181/";
 const mediaUrl = "http://127.0.0.1:4182/";
 const mediaBrowserOrigin = "http://127.0.0.1:4173/";
+const questionApiUrl = "http://127.0.0.1:55200";
+const browserQuestionApiUrl = "http://127.0.0.1:4173/sandbox-question";
 const processes: ChildProcess[] = [];
 let sandboxDto: SandboxDto;
 let browserMediaDto: SandboxDto;
@@ -31,6 +33,7 @@ let browserMediaDto: SandboxDto;
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
+  await startQuestionSandbox();
   sandboxDto = await startMediaSandbox();
   browserMediaDto = {
     ...sandboxDto,
@@ -41,7 +44,7 @@ test.beforeAll(async () => {
   if (!mediaProbe.ok) throw new Error(`media sandbox probe failed: ${mediaProbe.status}`);
   await Promise.all([
     startVite(4181),
-    startVite(4182, JSON.stringify(browserMediaDto)),
+    startVite(4182, JSON.stringify(browserMediaDto), browserQuestionApiUrl),
   ]);
 });
 
@@ -123,6 +126,35 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
   await expect(page.locator("video")).toHaveCount(1);
   await page.screenshot({ path: testInfo.outputPath("desktop-recovered.png"), fullPage: true });
 
+  await page.getByRole("textbox", { name: "向专家提问" }).fill("怎样先听懂再回应？");
+  await page.getByRole("button", { name: "提交" }).click();
+  await expect(page.getByText("问题已提交，等待人工审核")).toBeVisible();
+  await expect(page.getByText("等待人工审核", { exact: true })).toBeVisible();
+  const pendingQuestions = await page.request.get(
+    `${questionApiUrl}/sandbox/live/sessions/media.synthetic.1/questions`,
+    { headers: syntheticActorHeaders("ADULT_VIEWER") },
+  );
+  expect(pendingQuestions.status()).toBe(200);
+  const [pendingQuestion] = await pendingQuestions.json() as Array<{ question_ref: string }>;
+  const reviewed = await page.request.post(
+    `${questionApiUrl}/sandbox/moderation/questions/${pendingQuestion.question_ref}/decision`,
+    {
+      headers: syntheticActorHeaders("HUMAN_MODERATOR"),
+      data: {
+        decision_key: `decision.${pendingQuestion.question_ref}`,
+        action: "APPROVE",
+        reason: "人工审核确认可展示",
+      },
+    },
+  );
+  expect(reviewed.status()).toBe(200);
+  await page.reload();
+  await page.getByRole("button", { name: "进入直播间" }).click();
+  await expect(page.getByText("家长提问")).toBeVisible();
+  await expect(page.getByText("怎样先听懂再回应？")).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("desktop-approved-question.png"), fullPage: true });
+
+  await page.getByText("连接演练工具").click();
   await page.getByRole("button", { name: "结束本场" }).click();
   await expect(page.getByText("本场直播已经停止。")).toBeVisible();
   await expect(page.locator("video")).toHaveCount(0);
@@ -193,22 +225,26 @@ async function installOriginProxy(
   await page.route(`${browserBaseUrl}**`, async (route) => {
     const incoming = new URL(route.request().url());
     const isMediaRequest = incoming.pathname.startsWith("/sandbox-media/");
+    const isQuestionRequest = incoming.pathname.startsWith("/sandbox-question/");
     const path = isMediaRequest
       ? incoming.pathname.replace("/sandbox-media", "")
-      : incoming.pathname;
+      : isQuestionRequest
+        ? incoming.pathname.replace("/sandbox-question", "")
+        : incoming.pathname;
     const source = new URL(
       `${path}${incoming.search}`,
-      isMediaRequest ? mediaProviderOrigin : sourceBaseUrl,
+      isMediaRequest ? mediaProviderOrigin : isQuestionRequest ? questionApiUrl : sourceBaseUrl,
     );
     const response = await route.fetch({ url: source.toString() });
     await route.fulfill({ response });
   });
 }
 
-async function startVite(port: number, mediaDto?: string): Promise<void> {
+async function startVite(port: number, mediaDto?: string, interactionBaseUrl?: string): Promise<void> {
   const env = { ...process.env };
   delete env.VITE_MEDIA_PLAYBACK_DTO;
   if (mediaDto) env.VITE_MEDIA_PLAYBACK_DTO = mediaDto;
+  if (interactionBaseUrl) env.VITE_LIVE_INTERACTION_BASE_URL = interactionBaseUrl;
   const child = spawn(
     process.execPath,
     [viteEntrypoint, "--host", "127.0.0.1", "--port", String(port), "--strictPort"],
@@ -216,6 +252,37 @@ async function startVite(port: number, mediaDto?: string): Promise<void> {
   );
   processes.push(child);
   await waitForUrl(`http://127.0.0.1:${port}/`);
+}
+
+async function startQuestionSandbox(): Promise<void> {
+  const child = spawn(
+    pythonExecutable,
+    [
+      "-m",
+      "poc.standalone_live_moderation_sandbox.question_api",
+      "--serve",
+      "--database",
+      resolve(tmpdir(), `xiaojudeng-questions-${Date.now()}.sqlite3`),
+      "--port",
+      "55200",
+    ],
+    { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  processes.push(child);
+  child.stdout?.resume();
+  child.stderr?.resume();
+  await waitForUrl(`${questionApiUrl}/health`);
+}
+
+function syntheticActorHeaders(role: "ADULT_VIEWER" | "HUMAN_MODERATOR"): Record<string, string> {
+  return {
+    "X-Sandbox-Source": "SANDBOX_SYNTHETIC",
+    "X-Fixture-Only": "true",
+    "X-Tenant-Id": "tenant.synthetic.alpha",
+    "X-Family-Id": "family.synthetic.alpha",
+    "X-Actor-Id": role === "ADULT_VIEWER" ? "actor.synthetic.adult" : "actor.synthetic.moderator",
+    "X-Actor-Role": role,
+  };
 }
 
 async function readFirstJsonLine(child: ChildProcess): Promise<string> {

@@ -1,9 +1,19 @@
-import { useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import type { LiveRecord, MediaPlaybackState } from "../live/liveCatalog";
 
 type Props = {
   record: LiveRecord;
+  interactionBaseUrl?: string;
   onBack: () => void;
+};
+
+type LiveQuestion = {
+  question_ref: string;
+  session_ref: string;
+  text: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  source: "SANDBOX_SYNTHETIC";
+  fixture_only: true;
 };
 
 type SurfaceState = "WAITING_AUTHORIZATION" | "LOADING" | MediaPlaybackState | "FAILED";
@@ -14,13 +24,26 @@ const SYNTHETIC_VIDEO_POSTER = `data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#431407"/><stop offset=".55" stop-color="#9a3412"/><stop offset="1" stop-color="#f97316"/></linearGradient><radialGradient id="l"><stop stop-color="#fed7aa" stop-opacity=".75"/><stop offset="1" stop-color="#fb923c" stop-opacity="0"/></radialGradient></defs><rect width="1600" height="900" fill="url(#g)"/><circle cx="330" cy="220" r="280" fill="url(#l)"/><circle cx="800" cy="410" r="118" fill="#fff7ed" fill-opacity=".96"/><path d="M775 350v120l95-60z" fill="#c2410c"/><circle cx="1370" cy="120" r="220" fill="none" stroke="#fed7aa" stroke-opacity=".35" stroke-width="3"/><text x="800" y="650" fill="#fff7ed" text-anchor="middle" font-family="system-ui,sans-serif" font-size="72" font-weight="700">小橘灯直播</text><text x="800" y="720" fill="#fed7aa" text-anchor="middle" font-family="system-ui,sans-serif" font-size="34">合成演示封面 · 点击播放</text></svg>',
 )}`;
 
-export function LiveDetailPage({ record, onBack }: Props) {
+const SYNTHETIC_ACTOR_HEADERS = {
+  "Content-Type": "application/json",
+  "X-Sandbox-Source": "SANDBOX_SYNTHETIC",
+  "X-Fixture-Only": "true",
+  "X-Tenant-Id": "tenant.synthetic.alpha",
+  "X-Family-Id": "family.synthetic.alpha",
+  "X-Actor-Id": "actor.synthetic.adult",
+  "X-Actor-Role": "ADULT_VIEWER",
+};
+
+export function LiveDetailPage({ record, interactionBaseUrl, onBack }: Props) {
   const playback = record.playback;
   const [surfaceState, setSurfaceState] = useState<SurfaceState>(
     playback?.state ?? "WAITING_AUTHORIZATION",
   );
   const [mediaUrl, setMediaUrl] = useState(playback ? playback.playback_url : "");
   const [showServiceDetails, setShowServiceDetails] = useState(false);
+  const [questions, setQuestions] = useState<LiveQuestion[]>([]);
+  const [questionText, setQuestionText] = useState("");
+  const [questionState, setQuestionState] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const hasStartedPlayback = useRef(false);
   const canRenderVideo =
     playback?.source === "synthetic" &&
@@ -29,6 +52,24 @@ export function LiveDetailPage({ record, onBack }: Props) {
     isLocalPlaybackUrl(mediaUrl);
   const playbackMessage = getPlaybackMessage(surfaceState);
   const showAdultNextStep = ["ENDED", "STOPPED", "REVOKED"].includes(surfaceState);
+
+  useEffect(() => {
+    if (!interactionBaseUrl) return;
+    const controller = new AbortController();
+    void fetch(`${interactionBaseUrl}/sandbox/live/sessions/media.synthetic.1/questions`, {
+      headers: SYNTHETIC_ACTOR_HEADERS,
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("question read failed");
+        return response.json() as Promise<LiveQuestion[]>;
+      })
+      .then((items) => setQuestions(items.filter((item) => item.fixture_only === true)))
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) setQuestionState("error");
+      });
+    return () => controller.abort();
+  }, [interactionBaseUrl]);
 
   return (
     <article className="live-detail-page" aria-labelledby="live-detail-heading">
@@ -118,11 +159,34 @@ export function LiveDetailPage({ record, onBack }: Props) {
             </div>
             <p><b>主持人</b> 欢迎来到小橘灯直播间</p>
             <p><b>小橘灯老师</b> 今天只练习一个方法</p>
+            {questions.map((question) => (
+              <p key={question.question_ref} className={`live-question-${question.status.toLowerCase()}`}>
+                <b>{question.status === "APPROVED" ? "家长提问" : "我的提问"}</b> {question.text}
+                {question.status === "PENDING" ? <em>等待人工审核</em> : null}
+              </p>
+            ))}
           </div>
-          <div className="live-room-composer" aria-label="互动能力状态">
-            <span>互动能力尚未接入</span>
-            <button type="button" disabled>发送</button>
-          </div>
+          {interactionBaseUrl ? (
+            <form className="live-room-composer" aria-label="提交直播问题" onSubmit={submitQuestion}>
+              <input
+                aria-label="向专家提问"
+                maxLength={240}
+                placeholder="向专家提问，审核后展示"
+                value={questionText}
+                onChange={(event) => setQuestionText(event.target.value)}
+              />
+              <button type="submit" disabled={questionText.trim().length < 2 || questionState === "sending"}>
+                {questionState === "sending" ? "提交中" : "提交"}
+              </button>
+            </form>
+          ) : (
+            <div className="live-room-composer" aria-label="互动能力状态">
+              <span>互动服务暂不可用</span>
+              <button type="button" disabled>提交</button>
+            </div>
+          )}
+          {questionState === "sent" ? <p className="live-question-feedback" role="status">问题已提交，等待人工审核</p> : null}
+          {questionState === "error" ? <p className="live-question-feedback" role="alert">问题暂未送达，请稍后再试</p> : null}
         </aside>
       </div>
 
@@ -209,6 +273,34 @@ export function LiveDetailPage({ record, onBack }: Props) {
       setSurfaceState(result.state);
     } catch {
       setSurfaceState("FAILED");
+    }
+  }
+
+  async function submitQuestion(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const text = questionText.trim();
+    if (!interactionBaseUrl || text.length < 2) return;
+    const reference = `question.${Date.now()}`;
+    setQuestionState("sending");
+    try {
+      const response = await fetch(
+        `${interactionBaseUrl}/sandbox/live/sessions/media.synthetic.1/questions`,
+        {
+          method: "POST",
+          headers: SYNTHETIC_ACTOR_HEADERS,
+          body: JSON.stringify({ question_ref: reference, idempotency_key: reference, text }),
+        },
+      );
+      if (!response.ok) throw new Error("question submit failed");
+      const submitted = (await response.json()) as LiveQuestion;
+      if (submitted.fixture_only !== true || submitted.source !== "SANDBOX_SYNTHETIC") {
+        throw new Error("question source rejected");
+      }
+      setQuestions((current) => [...current.filter((item) => item.question_ref !== reference), submitted]);
+      setQuestionText("");
+      setQuestionState("sent");
+    } catch {
+      setQuestionState("error");
     }
   }
 }
