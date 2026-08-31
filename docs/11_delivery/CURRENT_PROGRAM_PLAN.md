@@ -61,16 +61,32 @@ superseded_by: null
 
 旧版 `CURRENT_PROGRAM_PLAN.md` 的“唯一真实状态”和 Wave 叙述已与代码/路由事实漂移。版本 3 将真相核销列为 Sprint 0 首项，不用计划文本替代仓库证据。
 
+### 2.1 输入冻结与冲突裁决
+
+上述 draft 文档被批准为本计划的设计输入，不因此自动升级为 canonical 架构。实际施工按以下优先级裁决：
+
+```text
+项目目标与本主计划
+→ Accepted ADR / Registry owner
+→ canonical Current documents
+→ 本计划锁定的 PRD / Slice candidate
+→ WIP / research / fixture
+```
+
+PMO 在 Decision Log 记录每次输入 ref、批准人、冲突和有效期。当前已冻结的产品裁决是：自由表达为主入口、Assessment 按证据缺口调用、S1–S6 均属于全量 MVP、P0 不直接接受 GrowthCase 或长期 FamilyNeed 超级聚合。任何冲突必须回到该日志，不再创建新计划解释旧计划。
+
+控制面唯一性：本文件只保存计划；`TASK_BACKLOG` 只保存 Task Card；Agent roster 只保存人员与职责；Evidence Board 保存动态 ref/测试/环境状态；Decision Log 保存裁决。它们不得各自维护另一套 Sprint、优先级或完成率。
+
 ## 3. Current / Candidate / Target
 
 ### 3.1 Current
 
-- local `main=0fa84a1`，`origin/main=4c2b772`；
-- Assessment、Membership、Service 已有不同程度的路由与实现，但正式依赖和真实环境成熟度不一致；
-- Platform 的 Identity/Authorization/Consent/Audit/Idempotency/Persistence 与 Model Gateway 有局部实现和测试；
-- Journey、FamilyNeed、Context Engine、Human Gate、Web、Service/FGCN 等存在多个候选 ref，不等于 main 能力；
+- main 中已有部分 Assessment、Membership、Service 与 Platform/Model Gateway 代码，但正式依赖和真实环境成熟度不一致；
+- Journey、FamilyNeed、Context Engine、Human Gate、Web、Service/FGCN 等还存在多个候选 ref，不等于 main 能力；
 - migration、组合根、owner、Registry 与真实 HTTP/PG/E2E 仍有漂移和分叉；
 - UI-01/02/03 有可复用体验，但现有职责、评分表达、远程状态和主链衔接需要收敛。
+
+主计划不保存会迅速过期的 SHA、测试数量、migration head 或 CI 状态。Current ref、Candidate ref、原始测试、artifact 和生产状态统一进入 Evidence Board；任何结论必须带 ref 与时间戳，脏工作树不得登记为 Candidate。
 
 ### 3.2 Candidate
 
@@ -139,6 +155,8 @@ ServiceCase      真人服务的履约过程
 
 家长从 UI-01 用文字开始，也可选语音/图片；平台形成可修正理解，必要时按需进入 UI-02 Assessment，并在 UI-03/Understanding Map 确认当前重点。结果是版本锁定、可回读的 confirmation receipt。
 
+UI 职责冻结：UI-01 负责表达与恢复；UI-02 负责说明目的后的按需 Assessment；UI-03 负责理解地图、依据、Unknown 与逐项修正。删除默认 50、`overall_score`、`peer_reference` 和强制先选孩子是 S1 的阻断验收，不允许用新页面掩盖旧路径。
+
 ### S2｜成长介入、行动与复盘
 
 confirmed intent 进入最小充分 Intervention，家长选择并执行 Action，次日/约定时间记录 Reflection，系统支持继续、调整、暂停和 Outcome Observation。
@@ -146,6 +164,8 @@ confirmed intent 进入最小充分 Intervention，家长选择并执行 Action�
 ### S3｜知识与多模态 AI
 
 针对一个具体家庭主题，提供可理解的知识依据、Context Snapshot、typed AI Draft、可修正解释和 provenance。S3 服务 S1/S2，不是泛化聊天 Demo。
+
+S3 独立退出条件：知识条目有版本、来源、适用边界和失效/撤回行为；引用能定位到 Draft 中的具体主张；固定数据集验证引用准确性和 Unknown；同一知识能力至少在“理解、介入、复盘”三个节点完成一条消费证据。
 
 ### S4｜真人服务履约
 
@@ -158,6 +178,8 @@ confirmed intent 进入最小充分 Intervention，家长选择并执行 Action�
 ### S6｜方案、权益与价值转化
 
 从家庭已经确认的需要出发，比较方案、价格与权益，由家长主动形成购买意向。MVP 必须明确是“价值/购买意向验证”还是完整 sandbox 交易闭环，不能混称收入能力。
+
+该二选一必须在 Sprint 0 完成范围裁决；若选择完整 sandbox 交易，必须另设容量并拆分 Sprint 4，不允许与 S4 履约在同一团队内隐性超载。
 
 ## 6. 组织重组：唯一 PMO + 六个交付团队
 
@@ -235,9 +257,9 @@ confirmed intent 进入最小充分 Intervention，家长选择并执行 Action�
 
 复杂 Creator、开放式专家市场、ACN 自动结算、复杂 Commerce/Community 与大规模多 Agent 保持 Sandbox/Backlog，不伪装成第一阶段能力。
 
-## 8. 6 Sprint × 2 周路线
+## 8. Sprint 0（3 个工作日）+ 5 个两周 Sprint
 
-Sprint 是规划窗口；独立场景可以在契约和 owner 明确后并行，不要求所有工作串行等待。
+Sprint 0 是收敛启动窗，Sprint 1–5 每个 10 个工作日。每张 Task Card 为 0.5–2 人日；独立场景可以在契约和 owner 明确后并行，不要求所有工作串行等待。旧 Replan 的 3–5 日 Sprint 不再排程。
 
 ### Sprint 0｜真相核销与主干收敛
 
@@ -251,6 +273,8 @@ Sprint 是规划窗口；独立场景可以在契约和 owner 明确后并行，
 - 确定唯一 Integration owner 和受保护 branch；
 - 关闭 Golden Slice 所需 ENV、DATA、IDP、LEDGER、AI、CLIENT 六门；
 - 冻结共享 Projection、Error、Event/Receipt 与 Task Card 模板。
+- 决定 S6 是购买意向验证还是完整 sandbox 交易；
+- 为 S1–S6 分别冻结最小用户结果、稳定 receipt、供给/内容来源和至少三条反向/恢复脚本。
 
 退出：Mobile→API→PostgreSQL→Audit/Outbox→restart/readback 在同一 ref 可复核。Web 当前缺正式运行基础，不伪造双端通过。
 
@@ -258,7 +282,7 @@ Sprint 是规划窗口；独立场景可以在契约和 owner 明确后并行，
 
 S1+S3 首片：表达→保存→1–3 个高价值澄清→结构化理解→修正→家长确认/拒绝→重启恢复。
 
-交付 Mobile-first Full-Stack Slice、`family_problem_understanding_v1`、必要知识依据和真实 HTTP/PG。Assessment 是 Evidence 不足时的可选桥，不是固定第一关。
+交付 Mobile-first Full-Stack Slice、`family_problem_understanding_v1`、必要知识依据和真实 HTTP/PG。Assessment 是 Evidence 不足时的可选桥，不是固定第一关。多模态必须覆盖语音转写确认、图片描述确认、失败后回退文字、原媒体/转写/派生内容的同一 deletion lineage；文字 Golden Path 不被媒体 provider 阻塞。
 
 退出：家长能分别反馈“表达是否准确”和“是否感到被理解”；确认锁定其看到的版本，AI 不直接创建 business intent/fact。
 
@@ -270,6 +294,8 @@ S2 前半：FamilyNeed/confirmed intent→最小充分 Intervention→Action 选
 
 退出：真实用户场景跨进程可回读；Action 有 owner、时间、完成/放弃/调整语义，不以页面打卡等同效果。
 
+并行启动 S4/S5/S6 薄片：S4 冻结真人升级与 ServiceCase handoff；S5 交第一个审核内容/活动、举报与撤回场景；S6 按 Sprint 0 裁决交购买意向或交易 contract。三者不得修改 S1/S2 主链事实。
+
 ### Sprint 3｜Reflection & Outcome
 
 S2 后半：Action→Reflection→Barrier→Outcome Observation→继续/调整/暂停/升级。
@@ -277,6 +303,8 @@ S2 后半：Action→Reflection→Barrier→Outcome Observation→继续/调整/
 Outcome 默认允许 UNKNOWN，必须包含 baseline、观察窗口、Evidence 充分性、来源差异和替代解释；服务完成或满意度不能自动关闭 Need。
 
 退出：Need→Intent→Action→Reflection→Next Decision 的 Family Growth Kernel V1 可连续演示。
+
+S5 在本 Sprint 完成可见范围、内容来源、Moderator/Ops 补救和恢复证据；不能等到最终 Sprint 才首次实现。
 
 ### Sprint 4｜M3 Human Help & Value
 
@@ -289,7 +317,7 @@ Outcome 默认允许 UNKNOWN，必须包含 baseline、观察窗口、Evidence �
 
 ### Sprint 5｜关系网络与全量 MVP Release
 
-交付 S5 受控关系薄闭环，并将 S1–S6 串到同一家庭上下文和导航：`今天 / 问法咪莉 / 发现 / 成长 / 我的家庭`。
+将已经在 Sprint 2–3 形成的 S5 受控关系薄闭环接入统一家庭上下文，并将 S1–S6 串到导航：`今天 / 问法咪莉 / 发现 / 成长 / 我的家庭`。本 Sprint 不首次创建新的核心场景，只做集成、缺口关闭和发布验收。
 
 退出：六个场景分别有非 fixture UI、正反/恢复脚本、真实 HTTP/PG（适用时）、版本化 artifact、owner、观测和回滚；未达标场景标 `NOT_IMPLEMENTED`，不能用 Golden Loop 替代。
 
@@ -315,7 +343,7 @@ S1 表达理解确认 ─────→ S2 Action/Reflection/Outcome
 - S4/S6 可以强化现有候选，但不得绕过明确家庭需要；
 - 小橘灯独立运行，不阻塞 DAG，也不改写主线对象。
 
-## 10. 第一轮八张任务卡
+## 10. 第一轮十二张任务卡
 
 ### ARCH-01｜Branch Reality & Integration Plan
 
@@ -349,6 +377,37 @@ S1 表达理解确认 ─────→ S2 Action/Reflection/Outcome
 
 建立 Mobile→HTTP→PG→AI Draft→Correction/Confirmation→restart/readback 的逐片测试骨架；每片都跑 E2E，不到 Sprint 末补票。
 
+### JRN-01｜GrowthIntent → Journey Handoff
+
+冻结 Journey 只消费 confirmed GrowthIntent receipt 的 Reader/Command Port，盘点 Plan/Action/Reflection/Outcome 候选的 REUSE/ADAPT/SUPERSEDE；本卡不修改 S1 writer 或组合根。
+
+### S4-SERVICE-01｜Service Handoff & Remedy Discovery
+
+冻结家长主动升级→ServiceCase→Booking/Delivery→Feedback/Remedy 的最小场景、供给来源和 receipt；先审现有 Service/FGCN 候选，不新建第二套履约对象。
+
+### S5-REL-01｜Relationship Supply & Moderation Discovery
+
+选定一个真实主题，冻结内容/活动来源、可见范围、加入/收藏、退出/举报、撤回和运营补救；无 owner 或真实供给时标 `MISSING_OWNER`，不伪造社区内容。
+
+### S6-VALUE-01｜Value Scope Decision
+
+在“购买意向验证”与“完整 sandbox 交易闭环”中二选一，冻结 Offering/价格/权益/取消/退款边界、owner 和容量；决策前不扩大 Commerce。
+
+### 10.1 三波启动顺序
+
+```text
+Wave A（立即并行）
+ARCH-01 + DOM-01 + PLT-01 + DAT-01
+        ↓ 冻结 owner / migration / platform contract
+Wave B（契约冻结后）
+API-01 + AIR-01 + EXP-01 + QA-01
+        ↓ 形成 S1 可运行骨架
+Wave C（不抢主链共享文件）
+JRN-01 + S4-SERVICE-01 + S5-REL-01 + S6-VALUE-01
+```
+
+Wave 是依赖批次，不是等待所有研究结束才编码。每卡满足自己的 DoR 即开工；共享 `main.py`、migration、Registry 和 contract 仍由唯一 owner 串行组合。
+
 ## 11. 统一 Task Card
 
 每个 Agent 任务必须在 1–2 天内可验证，并包含：
@@ -370,6 +429,14 @@ Known gap and stop condition
 
 前端、API、Domain/Data、AI 与 QA 可以由不同专业 Agent 承担，但它们属于同一个 Vertical Slice；任何一层不能脱离场景单独宣布 Done。
 
+### 容量与 WIP
+
+- 每个 Sprint 只承诺可用容量的 70%，20% 留给集成/评审，10% 留给故障与质量债；
+- 每队同时最多 2 张执行卡，每个 Agent 同时最多 1 张；
+- 未估算、无 DoR、超过 2 人日或跨多个共享文件战场的任务必须拆分；
+- 紧急修复进入 Sprint 时必须显式换出等量工作，不允许持续超载；
+- 顾问、PMO、QA 的评审不计为业务卡完成，但其阻断意见必须绑定具体 Task ID。
+
 ## 12. Integration 与晋升策略
 
 ```text
@@ -387,6 +454,7 @@ Feature branch
 - Integration branch 由唯一 owner 管理，不是长期第二 main；
 - 所有候选必须记录 base、commit、pathspec 和依赖 ref；
 - 共享热点 `main.py`、Registry、migration、contracts 分别由具名 owner 组合；
+- 默认集成顺序为 migration→platform→domain→API/composition→client；契约可先行，但后序层不得伪造前序能力；
 - 禁止整分支 cherry-pick、自动合入、reset/force push 或覆盖他人 WIP；
 - unit test 通过不等于用户场景、main、真实环境或 production 通过。
 
@@ -407,9 +475,14 @@ Feature branch
 - 业务变化、canonical Audit、Outbox 与 idempotency receipt 同一事务提交或回滚；AI/外部 provider 调用不持有该数据库事务；
 - 重复、冲突、拒绝、撤回、超时、重启和跨家庭反例成立；
 - 真实 HTTP/PG 与适用的 provider 证据可复现；
+- 定向测试、Ruff、架构测试和适用的 CI 均通过；skip、孤立路由或 Fake 不能关闭业务卡；
 - 视觉、文案、响应式/可访问性和失败恢复经过体验验收；
 - 交付截图/录屏、日志、构建物或可运行 artifact；
 - branch/commit/main/artifact/real environment/production 六层状态如实登记。
+
+涉及多模态或家庭数据时，DoD 还需证明 purpose-specific Consent、读取审计、留存期限、原媒体/转写/派生索引/供应商副本的级联删除，以及供应商转委托边界。该要求属于架构完成条件，不允许留到代码完成后再补。
+
+每个 S1–S6 场景至少进行 6 个家长任务测试；至少 5 人能独立完成“理解结果、修正、找到下一步或恢复”才进入 main 候选。测试人数不足时如实标为未完成，不以内部演示替代。
 
 ## 14. 项目沟通与汇报
 
@@ -431,10 +504,13 @@ Next command:
 
 ### PMO 节奏
 
-- 每小时：更新 Golden Journey 阻断、owner 与 next command；
+- 每小时：异步更新异常、Golden Journey 阻断、owner 与 next command；无变化不召开会议；
+- 每日两次：15 分钟 Integration window，只处理共享 contract、migration、组合根和失败回退；
 - 每日：Integration/branch disposition、场景 burn-up、质量债和决策日志；
 - 每 Sprint：现场演示、证据审阅、Continue/Correct/Pause/Drop 裁决；
 - 冲突发现后立即冻结冲突文件，30 分钟内提交 owner/path/ref 事实，由总控裁决；不允许静默复制或绕开。
+
+阻断 SLA：P0 在 15 分钟内登记、1 小时内定责、4 小时内给出恢复方案；P1 当天处理；任何阻断超过 24 小时自动升级总控。共享文件冲突、未知 owner、migration 多 head、CI 主链失败均按 P0 管理。
 
 ## 15. 进度与质量计量
 
@@ -481,7 +557,7 @@ Next command:
 2. 完成 Current Truth/L0/Registry/路由/migration 核销；
 3. 六个团队 DRI、接口 owner 和现有 Chat 归并映射完成；
 4. FamilyNeed/GrowthIntent/Journey/Assessment/ServiceCase ADR 裁决；
-5. 第一轮八张 Task Card 的 pathspec、依赖 ref 和退出门签核；
+5. 第一轮十二张 Task Card 的 pathspec、依赖 ref 和退出门签核；
 6. 建立单一 Evidence Board 与 Integration owner；
 7. Sprint 0 Golden Slice 演示通过后，才进入 Sprint 1 正式施工。
 
