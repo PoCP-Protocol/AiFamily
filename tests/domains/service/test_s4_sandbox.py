@@ -7,7 +7,7 @@ def test_s4_sandbox_offering_booking_and_delivery_record() -> None:
     with TestClient(build_sandbox_app()) as client:
         page = client.get("/")
         assert page.status_code == 200
-        assert "DEV SYNTHETIC" in page.text
+        assert "演示环境 · 不会联系真实服务人员" in page.text
 
         scene = client.get("/api/scene")
         assert scene.status_code == 200
@@ -26,6 +26,20 @@ def test_s4_sandbox_offering_booking_and_delivery_record() -> None:
         assert replay.status_code == 200
         assert replay.json()["booking"] == confirmed.json()["booking"]
         assert replay.json()["delivery_record"] == confirmed.json()["delivery_record"]
+
+        feedback = client.post("/api/complete-delivery?feedback=POSITIVE")
+        assert feedback.status_code == 200
+        assert feedback.json()["delivery_record"]["status"] == "COMPLETED"
+        assert feedback.json()["delivery_record"]["service_quality_rating"] == "POSITIVE"
+        assert feedback.json()["feedback_scope"] == "PROVIDER_SERVICE_ONLY"
+
+        readback = client.get("/api/scene").json()["customer_projection"]["bookings"][0]
+        assert readback["service_record_status"] == "COMPLETED"
+        assert readback["service_quality_rating"] == "POSITIVE"
+
+        duplicate_feedback = client.post("/api/complete-delivery?feedback=POSITIVE")
+        assert duplicate_feedback.status_code == 409
+        assert duplicate_feedback.json()["detail"] == "record_not_completable:COMPLETED"
 
 
 def test_s4_sandbox_refuses_production(monkeypatch) -> None:

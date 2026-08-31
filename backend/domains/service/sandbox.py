@@ -17,8 +17,9 @@ import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Literal
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 
 from backend.platform.audit.recorder import AuditRecorder
@@ -28,6 +29,7 @@ from .application import commands, queries
 from .application.context import ActionContext
 from .application.handoff import HumanHelpHandoffReceipt, submit_confirmed_human_help
 from .domain.entities import utcnow
+from .domain.errors import ServiceConflictError
 from .infrastructure.fake_repository import FakeConsentQuery, FakeServiceRepository
 
 TENANT = "sandbox-tenant"
@@ -78,7 +80,7 @@ async def _seed() -> SandboxState:
         ctx,
         recorder,
         provider_ref="SYNTHETIC_PARENT_COACH",
-        display_name="合成家庭行动教练",
+        display_name="家庭行动教练（演示）",
         provider_kind="TEACHER",
         qualification_status="ACTIVE",
         admission_status="ADMITTED",
@@ -138,12 +140,16 @@ def build_sandbox_app() -> FastAPI:
         slots = await queries.list_availability_slots(
             state.repo, tenant_id=TENANT, service_offering_id=state.offering_id
         )
+        projection = await queries.get_customer_projection(
+            state.repo, tenant_id=TENANT, family_id=FAMILY
+        )
         return {
             "evidence_level": "SYNTHETIC_DEV_SANDBOX",
             "external_effect": False,
             "family_need": "希望晚间学习能平稳开始，减少催促冲突",
             "offerings": offerings,
             "slots": slots,
+            "customer_projection": projection,
         }
 
     @application.post("/api/confirm-booking")
@@ -185,6 +191,33 @@ def build_sandbox_app() -> FastAPI:
             "audit_actions": [event.action for event in state.recorder.all_events()],
         }
 
+    @application.post("/api/complete-delivery")
+    async def complete_delivery(feedback: Literal["POSITIVE", "NEEDS_FOLLOW_UP"]):
+        state: SandboxState = application.state.s4
+        records = await state.repo.list_service_records(TENANT, FAMILY)
+        if not records:
+            raise HTTPException(status_code=409, detail="delivery_record_not_open")
+        try:
+            completed = await commands.fulfil_service_record(
+                state.repo,
+                _context(),
+                state.recorder,
+                booking_service_record_id=records[0].booking_service_record_id,
+                quality_rating=feedback,
+            )
+        except ServiceConflictError as exc:
+            raise HTTPException(status_code=409, detail=exc.code) from exc
+        return {
+            "evidence_level": "SYNTHETIC_DEV_SANDBOX",
+            "external_effect": False,
+            "delivery_record": {
+                "booking_service_record_id": completed.booking_service_record_id,
+                "status": completed.status,
+                "service_quality_rating": completed.service_quality_rating,
+            },
+            "feedback_scope": "PROVIDER_SERVICE_ONLY",
+        }
+
     return application
 
 
@@ -193,27 +226,43 @@ app = build_sandbox_app()
 
 _HTML = """<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>AiFamily S4 DEV Sandbox</title><style>
+<title>AiFamily 服务体验演示</title><style>
 body{margin:0;background:#f4f7fb;color:#172033;font:16px system-ui}.wrap{max-width:760px;margin:40px auto;padding:24px}
 .badge{display:inline-block;padding:6px 10px;border-radius:999px;background:#fff0d9;color:#8a4b00;font-weight:700}
 .card{margin-top:18px;padding:24px;border:1px solid #dbe3ef;border-radius:18px;background:white;box-shadow:0 8px 24px #24405b12}
 h1{font-size:30px;margin:14px 0 8px}h2{font-size:21px}.muted{color:#667085}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.item{padding:14px;border-radius:12px;background:#f7f9fc}button{margin-top:20px;width:100%;padding:14px;border:0;border-radius:12px;background:#2864dc;color:white;font-size:17px;font-weight:700;cursor:pointer}
+.item{padding:14px;border-radius:12px;background:#f7f9fc}button{margin-top:20px;width:100%;padding:14px;border:0;border-radius:12px;background:#2864dc;color:white;font-size:17px;font-weight:700;cursor:pointer}.feedback{display:none;grid-template-columns:1fr 1fr;gap:10px}.feedback button{background:#17633a}
 button:disabled{background:#9eb4df}.result{margin-top:18px;padding:16px;border-radius:12px;background:#eaf7ef;color:#17633a;white-space:pre-wrap}
-</style></head><body><main class="wrap"><span class="badge">DEV SYNTHETIC · 无外部副作用</span>
+</style></head><body><main class="wrap"><span class="badge">演示环境 · 不会联系真实服务人员</span>
 <h1>为晚间学习平稳启动请求真人帮助</h1><p class="muted" id="need">正在读取家庭明确需要…</p>
 <section class="card"><h2 id="title">读取服务方案…</h2><div class="row"><div class="item"><b>服务人员</b><p id="provider">—</p></div><div class="item"><b>可选时间</b><p id="slot">—</p></div></div>
-<button id="confirm" disabled>确认预约并查看交付记录</button><div id="result"></div></section></main>
+<button id="confirm" disabled>确认预约并查看交付记录</button><div id="feedback" class="feedback">
+<button data-feedback="POSITIVE">服务完成 · 有帮助</button><button data-feedback="NEEDS_FOLLOW_UP">服务完成 · 需要跟进</button>
+</div><div id="result"></div></section></main>
 <script>
 const needEl=document.getElementById('need'),titleEl=document.getElementById('title');
 const providerEl=document.getElementById('provider'),slotEl=document.getElementById('slot');
 const confirmButton=document.getElementById('confirm'),resultEl=document.getElementById('result');
+const feedbackPanel=document.getElementById('feedback');
+const feedbackLabel=value=>value==='POSITIVE'?'有帮助':'需要跟进';
+const bookingLabel=value=>value==='CONFIRMED'?'已确认':'待确认';
+const deliveryLabel=value=>value==='COMPLETED'?'已完成':'等待服务';
+function showProjection(row){if(!row)return;confirmButton.disabled=true;confirmButton.textContent='已确认';
+resultEl.className='result';resultEl.textContent='预约状态：'+bookingLabel(row.booking_status)+'\\n交付记录：'+deliveryLabel(row.service_record_status)+
+(row.service_quality_rating?'\\n服务反馈：'+feedbackLabel(row.service_quality_rating):'')+'\\n这是演示环境，不会联系真实服务人员';
+feedbackPanel.style.display=row.service_record_status==='COMPLETED'?'none':'grid'}
 async function load(){const d=await fetch('/api/scene').then(r=>r.json());const o=d.offerings[0],s=d.slots[0];
 needEl.textContent=d.family_need;titleEl.textContent=o.title;providerEl.textContent=o.provider_display_name;
-slotEl.textContent=new Date(s.starts_at).toLocaleString()+' · '+s.channel;confirmButton.disabled=false}
+slotEl.textContent=new Date(s.starts_at).toLocaleString()+' · '+(s.channel==='VIDEO'?'视频':s.channel);
+const row=d.customer_projection.bookings[0];if(row){showProjection(row)}else{confirmButton.disabled=false}}
 confirmButton.addEventListener('click',async()=>{confirmButton.disabled=true;confirmButton.textContent='正在由人工确认…';
 const d=await fetch('/api/confirm-booking',{method:'POST'}).then(r=>r.json());resultEl.className='result';
-resultEl.textContent='预约状态：'+d.booking.status+'\\nDeliveryRecord：'+d.delivery_record.status+'\\nexternal_effect：'+d.external_effect;
-confirmButton.textContent='已确认'});load();
+resultEl.textContent='预约状态：'+bookingLabel(d.booking.status)+'\\n交付记录：'+deliveryLabel(d.delivery_record.status)+'\\n这是演示环境，不会联系真实服务人员';
+confirmButton.textContent='已确认';feedbackPanel.style.display='grid'});
+document.querySelectorAll('[data-feedback]').forEach(button=>button.addEventListener('click',async()=>{
+const d=await fetch('/api/complete-delivery?feedback='+button.dataset.feedback,{method:'POST'}).then(r=>r.json());
+resultEl.textContent='预约状态：已确认\\n交付记录：'+deliveryLabel(d.delivery_record.status)+
+'\\n服务反馈：'+feedbackLabel(d.delivery_record.service_quality_rating)+'\\n这是演示环境，不会联系真实服务人员';
+feedbackPanel.style.display='none'}));load();
 </script>
 </body></html>"""
