@@ -1,0 +1,96 @@
+{
+  "context": {
+    "snapshot_ref": "ctx-synthetic-family-001-v1",
+    "tenant_id": "tenant-synthetic-001",
+    "family_id": "family-synthetic-001",
+    "subject_ref": "guardian-synthetic-001",
+    "consent_ref": "consent-synthetic-001",
+    "expires_at": "2099-01-01T00:00:00+00:00",
+    "inputs": [
+      {
+        "source_ref": "input-guardian-text-001",
+        "kind": "GUARDIAN_TEXT",
+        "text": "晚间开始学习前，我们常常反复提醒，双方都很着急。",
+        "source": "synthetic",
+        "machine_derived": false,
+        "guardian_confirmed": true
+      },
+      {
+        "source_ref": "input-voice-transcript-001",
+        "kind": "VOICE_TRANSCRIPT",
+        "text": "我希望先弄清楚是开始步骤不清楚，还是当天已经太疲惫。",
+        "source": "synthetic",
+        "machine_derived": true,
+        "guardian_confirmed": true
+      }
+    ],
+    "knowledge_refs": [
+      {
+        "ref": "knowledge-routine-transition-v1",
+        "source": "reviewed-family-routine-guide",
+        "version": "1.0.0",
+        "chunk_ref": "transition-cues",
+        "content_digest": "sha256:fixture-transition-cues",
+        "applicability": "Adult-supported transitions into a planned family routine.",
+        "limitations": [
+          "Not a diagnosis.",
+          "Does not establish the cause for this family."
+        ]
+      }
+    ]
+  },
+  "provider_output": {
+    "perspective": {
+      "summary": "目前的表达提示，摩擦集中在晚间学习的启动过渡，而原因尚未确认。",
+      "source_refs": [
+        "input-guardian-text-001",
+        "input-voice-transcript-001"
+      ],
+      "knowledge_refs": [
+        "knowledge-routine-transition-v1"
+      ],
+      "uncertainty": "中等：只有成人的一次表达，没有连续观察。",
+      "limitations": [
+        "这是待成人修正或确认的解释草案，不是事实或诊断。"
+      ]
+    },
+    "hypotheses": [
+      {
+        "statement": "启动步骤或过渡提示不够清楚，可能增加反复提醒。",
+        "source_refs": [
+          "input-guardian-text-001"
+        ],
+        "knowledge_refs": [
+          "knowledge-routine-transition-v1"
+        ],
+        "uncertainty": "待观察",
+        "disconfirming_question": "步骤已经明确时，冲突是否仍以相同频率出现？"
+      }
+    ],
+    "unknowns": [
+      {
+        "question": "摩擦在疲惫程度不同的晚上是否有明显差异？",
+        "reason": "现有输入没有连续记录，不能确认主要影响因素。"
+      }
+    ],
+    "follow_up_questions": [
+      "步骤已经明确时，冲突是否仍以相同频率出现？"
+    ],
+    "strengths": [
+      {
+        "statement": "家长已经能区分步骤不清楚和疲惫这两种可能。",
+        "source_refs": [
+          "input-voice-transcript-001"
+        ],
+        "uncertainty": "低"
+      }
+    ],
+    "desired_change": {
+      "statement": "希望晚间开始学习时减少反复提醒和着急。",
+      "source_refs": [
+        "input-guardian-text-001"
+      ],
+      "uncertainty": "低"
+    }
+  }
+}
