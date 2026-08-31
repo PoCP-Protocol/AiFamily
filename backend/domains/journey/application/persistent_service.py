@@ -9,6 +9,8 @@ event writer have both succeeded.
 from __future__ import annotations
 
 from collections.abc import Callable
+from hashlib import sha256
+from json import dumps
 from uuid import NAMESPACE_URL, uuid5
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -70,9 +72,33 @@ class PersistentJourneyPlanService:
             raise JourneyValidationError("journey_goal_required")
         async with self._session_factory() as session:
             repository = SqlAlchemyJourneyRepository(session, self._event_writer_factory(session))
+            key = self._scoped_key(
+                intent.tenant_id, intent.family_id, "create_plan", idempotency_key
+            )
+            replay = await repository.begin_idempotency(
+                key=key,
+                action="JOURNEY_MVP.create_plan",
+                request_hash=self._request_hash(
+                    {
+                        "intent_id": intent.intent_id,
+                        "tenant_id": intent.tenant_id,
+                        "family_id": intent.family_id,
+                        "actor_id": intent.actor_id,
+                        "need_type": intent.need_type,
+                        "goal_text": intent.goal_text,
+                        "evidence_refs": intent.evidence_refs,
+                        "knowledge_refs": intent.knowledge_refs,
+                        "boundary": intent.boundary,
+                    }
+                ),
+            )
+            if replay is not None:
+                return replay
             await repository.create_plan(plan)
+            result = {"plan": plan.as_dict(), "created": True, "replayed": False}
+            await repository.complete_idempotency(key=key, response=result)
             await session.commit()
-        return {"plan": plan.as_dict(), "created": True, "replayed": False}
+        return result
 
     async def confirm_plan(
         self, *, tenant_id: str, family_id: str, actor_id: str, plan_id: str, idempotency_key: str
@@ -80,14 +106,24 @@ class PersistentJourneyPlanService:
         self._require_key(idempotency_key)
         async with self._session_factory() as session:
             repository = SqlAlchemyJourneyRepository(session, self._event_writer_factory(session))
+            key = self._scoped_key(tenant_id, family_id, "confirm_plan", idempotency_key)
+            replay = await repository.begin_idempotency(
+                key=key,
+                action="JOURNEY_MVP.confirm_plan",
+                request_hash=self._request_hash({"plan_id": plan_id, "actor_id": actor_id}),
+            )
+            if replay is not None:
+                return replay
             await repository.confirm_plan(
                 plan_id=plan_id, actor_id=actor_id, tenant_id=tenant_id, family_id=family_id
             )
-            await session.commit()
             result = await repository.read_plan(
                 plan_id=plan_id, tenant_id=tenant_id, family_id=family_id
             )
-        return {"plan": result["plan"], "replayed": False}
+            response = {"plan": result["plan"], "replayed": False}
+            await repository.complete_idempotency(key=key, response=response)
+            await session.commit()
+        return response
 
     async def add_practice(
         self,
@@ -115,12 +151,29 @@ class PersistentJourneyPlanService:
         )
         async with self._session_factory() as session:
             repository = SqlAlchemyJourneyRepository(session, self._event_writer_factory(session))
+            key = self._scoped_key(tenant_id, family_id, "add_practice", idempotency_key)
+            replay = await repository.begin_idempotency(
+                key=key,
+                action="JOURNEY_MVP.add_practice",
+                request_hash=self._request_hash(
+                    {
+                        "plan_id": plan_id,
+                        "title": title,
+                        "rationale": rationale,
+                        "day_index": day_index,
+                    }
+                ),
+            )
+            if replay is not None:
+                return replay
             row = await repository._get_plan(plan_id, tenant_id, family_id)
             if row.status != JourneyPlanStatus.ACTIVE.value:
                 raise JourneyConflictError("journey_plan_not_active")
             await repository.add_practice(practice, actor_id=actor_id)
+            result = {"practice": practice.as_dict(), "replayed": False}
+            await repository.complete_idempotency(key=key, response=result)
             await session.commit()
-        return {"practice": practice.as_dict(), "replayed": False}
+        return result
 
     async def record_practice(
         self,
@@ -148,12 +201,29 @@ class PersistentJourneyPlanService:
         )
         async with self._session_factory() as session:
             repository = SqlAlchemyJourneyRepository(session, self._event_writer_factory(session))
+            key = self._scoped_key(tenant_id, family_id, "record_practice", idempotency_key)
+            replay = await repository.begin_idempotency(
+                key=key,
+                action="JOURNEY_MVP.record_practice",
+                request_hash=self._request_hash(
+                    {
+                        "plan_id": plan_id,
+                        "practice_id": practice_id,
+                        "observation": observation,
+                        "blocker": blocker,
+                    }
+                ),
+            )
+            if replay is not None:
+                return replay
             row = await repository._get_plan(plan_id, tenant_id, family_id)
             if row.status != JourneyPlanStatus.ACTIVE.value:
                 raise JourneyConflictError("journey_plan_not_active")
             await repository.record_practice(record, actor_id=actor_id)
+            result = {"record": record.as_dict(), "replayed": False}
+            await repository.complete_idempotency(key=key, response=result)
             await session.commit()
-        return {"record": record.as_dict(), "replayed": False}
+        return result
 
     async def read_plan(self, *, plan_id: str, tenant_id: str, family_id: str) -> dict[str, object]:
         async with self._session_factory() as session:
@@ -186,15 +256,41 @@ class PersistentJourneyPlanService:
         )
         async with self._session_factory() as session:
             repository = SqlAlchemyJourneyRepository(session, self._event_writer_factory(session))
+            key = self._scoped_key(tenant_id, family_id, "review_phase", idempotency_key)
+            replay = await repository.begin_idempotency(
+                key=key,
+                action="JOURNEY_MVP.review_phase",
+                request_hash=self._request_hash(
+                    {
+                        "plan_id": plan_id,
+                        "decision": decision.value,
+                        "observation": observation,
+                    }
+                ),
+            )
+            if replay is not None:
+                return replay
             row = await repository._get_plan(plan_id, tenant_id, family_id)
             if row.status != JourneyPlanStatus.ACTIVE.value:
                 raise JourneyConflictError("journey_plan_not_active")
             await repository.review_phase(review, actor_id=actor_id)
-            await session.commit()
             result = await repository.read_plan(
                 plan_id=plan_id, tenant_id=tenant_id, family_id=family_id
             )
-        return {"plan": result["plan"], "review": review.as_dict(), "replayed": False}
+            response = {"plan": result["plan"], "review": review.as_dict(), "replayed": False}
+            await repository.complete_idempotency(key=key, response=response)
+            await session.commit()
+        return response
+
+    @staticmethod
+    def _scoped_key(tenant_id: str, family_id: str, action: str, raw_key: str) -> str:
+        return sha256(f"{tenant_id}:{family_id}:{action}:{raw_key}".encode()).hexdigest()
+
+    @staticmethod
+    def _request_hash(payload: object) -> str:
+        return sha256(
+            dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode()
+        ).hexdigest()
 
     @staticmethod
     def _require_key(key: str) -> None:

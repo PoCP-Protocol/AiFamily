@@ -27,6 +27,7 @@ from ..application.plan_service import (
     PracticeRecord,
     PracticeStatus,
 )
+from ..domain.errors import JourneyConflictError
 
 
 class JourneyBase(DeclarativeBase):
@@ -87,6 +88,22 @@ class JourneyPhaseReviewRow(JourneyBase):
     family_id: Mapped[str] = mapped_column(String(128), nullable=False)
     decision: Mapped[str] = mapped_column(String(24), nullable=False)
     observation: Mapped[str] = mapped_column(String(2000), nullable=False)
+
+
+class PlatformIdempotencyKeyRow(JourneyBase):
+    """Mapping for the platform-owned idempotency table from the baseline."""
+
+    __tablename__ = "idempotency_keys"
+
+    idempotency_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    action_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    response_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response_body: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 EventWriter = Callable[[str, str, str, str, str], Any]
@@ -164,6 +181,46 @@ class SqlAlchemyJourneyRepository:
     def __init__(self, session: AsyncSession, event_writer: EventWriter) -> None:
         self._session = session
         self._event_writer = event_writer
+
+    async def begin_idempotency(
+        self, *, key: str, action: str, request_hash: str
+    ) -> dict[str, object] | None:
+        """Reserve a platform key or return its previously committed response."""
+        inserted = await self._session.execute(
+            text(
+                """
+                INSERT INTO idempotency_keys
+                    (idempotency_key, action_name, request_hash, created_at)
+                VALUES (:key, :action, :request_hash, :created_at)
+                ON CONFLICT (idempotency_key) DO NOTHING
+                """
+            ),
+            {
+                "key": key,
+                "action": action,
+                "request_hash": request_hash,
+                "created_at": datetime.now(UTC),
+            },
+        )
+        row = await self._session.get(PlatformIdempotencyKeyRow, key)
+        if row is None:
+            raise RuntimeError("platform_idempotency_row_missing")
+        if row.action_name != action or row.request_hash != request_hash:
+            raise JourneyConflictError("idempotency_conflict")
+        if inserted.rowcount == 0:
+            if row.response_body is None:
+                raise JourneyConflictError("idempotency_in_progress")
+            replay = dict(row.response_body)
+            replay["replayed"] = True
+            return replay
+        return None
+
+    async def complete_idempotency(self, *, key: str, response: dict[str, object]) -> None:
+        row = await self._session.get(PlatformIdempotencyKeyRow, key)
+        if row is None:
+            raise RuntimeError("platform_idempotency_row_missing")
+        row.response_code = 200
+        row.response_body = response
 
     async def create_plan(self, plan: JourneyPlan) -> None:
         self._session.add(
