@@ -53,9 +53,15 @@ HOME
 
 ## 3. 逐屏交互契约
 
+每屏验收均按“看到什么—做什么—得到什么”检查。工程字段只存在于后台 contract、日志或测试断言，不进入家长文案。
+
 ### UI-01｜同一家庭首页
 
 首屏只呈现“我想先理清家里最近的一件事”，不展示 tenant、scope、技术状态或家庭排名。已认证成人进入后，后台解析 canonical Identity 与当前 family context；无可用家庭时显示空态和安全退出。
+
+- 家长看到：一个真实困扰入口、未完成记录（如有）和“仅限你的家庭”的安全说明。
+- 家长做什么：进入一次理解流程，或恢复上次未完成内容。
+- 家长得到：可继续的家庭小事入口；未授权时得到明确的退出/重新认证路径。
 
 关键动作：进入 S1、查看未完成草稿、恢复上次未完成测评。
 
@@ -73,6 +79,10 @@ HOME
 
 成功理解断言：成人能复述“我说了什么、平台依据什么、还不知道什么”，且不需要看到分数或诊断词。
 
+- 家长看到：自己的原话、一句确认理解、每道题的提问目的，以及“可以跳过/返回/保存”的控制。
+- 家长做什么：表达困扰、确认用途、选择主题、回答 3 题，或在任一步退出。
+- 家长得到：一次可恢复的最小测评证据；提交失败时得到重试，不会得到虚构结果。
+
 ### UI-03｜家庭理解与知识依据
 
 结果先展示四件事：
@@ -85,6 +95,10 @@ HOME
 AI 若被调用，必须经 `backend/intelligence/model_gateway`，输出 Draft，携带 provider/model/model_version/prompt_version/context_snapshot_ref/provenance_refs，且 `may_mutate_business_state=false`。AI 不得成为总分、诊断、确认人或事实写入者。
 
 成人动作：确认这份理解、暂不采用、补充一句、返回修改、保存、退出。确认前不显示进入计划的可用动作。
+
+- 家长看到：原话关联的家庭关注、知识依据、可能方向、还未知的部分和一小步建议；不看到总分、排名或诊断。
+- 家长做什么：核对“像不像我们家”，补充、修改、拒绝或确认。
+- 家长得到：确认前是一份可修订草案；拒绝后停在理解阶段；确认后得到一条可回读的家庭关注凭据。
 
 ### UI-03A｜确认/拒绝与 receipt
 
@@ -113,9 +127,17 @@ AI 若被调用，必须经 `backend/intelligence/model_gateway`，输出 Draft�
 
 计划确认交接给实践阶段的 receipt 至少包含 `plan_id/intent_id/plan_version/status/actor/family_id/replayed`。S1 不实现或复制 Journey plan confirm/readback/phase-review。
 
+- 家长看到：计划为什么与已确认关注有关、每阶段要尝试的一小步和可暂停入口。
+- 家长做什么：主动确认计划，或返回修改已确认关注。
+- 家长得到：一份有来源、可暂停、可回看的 21 天计划；未确认 intent 时只能看到原因说明，不能误进计划。
+
 ### UI-05｜实践、观察、复盘
 
 计划确认后，成人选择一小步并可暂停。实践记录描述发生了什么，不推断儿童状态，不生成医疗/心理结论。成人可记录“帮助了/没变化/没尝试”和一句观察；到期后可选择 CONTINUE、ADJUST、PAUSE 或 HUMAN_REVIEW_REQUIRED。复盘 receipt 交给 Journey canonical contract，不能由 S1 本地拼装。
+
+- 家长看到：今天的一小步、记录观察的提示和阶段复盘选择。
+- 家长做什么：开始、暂停、记录“帮助了/没变化/没尝试”和一句观察，再选择继续、调整、暂停或请求人工支持。
+- 家长得到：自己的实践与观察记录，以及下一阶段选择；没有自动诊断或强制行动。
 
 ## 4. Receipt 交接与对象边界
 
@@ -176,6 +198,8 @@ S2 contract（plan confirm/readback/phase-review）属于 Journey owner；本 PR
 4. 点击“确认这份理解”，断言返回 `INTENT_CREATED`、`intent_id`、边界为 `HUMAN_CONFIRMED_INTENT_NOT_OUTCOME`。
 5. 重新打开页面，断言同一家庭可回读 intent；进入计划必须由成人主动点击。
 
+复现：启动命令见第 8 节；浏览器从 `/ui/UI-02` 依次进入 `/ui/UI-03`、`/ui/UI-04`、`/ui/UI-05`。真实环境复现还必须提供 connected session 与 PG service。
+
 ### 反向脚本 N1｜撤回 Consent
 
 1. 成人完成测评但撤回用于家庭理解的 Consent。
@@ -189,13 +213,26 @@ S2 contract（plan confirm/readback/phase-review）属于 Journey owner；本 PR
 3. 对同一 CONFIRM 请求重放相同 idempotency key，断言同一 receipt 且 `replayed=true`。
 4. 使用同 key 改写 hypothesis 或 family，断言冲突并保持单一 intent。
 
+复现：对同一页面/API 操作分别使用同一和不同 family context；命令级回放使用 assessment route/flow pytest，真实跨家庭验证必须在 connected HTTP 环境执行。
+
 ### 反向脚本 N3｜AI/数据库/网络失败与恢复
 
 1. provider timeout 或知识引用不可用时，断言只产生 blocked/failed draft，不产生确认 receipt；确定性解释仍可显示或安全退出。
 2. 提交或读取网络失败时，页面显示明确重试；重试不重复创建 session、evidence、intent 或 plan。
 3. 退出 UI-02 后重新进入，断言未完成回答可恢复；放弃草稿不会伪造完成。
 
+复现：synthetic 浏览器从 `/ui/UI-02` 退出后重新进入；provider/网络故障需使用 sandbox fault injection 或 HTTP mock，数据库故障与重启回读必须在真实 PG 环境执行。
+
 ## 8. 当前证据与交付门
+
+复现命令：
+
+```powershell
+$env:EXPO_PUBLIC_FAMILY_JOURNEY_SYNTHETIC='true'
+pnpm exec expo start --web --port 11002
+```
+
+前端回放：`cd frontend/mobile; pnpm exec vitest run`。后端 assessment 回放：`uv run pytest tests/apps/family_api/test_assessment_routes.py tests/domains/assessment/test_assessment_flow.py -q`。浏览器路径：`http://localhost:11002/ui/UI-02` → `UI-03` → `UI-04` → `UI-05`。这些命令只能复现 synthetic/局部证据，不能替代真实 HTTP/PG 验收。
 
 已存在：`d7b65b8` 在 UI-03 捕获并展示 confirmed intent receipt；UI-03 专测 6 passed；assessment route/flow 25 passed；TypeScript 与 diff check PASS。
 
