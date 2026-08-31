@@ -58,15 +58,19 @@ describe("Problem Understanding mobile controller", () => {
     );
     const confirming = beginConfirmation(ready);
     const confirmed = applyConfirmationReceipt(confirming, {
+      ...confirming.pendingConfirmation!,
       receiptRef: "receipt-test-001",
       growthIntentRef: "intent-test-001",
-      signalRef: initialUnderstanding.signalRef,
-      signalVersion: initialUnderstanding.signalVersion,
     });
 
     expect(confirming.pendingConfirmation).toEqual({
       signalRef: initialUnderstanding.signalRef,
       signalVersion: initialUnderstanding.signalVersion,
+      scopeRef: initialUnderstanding.scopeRef,
+      reviewedDraftRef: initialUnderstanding.reviewedDraftRef,
+      draftVersion: initialUnderstanding.draftVersion,
+      provenanceRef: initialUnderstanding.provenanceRef,
+      humanGateReceiptRef: initialUnderstanding.humanGateReceiptRef,
     });
     expect(confirmed.phase).toBe("CONFIRMED");
     expect(confirmed.receipt?.growthIntentRef).toBe("intent-test-001");
@@ -78,11 +82,36 @@ describe("Problem Understanding mobile controller", () => {
       submitConcern(createProblemUnderstandingState(), concernInput),
       initialUnderstanding,
     );
-    const result = applyConfirmationReceipt(beginConfirmation(ready), {
+    const confirming = beginConfirmation(ready);
+    const result = applyConfirmationReceipt(confirming, {
+      ...confirming.pendingConfirmation!,
       receiptRef: "receipt-test-stale",
       growthIntentRef: "intent-test-stale",
-      signalRef: initialUnderstanding.signalRef,
       signalVersion: initialUnderstanding.signalVersion + 1,
+    });
+
+    expect(result.phase).toBe("AWAITING_CONFIRMATION");
+    expect(result.receipt).toBeNull();
+    expect(result.recoveryMessage).toContain("最新理解");
+  });
+
+  it.each([
+    ["scopeRef", "family://tenant-test/another-family/problem-understanding"],
+    ["reviewedDraftRef", "draft-test-other"],
+    ["draftVersion", initialUnderstanding.draftVersion + 1],
+    ["provenanceRef", "source-test-other"],
+    ["humanGateReceiptRef", "review-test-other"],
+  ] as const)("fails closed when %s does not match the reviewed draft", (field, value) => {
+    const ready = receiveUnderstanding(
+      submitConcern(createProblemUnderstandingState(), concernInput),
+      initialUnderstanding,
+    );
+    const confirming = beginConfirmation(ready);
+    const result = applyConfirmationReceipt(confirming, {
+      ...confirming.pendingConfirmation!,
+      [field]: value,
+      receiptRef: "receipt-test-mismatch",
+      growthIntentRef: "intent-test-mismatch",
     });
 
     expect(result.phase).toBe("AWAITING_CONFIRMATION");
