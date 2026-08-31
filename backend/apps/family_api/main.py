@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from backend.apps.family_api.dev_wiring import install_dev_wiring, is_dev_environment
+from backend.apps.family_api.production_growth_wiring import ProductionGrowthConfirmationWiring
 from backend.apps.family_api.routes import router
 from backend.domains.assessment.api import (
     register_exception_handlers as register_assessment_exception_handlers,
@@ -20,7 +21,10 @@ from backend.domains.membership.api.routes import router as membership_router
 from backend.domains.service.api.routes import router as service_router
 
 
-def create_app() -> FastAPI:
+def create_app(
+    *,
+    growth_confirmation_wiring: ProductionGrowthConfirmationWiring | None = None,
+) -> FastAPI:
     application = FastAPI(title="AiFamily family_api", version="0.1.0")
     application.include_router(router)
     # Assessment carries the only end-to-end usable business chain (UI-02 →
@@ -73,6 +77,8 @@ def create_app() -> FastAPI:
     # and uses an in-memory repository (R5: must never be reachable in production).
     if is_dev_environment():
         install_dev_wiring(application)
+    if growth_confirmation_wiring is not None:
+        growth_confirmation_wiring.install(application)
     return application
 
 
