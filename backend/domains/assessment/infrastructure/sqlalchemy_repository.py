@@ -623,55 +623,6 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
             response_set=response_set,
         )
 
-    async def load_or_create_growth_intent(
-        self,
-        *,
-        family_id,
-        subject_person_id,
-        need_type,
-        goal_text,
-        required_capability_keys,
-        confirmed_by,
-        source_ref,
-        evidence_refs,
-    ) -> dict:
-        existing = await self._connection.execute(
-            text(
-                "select intent_id,need_type,status,required_capability_keys,evidence_refs,boundary "
-                "from growth_intents where family_id=:family_id and "
-                "source_type='ASSESSMENT_HYPOTHESIS' and source_ref=:source_ref limit 1 for update"
-            ),
-            {"family_id": family_id, "source_ref": source_ref},
-        )
-        row = existing.first()
-        if row is not None:
-            return _map_intent_row(row)
-
-        inserted = await self._connection.execute(
-            text(
-                """
-                insert into growth_intents(family_id,subject_person_id,signal_ref,need_type,
-                goal_text,required_capability_keys,status,confirmed_by,source_type,source_ref,
-                evidence_refs,boundary)
-                values (:family_id,:subject_id,null,:need_type,:goal_text,:capability_keys,'OPEN',
-                :confirmed_by,'ASSESSMENT_HYPOTHESIS',:source_ref,:evidence_refs,
-                'HUMAN_CONFIRMED_INTENT_NOT_OUTCOME')
-                returning intent_id,need_type,status,required_capability_keys,evidence_refs,boundary
-                """
-            ),
-            {
-                "family_id": family_id,
-                "subject_id": subject_person_id,
-                "need_type": need_type,
-                "goal_text": goal_text,
-                "capability_keys": required_capability_keys,
-                "confirmed_by": confirmed_by,
-                "source_ref": source_ref,
-                "evidence_refs": evidence_refs,
-            },
-        )
-        return _map_intent_row(inserted.first())
-
     async def lock_hypothesis_decision(
         self, tenant_id: str, family_id: str, hypothesis_ref: str
     ) -> None:
@@ -754,14 +705,3 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
             {"session_id": session_id},
         )
         return [_map_response_row(row) for row in result]
-
-
-def _map_intent_row(row) -> dict:
-    return {
-        "intent_id": str(row.intent_id),
-        "need_type": row.need_type,
-        "status": row.status,
-        "required_capability_keys": list(row.required_capability_keys),
-        "evidence_refs": [str(ref) for ref in row.evidence_refs],
-        "boundary": row.boundary,
-    }

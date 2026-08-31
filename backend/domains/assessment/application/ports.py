@@ -123,18 +123,6 @@ class AssessmentRepositoryPort(Protocol):
         self, family_id: str, tenant_id: str, session_id: str | None = None
     ) -> GrowthHypothesisEvidence | None: ...
 
-    async def load_or_create_growth_intent(
-        self,
-        family_id: str,
-        subject_person_id: str,
-        need_type: str,
-        goal_text: str,
-        required_capability_keys: list[str],
-        confirmed_by: str,
-        source_ref: str,
-        evidence_refs: list[str],
-    ) -> dict: ...
-
     async def lock_hypothesis_decision(
         self, tenant_id: str, family_id: str, hypothesis_ref: str
     ) -> None: ...

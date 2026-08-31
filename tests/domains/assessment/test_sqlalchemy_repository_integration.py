@@ -31,6 +31,11 @@ from backend.domains.assessment.application.growth_hypothesis_commands import (
     DecideGrowthHypothesisCommand,
     GrowthHypothesisCommandHandler,
 )
+from backend.domains.assessment.application.growth_intent_handoff import (
+    ConfirmGrowthIntentInput,
+    GrowthIntentReceipt,
+    ViewedUnderstandingSignal,
+)
 from backend.domains.assessment.application.queries import (
     AssessmentQueryHandler,
     GetUi02ProjectionQuery,
@@ -49,6 +54,65 @@ pytestmark = pytest.mark.skipif(
     not DATABASE_URL,
     reason="PY_ASSESSMENT_TEST_DATABASE_URL not set — skipping real-Postgres integration tests",
 )
+
+
+class SqlViewedSignalsStub:
+    def __init__(self, repository: SqlAlchemyAssessmentRepository, actor_id: str) -> None:
+        self.repository = repository
+        self.actor_id = actor_id
+
+    async def load_viewed_signal(
+        self,
+        *,
+        tenant_id: str,
+        family_id: str,
+        assessment_session_id: str,
+        human_gate_receipt_ref: str,
+    ) -> ViewedUnderstandingSignal | None:
+        evidence = await self.repository.load_hypothesis_evidence(
+            family_id, tenant_id, assessment_session_id
+        )
+        if evidence is None:
+            return None
+        return ViewedUnderstandingSignal(
+            tenant_id=tenant_id,
+            family_id=family_id,
+            assessment_session_id=assessment_session_id,
+            signal_ref=(
+                f"ASSESSMENT:{assessment_session_id}:{evidence.tool_ref}"
+                f":v{evidence.tool_version}:H1"
+            ),
+            signal_version=evidence.tool_version,
+            scope_ref=f"family://{tenant_id}/{family_id}/assessment",
+            reviewed_draft_ref="draft-real-1",
+            draft_version=1,
+            provenance_ref="provenance-real-1",
+            human_gate_receipt_ref=human_gate_receipt_ref,
+            human_gate_effective_status="EFFECTIVE",
+            reviewed_by_actor_id=self.actor_id,
+            subject_person_id=evidence.subject_person_id,
+            need_type=evidence.need_type_ref,
+            goal_text=evidence.description,
+            required_capability_keys=tuple(evidence.required_capability_keys),
+            evidence_refs=(evidence.assessment_evidence_id,),
+        )
+
+
+class GrowthIntentsStub:
+    async def confirm_growth_intent(
+        self, command: ConfirmGrowthIntentInput
+    ) -> GrowthIntentReceipt:
+        return GrowthIntentReceipt(
+            intent_id="intent-from-growth",
+            signal_ref=command.signal_ref,
+            signal_version=command.signal_version,
+            scope_ref=command.scope_ref,
+            reviewed_draft_ref=command.reviewed_draft_ref,
+            draft_version=command.draft_version,
+            provenance_ref=command.provenance_ref,
+            human_gate_receipt_ref=command.human_gate_receipt_ref,
+            receipt_ref="growth-receipt-real-1",
+        )
 
 
 @pytest.fixture
@@ -208,7 +272,9 @@ class TestSqlAlchemyRepositoryRealPostgres:
         repo = SqlAlchemyAssessmentRepository(connection)
         commands = AssessmentCommandHandler(repo)
         queries = AssessmentQueryHandler(repo, DeterministicInterpretationAdapter())
-        growth_commands = GrowthHypothesisCommandHandler(repo, DeterministicInterpretationAdapter())
+        growth_commands = GrowthHypothesisCommandHandler(
+            repo, SqlViewedSignalsStub(repo, guardian_id), GrowthIntentsStub()
+        )
 
         start = await commands.start(
             StartAssessmentCommand(family_id, tenant_id, guardian_id, child_id, None, _meta("g1"))
@@ -246,6 +312,12 @@ class TestSqlAlchemyRepositoryRealPostgres:
                 "CONFIRM",
                 "corr-int-2",
                 "decide-real-1",
+                scope_ref=f"family://{tenant_id}/{family_id}/assessment",
+                signal_version=2,
+                reviewed_draft_ref="draft-real-1",
+                draft_version=1,
+                provenance_ref="provenance-real-1",
+                human_gate_receipt_ref="human-gate-real-1",
             )
         )
         assert receipt["outcome"] == "INTENT_CREATED"

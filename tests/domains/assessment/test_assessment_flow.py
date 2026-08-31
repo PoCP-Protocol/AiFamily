@@ -22,6 +22,11 @@ from backend.domains.assessment.application.growth_hypothesis_commands import (
     DecideGrowthHypothesisCommand,
     GrowthHypothesisCommandHandler,
 )
+from backend.domains.assessment.application.growth_intent_handoff import (
+    ConfirmGrowthIntentInput,
+    GrowthIntentReceipt,
+    ViewedUnderstandingSignal,
+)
 from backend.domains.assessment.application.queries import (
     AssessmentQueryHandler,
     GetAssessmentResultProjectionQuery,
@@ -43,6 +48,17 @@ TENANT_ID = "tenant-1"
 
 def _meta(key: str = "idem-1") -> MutationMeta:
     return MutationMeta(correlation_id="corr-1", idempotency_key=key, source="test")
+
+
+def _review_binding(family_id: str) -> dict:
+    return {
+        "scope_ref": f"family://{TENANT_ID}/{family_id}/assessment",
+        "signal_version": 2,
+        "reviewed_draft_ref": "draft-1",
+        "draft_version": 1,
+        "provenance_ref": "provenance-1",
+        "human_gate_receipt_ref": "human-gate-1",
+    }
 
 
 def _nested_keys(value: object) -> set[str]:
@@ -84,6 +100,84 @@ def interpretation() -> DeterministicInterpretationAdapter:
     return DeterministicInterpretationAdapter()
 
 
+class ViewedSignalsStub:
+    def __init__(self, repository: FakeAssessmentRepository) -> None:
+        self.repository = repository
+        self.calls = 0
+
+    async def load_viewed_signal(
+        self,
+        *,
+        tenant_id: str,
+        family_id: str,
+        assessment_session_id: str,
+        human_gate_receipt_ref: str,
+    ) -> ViewedUnderstandingSignal | None:
+        self.calls += 1
+        evidence = await self.repository.load_hypothesis_evidence(
+            family_id, tenant_id, assessment_session_id
+        )
+        if evidence is None:
+            return None
+        return ViewedUnderstandingSignal(
+            tenant_id=tenant_id,
+            family_id=family_id,
+            assessment_session_id=assessment_session_id,
+            signal_ref=(
+                f"ASSESSMENT:{assessment_session_id}:{evidence.tool_ref}"
+                f":v{evidence.tool_version}:H1"
+            ),
+            signal_version=evidence.tool_version,
+            scope_ref=f"family://{tenant_id}/{family_id}/assessment",
+            reviewed_draft_ref="draft-1",
+            draft_version=1,
+            provenance_ref="provenance-1",
+            human_gate_receipt_ref="human-gate-1",
+            human_gate_effective_status="EFFECTIVE",
+            reviewed_by_actor_id="actor-1",
+            subject_person_id=evidence.subject_person_id,
+            need_type=evidence.need_type_ref,
+            goal_text=evidence.description,
+            required_capability_keys=tuple(evidence.required_capability_keys),
+            evidence_refs=(evidence.assessment_evidence_id,),
+        )
+
+
+class GrowthIntentsStub:
+    def __init__(self) -> None:
+        self.commands: list[ConfirmGrowthIntentInput] = []
+        self.receipt_version_offset = 0
+        self.error: Exception | None = None
+
+    async def confirm_growth_intent(
+        self, command: ConfirmGrowthIntentInput
+    ) -> GrowthIntentReceipt:
+        self.commands.append(command)
+        if self.error is not None:
+            raise self.error
+        return GrowthIntentReceipt(
+            intent_id="intent-from-growth",
+            signal_ref=command.signal_ref,
+            signal_version=command.signal_version + self.receipt_version_offset,
+            scope_ref=command.scope_ref,
+            reviewed_draft_ref=command.reviewed_draft_ref,
+            draft_version=command.draft_version,
+            provenance_ref=command.provenance_ref,
+            human_gate_receipt_ref=command.human_gate_receipt_ref,
+            receipt_ref="growth-receipt-1",
+        )
+
+
+@pytest.fixture
+def viewed_signals(repo: FakeAssessmentRepository) -> ViewedSignalsStub:
+    return ViewedSignalsStub(repo)
+
+
+@pytest.fixture
+def growth_intents() -> GrowthIntentsStub:
+    return GrowthIntentsStub()
+
+
 @pytest.fixture
 def query_handler(
     repo: FakeAssessmentRepository, interpretation: DeterministicInterpretationAdapter
@@ -93,9 +187,11 @@ def query_handler(
 
 @pytest.fixture
 def growth_hypothesis_handler(
-    repo: FakeAssessmentRepository, interpretation: DeterministicInterpretationAdapter
+    repo: FakeAssessmentRepository,
+    viewed_signals: ViewedSignalsStub,
+    growth_intents: GrowthIntentsStub,
 ) -> GrowthHypothesisCommandHandler:
-    return GrowthHypothesisCommandHandler(repo, interpretation)
+    return GrowthHypothesisCommandHandler(repo, viewed_signals, growth_intents)
 
 
 class TestAssessmentSessionLifecycle:
@@ -287,7 +383,7 @@ class TestGrowthHypothesisFlow:
         assert projection["hypothesis"] is None
 
     async def test_confirm_decision_creates_growth_intent_with_boundary(
-        self, repo, command_handler, query_handler, growth_hypothesis_handler
+        self, repo, command_handler, query_handler, growth_hypothesis_handler, growth_intents
     ):
         session_id = await self._submit_full_session(repo, command_handler)
         family_id = repo._test_family_id
@@ -306,13 +402,18 @@ class TestGrowthHypothesisFlow:
                 "CONFIRM",
                 "corr-2",
                 "decide-1",
+                **_review_binding(family_id),
             )
         )
         assert receipt["outcome"] == "INTENT_CREATED"
         assert receipt["intent"]["boundary"] == "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME"
+        assert receipt["intent"]["receipt_ref"] == "growth-receipt-1"
+        assert len(growth_intents.commands) == 1
+        assert not hasattr(growth_hypothesis_handler, "_interpretation")
+        assert not hasattr(repo, "load_or_create_growth_intent")
 
     async def test_dismiss_decision_does_not_create_intent(
-        self, repo, command_handler, query_handler, growth_hypothesis_handler
+        self, repo, command_handler, query_handler, growth_hypothesis_handler, growth_intents
     ):
         session_id = await self._submit_full_session(repo, command_handler)
         family_id = repo._test_family_id
@@ -331,13 +432,15 @@ class TestGrowthHypothesisFlow:
                 "DISMISS",
                 "corr-3",
                 "decide-2",
+                **_review_binding(family_id),
             )
         )
         assert receipt["outcome"] == "NO_ACTION"
         assert receipt["intent"] is None
+        assert growth_intents.commands == []
 
     async def test_stale_hypothesis_ref_is_conflict(
-        self, repo, command_handler, growth_hypothesis_handler
+        self, repo, command_handler, growth_hypothesis_handler, growth_intents
     ):
         session_id = await self._submit_full_session(repo, command_handler)
         family_id = repo._test_family_id
@@ -352,9 +455,105 @@ class TestGrowthHypothesisFlow:
                     "CONFIRM",
                     "corr-4",
                     "decide-3",
+                    **_review_binding(family_id),
                 )
             )
-        assert exc.value.code == "growth_hypothesis_reference_mismatch"
+        assert exc.value.code == "understanding_signal_version_conflict"
+        assert growth_intents.commands == []
+
+    async def test_confirm_replay_does_not_call_growth_twice(
+        self,
+        repo,
+        command_handler,
+        query_handler,
+        growth_hypothesis_handler,
+        growth_intents,
+    ):
+        session_id = await self._submit_full_session(repo, command_handler)
+        family_id = repo._test_family_id
+        projection = await query_handler.get_ui03_projection(
+            GetUi03ProjectionQuery(family_id, TENANT_ID, "actor-1")
+        )
+        command = DecideGrowthHypothesisCommand(
+            family_id,
+            TENANT_ID,
+            "actor-1",
+            session_id,
+            projection["hypothesis"]["hypothesis_ref"],
+            "CONFIRM",
+            "corr-replay",
+            "confirm-replay",
+            **_review_binding(family_id),
+        )
+
+        first = await growth_hypothesis_handler.decide(command)
+        second = await growth_hypothesis_handler.decide(command)
+
+        assert first["replayed"] is False
+        assert second["replayed"] is True
+        assert len(growth_intents.commands) == 1
+
+    async def test_consent_is_rechecked_before_replay(
+        self, repo, command_handler, query_handler, growth_hypothesis_handler
+    ):
+        session_id = await self._submit_full_session(repo, command_handler)
+        family_id = repo._test_family_id
+        projection = await query_handler.get_ui03_projection(
+            GetUi03ProjectionQuery(family_id, TENANT_ID, "actor-1")
+        )
+        command = DecideGrowthHypothesisCommand(
+            family_id,
+            TENANT_ID,
+            "actor-1",
+            session_id,
+            projection["hypothesis"]["hypothesis_ref"],
+            "CONFIRM",
+            "corr-consent",
+            "consent-replay",
+            **_review_binding(family_id),
+        )
+        await growth_hypothesis_handler.decide(command)
+        repo.consents.remove((family_id, repo._test_child_id, "ASSESSMENT"))
+
+        with pytest.raises(AssessmentForbiddenError) as exc:
+            await growth_hypothesis_handler.decide(command)
+
+        assert exc.value.code == "assessment_subject_or_consent_unavailable"
+
+    async def test_bad_growth_receipt_or_failure_never_persists_success(
+        self,
+        repo,
+        command_handler,
+        query_handler,
+        growth_hypothesis_handler,
+        growth_intents,
+    ):
+        session_id = await self._submit_full_session(repo, command_handler)
+        family_id = repo._test_family_id
+        projection = await query_handler.get_ui03_projection(
+            GetUi03ProjectionQuery(family_id, TENANT_ID, "actor-1")
+        )
+        command = DecideGrowthHypothesisCommand(
+            family_id,
+            TENANT_ID,
+            "actor-1",
+            session_id,
+            projection["hypothesis"]["hypothesis_ref"],
+            "CONFIRM",
+            "corr-failure",
+            "growth-failure",
+            **_review_binding(family_id),
+        )
+        growth_intents.receipt_version_offset = 1
+        with pytest.raises(AssessmentConflictError):
+            await growth_hypothesis_handler.decide(command)
+        assert repo.hypothesis_decisions == {}
+
+        growth_intents.receipt_version_offset = 0
+        growth_intents.error = RuntimeError("growth unavailable")
+        with pytest.raises(RuntimeError, match="growth unavailable"):
+            await growth_hypothesis_handler.decide(command)
+        assert repo.hypothesis_decisions == {}
 
     async def test_result_projection_is_family_scoped_and_has_no_score_shape(
         self, repo, command_handler, query_handler
