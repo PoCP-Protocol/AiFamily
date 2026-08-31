@@ -70,6 +70,8 @@ describe("Xiao Ju Deng live product surface", () => {
     expect(video?.getAttribute("src")).toContain("http://127.0.0.1:43123/");
     expect(video?.hasAttribute("controls")).toBe(true);
     expect(video?.hasAttribute("playsinline")).toBe(true);
+    expect(video?.getAttribute("poster")).toMatch(/^data:image\/svg\+xml,/);
+    expect(video?.getAttribute("preload")).toBe("none");
     expect(video?.hasAttribute("autoplay")).toBe(false);
     expect(screen.getByText("可以播放")).toBeInTheDocument();
     expect(screen.queryByText("LIVE")).not.toBeInTheDocument();

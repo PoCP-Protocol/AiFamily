@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { LiveRecord, MediaPlaybackState } from "../live/liveCatalog";
 
 type Props = {
@@ -10,6 +10,9 @@ type SurfaceState = "WAITING_AUTHORIZATION" | "LOADING" | MediaPlaybackState | "
 
 const SANDBOX_DIAGNOSTIC_MARKERS =
   "SANDBOX_SYNTHETIC fixture_only DEV_ONLY LOCKED WAITING_AUTHORIZATION 问题搜索 直播中 已结束 / 回看受限 NO_MEDIA MEDIA_READY PLAYBACK_AUTHORIZED SCHEDULED ENDED";
+const SYNTHETIC_VIDEO_POSTER = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#431407"/><stop offset=".55" stop-color="#9a3412"/><stop offset="1" stop-color="#f97316"/></linearGradient><radialGradient id="l"><stop stop-color="#fed7aa" stop-opacity=".75"/><stop offset="1" stop-color="#fb923c" stop-opacity="0"/></radialGradient></defs><rect width="1600" height="900" fill="url(#g)"/><circle cx="330" cy="220" r="280" fill="url(#l)"/><circle cx="800" cy="410" r="118" fill="#fff7ed" fill-opacity=".96"/><path d="M775 350v120l95-60z" fill="#c2410c"/><circle cx="1370" cy="120" r="220" fill="none" stroke="#fed7aa" stroke-opacity=".35" stroke-width="3"/><text x="800" y="650" fill="#fff7ed" text-anchor="middle" font-family="system-ui,sans-serif" font-size="72" font-weight="700">小橘灯直播</text><text x="800" y="720" fill="#fed7aa" text-anchor="middle" font-family="system-ui,sans-serif" font-size="34">合成演示封面 · 点击播放</text></svg>',
+)}`;
 
 export function LiveDetailPage({ record, onBack }: Props) {
   const playback = record.playback;
@@ -17,6 +20,7 @@ export function LiveDetailPage({ record, onBack }: Props) {
     playback?.state ?? "WAITING_AUTHORIZATION",
   );
   const [mediaUrl, setMediaUrl] = useState(playback ? playback.playback_url : "");
+  const hasStartedPlayback = useRef(false);
   const canRenderVideo =
     playback?.source === "synthetic" &&
     playback.fixture_only &&
@@ -43,14 +47,29 @@ export function LiveDetailPage({ record, onBack }: Props) {
               aria-label="小橘灯合成视频播放区域"
               controls
               playsInline
-              preload="metadata"
+              poster={SYNTHETIC_VIDEO_POSTER}
+              preload="none"
               src={mediaUrl}
-              onError={() => setSurfaceState("FAILED")}
-              onLoadStart={() => setSurfaceState("LOADING")}
+              onError={() => {
+                if (hasStartedPlayback.current) setSurfaceState("FAILED");
+              }}
+              onLoadStart={() => {
+                if (hasStartedPlayback.current) setSurfaceState("LOADING");
+              }}
               onLoadedData={() => setSurfaceState("LIVE")}
-              onPlaying={() => setSurfaceState("LIVE")}
-              onStalled={() => setSurfaceState("DISCONNECTED")}
-              onWaiting={() => setSurfaceState("DISCONNECTED")}
+              onPlay={() => {
+                hasStartedPlayback.current = true;
+              }}
+              onPlaying={() => {
+                hasStartedPlayback.current = true;
+                setSurfaceState("LIVE");
+              }}
+              onStalled={() => {
+                if (hasStartedPlayback.current) setSurfaceState("DISCONNECTED");
+              }}
+              onWaiting={() => {
+                if (hasStartedPlayback.current) setSurfaceState("DISCONNECTED");
+              }}
             />
             <div className="live-video-caption" role="status" aria-live="polite">
               <span className="live-video-state">{getPlaybackLabel(surfaceState)}</span>
