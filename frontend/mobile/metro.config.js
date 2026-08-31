@@ -8,7 +8,7 @@ config.resolver.blockList = [
 
 module.exports = withNativeWind(config, {
   input: "./global.css",
-  // Force write CSS to file system instead of virtual modules
-  // This fixes iOS styling issues in development mode
-  forceWriteFileSystem: true,
+  // iOS development needs an on-disk CSS module, while production exports
+  // must use the virtual module to avoid a first-build Metro SHA-1 race.
+  forceWriteFileSystem: process.env.NODE_ENV !== "production",
 });
