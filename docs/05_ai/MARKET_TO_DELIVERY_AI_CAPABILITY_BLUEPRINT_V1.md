@@ -221,6 +221,11 @@ PPT、图片、视频和短剧都必须反链到产品版本与需求证据。
   opaque locator，拒绝浏览器提供 zone、证据状态、AI provenance、身份和 Gate 字段；但可信
   evidence-receipt/provenance 解析器、Alembic、registry、生产挂载、Web create-read 验证和真实
   PostgreSQL 并发仍未落地，因此不能把测试面称为 Web 或生产能力。
+- 证据治理测试面已按 ADR-0146 增加不可变 `EvidenceVerificationReceipt`：只有已接受的
+  `VERIFY_PRODUCT_EVIDENCE` NamedAction 才能物化，冻结证据版本/哈希、claim scope、适用范围、
+  方法、策略、验证人和 Human Gate lineage；旧竞品来源卡 HTTP 只允许 `UNKNOWN`，不能由客户端
+  自报 `VERIFIED`。验证提案/评审 Web、撤销/替代、迁移、registry、PostgreSQL 和 resolver 接入
+  尚未完成，因此 receipt 仍是独立可测治理接缝。
 - Operator Review Queue 已实现为独立可测 Web/API surface：只读取服务端 OPEN HumanTask，
   浏览器仅提交 outcome + reason，ACCEPT 只生成待执行 NamedActionRequest。当前主应用尚未挂载
   Product Factory router，生产权限解析器也未安装，故不能宣称生产可用；边界见
@@ -258,6 +263,8 @@ PPT、图片、视频和短剧都必须反链到产品版本与需求证据。
 - Product Factory 尚未在 canonical `family_api` 完成无争议的生产挂载与真实身份组合；
 - HTTP 幂等键尚未真正接入平台幂等执行；
 - DemandFrame 与 MarketInsight 的完整 envelope 缺少独立持久化回读；
+- EvidenceVerificationReceipt 已有 accepted-action/SQL 测试接缝，但尚无提案 Web、撤销影响账本、
+  Alembic、PostgreSQL 并发和 ProductPackage resolver 生产接入；
 - ProductPackage 已有独立可测的 SQL DRAFT→OPEN ActionProposal 与严格 HTTP create/read
   接缝，但尚无可信 evidence-receipt/provenance 解析器、Alembic、生产挂载、Web readback、
   十二项编译报告绑定和真实 PostgreSQL 并发证明；

@@ -10,6 +10,7 @@ from ..api.dependencies import get_actor_context, get_repository
 from ..api.product_factory_routes import router
 from ..application.context import ActorContext
 from ..domain.entities import ProductConcept
+from ..domain.errors import ProductIntelligenceValidationError
 from ..infrastructure.fake_repository import FakeProductIntelligenceRepository
 
 
@@ -222,6 +223,39 @@ def test_competitor_route_persists_draft_with_tenant_scope(repo, human_context) 
     )
     assert read.status_code == 200
     assert read.json()["claim"] == "公开资料显示其提供提醒功能"
+
+
+def test_competitor_source_card_cannot_self_declare_verified(repo, human_context) -> None:
+    response = _client(repo, human_context).post(
+        "/product-intelligence/product-factory/competitor-evidence",
+        json=_payload(
+            competitor_ref="competitor:example",
+            claim="客户端不能自行核验证据",
+            source_refs=["source:public:one"],
+            demand_ref="demand:one",
+            evidence_status="VERIFIED",
+        ),
+    )
+    assert response.status_code == 422
+    assert repo._competitor_evidence == {}
+
+
+@pytest.mark.asyncio
+async def test_competitor_repository_rejects_internal_self_verification(repo) -> None:
+    class InternalCard:
+        evidence_id = "evidence:forged"
+        evidence_status = "VERIFIED"
+
+    with pytest.raises(
+        ProductIntelligenceValidationError,
+        match="competitor_evidence_cannot_self_verify",
+    ):
+        await repo.save_competitor_evidence(
+            InternalCard(),
+            tenant_scope="tenant-a",
+            created_by="import:job",
+        )
+    assert repo._competitor_evidence == {}
 
 
 def test_competitor_read_is_tenant_scoped(repo, human_context) -> None:

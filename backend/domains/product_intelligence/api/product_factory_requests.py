@@ -118,7 +118,9 @@ class CreateCompetitorEvidenceCardRequest(_DraftRequest):
     competitor_ref: str = Field(min_length=1)
     claim: str = Field(min_length=1)
     source_refs: list[str] = Field(min_length=1)
-    evidence_status: Literal["VERIFIED", "UNKNOWN", "STALE", "CONTRADICTED"] = "UNKNOWN"
+    # Source cards are observations, never verification decisions.  Only an
+    # accepted Human Gate action may create a VerificationReceipt.
+    evidence_status: Literal["UNKNOWN"] = "UNKNOWN"
     demand_ref: str | None = None
     market_insight_ref: str | None = None
     source_type: str = Field(default="PUBLIC", min_length=1)

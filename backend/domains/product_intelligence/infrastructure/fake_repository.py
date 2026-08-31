@@ -29,7 +29,10 @@ from ..domain.entities import (
     UnmetNeed,
     ValueArchitecture,
 )
-from ..domain.errors import ProductIntelligenceNotFoundError
+from ..domain.errors import (
+    ProductIntelligenceNotFoundError,
+    ProductIntelligenceValidationError,
+)
 
 
 @dataclass
@@ -77,6 +80,10 @@ class FakeProductIntelligenceRepository:
     async def save_competitor_evidence(
         self, entity: object, *, tenant_scope: str, created_by: str
     ) -> None:
+        if getattr(entity, "evidence_status", None) != "UNKNOWN":
+            raise ProductIntelligenceValidationError(
+                "competitor_evidence_cannot_self_verify"
+            )
         # Keep scope metadata alongside the immutable proposal in the test
         # double so tests can assert the same boundary as SQL persistence.
         self._competitor_evidence[entity.evidence_id] = (

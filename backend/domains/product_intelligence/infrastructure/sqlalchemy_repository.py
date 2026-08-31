@@ -44,7 +44,10 @@ from ..domain.entities import (
     UnmetNeed,
     ValueArchitecture,
 )
-from ..domain.errors import ProductIntelligenceNotFoundError
+from ..domain.errors import (
+    ProductIntelligenceNotFoundError,
+    ProductIntelligenceValidationError,
+)
 from . import sqlalchemy_models as m
 
 
@@ -80,6 +83,10 @@ class SqlAlchemyProductIntelligenceRepository:
     ) -> None:
         """Persist a DRAFT evidence card with app-owned scope metadata."""
 
+        if getattr(entity, "evidence_status", None) != "UNKNOWN":
+            raise ProductIntelligenceValidationError(
+                "competitor_evidence_cannot_self_verify"
+            )
         now = datetime.now(UTC)
         await self._merge(
             m.CompetitorEvidenceRow(
