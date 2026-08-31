@@ -103,7 +103,12 @@ class GrowthIntentsStub:
         self, command: ConfirmGrowthIntentInput
     ) -> GrowthIntentReceipt:
         return GrowthIntentReceipt(
-            intent_id="intent-from-growth",
+            intent_id=str(
+                uuid.uuid5(
+                    uuid.NAMESPACE_URL,
+                    f"growth-intent:{command.family_id}:{command.signal_ref}",
+                )
+            ),
             signal_ref=command.signal_ref,
             signal_version=command.signal_version,
             scope_ref=command.scope_ref,
