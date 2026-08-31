@@ -2,17 +2,19 @@
 id: DEL-SCENARIO-MVP-REPLAN-002
 title: AiFamily 场景驱动全量 MVP 实施计划 V2
 type: delivery
-status: draft
+status: archived
 version: 2.0
 owner: chief-architect
 created: 2026-08-31
 updated: 2026-08-31
 canonical: false
-supersedes: docs/11_delivery/CURRENT_PROGRAM_PLAN.md
-superseded_by: null
+supersedes: null
+superseded_by: docs/11_delivery/CURRENT_PROGRAM_PLAN.md
 ---
 
 # AiFamily 场景驱动全量 MVP 实施计划 V2
+
+> 本文件的场景组织、任务卡与证据方法已吸收到 `CURRENT_PROGRAM_PLAN.md` V3。自 2026-09-01 起不再作为排程或派工入口，仅保留为历史设计输入。
 
 ## 0. 当前执行阶段：PRD-first
 
