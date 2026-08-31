@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -139,17 +140,19 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
   await page.getByRole("button", { name: "了解服务方式" }).click();
   await expect(page.getByText("当前仅展示服务说明，不会自动下单、扣费或联系专家。")).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("desktop-revoked.png"), fullPage: true });
+  const stateResults = JSON.stringify({
+    live: "PASS",
+    disconnected: "PASS",
+    recovered: "PASS",
+    stopped: "PASS",
+    stopped_old_url_status: stoppedOldCapability.status(),
+    revoked: "PASS",
+    revoked_old_url_status: revokedOldCapability.status(),
+    adult_only_service_next_step: "PASS",
+  }, null, 2);
+  await writeFile(testInfo.outputPath("state-results.json"), stateResults, "utf8");
   await testInfo.attach("state-results.json", {
-    body: Buffer.from(JSON.stringify({
-      live: "PASS",
-      disconnected: "PASS",
-      recovered: "PASS",
-      stopped: "PASS",
-      stopped_old_url_status: stoppedOldCapability.status(),
-      revoked: "PASS",
-      revoked_old_url_status: revokedOldCapability.status(),
-      adult_only_service_next_step: "PASS",
-    }, null, 2)),
+    body: Buffer.from(stateResults),
     contentType: "application/json",
   });
 });
