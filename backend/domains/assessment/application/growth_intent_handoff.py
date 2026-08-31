@@ -20,17 +20,30 @@ from ..domain.errors import (
 from ..domain.value_objects import GROWTH_INTENT_BOUNDARY
 
 GuardianDecisionType = Literal["CONFIRM", "DISMISS"]
+HumanGateEffectiveStatus = Literal["EFFECTIVE", "NOT_REVIEWED", "REVOKED", "EXPIRED"]
 
 
 @dataclass(frozen=True, slots=True)
 class ViewedUnderstandingSignal:
-    """Immutable Assessment projection the guardian actually reviewed."""
+    """Canonical, immutable binding for the draft the guardian reviewed.
+
+    Human Gate remains externally owned.  Assessment receives only opaque
+    references and the canonical effective-state projection needed to fail
+    closed; it does not create or persist a second receipt.
+    """
 
     tenant_id: str
     family_id: str
     assessment_session_id: str
     signal_ref: str
     signal_version: int
+    scope_ref: str
+    reviewed_draft_ref: str
+    draft_version: int
+    provenance_ref: str
+    human_gate_receipt_ref: str
+    human_gate_effective_status: HumanGateEffectiveStatus
+    reviewed_by_actor_id: str
     subject_person_id: str
     need_type: str
     goal_text: str
@@ -43,6 +56,11 @@ class ViewedUnderstandingSignal:
             self.family_id,
             self.assessment_session_id,
             self.signal_ref,
+            self.scope_ref,
+            self.reviewed_draft_ref,
+            self.provenance_ref,
+            self.human_gate_receipt_ref,
+            self.reviewed_by_actor_id,
             self.subject_person_id,
             self.need_type,
             self.goal_text,
@@ -51,6 +69,8 @@ class ViewedUnderstandingSignal:
             raise AssessmentValidationError("viewed_understanding_signal_required")
         if self.signal_version < 1:
             raise AssessmentValidationError("understanding_signal_version_invalid")
+        if self.draft_version < 1:
+            raise AssessmentValidationError("reviewed_draft_version_invalid")
         if not self.evidence_refs:
             raise AssessmentValidationError("understanding_signal_evidence_required")
 
@@ -63,6 +83,11 @@ class ConfirmGrowthIntentInput:
     subject_person_id: str
     signal_ref: str
     signal_version: int
+    scope_ref: str
+    reviewed_draft_ref: str
+    draft_version: int
+    provenance_ref: str
+    human_gate_receipt_ref: str
     need_type: str
     goal_text: str
     required_capability_keys: tuple[str, ...]
@@ -76,6 +101,11 @@ class GrowthIntentReceipt:
     intent_id: str
     signal_ref: str
     signal_version: int
+    scope_ref: str
+    reviewed_draft_ref: str
+    draft_version: int
+    provenance_ref: str
+    human_gate_receipt_ref: str
     receipt_ref: str
     boundary: Literal["HUMAN_CONFIRMED_INTENT_NOT_OUTCOME"] = GROWTH_INTENT_BOUNDARY
     replayed: bool = False
@@ -90,6 +120,11 @@ class DecideViewedUnderstandingInput:
     assessment_session_id: str
     signal_ref: str
     signal_version: int
+    scope_ref: str
+    reviewed_draft_ref: str
+    draft_version: int
+    provenance_ref: str
+    human_gate_receipt_ref: str
     decision_type: GuardianDecisionType
     correlation_id: str
     idempotency_key: str
@@ -101,6 +136,8 @@ class UnderstandingDecisionReceipt:
     outcome: Literal["INTENT_CREATED", "NO_ACTION"]
     signal_ref: str
     signal_version: int
+    scope_ref: str
+    human_gate_receipt_ref: str
     intent: GrowthIntentReceipt | None
 
 
@@ -111,6 +148,7 @@ class ViewedUnderstandingSignalReaderPort(Protocol):
         tenant_id: str,
         family_id: str,
         assessment_session_id: str,
+        human_gate_receipt_ref: str,
     ) -> ViewedUnderstandingSignal | None: ...
 
 
@@ -140,21 +178,44 @@ class AssessmentGrowthIntentHandoff:
             raise AssessmentValidationError("understanding_decision_invalid")
         if not command.idempotency_key.strip():
             raise AssessmentValidationError("idempotency_key_required")
+        binding_refs = (
+            command.scope_ref,
+            command.reviewed_draft_ref,
+            command.provenance_ref,
+            command.human_gate_receipt_ref,
+        )
+        if not all(value.strip() for value in binding_refs) or command.draft_version < 1:
+            raise AssessmentValidationError("reviewed_draft_binding_required")
 
         signal = await self._signal_reader.load_viewed_signal(
             tenant_id=command.tenant_id,
             family_id=command.family_id,
             assessment_session_id=command.assessment_session_id,
+            human_gate_receipt_ref=command.human_gate_receipt_ref,
         )
         if signal is None:
             raise AssessmentNotFoundError("understanding_signal_not_found")
         if signal.tenant_id != command.tenant_id or signal.family_id != command.family_id:
             raise AssessmentForbiddenError("family_access_denied")
+        if signal.scope_ref != command.scope_ref:
+            raise AssessmentForbiddenError("human_gate_scope_mismatch")
+        if signal.reviewed_by_actor_id != command.actor_id:
+            raise AssessmentForbiddenError("human_gate_actor_mismatch")
+        if signal.human_gate_effective_status != "EFFECTIVE":
+            raise AssessmentForbiddenError("human_gate_receipt_not_effective")
         if (
             signal.signal_ref != command.signal_ref
             or signal.signal_version != command.signal_version
         ):
             raise AssessmentConflictError("understanding_signal_version_conflict")
+        if signal.human_gate_receipt_ref != command.human_gate_receipt_ref:
+            raise AssessmentConflictError("human_gate_receipt_mismatch")
+        if (
+            signal.reviewed_draft_ref != command.reviewed_draft_ref
+            or signal.draft_version != command.draft_version
+            or signal.provenance_ref != command.provenance_ref
+        ):
+            raise AssessmentConflictError("reviewed_draft_binding_mismatch")
 
         if command.decision_type == "DISMISS":
             return UnderstandingDecisionReceipt(
@@ -162,6 +223,8 @@ class AssessmentGrowthIntentHandoff:
                 outcome="NO_ACTION",
                 signal_ref=signal.signal_ref,
                 signal_version=signal.signal_version,
+                scope_ref=signal.scope_ref,
+                human_gate_receipt_ref=signal.human_gate_receipt_ref,
                 intent=None,
             )
 
@@ -173,6 +236,11 @@ class AssessmentGrowthIntentHandoff:
                 subject_person_id=signal.subject_person_id,
                 signal_ref=signal.signal_ref,
                 signal_version=signal.signal_version,
+                scope_ref=signal.scope_ref,
+                reviewed_draft_ref=signal.reviewed_draft_ref,
+                draft_version=signal.draft_version,
+                provenance_ref=signal.provenance_ref,
+                human_gate_receipt_ref=signal.human_gate_receipt_ref,
                 need_type=signal.need_type,
                 goal_text=signal.goal_text,
                 required_capability_keys=signal.required_capability_keys,
@@ -184,6 +252,11 @@ class AssessmentGrowthIntentHandoff:
         if (
             intent.signal_ref != signal.signal_ref
             or intent.signal_version != signal.signal_version
+            or intent.scope_ref != signal.scope_ref
+            or intent.reviewed_draft_ref != signal.reviewed_draft_ref
+            or intent.draft_version != signal.draft_version
+            or intent.provenance_ref != signal.provenance_ref
+            or intent.human_gate_receipt_ref != signal.human_gate_receipt_ref
             or intent.boundary != GROWTH_INTENT_BOUNDARY
         ):
             raise AssessmentConflictError("growth_intent_receipt_signal_mismatch")
@@ -192,5 +265,7 @@ class AssessmentGrowthIntentHandoff:
             outcome="INTENT_CREATED",
             signal_ref=signal.signal_ref,
             signal_version=signal.signal_version,
+            scope_ref=signal.scope_ref,
+            human_gate_receipt_ref=signal.human_gate_receipt_ref,
             intent=intent,
         )
