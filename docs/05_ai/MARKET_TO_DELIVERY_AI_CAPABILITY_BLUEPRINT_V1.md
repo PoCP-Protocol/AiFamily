@@ -208,7 +208,15 @@ PPT、图片、视频和短剧都必须反链到产品版本与需求证据。
 
 - 从 Demand + Market Evidence 生成多个 ProductConcept 候选；
 - 同屏展示依据、反证、未知项和三区建议；
-- 人工选择或退回研究，不由 AI 自动立项。
+- 人工选择或退回研究，不由 AI 自动立项；
+- 只有 durable Human Gate 已接受并生成 `NamedActionRequest` 后，
+  `ADOPT_PRODUCT_CONCEPT_AS_DEFINITION` 才能进入 PDM；
+- accepted-action handler 从 `approved_zone` 派生产品定义三区，不接受 Web 提交 zone；
+  结果仅为 `ProductDefinition(DRAFT)`，并保留 task/proposal/decision、评估版本、
+  provenance，并生成同事务审计记录。具体边界由
+  `governance/ADR/ADR-0141-product-definition-human-adoption.md` 固化；
+- 当前 Web 选择仍是未持久化 Decision DRAFT。下一切片先持久化 ProductPackage DRAFT
+  并提交 Human Gate，再接 operator review 和 accepted worker，不允许用直接写接口跨越缺口。
 
 ### Iteration 3：组件与 Skill 闭环
 

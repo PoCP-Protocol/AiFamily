@@ -23,3 +23,7 @@ class ProductIntelligenceForbiddenError(ProductIntelligenceDomainError):
     hypothesis or approve a contradiction/strategy — see
     `domain/entities.py` `GrowthHypothesis.mark_validated`.
     """
+
+
+class ProductIntelligenceConflictError(ProductIntelligenceDomainError):
+    """-> HTTP 409. Raised for a mismatched idempotent replay."""

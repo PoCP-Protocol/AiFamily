@@ -28,7 +28,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .errors import ProductIntelligenceForbiddenError, ProductIntelligenceValidationError
 from .value_objects import (
@@ -433,6 +433,57 @@ ProductZone = Literal["HOMOGENEOUS", "ADVANTAGE", "UNIQUE_CANDIDATE"]
 GrowthProductKind = Literal["MICRO_CAMP", "SCALE_PLAN", "CUSTOM"]
 
 
+class ProductDefinitionAdoptionSnapshot(BaseModel):
+    """Immutable Human Gate lineage retained with an adopted PDM draft."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["1.0"] = "1.0"
+    action_name: Literal["ADOPT_PRODUCT_CONCEPT_AS_DEFINITION"]
+    request_id: str
+    request_hash: str
+    task_id: str
+    proposal_id: str
+    decision_id: str
+    reviewer_actor_id: str
+    reviewer_actor_type: Literal["OPERATOR"]
+    tenant_scope: str
+    purpose: str
+    processing_basis_ref: str
+    provenance_ref: str
+    source_decision_draft_ref: str
+    zone_assessment_ref: str
+    zone_assessment_version: int
+    zone_policy_version_id: str
+    approved_zone: Literal["COMMODITY", "ADVANTAGE", "UNIQUE"]
+
+    @field_validator(
+        "request_id",
+        "request_hash",
+        "task_id",
+        "proposal_id",
+        "decision_id",
+        "reviewer_actor_id",
+        "tenant_scope",
+        "purpose",
+        "processing_basis_ref",
+        "provenance_ref",
+        "source_decision_draft_ref",
+        "zone_assessment_ref",
+        "zone_policy_version_id",
+    )
+    @classmethod
+    def _adoption_text_non_empty(cls, value: str, info) -> str:
+        return _require_non_empty(value, info.field_name)
+
+    @field_validator("zone_assessment_version")
+    @classmethod
+    def _zone_assessment_version_positive(cls, value: int) -> int:
+        if value < 1:
+            raise ProductIntelligenceValidationError("zone_assessment_version_must_be_positive")
+        return value
+
+
 class EducationProductSpec(BaseModel):
     """Family-education product configuration carried by a product definition.
 
@@ -452,6 +503,7 @@ class EducationProductSpec(BaseModel):
     stop_conditions: list[str] = Field(default_factory=list)
     pause_policy: str
     human_gate_policy: str
+    adoption: ProductDefinitionAdoptionSnapshot | None = None
 
     @field_validator("primary_contradiction", "pause_policy", "human_gate_policy")
     @classmethod
