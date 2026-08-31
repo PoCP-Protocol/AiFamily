@@ -1,0 +1,78 @@
+{
+  "sceneId": "LOOP-D-PRIVATE-NOTE",
+  "fixtureId": "loop-d-private-note-v1",
+  "environment": "DEV_ONLY",
+  "dataSource": "SYNTHETIC",
+  "fixtureOnly": true,
+  "scope": {
+    "tenantId": "tenant-synthetic-loop-d",
+    "familyId": "family-synthetic-loop-d",
+    "guardianId": "guardian-synthetic-loop-d"
+  },
+  "entry": {
+    "route": "/ui/UI-26",
+    "label": "记录家庭小记"
+  },
+  "inputs": [
+    {
+      "ref": "input-text-001",
+      "modality": "TEXT",
+      "displayLabel": "我的文字",
+      "content": "今天提醒开始作业时，我们都很着急。我想先试试少催一次。",
+      "source": "SYNTHETIC",
+      "guardianConfirmed": true
+    },
+    {
+      "ref": "input-image-ocr-001",
+      "modality": "IMAGE_OCR",
+      "displayLabel": "图片中的文字",
+      "content": "合成便签：先听完，再一起确定开始时间。",
+      "source": "SYNTHETIC",
+      "guardianConfirmed": true
+    },
+    {
+      "ref": "input-voice-transcript-001",
+      "modality": "VOICE_TRANSCRIPT",
+      "displayLabel": "语音转成的文字",
+      "content": "我不确定是步骤不清楚，还是大家晚上太累。",
+      "source": "SYNTHETIC",
+      "guardianConfirmed": true
+    }
+  ],
+  "understandingDraft": {
+    "status": "DRAFT",
+    "title": "我们可能卡在晚间开始前的过渡",
+    "currentUnderstanding": "从这次记录看，反复提醒可能让双方更着急；原因还不能确定。",
+    "sourceRefs": [
+      "input-text-001",
+      "input-image-ocr-001",
+      "input-voice-transcript-001"
+    ],
+    "sourceLabels": ["我的文字", "图片中的文字", "语音转成的文字"],
+    "unknowns": [
+      "步骤已经说清楚时，类似摩擦是否仍会发生？",
+      "疲惫程度不同的晚上是否有明显差异？"
+    ],
+    "editableFields": ["title", "currentUnderstanding"],
+    "requiresGuardianReview": true,
+    "mayMutateBusinessState": false,
+    "knowledge": {
+      "status": "NOT_CONNECTED",
+      "displayMessage": "这份理解目前只依据你的记录，尚未连接经过审核的参考内容。",
+      "references": []
+    }
+  },
+  "guardianReview": {
+    "decision": "EDIT",
+    "editedUnderstanding": "我们先观察开始步骤和疲惫程度，不急着判断原因。",
+    "reason": "这更符合我想记录的情况。"
+  },
+  "savedView": {
+    "route": "/ui/UI-28",
+    "sectionLabel": "我的家庭知识",
+    "state": "PRIVATE_DRAFT",
+    "visibility": "FAMILY_PRIVATE",
+    "reloadExpected": true,
+    "externalEffect": false
+  }
+}
