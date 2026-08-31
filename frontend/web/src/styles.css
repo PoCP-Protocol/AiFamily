@@ -433,6 +433,43 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
   font-size: 0.82rem;
   margin: 18px 0 0;
 }
+.live-service-next-step {
+  align-items: center;
+  background: linear-gradient(120deg, #fff7ed, #fff);
+  border: 1px solid #fed7aa;
+  border-radius: 18px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  margin-top: 18px;
+  padding: 18px;
+}
+.live-service-next-step h4 {
+  color: #431407;
+  margin: 5px 0;
+}
+.live-service-next-step p { color: #7c2d12; font-size: 0.82rem; margin: 0; }
+.live-adult-only {
+  background: #431407;
+  border-radius: 999px;
+  color: #fff7ed;
+  font-size: 0.7rem;
+  font-weight: 850;
+  padding: 7px 9px;
+}
+.live-service-button {
+  background: transparent;
+  border: 1px solid #f97316;
+  border-radius: 999px;
+  color: #c2410c;
+  font-weight: 800;
+  padding: 9px 14px;
+}
+.live-service-detail {
+  border-top: 1px solid #fed7aa;
+  grid-column: 2 / -1;
+  padding-top: 10px;
+}
 .live-sandbox-controls, .live-diagnostics {
   border-top: 1px solid #ffedd5;
   color: #9a3412;
@@ -501,4 +538,6 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
   .live-detail-content { grid-template-columns: 1fr; }
   .live-video-authorized video { min-height: 210px; }
   .live-video-caption { align-items: flex-start; }
+  .live-service-next-step { align-items: start; grid-template-columns: 1fr; }
+  .live-service-detail { grid-column: 1; }
 }

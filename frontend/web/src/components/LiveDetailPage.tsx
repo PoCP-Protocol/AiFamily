@@ -20,6 +20,7 @@ export function LiveDetailPage({ record, onBack }: Props) {
     playback?.state ?? "WAITING_AUTHORIZATION",
   );
   const [mediaUrl, setMediaUrl] = useState(playback ? playback.playback_url : "");
+  const [showServiceDetails, setShowServiceDetails] = useState(false);
   const hasStartedPlayback = useRef(false);
   const canRenderVideo =
     playback?.source === "synthetic" &&
@@ -27,6 +28,7 @@ export function LiveDetailPage({ record, onBack }: Props) {
     ["LIVE", "LOADING", "RESTARTED"].includes(surfaceState) &&
     isLocalPlaybackUrl(mediaUrl);
   const playbackMessage = getPlaybackMessage(surfaceState);
+  const showAdultNextStep = ["ENDED", "STOPPED", "REVOKED"].includes(surfaceState);
 
   return (
     <article className="live-detail-page" aria-labelledby="live-detail-heading">
@@ -112,6 +114,29 @@ export function LiveDetailPage({ record, onBack }: Props) {
       </div>
 
       <p className="live-capability-note">收藏与回看将在获得明确授权后开放。</p>
+      {showAdultNextStep ? (
+        <section className="live-service-next-step" aria-labelledby="live-service-next-step-heading">
+          <span className="live-adult-only">仅限成人</span>
+          <div>
+            <p className="live-kicker">直播后的下一步</p>
+            <h4 id="live-service-next-step-heading">需要继续支持？先了解专家服务方式</h4>
+            <p>由家长自主决定，不影响当前直播与家庭内容。</p>
+          </div>
+          <button
+            className="live-service-button"
+            type="button"
+            aria-expanded={showServiceDetails}
+            onClick={() => setShowServiceDetails((visible) => !visible)}
+          >
+            {showServiceDetails ? "收起说明" : "了解服务方式"}
+          </button>
+          {showServiceDetails ? (
+            <p className="live-service-detail" role="status">
+              当前仅展示服务说明，不会自动下单、扣费或联系专家。
+            </p>
+          ) : null}
+        </section>
+      ) : null}
       {playback?.control_url && record.fixture_only ? (
         <details className="live-sandbox-controls">
           <summary>连接演练工具</summary>

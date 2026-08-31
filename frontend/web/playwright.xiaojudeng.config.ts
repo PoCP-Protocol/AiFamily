@@ -9,6 +9,7 @@ export default defineConfig({
   outputDir: "test-results/xiaojudeng-isolated",
   use: {
     trace: "on-first-retry",
+    video: "on",
   },
   projects: [{ name: "xiaojudeng-chromium", use: { ...devices["Desktop Chrome"] } }],
 });

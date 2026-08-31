@@ -130,6 +130,19 @@ describe("Xiao Ju Deng live product surface", () => {
     expect(screen.getByText(message)).toBeInTheDocument();
   });
 
+  it("offers an adult-only, non-transactional service next step after a session stops", async () => {
+    const record = {
+      ...XIAO_JU_DENG_FIXTURE,
+      playback_state: "STOPPED",
+      playback: { ...JSON.parse(SYNTHETIC_PLAYBACK_DTO), state: "STOPPED" },
+    } as typeof XIAO_JU_DENG_FIXTURE;
+    render(<LiveDetailPage record={record} onBack={() => undefined} />);
+    expect(screen.getByText("仅限成人")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "需要继续支持？先了解专家服务方式" })).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "了解服务方式" }));
+    expect(screen.getByText("当前仅展示服务说明，不会自动下单、扣费或联系专家。")).toBeInTheDocument();
+  });
+
   it("shows a useful empty result when the problem search has no match", async () => {
     render(<LiveExperience environment={{ DEV: true }} />);
     await userEvent.setup().type(

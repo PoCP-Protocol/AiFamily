@@ -125,12 +125,33 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
   await page.getByRole("button", { name: "结束本场" }).click();
   await expect(page.getByText("本场直播已经停止。")).toBeVisible();
   await expect(page.locator("video")).toHaveCount(0);
+  await expect(page.getByText("仅限成人")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "需要继续支持？先了解专家服务方式" })).toBeVisible();
+  const stoppedOldCapability = await page.request.get(sandboxDto.playback_url);
+  expect(stoppedOldCapability.status()).toBe(403);
   await page.screenshot({ path: testInfo.outputPath("desktop-stopped.png"), fullPage: true });
 
   await page.getByRole("button", { name: "撤回观看权限" }).click();
   await expect(page.getByText("观看权限已经撤回。")).toBeVisible();
   await expect(page.locator("video")).toHaveCount(0);
+  const revokedOldCapability = await page.request.get(sandboxDto.playback_url);
+  expect(revokedOldCapability.status()).toBe(403);
+  await page.getByRole("button", { name: "了解服务方式" }).click();
+  await expect(page.getByText("当前仅展示服务说明，不会自动下单、扣费或联系专家。")).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("desktop-revoked.png"), fullPage: true });
+  await testInfo.attach("state-results.json", {
+    body: Buffer.from(JSON.stringify({
+      live: "PASS",
+      disconnected: "PASS",
+      recovered: "PASS",
+      stopped: "PASS",
+      stopped_old_url_status: stoppedOldCapability.status(),
+      revoked: "PASS",
+      revoked_old_url_status: revokedOldCapability.status(),
+      adult_only_service_next_step: "PASS",
+    }, null, 2)),
+    contentType: "application/json",
+  });
 });
 
 async function startMediaSandbox(): Promise<SandboxDto> {
