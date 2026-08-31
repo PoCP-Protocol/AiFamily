@@ -1,10 +1,8 @@
-"""Port of `GrowthHypothesisService.decide` (growth-hypothesis.service.ts).
+"""Compatibility facade for guardian decisions on reviewed understanding.
 
-CONFIRM bridges to the `growth_intents` table with
-`boundary='HUMAN_CONFIRMED_INTENT_NOT_OUTCOME'` — this is the Named Action
-boundary the migration plan (section 6/10) requires: AI Runtime output
-(the hypothesis draft) never writes canonical state directly; only this
-human-confirmed decision does.
+Canonical GrowthIntent creation is delegated through the Growth-owned port.
+The confirmation path consumes an immutable Human Gate binding and never
+re-runs interpretation or AI.
 """
 
 from __future__ import annotations
@@ -12,20 +10,28 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Literal
 
 from ..domain.errors import (
     AssessmentConflictError,
+    AssessmentForbiddenError,
     AssessmentNotFoundError,
     AssessmentValidationError,
 )
-from ..domain.value_objects import GROWTH_INTENT_BOUNDARY, GrowthHypothesisDecisionType
-from .ports import AssessmentInterpretationPort, AssessmentRepositoryPort
-from .queries import _map_hypothesis
+from ..domain.value_objects import GrowthHypothesisDecisionType
+from .growth_intent_handoff import (
+    AssessmentGrowthIntentHandoff,
+    DecideViewedUnderstandingInput,
+    GrowthIntentConfirmationPort,
+    ViewedUnderstandingSignal,
+    ViewedUnderstandingSignalReaderPort,
+)
+from .ports import AssessmentRepositoryPort
 
 _UUID_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", re.IGNORECASE
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
 )
 
 
@@ -47,38 +53,69 @@ class DecideGrowthHypothesisCommand:
     decision_type: GrowthHypothesisDecisionType
     correlation_id: str
     idempotency_key: str
+    scope_ref: str = ""
+    signal_version: int = 0
+    reviewed_draft_ref: str = ""
+    draft_version: int = 0
+    provenance_ref: str = ""
+    human_gate_receipt_ref: str = ""
+
+
+class _LoadedSignalReader:
+    def __init__(self, signal: ViewedUnderstandingSignal) -> None:
+        self._signal = signal
+
+    async def load_viewed_signal(self, **_: str) -> ViewedUnderstandingSignal:
+        return self._signal
 
 
 class GrowthHypothesisCommandHandler:
     def __init__(
-        self, repository: AssessmentRepositoryPort, interpretation: AssessmentInterpretationPort
-    ):
+        self,
+        repository: AssessmentRepositoryPort,
+        viewed_signals: ViewedUnderstandingSignalReaderPort,
+        growth_intents: GrowthIntentConfirmationPort | None = None,
+    ) -> None:
         self._repository = repository
-        self._interpretation = interpretation
+        self._viewed_signals = viewed_signals
+        self._growth_intents = growth_intents
 
     async def decide(self, command: DecideGrowthHypothesisCommand) -> dict:
-        if not command.idempotency_key or not command.idempotency_key.strip():
-            raise AssessmentValidationError("idempotency_key_required")
-        if (
-            not _is_uuid(command.assessment_session_id)
-            or not command.hypothesis_ref.strip()
-            or command.decision_type not in ("CONFIRM", "DISMISS")
-        ):
-            raise AssessmentValidationError("valid_hypothesis_decision_required")
+        self._validate_command(command)
 
-        action: Literal["CONFIRM_GROWTH_HYPOTHESIS", "DISMISS_GROWTH_HYPOTHESIS"] = (
-            "CONFIRM_GROWTH_HYPOTHESIS"
-            if command.decision_type == "CONFIRM"
-            else "DISMISS_GROWTH_HYPOTHESIS"
+        # Canonical family permission is checked before gate lookup or replay.
+        await self._repository.assert_tenant_family_scope(
+            command.tenant_id, command.family_id, command.actor_id
         )
+        signal = await self._viewed_signals.load_viewed_signal(
+            tenant_id=command.tenant_id,
+            family_id=command.family_id,
+            assessment_session_id=command.assessment_session_id,
+            human_gate_receipt_ref=command.human_gate_receipt_ref,
+        )
+        if signal is None:
+            raise AssessmentNotFoundError("understanding_signal_not_found")
+        self._validate_signal_binding(command, signal)
+        await self._repository.assert_subject_consent(
+            command.family_id, signal.subject_person_id, "ASSESSMENT"
+        )
+
         request_hash = _hash_request(
             {
+                "tenant_id": command.tenant_id,
+                "family_id": command.family_id,
+                "actor_id": command.actor_id,
                 "assessment_session_id": command.assessment_session_id,
-                "hypothesis_ref": command.hypothesis_ref,
+                "signal_ref": command.hypothesis_ref,
+                "signal_version": command.signal_version,
+                "scope_ref": command.scope_ref,
+                "reviewed_draft_ref": command.reviewed_draft_ref,
+                "draft_version": command.draft_version,
+                "provenance_ref": command.provenance_ref,
+                "human_gate_receipt_ref": command.human_gate_receipt_ref,
                 "decision_type": command.decision_type,
             }
         )
-
         await self._repository.lock_hypothesis_decision(
             command.tenant_id, command.family_id, command.hypothesis_ref
         )
@@ -90,58 +127,111 @@ class GrowthHypothesisCommandHandler:
                 raise AssessmentConflictError("idempotency_key_payload_mismatch")
             return {**replay["response_body"], "replayed": True}
 
-        await self._repository.assert_tenant_family_scope(
-            command.tenant_id, command.family_id, command.actor_id
+        if self._growth_intents is None:
+            raise AssessmentValidationError("growth_intent_handoff_not_wired")
+        handoff = AssessmentGrowthIntentHandoff(
+            _LoadedSignalReader(signal), self._growth_intents
         )
-        evidence = await self._repository.load_hypothesis_evidence(
-            command.family_id, command.tenant_id, command.assessment_session_id
-        )
-        if evidence is None:
-            raise AssessmentNotFoundError("growth_hypothesis_not_found")
-
-        interpretation = await self._interpretation.interpret(
-            command.family_id, evidence, "DEEP_AI_INTERPRETATION"
-        )
-        hypothesis = _map_hypothesis(evidence, interpretation)
-        if hypothesis["hypothesis_ref"] != command.hypothesis_ref:
-            raise AssessmentConflictError("growth_hypothesis_reference_mismatch")
-
-        await self._repository.assert_subject_consent(
-            command.family_id, evidence.subject_person_id, "ASSESSMENT"
-        )
-
-        intent: dict | None = None
-        if command.decision_type == "CONFIRM":
-            intent = await self._repository.load_or_create_growth_intent(
+        decision = await handoff.decide(
+            DecideViewedUnderstandingInput(
+                tenant_id=command.tenant_id,
                 family_id=command.family_id,
-                subject_person_id=evidence.subject_person_id,
-                need_type=evidence.need_type_ref,
-                goal_text=evidence.description,
-                required_capability_keys=evidence.required_capability_keys,
-                confirmed_by=command.actor_id,
-                source_ref=hypothesis["hypothesis_ref"],
-                evidence_refs=[evidence.assessment_evidence_id],
+                actor_id=command.actor_id,
+                actor_type="FAMILY_GUARDIAN",
+                assessment_session_id=command.assessment_session_id,
+                signal_ref=command.hypothesis_ref,
+                signal_version=command.signal_version,
+                scope_ref=command.scope_ref,
+                reviewed_draft_ref=command.reviewed_draft_ref,
+                draft_version=command.draft_version,
+                provenance_ref=command.provenance_ref,
+                human_gate_receipt_ref=command.human_gate_receipt_ref,
+                decision_type=command.decision_type,
+                correlation_id=command.correlation_id,
+                idempotency_key=command.idempotency_key,
             )
-            assert intent.get("boundary", GROWTH_INTENT_BOUNDARY) == GROWTH_INTENT_BOUNDARY
+        )
 
+        action: Literal["CONFIRM_GROWTH_HYPOTHESIS", "DISMISS_GROWTH_HYPOTHESIS"] = (
+            "CONFIRM_GROWTH_HYPOTHESIS"
+            if command.decision_type == "CONFIRM"
+            else "DISMISS_GROWTH_HYPOTHESIS"
+        )
+        intent = None
+        if decision.intent is not None:
+            intent = {
+                **asdict(decision.intent),
+                "need_type": signal.need_type,
+                "status": "OPEN",
+                "required_capability_keys": list(signal.required_capability_keys),
+                "evidence_refs": list(signal.evidence_refs),
+            }
         receipt = {
             "action": action,
-            "outcome": "INTENT_CREATED" if command.decision_type == "CONFIRM" else "NO_ACTION",
-            "hypothesis_ref": hypothesis["hypothesis_ref"],
+            "outcome": decision.outcome,
+            "hypothesis_ref": decision.signal_ref,
+            "signal_version": decision.signal_version,
+            "human_gate_receipt_ref": decision.human_gate_receipt_ref,
             "intent": intent,
             "replayed": False,
         }
         await self._repository.persist_hypothesis_decision(
             tenant_id=command.tenant_id,
             family_id=command.family_id,
-            session_id=evidence.assessment_session_id,
-            hypothesis_ref=hypothesis["hypothesis_ref"],
+            session_id=signal.assessment_session_id,
+            hypothesis_ref=decision.signal_ref,
             decision_type=command.decision_type,
             actor_id=command.actor_id,
-            intent_id=intent["intent_id"] if intent else None,
+            intent_id=decision.intent.intent_id if decision.intent else None,
             idempotency_key=command.idempotency_key,
             request_hash=request_hash,
             receipt=receipt,
             correlation_id=command.correlation_id,
         )
         return receipt
+
+    @staticmethod
+    def _validate_command(command: DecideGrowthHypothesisCommand) -> None:
+        if not command.idempotency_key.strip():
+            raise AssessmentValidationError("idempotency_key_required")
+        refs = (
+            command.hypothesis_ref,
+            command.scope_ref,
+            command.reviewed_draft_ref,
+            command.provenance_ref,
+            command.human_gate_receipt_ref,
+        )
+        if (
+            not _is_uuid(command.assessment_session_id)
+            or not all(value.strip() for value in refs)
+            or command.signal_version < 1
+            or command.draft_version < 1
+            or command.decision_type not in ("CONFIRM", "DISMISS")
+        ):
+            raise AssessmentValidationError("valid_reviewed_understanding_decision_required")
+
+    @staticmethod
+    def _validate_signal_binding(
+        command: DecideGrowthHypothesisCommand, signal: ViewedUnderstandingSignal
+    ) -> None:
+        if signal.tenant_id != command.tenant_id or signal.family_id != command.family_id:
+            raise AssessmentForbiddenError("family_access_denied")
+        if signal.scope_ref != command.scope_ref:
+            raise AssessmentForbiddenError("human_gate_scope_mismatch")
+        if signal.reviewed_by_actor_id != command.actor_id:
+            raise AssessmentForbiddenError("human_gate_actor_mismatch")
+        if signal.human_gate_effective_status != "EFFECTIVE":
+            raise AssessmentForbiddenError("human_gate_receipt_not_effective")
+        if (
+            signal.signal_ref != command.hypothesis_ref
+            or signal.signal_version != command.signal_version
+        ):
+            raise AssessmentConflictError("understanding_signal_version_conflict")
+        if signal.human_gate_receipt_ref != command.human_gate_receipt_ref:
+            raise AssessmentConflictError("human_gate_receipt_mismatch")
+        if (
+            signal.reviewed_draft_ref != command.reviewed_draft_ref
+            or signal.draft_version != command.draft_version
+            or signal.provenance_ref != command.provenance_ref
+        ):
+            raise AssessmentConflictError("reviewed_draft_binding_mismatch")

@@ -115,7 +115,6 @@ class FakeAssessmentRepository:
     )  # (tenant,family,action,key) -> {request_hash, response_body}
     audit_log: list[dict] = field(default_factory=list)
     outbox: list[dict] = field(default_factory=list)
-    growth_intents: dict[str, dict] = field(default_factory=dict)  # source_ref -> intent
     hypothesis_decisions: dict[tuple[str, str, str, str], dict] = field(default_factory=dict)
     need_types: dict[str, dict] = field(default_factory=dict)  # focus_ref -> need type row
 
@@ -421,32 +420,6 @@ class FakeAssessmentRepository:
                 for r in session.responses
             ],
         )
-
-    async def load_or_create_growth_intent(
-        self,
-        *,
-        family_id,
-        subject_person_id,
-        need_type,
-        goal_text,
-        required_capability_keys,
-        confirmed_by,
-        source_ref,
-        evidence_refs,
-    ) -> dict:
-        existing = self.growth_intents.get(source_ref)
-        if existing is not None:
-            return existing
-        intent = {
-            "intent_id": str(uuid.uuid4()),
-            "need_type": need_type,
-            "status": "OPEN",
-            "required_capability_keys": required_capability_keys,
-            "evidence_refs": evidence_refs,
-            "boundary": "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME",
-        }
-        self.growth_intents[source_ref] = intent
-        return intent
 
     async def lock_hypothesis_decision(
         self, tenant_id: str, family_id: str, hypothesis_ref: str
