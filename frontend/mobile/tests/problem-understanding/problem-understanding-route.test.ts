@@ -97,6 +97,29 @@ describe("Problem Understanding standalone Expo route", () => {
     expect(components).toContain("点“继续”后，我们才会整理这段话");
   });
 
+  it("uses one clear three-step promise and adapts review density by viewport", () => {
+    expect(route).toContain("今天，想先把哪件事说清楚？");
+    expect(route).toContain("1 说出困扰");
+    expect(route).toContain("2 确认理解");
+    expect(route).toContain("3 获得下一步");
+    expect(route).toContain("useWindowDimensions");
+    expect(route).toContain("width < 480");
+    expect(route).toContain("width >= 960");
+    expect(route).toContain("reviewWidth >= 760");
+    expect(route).toContain("event.nativeEvent.layout.width");
+    expect(route).toContain("reviewLayoutWide");
+    expect(route).toContain("maxWidth: 1180");
+    expect(components).toContain("这份理解准确吗？");
+    expect(components).toContain("只有你确认后，才会进入下一步");
+  });
+
+  it("shows a concrete next step only after the adult confirms", () => {
+    expect(route).toContain('state.phase === "CONFIRMED"');
+    expect(route).toContain("这次理解已经确认");
+    expect(route).toContain("选一个彼此都不赶时间的时刻");
+    expect(route).toContain("不需要今天一次解决");
+  });
+
   it("does not force a fixed assessment or automatic action into this path", () => {
     expect(route).not.toContain("最小3题");
     expect(route).not.toContain("今天可以试的一小步");
