@@ -83,3 +83,55 @@ def test_http_rejects_missing_auth_and_cross_scope() -> None:
         ).status_code
         == 403
     )
+
+
+def test_http_runs_assessment_intent_to_practice_record_scenario() -> None:
+    client = _client()
+    created = client.post(
+        "/families/family-a/growth/journey-plan/from-intent",
+        headers=_headers("intent-plan-1"),
+        json={
+            "intent_id": "intent-1",
+            "need_type": "PARENT_CHILD_COMMUNICATION",
+            "goal_text": "在冲突时先听懂彼此，再共同决定",
+            "evidence_refs": ["assessment-evidence-1"],
+            "knowledge_refs": ["TH-001", "MD-001"],
+            "boundary": "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME",
+        },
+    )
+    assert created.status_code == 200
+    plan_id = created.json()["plan"]["plan_id"]
+    assert created.json()["plan"]["evidence_refs"] == ["assessment-evidence-1"]
+
+    assert (
+        client.post(
+            f"/families/family-a/growth/journey-plan/{plan_id}/confirm",
+            headers=_headers("intent-confirm-1"),
+        ).status_code
+        == 200
+    )
+    practice = client.post(
+        f"/families/family-a/growth/journey-plan/{plan_id}/practices",
+        headers=_headers("practice-1"),
+        json={
+            "title": "冲突时先复述孩子想表达的事",
+            "rationale": "对应已确认的沟通卡点",
+            "day_index": 1,
+        },
+    )
+    assert practice.status_code == 200
+    practice_id = practice.json()["practice"]["practice_id"]
+
+    record = client.post(
+        f"/families/family-a/growth/journey-plan/{plan_id}/practices/{practice_id}/records",
+        headers=_headers("record-1"),
+        json={"observation": "孩子愿意多说了一句", "blocker": "时间太晚"},
+    )
+    assert record.status_code == 200
+    assert record.json()["record"]["observation"] == "孩子愿意多说了一句"
+
+    readback = client.get(
+        f"/families/family-a/growth/journey-plan/{plan_id}",
+        headers={"Authorization": "Bearer parent-a", "X-Tenant-Id": "tenant-a"},
+    )
+    assert readback.json()["records"][0]["blocker"] == "时间太晚"

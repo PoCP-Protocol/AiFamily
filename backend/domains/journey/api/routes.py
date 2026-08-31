@@ -6,7 +6,11 @@ from typing import Annotated, Protocol
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from ..application.plan_service import JourneyPlanService, PhaseReviewDecision
+from ..application.plan_service import (
+    ConfirmedGrowthIntent,
+    JourneyPlanService,
+    PhaseReviewDecision,
+)
 from ..domain.errors import (
     JourneyConflictError,
     JourneyDomainError,
@@ -48,6 +52,26 @@ class ReviewPhaseBody(BaseModel):
     observation: str = Field(default="", max_length=2000)
 
 
+class ConfirmedIntentBody(BaseModel):
+    intent_id: str = Field(min_length=1, max_length=128)
+    need_type: str = Field(min_length=1, max_length=128)
+    goal_text: str = Field(min_length=1, max_length=500)
+    evidence_refs: list[str] = Field(default_factory=list, max_length=20)
+    knowledge_refs: list[str] = Field(default_factory=list, max_length=20)
+    boundary: str = Field(min_length=1, max_length=128)
+
+
+class AddPracticeBody(BaseModel):
+    title: str = Field(min_length=1, max_length=240)
+    rationale: str = Field(min_length=1, max_length=1000)
+    day_index: int = Field(ge=1, le=21)
+
+
+class RecordPracticeBody(BaseModel):
+    observation: str = Field(min_length=1, max_length=2000)
+    blocker: str | None = Field(default=None, max_length=500)
+
+
 def build_journey_plan_router(dependencies: JourneyPlanHttpDependencies) -> APIRouter:
     router = APIRouter(prefix="/families")
 
@@ -80,6 +104,34 @@ def build_journey_plan_router(dependencies: JourneyPlanHttpDependencies) -> APIR
                 focus_id=body.focus_id,
                 goal_text=body.goal_text,
                 idempotency_key=key,
+            )
+        except JourneyDomainError as error:
+            raise _http_error(error) from error
+
+    @router.post("/{family_id}/growth/journey-plan/from-intent")
+    async def create_plan_from_intent(
+        family_id: str,
+        body: ConfirmedIntentBody,
+        authorization: Annotated[str | None, Header()] = None,
+        x_tenant_id: Annotated[str | None, Header(alias="X-Tenant-Id")] = None,
+        idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    ) -> dict[str, object]:
+        actor = await actor_for(authorization)
+        _assert_scope(actor, family_id, x_tenant_id)
+        try:
+            return dependencies.service.create_plan_from_intent(
+                intent=ConfirmedGrowthIntent(
+                    intent_id=body.intent_id,
+                    tenant_id=actor.tenant_id,
+                    family_id=actor.family_id,
+                    actor_id=actor.actor_id,
+                    need_type=body.need_type,
+                    goal_text=body.goal_text,
+                    evidence_refs=tuple(body.evidence_refs),
+                    knowledge_refs=tuple(body.knowledge_refs),
+                    boundary=body.boundary,
+                ),
+                idempotency_key=_required_key(idempotency_key),
             )
         except JourneyDomainError as error:
             raise _http_error(error) from error
@@ -140,6 +192,57 @@ def build_journey_plan_router(dependencies: JourneyPlanHttpDependencies) -> APIR
                 plan_id=plan_id,
                 decision=body.decision,
                 observation=body.observation,
+                idempotency_key=_required_key(idempotency_key),
+            )
+        except JourneyDomainError as error:
+            raise _http_error(error) from error
+
+    @router.post("/{family_id}/growth/journey-plan/{plan_id}/practices")
+    async def add_practice(
+        family_id: str,
+        plan_id: str,
+        body: AddPracticeBody,
+        authorization: Annotated[str | None, Header()] = None,
+        x_tenant_id: Annotated[str | None, Header(alias="X-Tenant-Id")] = None,
+        idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    ) -> dict[str, object]:
+        actor = await actor_for(authorization)
+        _assert_scope(actor, family_id, x_tenant_id)
+        try:
+            return dependencies.service.add_practice(
+                tenant_id=actor.tenant_id,
+                family_id=actor.family_id,
+                actor_id=actor.actor_id,
+                plan_id=plan_id,
+                title=body.title,
+                rationale=body.rationale,
+                day_index=body.day_index,
+                idempotency_key=_required_key(idempotency_key),
+            )
+        except JourneyDomainError as error:
+            raise _http_error(error) from error
+
+    @router.post("/{family_id}/growth/journey-plan/{plan_id}/practices/{practice_id}/records")
+    async def record_practice(
+        family_id: str,
+        plan_id: str,
+        practice_id: str,
+        body: RecordPracticeBody,
+        authorization: Annotated[str | None, Header()] = None,
+        x_tenant_id: Annotated[str | None, Header(alias="X-Tenant-Id")] = None,
+        idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    ) -> dict[str, object]:
+        actor = await actor_for(authorization)
+        _assert_scope(actor, family_id, x_tenant_id)
+        try:
+            return dependencies.service.record_practice(
+                tenant_id=actor.tenant_id,
+                family_id=actor.family_id,
+                actor_id=actor.actor_id,
+                plan_id=plan_id,
+                practice_id=practice_id,
+                observation=body.observation,
+                blocker=body.blocker,
                 idempotency_key=_required_key(idempotency_key),
             )
         except JourneyDomainError as error:
