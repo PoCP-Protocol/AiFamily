@@ -5,6 +5,7 @@ export type ProblemUnderstandingPhase =
   | "CORRECTING"
   | "CONFIRMING"
   | "CONFIRMED"
+  | "SAVED"
   | "AI_UNAVAILABLE"
   | "ERROR";
 
@@ -64,6 +65,8 @@ export interface ProblemUnderstandingState {
   pendingConfirmation: ConfirmationBinding | null;
   receipt: UnderstandingReceipt | null;
   recoveryMessage: string | null;
+  clarificationSkipped: boolean;
+  savedAt: string | null;
 }
 
 export interface UnderstandingMapViewModel {
@@ -75,4 +78,5 @@ export interface UnderstandingMapViewModel {
   unknowns: readonly UnderstandingUnknown[];
   canCorrect: boolean;
   canConfirm: boolean;
+  clarificationSkipped: boolean;
 }
