@@ -6,9 +6,12 @@ and the growth-hypothesis decision body validated inline in
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+
+NonEmptyRef = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+PositiveVersion = Annotated[int, Field(ge=1)]
 
 
 class StartAssessmentRequestBody(BaseModel):
@@ -23,6 +26,14 @@ class SaveAssessmentResponseRequestBody(BaseModel):
 
 
 class DecideGrowthHypothesisRequestBody(BaseModel):
-    assessment_session_id: str
-    hypothesis_ref: str
+    model_config = ConfigDict(extra="forbid")
+
+    assessment_session_id: NonEmptyRef
+    hypothesis_ref: NonEmptyRef
     decision_type: Literal["CONFIRM", "DISMISS"]
+    scope_ref: NonEmptyRef
+    signal_version: PositiveVersion
+    reviewed_draft_ref: NonEmptyRef
+    draft_version: PositiveVersion
+    provenance_ref: NonEmptyRef
+    human_gate_receipt_ref: NonEmptyRef

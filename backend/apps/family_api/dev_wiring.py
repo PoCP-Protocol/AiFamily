@@ -60,6 +60,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
@@ -68,10 +69,14 @@ from fastapi import FastAPI, Header, HTTPException
 from backend.domains.assessment.api import dependencies as assessment_deps
 from backend.domains.assessment.api.dev_auth import get_state as get_dev_auth_state
 from backend.domains.assessment.application.commands import AssessmentCommandHandler
-from backend.domains.assessment.application.growth_hypothesis_commands import (
-    GrowthHypothesisCommandHandler,
+from backend.domains.assessment.application.growth_intent_handoff import (
+    AssessmentGrowthIntentHandoff,
+    ConfirmGrowthIntentInput,
+    GrowthIntentReceipt,
+    ViewedUnderstandingSignal,
 )
 from backend.domains.assessment.application.queries import AssessmentQueryHandler
+from backend.domains.assessment.domain.errors import AssessmentConflictError
 from backend.domains.assessment.infrastructure.deterministic_interpretation import (
     DeterministicInterpretationAdapter,
 )
@@ -122,6 +127,98 @@ _repository = FakeServiceRepository()
 # necessary but never presentable as an AI capability.
 _assessment_repository = FakeAssessmentRepository()
 _assessment_interpretation = DeterministicInterpretationAdapter()
+
+
+class _DevViewedUnderstandingSignalReader:
+    """Process-local synthetic projection of a signal already shown to a guardian.
+
+    Lookup never creates a receipt. Tests and the dev browser must explicitly
+    call ``seed_reviewed_understanding_signal`` before submitting a decision.
+    Consent effectiveness is re-checked on every read so a replay after
+    withdrawal fails closed before the Growth port is called.
+    """
+
+    def __init__(self) -> None:
+        self._signals: dict[tuple[str, str, str], ViewedUnderstandingSignal] = {}
+
+    def seed(self, signal: ViewedUnderstandingSignal) -> None:
+        key = (signal.tenant_id, signal.family_id, signal.assessment_session_id)
+        self._signals[key] = signal
+
+    async def load_viewed_signal(
+        self,
+        *,
+        tenant_id: str,
+        family_id: str,
+        assessment_session_id: str,
+        human_gate_receipt_ref: str,
+    ) -> ViewedUnderstandingSignal | None:
+        del human_gate_receipt_ref
+        signal = self._signals.get((tenant_id, family_id, assessment_session_id))
+        if signal is None:
+            return None
+        consent_key = (family_id, signal.subject_person_id, "ASSESSMENT")
+        if consent_key not in _assessment_repository.consents:
+            return replace(signal, human_gate_effective_status="REVOKED")
+        return signal
+
+
+class _DevGrowthIntentConfirmation:
+    """Synthetic Growth adapter owning idempotency and opaque receipt refs."""
+
+    def __init__(self) -> None:
+        self._receipts: dict[
+            tuple[str, str, str], tuple[ConfirmGrowthIntentInput, GrowthIntentReceipt]
+        ] = {}
+        self.call_count = 0
+
+    async def confirm_growth_intent(self, command: ConfirmGrowthIntentInput) -> GrowthIntentReceipt:
+        key = (command.tenant_id, command.family_id, command.idempotency_key)
+        existing = self._receipts.get(key)
+        if existing is not None:
+            previous_command, receipt = existing
+            if previous_command != command:
+                raise AssessmentConflictError("idempotency_key_payload_mismatch")
+            return replace(receipt, replayed=True)
+
+        self.call_count += 1
+        stable_key = ":".join(
+            (
+                command.tenant_id,
+                command.family_id,
+                command.signal_ref,
+                str(command.signal_version),
+                command.idempotency_key,
+            )
+        )
+        receipt = GrowthIntentReceipt(
+            intent_id=f"dev-synthetic-intent:{uuid5(NAMESPACE_URL, stable_key)}",
+            signal_ref=command.signal_ref,
+            signal_version=command.signal_version,
+            scope_ref=command.scope_ref,
+            reviewed_draft_ref=command.reviewed_draft_ref,
+            draft_version=command.draft_version,
+            provenance_ref=command.provenance_ref,
+            human_gate_receipt_ref=command.human_gate_receipt_ref,
+            receipt_ref=f"dev-synthetic-receipt:{uuid5(NAMESPACE_URL, f'receipt:{stable_key}')}",
+        )
+        self._receipts[key] = (command, receipt)
+        return receipt
+
+
+_viewed_signal_reader = _DevViewedUnderstandingSignalReader()
+_growth_intent_confirmation = _DevGrowthIntentConfirmation()
+
+
+def seed_reviewed_understanding_signal(signal: ViewedUnderstandingSignal) -> None:
+    """Register an explicit synthetic/dev reviewed-signal binding.
+
+    This helper is not a production Human Gate ledger and is only reachable
+    through dev wiring guarded by ``AIFAMILY_ENV``.
+    """
+    if not is_dev_environment():
+        raise DevWiringNotPermittedError("synthetic viewed signal seed refused")
+    _viewed_signal_reader.seed(signal)
 
 
 class _DevConsentQuery:
@@ -297,9 +394,7 @@ async def _dev_family_context(
     # populates the fake repository's existing subject/consent test boundary,
     # and the stable UUID makes the fixture safe to replay for one family.
     if not _assessment_repository.subjects.get(family_id):
-        synthetic_subject_id = str(
-            uuid5(NAMESPACE_URL, f"aifamily:{family_id}:assessment-subject")
-        )
+        synthetic_subject_id = str(uuid5(NAMESPACE_URL, f"aifamily:{family_id}:assessment-subject"))
         _assessment_repository.seed_subject(
             family_id,
             synthetic_subject_id,
@@ -362,8 +457,11 @@ def _dev_query_handler() -> AssessmentQueryHandler:
     return AssessmentQueryHandler(_assessment_repository, _assessment_interpretation)
 
 
-def _dev_growth_hypothesis_handler() -> GrowthHypothesisCommandHandler:
-    return GrowthHypothesisCommandHandler(_assessment_repository, _assessment_interpretation)
+def _dev_growth_hypothesis_handler() -> AssessmentGrowthIntentHandoff:
+    return AssessmentGrowthIntentHandoff(
+        _viewed_signal_reader,
+        _growth_intent_confirmation,
+    )
 
 
 def reset_dev_state() -> None:
@@ -373,5 +471,8 @@ def reset_dev_state() -> None:
     same cross-test leak the service reset exists to prevent.
     """
     global _repository, _assessment_repository
+    global _viewed_signal_reader, _growth_intent_confirmation
     _repository = FakeServiceRepository()
     _assessment_repository = FakeAssessmentRepository()
+    _viewed_signal_reader = _DevViewedUnderstandingSignalReader()
+    _growth_intent_confirmation = _DevGrowthIntentConfirmation()

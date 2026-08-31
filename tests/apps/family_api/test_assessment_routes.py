@@ -190,12 +190,49 @@ def test_http_chain_is_idempotent_end_to_end(client: TestClient) -> None:
     assert "'score':" not in result_keys
     assert "'ranking':" not in result_keys
 
+    from backend.apps.family_api.dev_wiring import seed_reviewed_understanding_signal
+    from backend.domains.assessment.application.growth_intent_handoff import (
+        ViewedUnderstandingSignal,
+    )
+
+    scope_ref = f"family://{FAMILY}/{FAMILY}/assessment"
+    reviewed_draft_ref = "dev-synthetic:draft:decision-1"
+    provenance_ref = "dev-synthetic:provenance:decision-1"
+    gate_ref = "dev-synthetic:human-gate:decision-1"
+    seed_reviewed_understanding_signal(
+        ViewedUnderstandingSignal(
+            tenant_id=FAMILY,
+            family_id=FAMILY,
+            assessment_session_id=session_id,
+            signal_ref=hypothesis["hypothesis_ref"],
+            signal_version=1,
+            scope_ref=scope_ref,
+            reviewed_draft_ref=reviewed_draft_ref,
+            draft_version=1,
+            provenance_ref=provenance_ref,
+            human_gate_receipt_ref=gate_ref,
+            human_gate_effective_status="EFFECTIVE",
+            reviewed_by_actor_id="account-a",
+            subject_person_id=subject,
+            need_type=hypothesis["need_type_ref"],
+            goal_text=hypothesis["statement"],
+            required_capability_keys=tuple(hypothesis["required_capability_keys"]),
+            evidence_refs=(hypothesis["source_refs"]["assessment_evidence_id"],),
+        )
+    )
+
     decision = client.post(
         f"/families/{FAMILY}/growth-hypotheses/decisions",
         json={
             "assessment_session_id": session_id,
             "hypothesis_ref": hypothesis["hypothesis_ref"],
             "decision_type": "CONFIRM",
+            "scope_ref": scope_ref,
+            "signal_version": 1,
+            "reviewed_draft_ref": reviewed_draft_ref,
+            "draft_version": 1,
+            "provenance_ref": provenance_ref,
+            "human_gate_receipt_ref": gate_ref,
         },
         headers={**auth, "idempotency-key": "decision-1"},
     )
@@ -234,9 +271,7 @@ def test_dev_browser_fixture_runs_the_minimal_family_result_slice(client: TestCl
     authentication, consent, persistence, or a second domain model.
     """
     auth = _auth(client, family="browser-family", key="auth-browser")
-    projection = client.get(
-        "/families/browser-family/ui/02/assessment", headers=auth
-    )
+    projection = client.get("/families/browser-family/ui/02/assessment", headers=auth)
     assert projection.status_code == 200, projection.text
     body = projection.json()
     assert body["availability"] == "AVAILABLE"
@@ -286,9 +321,7 @@ def test_dev_browser_fixture_runs_the_minimal_family_result_slice(client: TestCl
     assert replay.status_code == 200
     assert replay.json()["replayed"] is True
 
-    result = client.get(
-        "/families/browser-family/assessments/results/latest", headers=auth
-    )
+    result = client.get("/families/browser-family/assessments/results/latest", headers=auth)
     assert result.status_code == 200, result.text
     result_body = result.json()
     assert result_body["status"] == "READY"

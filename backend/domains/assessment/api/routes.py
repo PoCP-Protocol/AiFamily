@@ -35,9 +35,9 @@ from ..application.commands import (
     StartAssessmentCommand,
     SubmitAssessmentCommand,
 )
-from ..application.growth_hypothesis_commands import (
-    DecideGrowthHypothesisCommand,
-    GrowthHypothesisCommandHandler,
+from ..application.growth_intent_handoff import (
+    AssessmentGrowthIntentHandoff,
+    DecideViewedUnderstandingInput,
 )
 from ..application.queries import (
     AssessmentQueryHandler,
@@ -244,20 +244,59 @@ async def decide_growth_hypothesis(
     family_id: str,
     body: DecideGrowthHypothesisRequestBody,
     context: FamilyContext = Depends(get_family_context),
-    handler: GrowthHypothesisCommandHandler = Depends(get_growth_hypothesis_handler),
+    handler: AssessmentGrowthIntentHandoff = Depends(get_growth_hypothesis_handler),
     x_correlation_id: str | None = Header(default=None),
     idempotency_key: str | None = Header(default=None),
 ) -> dict:
     _assert_path_family(context, family_id)
-    return await handler.decide(
-        DecideGrowthHypothesisCommand(
-            family_id,
-            context.tenant_id,
-            context.person_id,
-            body.assessment_session_id,
-            body.hypothesis_ref,
-            body.decision_type,
-            x_correlation_id or "",
-            idempotency_key or "",
+    receipt = await handler.decide(
+        DecideViewedUnderstandingInput(
+            tenant_id=context.tenant_id,
+            family_id=family_id,
+            actor_id=context.person_id,
+            actor_type="FAMILY_GUARDIAN",
+            assessment_session_id=body.assessment_session_id,
+            signal_ref=body.hypothesis_ref,
+            signal_version=body.signal_version,
+            scope_ref=body.scope_ref,
+            reviewed_draft_ref=body.reviewed_draft_ref,
+            draft_version=body.draft_version,
+            provenance_ref=body.provenance_ref,
+            human_gate_receipt_ref=body.human_gate_receipt_ref,
+            decision_type=body.decision_type,
+            correlation_id=x_correlation_id or "",
+            idempotency_key=idempotency_key or "",
         )
     )
+    intent = receipt.intent
+    return {
+        "action": (
+            "CONFIRM_GROWTH_HYPOTHESIS"
+            if receipt.action == "CONFIRM_UNDERSTANDING"
+            else "DISMISS_GROWTH_HYPOTHESIS"
+        ),
+        "outcome": receipt.outcome,
+        "hypothesis_ref": receipt.signal_ref,
+        "signal_ref": receipt.signal_ref,
+        "signal_version": receipt.signal_version,
+        "scope_ref": receipt.scope_ref,
+        "human_gate_receipt_ref": receipt.human_gate_receipt_ref,
+        "intent": (
+            {
+                "intent_id": intent.intent_id,
+                "signal_ref": intent.signal_ref,
+                "signal_version": intent.signal_version,
+                "scope_ref": intent.scope_ref,
+                "reviewed_draft_ref": intent.reviewed_draft_ref,
+                "draft_version": intent.draft_version,
+                "provenance_ref": intent.provenance_ref,
+                "human_gate_receipt_ref": intent.human_gate_receipt_ref,
+                "receipt_ref": intent.receipt_ref,
+                "boundary": intent.boundary,
+                "replayed": intent.replayed,
+            }
+            if intent is not None
+            else None
+        ),
+        "replayed": intent.replayed if intent is not None else False,
+    }
