@@ -24,6 +24,9 @@ describe("Web Product Studio route", () => {
     await userEvent.setup().click(screen.getByRole("tab", { name: /Package Review/ }));
     expect(screen.getByRole("heading", { name: "产品包证据准入与评审" })).toBeInTheDocument();
     expect(screen.getByText(/浏览器只提交设计意图和 receipt locator/)).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("tab", { name: /Portfolio & Catalog/ }));
+    expect(screen.getByRole("heading", { name: "证据到选定产品包对照工作台" })).toBeInTheDocument();
+    expect(screen.getByText(/不计算综合分，不做家庭评分或排名/)).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("tab", { name: /Sandbox/ }));
     expect(screen.getByRole("heading", { name: "产品设计工厂" })).toBeInTheDocument();
     expect(screen.getByTestId("product-studio-environment")).toHaveTextContent("Sandbox");

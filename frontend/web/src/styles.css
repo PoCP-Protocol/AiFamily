@@ -95,6 +95,44 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .evidence-admission-grid article > div { align-items: center; display: flex; gap: 10px; }
 .evidence-admission-grid p { color: #415e53; font-size: 0.82rem; line-height: 1.5; }
 .evidence-admission-grid code { overflow-wrap: anywhere; }
+.product-portfolio-workbench { margin: 24px auto; max-width: 1180px; }
+.portfolio-load-form fieldset, .catalog-filters { border: 1px solid #dce5dc; border-radius: 16px; display: grid; gap: 14px; margin: 24px 0; padding: 18px; }
+.portfolio-load-form label, .catalog-filters label { color: #415e53; display: grid; font-size: 0.82rem; font-weight: 700; gap: 6px; }
+.portfolio-zone-buckets { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 18px 0; }
+.portfolio-zone-buckets article { background: #edf4ef; border: 1px solid #cbd9ce; border-radius: 16px; display: grid; gap: 3px; padding: 16px; }
+.portfolio-zone-buckets strong { color: #126b50; font-size: 1.8rem; }
+.portfolio-zone-buckets small { color: #668077; }
+.portfolio-package-grid, .catalog-item-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.portfolio-package-card, .catalog-item { border: 1px solid #cbd9ce; border-radius: 18px; min-width: 0; padding: 18px; }
+.portfolio-card-heading, .catalog-item-title { align-items: start; display: flex; gap: 12px; justify-content: space-between; }
+.catalog-item-title { flex-wrap: wrap; }
+.catalog-item-title label, .catalog-item-title label span { min-width: 0; }
+.portfolio-card-heading h4 { margin: 10px 0 0; }
+.compact-definition-list { display: grid; gap: 8px; }
+.compact-definition-list div { border-top: 1px solid #edf4ef; display: grid; gap: 4px; padding-top: 8px; }
+.compact-definition-list dt { color: #668077; font-size: 0.75rem; font-weight: 800; }
+.compact-definition-list dd { margin: 0; overflow-wrap: anywhere; }
+.portfolio-package-card details { border-top: 1px solid #dce5dc; margin-top: 16px; padding-top: 12px; }
+.portfolio-package-card summary { color: #126b50; cursor: pointer; font-weight: 800; }
+.portfolio-evidence-lineage { background: #f7faf7; border-radius: 12px; margin-top: 10px; padding: 12px; }
+.portfolio-evidence-lineage p { font-size: 0.8rem; overflow-wrap: anywhere; }
+.portfolio-reuse-map { border-top: 1px solid #dce5dc; margin-top: 26px; padding-top: 18px; }
+.portfolio-reuse-map > div { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.portfolio-reuse-map article { background: #f7faf7; border-radius: 14px; padding: 14px; }
+.portfolio-reuse-map article p { align-items: start; display: flex; gap: 12px; justify-content: space-between; }
+.portfolio-reuse-map code { overflow-wrap: anywhere; }
+.catalog-picker { border-top: 1px solid #dce5dc; margin-top: 28px; padding-top: 22px; }
+.catalog-filters { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.catalog-filters legend { color: #174c3b; font-weight: 800; padding: 0 8px; }
+.catalog-filters select { background: #fbfdfb; border: 1px solid #cbd9ce; border-radius: 12px; padding: 10px; }
+.catalog-item-title label { align-items: start; display: flex; gap: 10px; }
+.catalog-item-title label span { display: grid; gap: 5px; }
+.catalog-item-title code { overflow-wrap: anywhere; }
+.catalog-state { border-radius: 999px; font-size: 0.7rem; font-weight: 900; padding: 6px 8px; white-space: nowrap; }
+.catalog-state-reusable { background: #daf2e4; color: #126b50; }
+.catalog-state-review_required { background: #fff1c7; color: #7b5a00; }
+.catalog-state-not_applicable { background: #f3e6e6; color: #8a3434; }
+.selection-draft { background: #edf4ef; border-radius: 14px; margin-top: 18px; padding: 14px; }
 .review-task-list { display: grid; gap: 10px; list-style: none; margin: 20px 0; padding: 0; }
 .review-task-list li { align-items: center; border: 1px solid #dce5dc; border-radius: 12px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; padding: 12px; }
 .review-task-detail { border-top: 1px solid #dce5dc; margin-top: 24px; padding-top: 20px; }
@@ -133,6 +171,7 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
   .candidate-reference-row { grid-template-columns: 1fr; }
   .product-package-form-grid { grid-template-columns: 1fr; }
   .product-package-result-hero { display: grid; }
+  .portfolio-zone-buckets, .portfolio-reuse-map > div, .catalog-filters, .portfolio-package-grid, .catalog-item-grid { grid-template-columns: minmax(0, 1fr); }
   .review-state { text-align: left; }
   .product-workspace-tabs { grid-template-columns: 1fr 1fr; }
 }

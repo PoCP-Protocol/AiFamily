@@ -238,6 +238,13 @@ PPT、图片、视频和短剧都必须反链到产品版本与需求证据。
 - 建立版本化 Catalog、兼容矩阵、许可证、成本和容量字段；
 - AI 编排 21 天最小试点包及 90 天扩展候选；
 - 十二项编译结果持久化并可回读。
+- Web 已增加禁用的“选定 ProductPackage DRAFT 对照 + Catalog Picker”合同预览：它只把当前
+  手工选定集合称为 comparison，不冒充租户级权威 Portfolio；组件/Skill 资格必须由服务端
+  `server_selection_state` 给出，并绑定 tenant、用途、策略版本、目标 ProductPackage 版本与
+  context hash，Web 不以生命周期、适用性或证据标签自行推导资格。目录异常、尚未生效、过期、
+  hash/context 漂移均 fail closed；选择草案同时冻结 component/skill 分类与 snapshot lineage。
+  生产入口不加载 fixture、不发请求。Opportunity read projection、权威 Portfolio API、Catalog
+  Owner/状态 ADR、receipt-backed applicability/admission、后端提交重验仍未完成，故不得解除预览。
 
 ### Iteration 4：小 cohort 试点闭环
 
@@ -286,8 +293,9 @@ PPT、图片、视频和短剧都必须反链到产品版本与需求证据。
   自报三区结论的旧 ProductPackage client 方法。该入口在真实身份会话、canonical route、生产
   source/provenance resolver 接通前保持禁用并明确标注为合同预览；仍缺 Alembic、十二项编译报告绑定
   和 Alembic-schema PostgreSQL 并发证明；
-- Component/Skill Catalog、PilotRun、GateRecord、ReleaseBaseline 和多模态资产主数据尚未形成
-  可运行闭环；
+- Component/Skill Catalog 只有上述 Web 合同预览，尚无 canonical Owner、生产 API 或主数据；
+  Opportunity/权威 Portfolio projection、PilotRun、GateRecord、ReleaseBaseline 和多模态资产
+  主数据尚未形成可运行闭环；
 - Web 的历史 `ProductStudio` 状态机仍是 Sandbox，不得作为真实 Gate 或能力完成证明。
 
 这些缺口决定实施顺序：先让市场证据链可调用、可回读、可授权，再进入 21/90 天生成和多模态
