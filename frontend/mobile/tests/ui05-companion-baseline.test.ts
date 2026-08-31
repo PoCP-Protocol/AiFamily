@@ -29,6 +29,10 @@ describe("UI-05 original companion service baseline contract", () => {
     expect(source).toContain("reviewJourneyPhase");
     expect(source).toContain("继续下一阶段");
     expect(source).toContain("先调整节奏");
+    expect(source).toContain("暂时暂停");
+    expect(source).toContain("请求人工支持");
+    expect(source).toContain('reviewPhase("PAUSE")');
+    expect(source).toContain('reviewPhase("HUMAN_REVIEW_REQUIRED")');
     expect(source).not.toContain('accessibilityLabel="打卡"');
     expect(source).not.toContain('router.push("/ui/UI-09" as Href)');
   });

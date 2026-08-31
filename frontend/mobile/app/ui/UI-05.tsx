@@ -59,7 +59,7 @@ export default function CompanionJourneyScreen() {
     CO_CREATE: { title: "冲突修复", text: "回看一次冲突如何被修复，再调整家庭约定。" },
   }[plan?.current_phase ?? "SEE"] ?? { title: "家庭机制", text: "从真实家庭过程里继续观察和调整。" };
 
-  const reviewPhase = async (decision: "CONTINUE" | "ADJUST") => {
+  const reviewPhase = async (decision: "CONTINUE" | "ADJUST" | "PAUSE" | "HUMAN_REVIEW_REQUIRED") => {
     if (SYNTHETIC_JOURNEY_ENABLED && plan?.plan_id) {
       const nextPhase = decision === "CONTINUE" ? "PARENT_FIRST" : "SEE";
       setJourneyPlan({
@@ -72,7 +72,15 @@ export default function CompanionJourneyScreen() {
           })),
         },
       });
-      setReviewMessage(decision === "CONTINUE" ? "已记录家庭决定，进入共同决策阶段。" : "已保留当前阶段，家庭可以先调整再继续。" );
+      setReviewMessage(
+        decision === "CONTINUE"
+          ? "已记录家庭决定，进入共同决策阶段。"
+          : decision === "ADJUST"
+            ? "已保留当前阶段，家庭可以先调整再继续。"
+            : decision === "PAUSE"
+              ? "已暂停当前阶段，之后可从这里继续。"
+              : "已记录人工支持请求，家庭可以先停在这里。",
+      );
       return;
     }
     if (reviewState === "submitting" || !plan?.plan_id || session.status !== "connected" || !session.token || !session.selectedFamily) return;
@@ -136,7 +144,7 @@ export default function CompanionJourneyScreen() {
             <Text style={styles.reflectionSource}>{remote?.process_summary?.label ?? "只记录家庭自己的观察和决定。"}</Text>
             <Text style={styles.reflectionBoundary}>记录的是家庭观察与决定，不是量化成绩或结果证明。</Text>
           </View>
-            {reviewDue ? <View style={styles.reviewPanel}><Text style={styles.reviewTitle}>这一阶段可以回顾了</Text><Text style={styles.reviewText}>一起决定继续下一阶段，或先调整节奏。</Text>{reviewMessage ? <Text style={styles.reviewText}>{reviewMessage}</Text> : null}<View style={styles.reviewActions}><Pressable disabled={reviewState === "submitting"} onPress={() => reviewPhase("CONTINUE")} style={({ pressed }) => [styles.reviewPrimary, pressed && styles.pressed]}><Text style={styles.reviewPrimaryText}>{reviewState === "submitting" ? "正在记录" : "继续下一阶段"}</Text></Pressable><Pressable disabled={reviewState === "submitting"} onPress={() => reviewPhase("ADJUST")} style={({ pressed }) => [styles.reviewSecondary, pressed && styles.pressed]}><Text style={styles.reviewSecondaryText}>先调整节奏</Text></Pressable></View></View> : null}
+            {reviewDue ? <View style={styles.reviewPanel}><Text style={styles.reviewTitle}>这一阶段可以回顾了</Text><Text style={styles.reviewText}>一起决定继续、调整、暂停，或请求人工支持。</Text>{reviewMessage ? <Text style={styles.reviewText}>{reviewMessage}</Text> : null}<View style={styles.reviewActions}><Pressable disabled={reviewState === "submitting"} onPress={() => reviewPhase("CONTINUE")} style={({ pressed }) => [styles.reviewPrimary, pressed && styles.pressed]}><Text style={styles.reviewPrimaryText}>{reviewState === "submitting" ? "正在记录" : "继续下一阶段"}</Text></Pressable><Pressable disabled={reviewState === "submitting"} onPress={() => reviewPhase("ADJUST")} style={({ pressed }) => [styles.reviewSecondary, pressed && styles.pressed]}><Text style={styles.reviewSecondaryText}>先调整节奏</Text></Pressable><Pressable disabled={reviewState === "submitting"} onPress={() => reviewPhase("PAUSE")} style={({ pressed }) => [styles.reviewSecondary, pressed && styles.pressed]}><Text style={styles.reviewSecondaryText}>暂时暂停</Text></Pressable><Pressable disabled={reviewState === "submitting"} onPress={() => reviewPhase("HUMAN_REVIEW_REQUIRED")} style={({ pressed }) => [styles.reviewSecondary, pressed && styles.pressed]}><Text style={styles.reviewSecondaryText}>请求人工支持</Text></Pressable></View></View> : null}
         </ScrollView>
       </View>
     </ScreenContainer>
@@ -166,5 +174,5 @@ const styles = StyleSheet.create({
   reflectionText: { color: "#3D4F63", fontSize: 14, lineHeight: 22, fontWeight: "700" },
   reflectionSource: { color: "#6B7C8F", fontSize: 11, lineHeight: 17, fontWeight: "700" },
   reflectionBoundary: { color: "#6B7C8F", fontSize: 12, lineHeight: 18 },
-  reviewPanel: { marginTop: 13, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#EDF0F5", gap: 6 }, reviewTitle: { color: "#1E2732", fontSize: 14, lineHeight: 20, fontWeight: "900" }, reviewText: { color: "#697585", fontSize: 12, lineHeight: 17, fontWeight: "700" }, reviewActions: { flexDirection: "row", gap: 8, marginTop: 3 }, reviewPrimary: { flex: 1, minHeight: 36, borderRadius: 18, backgroundColor: "#247DF0", alignItems: "center", justifyContent: "center" }, reviewPrimaryText: { color: "#FFFFFF", fontSize: 12, lineHeight: 17, fontWeight: "900" }, reviewSecondary: { flex: 1, minHeight: 36, borderRadius: 18, borderWidth: 1, borderColor: "#CFD8E4", alignItems: "center", justifyContent: "center" }, reviewSecondaryText: { color: "#596878", fontSize: 12, lineHeight: 17, fontWeight: "900" }, pressed: { opacity: 0.86, transform: [{ scale: 0.98 }] },
+  reviewPanel: { marginTop: 13, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#EDF0F5", gap: 6 }, reviewTitle: { color: "#1E2732", fontSize: 14, lineHeight: 20, fontWeight: "900" }, reviewText: { color: "#697585", fontSize: 12, lineHeight: 17, fontWeight: "700" }, reviewActions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 3 }, reviewPrimary: { flex: 1, minWidth: 124, minHeight: 36, borderRadius: 18, backgroundColor: "#247DF0", alignItems: "center", justifyContent: "center" }, reviewPrimaryText: { color: "#FFFFFF", fontSize: 12, lineHeight: 17, fontWeight: "900" }, reviewSecondary: { flex: 1, minWidth: 124, minHeight: 36, borderRadius: 18, borderWidth: 1, borderColor: "#CFD8E4", alignItems: "center", justifyContent: "center" }, reviewSecondaryText: { color: "#596878", fontSize: 12, lineHeight: 17, fontWeight: "900" }, pressed: { opacity: 0.86, transform: [{ scale: 0.98 }] },
 });
