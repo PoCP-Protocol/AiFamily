@@ -17,7 +17,7 @@ from backend.platform.outbox import (
     SqlAlchemyOutboxWriter,
     read_outbox_event,
 )
-from backend.platform.persistence import SqlAlchemyUnitOfWork
+from backend.platform.persistence import SqlAlchemyUnitOfWork, execute_atomic_mutation
 from backend.platform.persistence.session import get_engine
 from tests.support.postgres import SKIP_REASON, postgres_schema_engine, postgres_test_url
 
@@ -147,6 +147,61 @@ async def test_outbox_failure_rolls_business_and_audit_back(session_factory) -> 
         assert await _count(verify, AuditBase.metadata.tables["platform_audit_events"]) == 0
 
 
+async def _assert_receipt_failure_rolls_canonical_outbox_back(session_factory) -> None:
+    """Prove the two platform contracts compose through one caller session."""
+
+    writer = SqlAlchemyOutboxWriter()
+    recorder = _audit()
+    observed_session: AsyncSession | None = None
+
+    async def assert_shared_session(session: AsyncSession) -> None:
+        nonlocal observed_session
+        if observed_session is None:
+            observed_session = session
+        assert session is observed_session
+
+    async def load_replay_or_reserve(session: AsyncSession) -> None:
+        await assert_shared_session(session)
+        return None
+
+    async def apply_business_change(session: AsyncSession) -> OutboxEvent:
+        await assert_shared_session(session)
+        await session.execute(confirmations.insert().values(confirmation_id="decision-1"))
+        return _event()
+
+    async def flush_audit(session: AsyncSession) -> None:
+        await assert_shared_session(session)
+        await recorder.flush(session)
+
+    async def append_outbox(session: AsyncSession, event: OutboxEvent) -> None:
+        await assert_shared_session(session)
+        result = await writer.append(session, event)
+        assert result.replayed is False
+
+    async def fail_receipt(session: AsyncSession, _: OutboxEvent) -> None:
+        await assert_shared_session(session)
+        raise RuntimeError("injected_receipt_failure")
+
+    with pytest.raises(RuntimeError, match="injected_receipt_failure"):
+        await execute_atomic_mutation(
+            unit_of_work=SqlAlchemyUnitOfWork(session_factory),
+            load_replay_or_reserve=load_replay_or_reserve,
+            apply_business_change=apply_business_change,
+            flush_audit=flush_audit,
+            append_outbox=append_outbox,
+            persist_receipt=fail_receipt,
+        )
+
+    async with session_factory() as verify:
+        assert await _count(verify, confirmations) == 0
+        assert await _count(verify, AuditBase.metadata.tables["platform_audit_events"]) == 0
+        assert await _count(verify, OutboxMetadata.tables["outbox_events"]) == 0
+
+
+async def test_receipt_failure_rolls_canonical_outbox_back(session_factory) -> None:
+    await _assert_receipt_failure_rolls_canonical_outbox_back(session_factory)
+
+
 async def test_event_survives_engine_restart(tmp_path) -> None:
     path = tmp_path / "outbox.sqlite3"
     first = get_engine(f"sqlite+aiosqlite:///{path}?run=first")
@@ -172,5 +227,6 @@ async def test_real_postgres_append_replay_and_rollback() -> None:
     confirmations.to_metadata(combined)
     async with postgres_schema_engine(combined) as engine:
         factory = async_sessionmaker(engine, expire_on_commit=False)
+        await _assert_receipt_failure_rolls_canonical_outbox_back(factory)
         await test_business_audit_and_outbox_commit_and_read_back_together(factory)
         await test_duplicate_append_replays_but_changed_payload_conflicts(factory)
