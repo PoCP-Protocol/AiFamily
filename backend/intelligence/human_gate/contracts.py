@@ -261,6 +261,30 @@ class HumanTask:
             raise HumanGateError("INVALID_TASK_STATE", "action request must reference its decision")
 
 
+@dataclass(frozen=True, slots=True)
+class HumanTaskClaim:
+    """A short-lived lease held by one workflow-worker attempt.
+
+    Claim state is delivery state rather than part of the reviewed task
+    aggregate.  The immutable task snapshot lets a worker complete the
+    attempt only against the task it actually claimed.
+    """
+
+    task: HumanTask
+    claim_owner: str
+    claim_expires_at: datetime
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.task, HumanTask):
+            raise HumanGateError("INVALID_CLAIM", "claim task is invalid")
+        if self.task.status is not GateStatus.DECIDED or self.task.action_request is None:
+            raise HumanGateError(
+                "INVALID_CLAIM", "only a decided task with an accepted action may be claimed"
+            )
+        _require_text(self.claim_owner, "claim_owner")
+        _require_aware(self.claim_expires_at, "claim_expires_at")
+
+
 __all__ = [
     "ActionProposal",
     "ActorType",
@@ -270,5 +294,6 @@ __all__ = [
     "HUMAN_ACTOR_TYPES",
     "HumanDecision",
     "HumanTask",
+    "HumanTaskClaim",
     "NamedActionRequest",
 ]
