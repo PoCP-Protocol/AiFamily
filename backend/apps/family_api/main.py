@@ -37,6 +37,7 @@ from backend.apps.family_api.growth_onboarding_wiring import (
     install_growth_onboarding_dev_wiring,
     install_growth_onboarding_production_wiring,
 )
+from backend.apps.family_api.production_growth_wiring import ProductionGrowthConfirmationWiring
 from backend.apps.family_api.routes import router
 from backend.domains.assessment.api import (
     register_exception_handlers as register_assessment_exception_handlers,
@@ -397,6 +398,7 @@ def create_app(
     experience_operations_query_service: AuthorizedExperienceOperationsQueryService | None = None,
     experience_operations_cursor_signer: HmacExperienceOperationsCursorSigner | None = None,
     experience_operations_query_wiring: Callable[[FastAPI], None] | None = None,
+    growth_confirmation_wiring: ProductionGrowthConfirmationWiring | None = None,
 ) -> FastAPI:
     _configure_fgcn_persistence()
     application = FastAPI(title="AiFamily family_api", version="0.1.0")
@@ -563,6 +565,8 @@ def create_app(
             experience_operations_query_service,
             experience_operations_cursor_signer,
         )
+    if growth_confirmation_wiring is not None:
+        growth_confirmation_wiring.install(application)
     return application
 
 
