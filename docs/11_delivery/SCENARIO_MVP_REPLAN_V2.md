@@ -49,6 +49,101 @@ superseded_by: null
 
 任何新 Agent 只能加入现有小队，不得新建同名 Chat；同一场景只有一个 DRI，平台接口另设 owner。
 
+## 1.1 可直接派工的任务卡
+
+以下任务卡是本阶段唯一执行清单。任务卡未完成前，成员不得自行扩大范围；卡片完成必须交代码和场景证据。
+
+### MVP-S1-01｜首次测评到家长确认
+
+- **DRI**：S1 首达小队（团队1/Assessment）；Experience 指定一名 UI 配对负责人。
+- **输入**：现有 Assessment application handlers、UI-02/UI-03 contract；不得假设 S1 已有真实 HTTP。
+- **允许范围**：S1 owner 自己的 assessment API/application/test 文件和 UI-02/UI-03 对应文件；禁止修改 S2 Journey、Platform Core、Registry、共享台账。
+- **用户路径**：家庭困扰输入 → 完成版本化测评 → 看到有依据的理解 → 家长确认或拒绝 → 重新打开仍能看到结果。
+- **必须运行**：`uv run pytest tests/domains/assessment -q`；前端安装、lint、typecheck、Playwright 用户路径；若有 HTTP 则提供 curl/脚本。
+- **正向证据**：确认后有可回读 `GrowthIntent`/receipt。
+- **反向证据**：拒绝无 intent；401/403、过期、重复、跨家庭、后端不可用均显示可理解的恢复状态。
+- **交付物**：commit、clean checkout 命令、用户截图/录屏、测试输出、剩余真实 PG/HTTP 缺口。
+- **完成条件**：UI 可点击完成，后端结果不是 fixture；仅有 UI03 空态或单测不算完成。
+
+### MVP-S2-01｜确认意图到成长复盘
+
+- **DRI**：S2 成长循环小队（Route C/Journey）。
+- **输入**：`codex/chief-bc-plan` 候选链 `937f9c5`；S1 只通过 confirmed-intent contract 交接。
+- **允许范围**：`backend/domains/journey/**`、Journey 专属测试、迁移文件；禁止修改 `backend/apps/family_api/main.py`，由 Route B 接线。
+- **用户路径**：确认意图 → 生成计划 → 家长确认 → 添加实践 → 记录观察/阻碍 → CONTINUE/ADJUST/PAUSE 复盘 → 新会话回读。
+- **必须运行**：`uv run pytest tests/domains/journey -q`、`uv run pytest tests/scenarios/test_family_first_arrival_mvp.py -q`，以及真实 PostgreSQL 同 ref 测试。
+- **正向证据**：HTTP 200、计划/实践/复盘真实持久化、同请求重放同响应。
+- **反向证据**：跨家庭、未确认意图、冲突 key、重启回读失败时 fail-closed。
+- **交付物**：单一 commit、迁移 upgrade→downgrade→upgrade 输出、HTTP 场景脚本和回读日志。
+- **完成条件**：Route H clean checkout 可复跑；没有真实 PG/HTTP 证据只能标候选。
+
+### MVP-CORE-01｜共享平台合同
+
+- **DRI**：Platform Core（团队2）。
+- **输入**：S1/S2 现有调用契约；不得复制 domain 内的 Consent/Audit/Outbox/幂等实现。
+- **允许范围**：`backend/platform/**` 及平台专属测试；迁移需单独登记并先报 PMO。
+- **用户结果**：S1/S2 的授权、撤回、tenant/family scope、审计、Outbox 和重放在真实 PG 中一致。
+- **必须运行**：平台专测、消费方反向测试、真实 PG 事务回滚/重启/重复请求测试。
+- **交付物**：可消费 API/ref、schema/ORM 证明、失败注入日志、owner/pathspec 声明。
+- **完成条件**：至少一个 S1 或 S2 场景消费该接口并通过；平台单测本身不算完成。
+
+### MVP-S3-01｜知识依据与 AI Draft
+
+- **DRI**：S3 知识与 AI 小队；顾问组只提供决策卡，不冒充实现 owner。
+- **输入**：S1/S2 的 evidence_refs/knowledge_refs；只选择一个家庭问题主题。
+- **允许范围**：知识条目、Model Gateway adapter、专属 replay/eval 测试；禁止领域直连供应商、禁止写 canonical Fact。
+- **用户路径**：家庭问题 → 看到知识依据 → 生成可编辑 Draft → 家长/人工确认、拒绝或修改 → 回读 provenance。
+- **必须运行**：固定数据集 replay、引用核对、prompt injection、PII、timeout/cost/provider missing 和人工接管测试。
+- **交付物**：一个知识包、一个可展示 Draft 页面/接口、eval 输出、provenance artifact、阻断项。
+- **完成条件**：家长可理解依据且能拒绝；泛化聊天 Demo 不算完成。若当前无实施 owner，PMO 必须在 1 小时内指定，否则标 `MISSING_OWNER`。
+
+### MVP-S4-01｜明确需要到服务补救
+
+- **DRI**：S4 服务履约小队（Route E-Service）。
+- **输入**：已确认家庭需要；复用现有 Service/Booking/Delivery canonical 对象。
+- **允许范围**：服务场景自己的 API/application/test/UI 文件；禁止重写 Platform Core 或把测评自动转购买。
+- **用户路径**：主动表达需要 → 查看服务与负责人 → 预约 → 履约 → 家长反馈 → helpful/not helpful 补救。
+- **必须运行**：真实 PG/HTTP、容量冲突、取消、幂等、交付失败、人工补救和回读测试。
+- **交付物**：一条可演示服务链、交付记录、反馈/补救日志、失败路径截图。
+- **完成条件**：家长能知道谁交付、出了问题如何恢复；只有 booking 单测不算完成。
+
+### MVP-S5-01｜受控家庭关系连接
+
+- **DRI**：关系网络小队；由 PMO 从现有 Experience/Community 队列指定，不新建 Chat。
+- **输入**：一个明确主题和审核规则；没有真实内容时只能使用显式 synthetic 空态。
+- **允许范围**：主题活动/经验卡、收藏/加入、退出/举报的最小 UI/API/测试；禁止无限流、公开私聊、家庭排名和伪造他人发言。
+- **用户路径**：选择主题 → 查看审核内容/活动 → 加入或收藏 → 退出/举报后状态可回读。
+- **必须运行**：审核、撤回、越权、空态、恢复和 synthetic source 标记测试。
+- **交付物**：一条可点击关系场景、真实状态来源或诚实空态、正反录屏/日志。
+- **完成条件**：不能以设计稿、硬编码他人发言或页面存在计完成。
+
+### MVP-S6-01｜明确需要到方案/权益
+
+- **DRI**：价值转化小队；由 PMO 从现有 Commerce/Membership 队列指定，不新建 Chat。
+- **输入**：S1/S2 已确认需要；复用 canonical 商品/会员/权益对象。
+- **允许范围**：目录、方案比较、权益读取、购买意向、取消/反馈；测试支付必须与生产 provider 隔离。
+- **用户路径**：家庭需要 → 方案比较 → 查看价格/权益 → 家长主动确认购买意向 → 取消或反馈。
+- **必须运行**：目录 DTO、权益回读、重复请求、取消、退款/补救和 synthetic payment 测试。
+- **交付物**：一条可点击购买意向场景、后端 DTO、状态回读、错误恢复证据。
+- **完成条件**：价格不得由前端硬编码；不能从孩子画像自动推送；无后端状态只能标 `NOT_IMPLEMENTED`。
+
+## 1.2 PMO 派工规则
+
+PMO 每小时只收以下格式，不收“正在研究/方案已完成”式状态：
+
+```text
+Task ID:
+User scenario completed:
+Command and environment:
+Positive path:
+Negative/recovery path:
+Branch/commit/clean:
+Artifact:
+One blocker and next command:
+```
+
+PMO 必须在每张任务卡上填入实际 DRI 和 pathspec；没有 DRI 的 S3/S5/S6 立即标 `MISSING_OWNER`，不得让团队继续空转。全量 MVP 完成率按六张卡的“代码+可运行场景+证据”计算，不按文档数量计算。
+
 ## 2. Sprint 划分
 
 采用 5 个短 Sprint，目标是第一阶段交付 S1–S6 全量 MVP。每个 Sprint 都交“能运行的场景 + 正反证据”，而不是只交设计稿。Sprint 可并行，但依赖图不得越级；并行是加速手段，不是削减业务场景。
