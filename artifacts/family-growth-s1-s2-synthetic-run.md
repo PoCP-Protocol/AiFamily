@@ -51,7 +51,7 @@ PASS
 - 结果页明确提示：未登录并完成授权时不会放入家庭空间、不会自动创建计划或行动。
 - 结果页提供“像我们家 / 不太像 / 补充 / 返回修改 / 重新开始测评 / 退出”。
 
-本次 screenshot 已在任务对话中展示；当前浏览器运行没有持久化图像文件。由于本地 synthetic session 未连接真实家庭授权，确认按钮不会伪造 `intent_id`，因此 UI-03→S2 的确认 receipt、计划回读、实践和复盘仍按上节 `NOT_STARTED/BLOCKED` 处理。
+本次 screenshot 已在任务对话中展示，并持久化为 [family-growth-s1-ui03.png](./family-growth-s1-ui03.png)。由于本地 synthetic session 未连接真实家庭授权，确认按钮不会伪造 `intent_id`，因此 UI-03→S2 的确认 receipt、计划回读、实践和复盘仍按上节 `NOT_STARTED/BLOCKED` 处理。
 
 ## Negative/recovery coverage
 
