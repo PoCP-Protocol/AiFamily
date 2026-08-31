@@ -20,6 +20,9 @@ export type AssessmentDimensionProfile = {
   signalValue: number;
   explored: boolean;
   deepAnsweredCount: number;
+  evidenceRefs: readonly string[];
+  knowledgeRefs: readonly string[];
+  unknownText: string;
 };
 
 export type AssessmentKnowledgeBrief = {
@@ -51,6 +54,9 @@ function profileForDimension(
   const deepAnsweredCount = dimension.questions
     .slice(1)
     .filter((question) => observationsByRef.has(question.itemRef)).length;
+  const evidenceRefs = dimension.questions
+    .filter((question) => observationsByRef.has(question.itemRef))
+    .map((question) => question.itemRef);
   const explored =
     typeof overviewAnswer === "string" && overviewAnswer !== "NOT_SURE";
   const isUnknown = overviewAnswer === "NOT_SURE" || overviewAnswer === undefined;
@@ -89,6 +95,12 @@ function profileForDimension(
     signalValue,
     explored,
     deepAnsweredCount,
+    evidenceRefs,
+    knowledgeRefs: dimension.questions.map((question) => question.evidenceAnchor),
+    unknownText:
+      evidenceRefs.length === dimension.questions.length
+        ? "还需要带回真实家庭时刻继续观察，当前回答不能证明原因。"
+        : `还有 ${dimension.questions.length - evidenceRefs.length} 个问题没有形成线索，不会替家庭猜测。`,
   };
 }
 

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -5,6 +7,11 @@ import {
   buildAssessmentDimensionProfiles,
   getAssessmentKnowledgeBrief,
 } from "../lib/family/assessment-dimension-profile";
+
+const componentSource = readFileSync(
+  resolve(process.cwd(), "components/family/assessment-dimension-radar.tsx"),
+  "utf8",
+);
 
 describe("family assessment observation profile", () => {
   it("maps the five dimensions without turning observations into a score", () => {
@@ -35,6 +42,9 @@ describe("family assessment observation profile", () => {
     expect(profiles[2]).toMatchObject({ statusTone: "quiet", explored: true });
     expect(profiles[3]).toMatchObject({ statusLabel: "信息还不够", explored: false });
     expect(profiles[4]).toMatchObject({ statusLabel: "待了解", explored: false });
+    expect(profiles[0].evidenceRefs).toEqual(["LEARNING_HABITS_Q01"]);
+    expect(profiles[0].knowledgeRefs[0]).toContain("执行功能");
+    expect(profiles[4].unknownText).toContain("不会替家庭猜测");
     expect(assessmentDimensionCaption(profiles)).toContain("已看见 3 个方向");
   });
 
@@ -53,6 +63,14 @@ describe("family assessment observation profile", () => {
     expect(profiles[0].statusLabel).not.toContain("分");
   });
 
+  it("keeps a dimension unknown when the API projection has no evidence", () => {
+    const profiles = buildAssessmentDimensionProfiles([], null);
+
+    expect(profiles.every((profile) => profile.evidenceRefs.length === 0)).toBe(true);
+    expect(profiles.every((profile) => profile.statusTone === "unknown")).toBe(true);
+    expect(profiles.every((profile) => profile.unknownText.includes("不会替家庭猜测"))).toBe(true);
+  });
+
   it("keeps knowledge grounding close to the family-facing explanation", () => {
     const brief = getAssessmentKnowledgeBrief("PARENT_CHILD_COMMUNICATION");
 
@@ -60,5 +78,16 @@ describe("family assessment observation profile", () => {
     expect(brief?.familyLens).toContain("愿意说");
     expect(brief?.evidence).toContain("CASEL SEL");
     expect(brief?.practiceThemes.length).toBe(3);
+  });
+
+  it("lets a guardian expand evidence, knowledge, and unknowns then save a correction draft", () => {
+    expect(componentSource).toContain("查看依据、知识与未知");
+    expect(componentSource).toContain("本次依据");
+    expect(componentSource).toContain("知识参考");
+    expect(componentSource).toContain("还不知道");
+    expect(componentSource).toContain("家长修正");
+    expect(componentSource).toContain("记下这条修正");
+    expect(componentSource).toContain("不会自动改写家庭事实");
+    expect(componentSource).not.toMatch(/overall_score|peer_reference|ranking|同伴比较/);
   });
 });

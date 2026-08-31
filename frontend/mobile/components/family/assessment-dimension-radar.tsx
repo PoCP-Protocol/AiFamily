@@ -5,7 +5,8 @@ import Svg, {
   Polygon,
   Text as SvgText,
 } from "react-native-svg";
-import { StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import {
   assessmentDimensionCaption,
@@ -179,6 +180,10 @@ export function AssessmentDimensionList({
   profiles: readonly AssessmentDimensionProfile[];
   activeFocus?: string | null;
 }) {
+  const [expandedFocus, setExpandedFocus] = useState<string | null>(null);
+  const [corrections, setCorrections] = useState<Record<string, string>>({});
+  const [savedFocus, setSavedFocus] = useState<string | null>(null);
+
   return (
     <View style={styles.dimensionList}>
       {profiles.map((profile) => (
@@ -202,6 +207,64 @@ export function AssessmentDimensionList({
             ))}
           </View>
           <Text style={styles.supportLine}>可从这里开始：{profile.supportDirection}</Text>
+          <Pressable
+            accessibilityRole="button"
+            testID={`assessment-dimension-expand-${profile.focusId}`}
+            onPress={() => setExpandedFocus((current) => current === profile.focusId ? null : profile.focusId)}
+            style={styles.detailToggle}
+          >
+            <Text style={styles.detailToggleText}>
+              {expandedFocus === profile.focusId ? "收起依据" : "查看依据、知识与未知"}
+            </Text>
+          </Pressable>
+          {expandedFocus === profile.focusId ? (
+            <View testID={`assessment-dimension-detail-${profile.focusId}`} style={styles.detailPanel}>
+              <Text style={styles.detailLabel}>本次依据</Text>
+              <Text style={styles.detailText}>
+                {profile.evidenceRefs.length
+                  ? `来自你本次回答的 ${profile.evidenceRefs.length} 条线索：${profile.evidenceRefs.join("、")}`
+                  : "这个方向还没有回答依据，因此不会形成判断。"}
+              </Text>
+              <Text style={styles.detailLabel}>知识参考</Text>
+              <Text style={styles.detailText}>
+                {profile.knowledgeRefs[0] ?? "当前没有可展示的知识参考。"}
+              </Text>
+              <Text style={styles.detailLabel}>还不知道</Text>
+              <Text style={styles.detailText}>{profile.unknownText}</Text>
+              <Text style={styles.detailLabel}>家长修正</Text>
+              <TextInput
+                testID={`assessment-dimension-correction-${profile.focusId}`}
+                accessibilityLabel={`修正${profile.title}的家庭理解`}
+                value={corrections[profile.focusId] ?? ""}
+                onChangeText={(text) => {
+                  setCorrections((current) => ({ ...current, [profile.focusId]: text }));
+                  setSavedFocus(null);
+                }}
+                placeholder="哪里不贴近你们家？补充一句"
+                placeholderTextColor="#7A8C9E"
+                multiline
+                style={styles.correctionInput}
+              />
+              <Pressable
+                accessibilityRole="button"
+                testID={`assessment-dimension-correction-save-${profile.focusId}`}
+                disabled={!corrections[profile.focusId]?.trim()}
+                onPress={() => setSavedFocus(profile.focusId)}
+                style={({ pressed }) => [
+                  styles.correctionButton,
+                  !corrections[profile.focusId]?.trim() && styles.correctionButtonDisabled,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.correctionButtonText}>记下这条修正</Text>
+              </Pressable>
+              {savedFocus === profile.focusId ? (
+                <Text accessibilityRole="alert" style={styles.correctionStatus}>
+                  已作为本次理解的修正草稿；不会自动改写家庭事实。
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
         </View>
       ))}
     </View>
@@ -241,4 +304,15 @@ const styles = StyleSheet.create({
   signalRow: { flexDirection: "row", flexWrap: "wrap", gap: 5 },
   signalChip: { color: "#3978B9", backgroundColor: "#EAF3FF", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3, fontSize: 10, lineHeight: 14, fontWeight: "800" },
   supportLine: { color: "#526B82", fontSize: 12, lineHeight: 18, fontWeight: "700" },
+  detailToggle: { alignSelf: "flex-start", minHeight: 32, justifyContent: "center" },
+  detailToggleText: { color: "#1B65C9", fontSize: 12, lineHeight: 18, fontWeight: "900" },
+  detailPanel: { borderTopWidth: 1, borderTopColor: "#DCE7F1", paddingTop: 10, gap: 6 },
+  detailLabel: { color: "#27455F", fontSize: 11, lineHeight: 16, fontWeight: "900" },
+  detailText: { color: "#5F7388", fontSize: 12, lineHeight: 18 },
+  correctionInput: { minHeight: 68, borderWidth: 1, borderColor: "#C9D8E6", borderRadius: 12, padding: 10, color: "#1D3853", backgroundColor: "#FFFFFF", fontSize: 12, lineHeight: 18 },
+  correctionButton: { alignSelf: "flex-start", minHeight: 36, borderRadius: 12, backgroundColor: "#1B65C9", justifyContent: "center", paddingHorizontal: 12 },
+  correctionButtonDisabled: { backgroundColor: "#8293A6" },
+  correctionButtonText: { color: "#FFFFFF", fontSize: 12, lineHeight: 17, fontWeight: "900" },
+  correctionStatus: { color: "#176B45", fontSize: 11, lineHeight: 17 },
+  pressed: { opacity: 0.82 },
 });
