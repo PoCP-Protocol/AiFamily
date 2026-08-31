@@ -3,10 +3,10 @@ id: AI-MARKET-DELIVERY-001
 title: 市场洞察到产品交付 AI 能力蓝图
 type: ai
 status: draft
-version: 0.1
+version: 0.2
 owner: chief-architect
 created: 2026-08-30
-updated: 2026-08-30
+updated: 2026-08-31
 canonical: false
 ---
 
@@ -167,3 +167,85 @@ DemandCaptured
 - `expiry`：何时失效或复审。
 
 没有证据、没有 Owner 或没有验证路径的输出只能停留在 Draft，不得进入发布目录。
+
+## 8. 整体平台分层
+
+本蓝图依据 `docs/13_research/market/SERVICE_PRODUCT_PLATFORM_BENCHMARK.md` 的外部证据，
+并由 `governance/ADR/ADR-0136-demand-driven-product-factory-loop.md` 固化运行决策。平台不新增
+平行业务域，而是在现有唯一 Owner 上形成七层能力：
+
+1. **市场与组合决策层**：Demand/VOC、Market/Competitor Evidence、Opportunity、三区判断和
+   IPD Gate，产品设计事实归 `product_intelligence`；
+2. **PDM 主数据层**：Component、Skill、Pattern、Knowledge/Prompt/Schema binding、
+   ProductPackage、BlueprintVersion；
+3. **AI 设计工程层**：Principal、Context、Safety、Skill/Tool Runtime、Model Gateway、
+   多候选 Draft、Provenance 和 Eval；
+4. **编译与治理层**：十二项确定性编译、CompileRun、Human Gate、Audit 和 Idempotency，
+   编译通过只是 Gate 证据，不等于发布；
+5. **Pilot/PLM 控制层**：容量受限的 PilotRun、guardrail、ReleaseBaseline、回滚，以及
+   SCALE/REVISE/PAUSE/STOP；
+6. **执行与学习层**：Journey/Service/Commerce 只消费冻结的 BlueprintVersion，各自拥有业务
+   事实，再通过 Outbox 将质量、成本和结果投影为 LearningCandidate；
+7. **Web 工作台层**：Demand Studio、Market Evidence、Component/Skill Library、Compile/Gate
+   Board、Pilot Ops、PLM Console 和后续 Asset Studio；Gate 判定必须由服务端拥有。
+
+多模态产品采用“结构化内容包 + 可替换渲染适配器”：平台先保存大纲、卡片、引用、视觉指令、
+品牌与权利信息，再通过 Model Gateway 和 Creative Provider Adapter 调用成熟模型或外部编辑器。
+PPT、图片、视频和短剧都必须反链到产品版本与需求证据。
+
+## 9. PDCA 迭代路线
+
+每轮只交付一条可运行纵向链，证据不足时不扩大范围：
+
+### Iteration 1：市场证据闭环（当前）
+
+- Plan：竞品证据与市场洞察分开建模，默认 UNKNOWN；
+- Do：Web 创建竞品证据，持久化回读，再自动引用到 MarketInsight DRAFT；
+- Check：输入、租户、provenance、状态、刷新回读和 Gate 阻断测试；
+- Act：形成可进入产品概念生成的证据包，或生成新的 ResearchTask。
+
+### Iteration 2：产品概念与三区闭环
+
+- 从 Demand + Market Evidence 生成多个 ProductConcept 候选；
+- 同屏展示依据、反证、未知项和三区建议；
+- 人工选择或退回研究，不由 AI 自动立项。
+
+### Iteration 3：组件与 Skill 闭环
+
+- 建立版本化 Catalog、兼容矩阵、许可证、成本和容量字段；
+- AI 编排 21 天最小试点包及 90 天扩展候选；
+- 十二项编译结果持久化并可回读。
+
+### Iteration 4：小 cohort 试点闭环
+
+- 每个试点有容量、责任人、同意、暂停和停止条件；
+- 交付可行性、安全、家庭体验、成本和成长证据共同进入 Gate；
+- 21 天是验证机制，90 天是经验证后的扩展候选，不是固定售卖模板。
+
+### Iteration 5：多模态资产闭环
+
+- 先接成熟 PPT/图片模型与编辑通道，再扩音频、视频、短剧；
+- 保存结构化内容包、AssetVariant、RightsRecord、RenderJob 和评测结果；
+- 生成失败可换供应商，人工编辑后仍能回写版本与 provenance。
+
+### Iteration 6：PLM 学习闭环
+
+- 从交付、质量、安全、成本和主观体验产生 LearningCandidate；
+- AI 解释组件级差异并建议 SCALE/REVISE/PAUSE/STOP；
+- 所有改版重新进入需求、证据、编译和 Gate 链。
+
+## 10. 当前真实缺口
+
+截至 2026-08-31，代码已有 Product Factory 草案 API、竞品证据持久化、教育产品字段、十二项
+编译器、人工生命周期契约和 Web Demand Composer，但仍有以下阻断：
+
+- Product Factory 尚未在 canonical `family_api` 完成无争议的生产挂载与真实身份组合；
+- HTTP 幂等键尚未真正接入平台幂等执行；
+- DemandFrame 与 MarketInsight 的完整 envelope 缺少独立持久化回读；
+- ProductPackage 未持久化，也未接编译器和 Named Action；
+- Component/Skill Catalog、PilotRun、GateRecord、ReleaseBaseline 和多模态资产主数据尚未形成
+  可运行闭环；
+- Web 的历史 `ProductStudio` 状态机仍是 Sandbox，不得作为真实 Gate 或能力完成证明。
+
+这些缺口决定实施顺序：先让市场证据链可调用、可回读、可授权，再进入 21/90 天生成和多模态
+资产生产。
