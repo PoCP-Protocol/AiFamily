@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -19,8 +18,10 @@ from backend.intelligence.human_gate.contracts import (
 
 from ..domain.entities import ProductConcept
 from ..domain.product_package_draft import (
+    EvidenceAdmissionSnapshot,
     ProductPackageDraftContent,
     ProductPackageDraftVersion,
+    ProductPackageEvidenceRequirement,
     product_package_content_hash,
 )
 from ..domain.zone_entities import ProductZoneAssessment
@@ -69,7 +70,8 @@ class ProductPackageSubmissionInput:
     pause_policy: str
     human_gate_policy: str
     evidence_refs: tuple[str, ...]
-    evidence_statuses: Mapping[str, str]
+    evidence_requirements: tuple[ProductPackageEvidenceRequirement, ...]
+    evidence_admissions: tuple[EvidenceAdmissionSnapshot, ...]
     assumptions: tuple[str, ...]
     unknowns: tuple[str, ...]
     next_validation: str
@@ -165,6 +167,12 @@ def _canonical_hash(value: object) -> str:
 
 
 def _request_payload(source: ProductPackageSubmissionInput) -> dict[str, object]:
+    admission_payloads: list[dict[str, object]] = []
+    for admission in source.evidence_admissions:
+        payload = admission.model_dump(mode="json")
+        # Evaluation time is operational metadata, not part of resolved intent identity.
+        payload.pop("admitted_at", None)
+        admission_payloads.append(payload)
     return {
         "concept_id": source.concept_id,
         "zone_assessment_id": source.zone_assessment_id,
@@ -183,7 +191,10 @@ def _request_payload(source: ProductPackageSubmissionInput) -> dict[str, object]
         "pause_policy": source.pause_policy,
         "human_gate_policy": source.human_gate_policy,
         "evidence_refs": source.evidence_refs,
-        "evidence_statuses": dict(source.evidence_statuses),
+        "evidence_requirements": tuple(
+            item.model_dump(mode="json") for item in source.evidence_requirements
+        ),
+        "evidence_admissions": tuple(admission_payloads),
         "assumptions": source.assumptions,
         "unknowns": source.unknowns,
         "next_validation": source.next_validation,
@@ -286,16 +297,28 @@ async def submit_product_package_draft(
         raise ProductPackageSubmissionError("ZONE_ASSESSMENT_CONCEPT_MISMATCH")
 
     evidence_refs = _refs(source.evidence_refs, "EVIDENCE_REFS_REQUIRED")
-    evidence_statuses = {
-        _required_text(ref, "EVIDENCE_REF_INVALID"): _required_text(
-            status, "EVIDENCE_STATUS_INVALID"
-        ).upper()
-        for ref, status in source.evidence_statuses.items()
-    }
-    if set(evidence_statuses) != set(evidence_refs):
-        raise ProductPackageSubmissionError("EVIDENCE_STATUSES_MUST_MATCH_REFS")
-    if any(status != "VERIFIED" for status in evidence_statuses.values()):
-        raise ProductPackageSubmissionError("EVIDENCE_MUST_BE_VERIFIED")
+    evidence_admissions = tuple(source.evidence_admissions)
+    evidence_requirements = tuple(source.evidence_requirements)
+    requirement_refs = tuple(item.receipt_locator for item in evidence_requirements)
+    admission_refs = tuple(item.receipt_id for item in evidence_admissions)
+    if len(set(requirement_refs)) != len(requirement_refs):
+        raise ProductPackageSubmissionError("EVIDENCE_REQUIREMENTS_MUST_BE_UNIQUE")
+    if set(requirement_refs) != set(evidence_refs):
+        raise ProductPackageSubmissionError("EVIDENCE_REQUIREMENTS_MUST_MATCH_REFS")
+    if len(set(admission_refs)) != len(admission_refs):
+        raise ProductPackageSubmissionError("EVIDENCE_ADMISSIONS_MUST_BE_UNIQUE")
+    if set(admission_refs) != set(evidence_refs):
+        raise ProductPackageSubmissionError("EVIDENCE_ADMISSIONS_MUST_MATCH_REFS")
+    requirements_by_receipt = {item.receipt_locator: item for item in evidence_requirements}
+    if any(
+        admission.claim_type != requirements_by_receipt[admission.receipt_id].claim_type
+        or admission.required_claim_refs
+        != requirements_by_receipt[admission.receipt_id].required_claim_refs
+        or admission.required_applicability_refs
+        != requirements_by_receipt[admission.receipt_id].required_applicability_refs
+        for admission in evidence_admissions
+    ):
+        raise ProductPackageSubmissionError("EVIDENCE_ADMISSIONS_MUST_MATCH_REQUIREMENTS")
 
     draft_id = _stable_id("product-package-draft", tenant_scope, actor_id, key)
     version_id = _stable_id("product-package-version", tenant_scope, actor_id, key)
@@ -333,9 +356,8 @@ async def submit_product_package_draft(
         pause_policy=source.pause_policy,
         human_gate_policy=source.human_gate_policy,
         evidence_refs=evidence_refs,
-        evidence_statuses=tuple(
-            {"evidence_ref": ref, "status": evidence_statuses[ref]}
-            for ref in sorted(evidence_statuses)
+        evidence_admissions=tuple(
+            sorted(evidence_admissions, key=lambda item: item.receipt_id)
         ),
         assumptions=_refs(source.assumptions, "ASSUMPTIONS_REQUIRED", 2000),
         unknowns=_refs(source.unknowns, "UNKNOWNS_REQUIRED", 2000),

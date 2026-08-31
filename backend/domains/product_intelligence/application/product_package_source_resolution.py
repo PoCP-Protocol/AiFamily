@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from hashlib import sha256
 from typing import Protocol
@@ -72,10 +72,7 @@ class ProductPackageSourceResolver(Protocol):
 def product_package_intent_hash(intent: ProductPackageDesignIntent) -> str:
     """Hash every browser-controlled design field before any source lookup."""
 
-    payload = {
-        field: getattr(intent, field)
-        for field in ProductPackageDesignIntent.__dataclass_fields__
-    }
+    payload = asdict(intent)
     encoded = json.dumps(
         payload,
         ensure_ascii=False,

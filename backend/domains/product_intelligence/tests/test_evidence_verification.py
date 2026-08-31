@@ -34,7 +34,6 @@ from ..domain.errors import (
     ProductIntelligenceConflictError,
     ProductIntelligenceForbiddenError,
     ProductIntelligenceNotFoundError,
-    ProductIntelligenceValidationError,
 )
 from ..infrastructure.evidence_verification_repository import (
     EvidenceVerificationReceiptRow,
@@ -341,8 +340,41 @@ async def test_receipt_read_is_tenant_scoped_and_detects_payload_tampering() -> 
 
     async with factory() as session:
         with pytest.raises(
-            ProductIntelligenceValidationError,
-            match="receipt_hash_mismatch",
+            ProductIntelligenceConflictError,
+            match="persisted_payload_invalid",
+        ):
+            await SqlAlchemyEvidenceVerificationReceiptRepository(session).load_receipt(
+                receipt.receipt_id,
+                "tenant-a",
+            )
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_receipt_read_normalizes_malformed_persisted_payload() -> None:
+    engine, factory = await _factory()
+    evidence = _evidence()
+    async with factory() as session:
+        await _seed_evidence(session, evidence)
+        request = await _accepted_request(session, evidence)
+        receipt, _ = await execute_evidence_verification_named_action(
+            SqlAlchemyEvidenceVerificationReceiptRepository(session),
+            request,
+            human_actor_authorizer=_Authorizer(),
+            recorder=AuditRecorder(),
+            now=NOW + timedelta(hours=2),
+        )
+        row = await session.get(EvidenceVerificationReceiptRow, receipt.receipt_id)
+        assert row is not None
+        payload = dict(row.payload)
+        payload.pop("claim_scope")
+        row.payload = payload
+        await session.commit()
+
+    async with factory() as session:
+        with pytest.raises(
+            ProductIntelligenceConflictError,
+            match="persisted_payload_invalid",
         ):
             await SqlAlchemyEvidenceVerificationReceiptRepository(session).load_receipt(
                 receipt.receipt_id,

@@ -73,11 +73,17 @@ class ProductPackageReviewSubmissionRequest(BaseModel):
         "skill_ids",
         "success_metric_ids",
         "guardrail_ids",
-        "evidence_locators",
     )
     @classmethod
     def refs_are_trimmed_unique_and_bounded(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         return _refs(value, maximum=512)
+
+    @field_validator("evidence_locators")
+    @classmethod
+    def receipt_locators_are_trimmed_unique_and_bounded(
+        cls, value: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        return _refs(value, maximum=160)
 
     @field_validator(
         "stop_conditions",

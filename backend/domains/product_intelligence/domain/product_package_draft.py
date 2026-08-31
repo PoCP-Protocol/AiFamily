@@ -10,10 +10,23 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .errors import ProductIntelligenceValidationError
+from .evidence_verification import VerificationMethod
 
 PackageAuthorType = Literal["HUMAN", "AI"]
 ApprovedZone = Literal["COMMODITY", "ADVANTAGE", "UNIQUE"]
 ProductKind = Literal["MICRO_CAMP", "SCALE_PLAN", "CUSTOM"]
+EvidenceClaimType = Literal[
+    "FAMILY_NEED",
+    "MARKET_EXISTENCE",
+    "COMPETITOR_CAPABILITY",
+    "GROWTH_MECHANISM",
+    "GROWTH_EFFECT",
+    "SAFETY_RISK",
+    "PRIVACY_CONSENT",
+    "CONTENT_ACCURACY",
+    "DELIVERY_FEASIBILITY",
+    "ENGAGEMENT_USABILITY",
+]
 
 
 def _text(value: str, field_name: str) -> str:
@@ -31,18 +44,114 @@ def _refs(values: tuple[str, ...], field_name: str) -> tuple[str, ...]:
     return normalized
 
 
-class EvidenceStatusSnapshot(BaseModel):
-    """One immutable evidence decision captured with the version."""
+class ProductPackageEvidenceRequirement(BaseModel):
+    """Server-owned evidence requirement resolved from the source draft."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    evidence_ref: str
-    status: Literal["VERIFIED"]
+    receipt_locator: str
+    claim_type: EvidenceClaimType
+    required_claim_refs: tuple[str, ...]
+    required_applicability_refs: tuple[str, ...]
 
-    @field_validator("evidence_ref")
+    @field_validator("receipt_locator")
     @classmethod
-    def evidence_ref_is_non_empty(cls, value: str) -> str:
-        return _text(value, "evidence_ref")
+    def locator_is_non_empty(cls, value: str) -> str:
+        return _text(value, "receipt_locator")
+
+    @field_validator("required_claim_refs", "required_applicability_refs")
+    @classmethod
+    def required_refs_are_valid(cls, value: tuple[str, ...], info):
+        return _refs(value, info.field_name)
+
+
+class EvidenceAdmissionSnapshot(BaseModel):
+    """Receipt-backed evidence admission for one exact material claim."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    admission_status: Literal["ADMITTED"] = "ADMITTED"
+    reason_codes: tuple[str, ...] = ()
+    claim_type: EvidenceClaimType
+    required_claim_refs: tuple[str, ...]
+    required_applicability_refs: tuple[str, ...]
+    receipt_id: str
+    receipt_hash: str
+    evidence_id: str
+    evidence_version: int = Field(ge=1)
+    evidence_record_hash: str
+    evidence_ref: str
+    claim_scope: tuple[str, ...]
+    applicability_scope: tuple[str, ...]
+    criteria_refs: tuple[str, ...]
+    verification_methods: tuple[VerificationMethod, ...]
+    verification_purpose: Literal["product_package_admission"]
+    verification_policy_version: str
+    receipt_outcome: Literal["VERIFIED"]
+    integrity_check: Literal["PASS"]
+    relevance: Literal["RELEVANT"]
+    task_id: str
+    proposal_id: str
+    decision_id: str
+    verified_at: datetime
+    valid_until: datetime
+    admission_policy_version: Literal["family-education-evidence-admission:v1"]
+    admitted_at: datetime
+
+    @field_validator(
+        "receipt_id",
+        "receipt_hash",
+        "evidence_id",
+        "evidence_record_hash",
+        "evidence_ref",
+        "verification_policy_version",
+        "task_id",
+        "proposal_id",
+        "decision_id",
+    )
+    @classmethod
+    def reference_is_non_empty(cls, value: str, info) -> str:
+        return _text(value, info.field_name)
+
+    @field_validator(
+        "required_claim_refs",
+        "required_applicability_refs",
+        "claim_scope",
+        "applicability_scope",
+        "criteria_refs",
+    )
+    @classmethod
+    def scopes_are_non_empty_and_unique(cls, value: tuple[str, ...], info):
+        return _refs(value, info.field_name)
+
+    @model_validator(mode="after")
+    def admission_is_coherent(self) -> EvidenceAdmissionSnapshot:
+        if self.reason_codes:
+            raise ProductIntelligenceValidationError(
+                "product_package_admitted_evidence_cannot_have_reason_codes"
+            )
+        for value, field_name in (
+            (self.verified_at, "verified_at"),
+            (self.valid_until, "valid_until"),
+            (self.admitted_at, "admitted_at"),
+        ):
+            if value.tzinfo is None or value.utcoffset() is None:
+                raise ProductIntelligenceValidationError(
+                    f"product_package_{field_name}_must_be_aware"
+                )
+        if not self.verified_at <= self.admitted_at < self.valid_until:
+            raise ProductIntelligenceValidationError(
+                "product_package_evidence_admission_time_invalid"
+            )
+        if not set(self.required_claim_refs).issubset(self.claim_scope):
+            raise ProductIntelligenceValidationError(
+                "product_package_claim_scope_not_covered"
+            )
+        if not set(self.required_applicability_refs).issubset(self.applicability_scope):
+            raise ProductIntelligenceValidationError(
+                "product_package_applicability_scope_not_covered"
+            )
+        return self
 
 
 class ProductPackageDraftContent(BaseModel):
@@ -50,10 +159,10 @@ class ProductPackageDraftContent(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["1.1"] = "1.1"
+    schema_version: Literal["1.2"] = "1.2"
     draft_id: str
     version_id: str
-    version: Literal["1.1.0"] = "1.1.0"
+    version: Literal["1.2.0"] = "1.2.0"
     status: Literal["DRAFT"] = "DRAFT"
     tenant_scope: str
     authored_by: str
@@ -80,7 +189,7 @@ class ProductPackageDraftContent(BaseModel):
     pause_policy: str
     human_gate_policy: str
     evidence_refs: tuple[str, ...]
-    evidence_statuses: tuple[EvidenceStatusSnapshot, ...]
+    evidence_admissions: tuple[EvidenceAdmissionSnapshot, ...]
     assumptions: tuple[str, ...]
     unknowns: tuple[str, ...]
     next_validation: str
@@ -151,14 +260,18 @@ class ProductPackageDraftContent(BaseModel):
             raise ProductIntelligenceValidationError("product_package_expires_at_must_be_aware")
         if self.expires_at <= self.created_at:
             raise ProductIntelligenceValidationError("product_package_expiry_must_follow_creation")
-        status_refs = tuple(item.evidence_ref for item in self.evidence_statuses)
-        if len(set(status_refs)) != len(status_refs):
+        receipt_refs = tuple(item.receipt_id for item in self.evidence_admissions)
+        if len(set(receipt_refs)) != len(receipt_refs):
             raise ProductIntelligenceValidationError(
-                "product_package_evidence_statuses_must_be_unique"
+                "product_package_evidence_admissions_must_be_unique"
             )
-        if set(status_refs) != set(self.evidence_refs):
+        if set(receipt_refs) != set(self.evidence_refs):
             raise ProductIntelligenceValidationError(
-                "product_package_evidence_statuses_must_match_refs"
+                "product_package_evidence_admissions_must_match_refs"
+            )
+        if any(item.valid_until < self.expires_at for item in self.evidence_admissions):
+            raise ProductIntelligenceValidationError(
+                "product_package_evidence_expires_before_package"
             )
         return self
 
@@ -195,7 +308,9 @@ class ProductPackageDraftVersion(ProductPackageDraftContent):
 
 
 __all__ = [
-    "EvidenceStatusSnapshot",
+    "EvidenceAdmissionSnapshot",
+    "EvidenceClaimType",
+    "ProductPackageEvidenceRequirement",
     "ProductPackageDraftContent",
     "ProductPackageDraftVersion",
     "product_package_content_hash",

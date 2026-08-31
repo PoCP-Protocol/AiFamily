@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
 from types import MappingProxyType
@@ -22,6 +22,12 @@ from ..application.product_definition_adoption import (
     ADOPTION_PURPOSE,
     ProductDefinitionAdoptionArguments,
 )
+from ..application.product_package_evidence_admission import (
+    revalidate_product_package_evidence,
+)
+from ..application.product_package_source_resolution import (
+    ProductPackageSourceResolutionError,
+)
 from ..application.product_package_submission import (
     PRODUCT_PACKAGE_PROCESSING_BASIS,
     ProductPackageSubmissionConflictError,
@@ -32,6 +38,7 @@ from ..domain.product_package_draft import ProductPackageDraftVersion
 from .product_definition_adoption_repository import (
     SqlAlchemyProductDefinitionAdoptionRepository,
 )
+from .product_package_evidence_reader import SqlAlchemyProductPackageEvidenceReader
 from .sqlalchemy_models import Base, DateTime
 
 
@@ -90,11 +97,21 @@ def _utc(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
+def _system_clock() -> datetime:
+    return datetime.now(UTC)
+
+
 class SqlAlchemyProductPackageSubmissionRepository:
     """Use one caller-owned session for draft, HumanTask and audit writes."""
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        clock: Callable[[], datetime] = _system_clock,
+    ) -> None:
         self._session = session
+        self._clock = clock
         self._sources = SqlAlchemyProductDefinitionAdoptionRepository(session)
         self._gate = SqlAlchemyHumanGate(session)
 
@@ -258,6 +275,26 @@ class SqlAlchemyProductPackageSubmissionRepository:
                 task=replay.task,
                 replayed=True,
             )
+
+        try:
+            await revalidate_product_package_evidence(
+                SqlAlchemyProductPackageEvidenceReader(
+                    self._session,
+                    lock_evidence=True,
+                ),
+                tenant_scope=draft.tenant_scope,
+                admissions=draft.evidence_admissions,
+                package_expires_at=draft.expires_at,
+                now=self._clock(),
+            )
+        except (ProductPackageSourceResolutionError, ProductIntelligenceNotFoundError) as exc:
+            await self._session.rollback()
+            raise ProductPackageSubmissionConflictError(
+                "PRODUCT_PACKAGE_EVIDENCE_ADMISSION_REVALIDATION_FAILED"
+            ) from exc
+        except BaseException:
+            await self._session.rollback()
+            raise
 
         recorder = AuditRecorder()
         try:

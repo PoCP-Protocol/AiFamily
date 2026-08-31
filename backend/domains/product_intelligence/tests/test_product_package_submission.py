@@ -30,7 +30,19 @@ from ..domain.errors import (
     ProductIntelligenceNotFoundError,
     ProductIntelligenceValidationError,
 )
+from ..domain.evidence_verification import (
+    EvidenceVerificationReceipt,
+    EvidenceVerificationReceiptContent,
+    evidence_verification_receipt_hash,
+)
+from ..domain.product_package_draft import (
+    EvidenceAdmissionSnapshot,
+    ProductPackageEvidenceRequirement,
+)
 from ..domain.zone_entities import DimensionAssessment, ProductZoneAssessment
+from ..infrastructure.evidence_verification_repository import (
+    SqlAlchemyEvidenceVerificationReceiptRepository,
+)
 from ..infrastructure.product_package_submission_repository import (
     ProductPackageDraftRow,
     SqlAlchemyProductPackageSubmissionRepository,
@@ -40,7 +52,7 @@ from ..infrastructure.sqlalchemy_repository import SqlAlchemyProductIntelligence
 from ..infrastructure.zone_sqlalchemy_models import Base as ZoneBase
 from ..infrastructure.zone_sqlalchemy_repository import SqlAlchemyZoneAssessmentRepository
 
-NOW = datetime(2026, 9, 1, 8, 0, tzinfo=UTC)
+NOW = datetime(2026, 8, 31, 18, 0, tzinfo=UTC)
 DIMENSIONS = (
     "customer_scarcity",
     "replaceability",
@@ -49,6 +61,102 @@ DIMENSIONS = (
     "learning_effect",
     "switching_cost",
 )
+
+
+def _evidence(kind: str, *, tenant: str = "tenant-a"):
+    from ..domain.entities import Evidence
+
+    return Evidence(
+        id=f"evidence:{kind}:one",
+        version=1,
+        created_at=NOW - timedelta(days=2),
+        updated_at=NOW - timedelta(days=1),
+        created_by="human:researcher",
+        tenant_scope=tenant,
+        description=f"redacted {kind} evidence",
+        evidence_ref=f"source:{kind}:one",
+    )
+
+
+def _receipt(kind: str, *, tenant: str = "tenant-a") -> EvidenceVerificationReceipt:
+    from ..application.evidence_verification import evidence_record_hash
+
+    evidence = _evidence(kind, tenant=tenant)
+    claim_ref = f"claim:{kind}"
+    content = EvidenceVerificationReceiptContent(
+        receipt_id=f"verification-receipt:{kind}",
+        tenant_scope=tenant,
+        evidence_id=evidence.id,
+        evidence_version=evidence.version,
+        evidence_record_hash=evidence_record_hash(evidence),
+        evidence_ref=evidence.evidence_ref,
+        claim_scope=(claim_ref,),
+        verification_methods=("SOURCE_OPENED", "EVIDENCE_RECORD_HASH_MATCHED"),
+        applicability_scope=(
+            "role:PARENT_GUARDIAN",
+            "age:AGE_9_12",
+            "scenario:HOME_ROUTINE",
+            "region:CN",
+            "language:zh-CN",
+        ),
+        criteria_refs=("evidence-policy:source-integrity:v1",),
+        verification_purpose="product_package_admission",
+        verification_policy_version="product-evidence-verification:v1",
+        task_id=f"task:{kind}",
+        proposal_id=f"proposal:{kind}",
+        decision_id=f"decision:{kind}",
+        request_id=f"request:{kind}",
+        verifier_actor_id="operator:evidence-reviewer",
+        decision_reason="source and scope reviewed",
+        verified_at=NOW - timedelta(hours=1),
+        valid_until=NOW + timedelta(days=30),
+        recorded_at=NOW - timedelta(minutes=50),
+        request_hash=("a" if kind == "market" else "b") * 64,
+    )
+    return EvidenceVerificationReceipt(
+        **content.model_dump(mode="python"),
+        receipt_hash=evidence_verification_receipt_hash(content),
+    )
+
+
+def _admission(kind: str, *, tenant: str = "tenant-a") -> EvidenceAdmissionSnapshot:
+    receipt = _receipt(kind, tenant=tenant)
+    return EvidenceAdmissionSnapshot(
+        claim_type="MARKET_EXISTENCE" if kind == "market" else "DELIVERY_FEASIBILITY",
+        required_claim_refs=(f"claim:{kind}",),
+        required_applicability_refs=("role:PARENT_GUARDIAN", "age:AGE_9_12"),
+        receipt_id=receipt.receipt_id,
+        receipt_hash=receipt.receipt_hash,
+        evidence_id=receipt.evidence_id,
+        evidence_version=receipt.evidence_version,
+        evidence_record_hash=receipt.evidence_record_hash,
+        evidence_ref=receipt.evidence_ref,
+        claim_scope=receipt.claim_scope,
+        applicability_scope=receipt.applicability_scope,
+        criteria_refs=receipt.criteria_refs,
+        verification_methods=receipt.verification_methods,
+        verification_purpose=receipt.verification_purpose,
+        verification_policy_version=receipt.verification_policy_version,
+        receipt_outcome=receipt.outcome,
+        integrity_check=receipt.integrity_check,
+        relevance=receipt.relevance,
+        task_id=receipt.task_id,
+        proposal_id=receipt.proposal_id,
+        decision_id=receipt.decision_id,
+        verified_at=receipt.verified_at,
+        valid_until=receipt.valid_until,
+        admission_policy_version="family-education-evidence-admission:v1",
+        admitted_at=NOW,
+    )
+
+
+def _requirement(kind: str) -> ProductPackageEvidenceRequirement:
+    return ProductPackageEvidenceRequirement(
+        receipt_locator=f"verification-receipt:{kind}",
+        claim_type="MARKET_EXISTENCE" if kind == "market" else "DELIVERY_FEASIBILITY",
+        required_claim_refs=(f"claim:{kind}",),
+        required_applicability_refs=("role:PARENT_GUARDIAN", "age:AGE_9_12"),
+    )
 
 
 def _context(*, tenant: str = "tenant-a", allowed: bool = True) -> ActorContext:
@@ -79,11 +187,9 @@ def _source(**changes: object) -> ProductPackageSubmissionInput:
         "stop_conditions": ("stop:safety",),
         "pause_policy": "家长可随时暂停",
         "human_gate_policy": "敏感建议需人工复核",
-        "evidence_refs": ("evidence:market:one", "evidence:pilot:one"),
-        "evidence_statuses": {
-            "evidence:market:one": "VERIFIED",
-            "evidence:pilot:one": "VERIFIED",
-        },
+        "evidence_refs": ("verification-receipt:market", "verification-receipt:pilot"),
+        "evidence_requirements": (_requirement("market"), _requirement("pilot")),
+        "evidence_admissions": (_admission("market"), _admission("pilot")),
         "assumptions": ("需要小批家庭验证",),
         "unknowns": ("不同年龄段的节奏差异",),
         "next_validation": "完成五个家庭的匿名试点",
@@ -168,6 +274,11 @@ async def _seed(
     await SqlAlchemyZoneAssessmentRepository(session).save_zone_assessment(
         _assessment(status=assessment_status, tenant=tenant)
     )
+    product_repo = SqlAlchemyProductIntelligenceRepository(session)
+    receipt_repo = SqlAlchemyEvidenceVerificationReceiptRepository(session)
+    for kind in ("market", "pilot"):
+        await product_repo.save_evidence(_evidence(kind, tenant=tenant))
+        await receipt_repo.create_receipt_if_absent(_receipt(kind, tenant=tenant))
     await session.commit()
 
 
@@ -330,6 +441,97 @@ async def test_repository_rejects_mismatched_resolved_hash_before_any_write() ->
 
 
 @pytest.mark.asyncio
+async def test_final_revalidation_blocks_source_drift_before_draft_task_or_audit() -> None:
+    engine, factory = await _factory()
+    async with factory() as session:
+        await _seed(session)
+        await SqlAlchemyProductIntelligenceRepository(session).save_evidence(
+            _evidence("market").model_copy(
+                update={
+                    "description": "source changed after initial admission",
+                    "updated_at": NOW + timedelta(minutes=1),
+                }
+            )
+        )
+        await session.commit()
+        with pytest.raises(
+            ProductPackageSubmissionConflictError,
+            match="EVIDENCE_ADMISSION_REVALIDATION_FAILED",
+        ):
+            await submit_product_package_draft(
+                SqlAlchemyProductPackageSubmissionRepository(session),
+                _context(),
+                _source(),
+                idempotency_key="source-drift-before-write",
+                now=NOW,
+            )
+
+    async with factory() as session:
+        assert await session.scalar(select(func.count()).select_from(ProductPackageDraftRow)) == 0
+        assert await session.scalar(select(func.count()).select_from(HumanTaskRow)) == 0
+        assert await session.scalar(select(func.count()).select_from(AuditEventRow)) == 0
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_final_revalidation_uses_commit_time_and_rolls_back_expired_receipts() -> None:
+    engine, factory = await _factory()
+    async with factory() as session:
+        await _seed(session)
+        repo = SqlAlchemyProductPackageSubmissionRepository(
+            session,
+            clock=lambda: NOW + timedelta(days=31),
+        )
+        with pytest.raises(
+            ProductPackageSubmissionConflictError,
+            match="EVIDENCE_ADMISSION_REVALIDATION_FAILED",
+        ):
+            await submit_product_package_draft(
+                repo,
+                _context(),
+                _source(),
+                idempotency_key="expired-at-commit",
+                now=NOW,
+            )
+
+    async with factory() as session:
+        assert await session.scalar(select(func.count()).select_from(ProductPackageDraftRow)) == 0
+        assert await session.scalar(select(func.count()).select_from(HumanTaskRow)) == 0
+        assert await session.scalar(select(func.count()).select_from(AuditEventRow)) == 0
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_admission_evaluation_time_does_not_change_idempotency_identity() -> None:
+    engine, factory = await _factory()
+    async with factory() as session:
+        await _seed(session)
+        repo = SqlAlchemyProductPackageSubmissionRepository(session, clock=lambda: NOW)
+        first = await submit_product_package_draft(
+            repo,
+            _context(),
+            _source(),
+            idempotency_key="admission-time-is-operational",
+            now=NOW,
+        )
+        shifted = tuple(
+            item.model_copy(update={"admitted_at": NOW + timedelta(minutes=1)})
+            for item in _source().evidence_admissions
+        )
+        replay = await submit_product_package_draft(
+            repo,
+            _context(),
+            _source(evidence_admissions=shifted),
+            idempotency_key="admission-time-is-operational",
+            now=NOW + timedelta(minutes=1),
+        )
+
+    await engine.dispose()
+    assert replay.replayed is True
+    assert replay.draft == first.draft
+
+
+@pytest.mark.asyncio
 async def test_submission_fails_closed_for_permission_evidence_and_zone_status() -> None:
     engine, factory = await _factory()
     async with factory() as session:
@@ -343,15 +545,12 @@ async def test_submission_fails_closed_for_permission_evidence_and_zone_status()
                 idempotency_key="forbidden",
                 now=NOW,
             )
-        with pytest.raises(ProductPackageSubmissionError, match="EVIDENCE_MUST_BE_VERIFIED"):
+        with pytest.raises(ProductPackageSubmissionError, match="ADMISSIONS_MUST_MATCH_REFS"):
             await submit_product_package_draft(
                 repo,
                 _context(),
                 _source(
-                    evidence_statuses={
-                        "evidence:market:one": "UNKNOWN",
-                        "evidence:pilot:one": "VERIFIED",
-                    }
+                    evidence_admissions=(_admission("market"),)
                 ),
                 idempotency_key="unverified",
                 now=NOW,
@@ -398,7 +597,12 @@ async def test_task_id_is_bounded_for_maximum_tenant_length() -> None:
         result = await submit_product_package_draft(
             SqlAlchemyProductPackageSubmissionRepository(session),
             _context(tenant=tenant),
-            _source(),
+            _source(
+                evidence_admissions=(
+                    _admission("market", tenant=tenant),
+                    _admission("pilot", tenant=tenant),
+                )
+            ),
             idempotency_key="bounded-task-id",
             now=NOW,
         )
@@ -576,7 +780,7 @@ async def test_draft_and_nested_proposal_arguments_are_immutable() -> None:
     with pytest.raises(ValidationError):
         result.draft.duration_days = 90
     with pytest.raises(ValidationError):
-        result.draft.evidence_statuses[0].status = "UNKNOWN"
+        result.draft.evidence_admissions[0].claim_type = "GROWTH_EFFECT"
     with pytest.raises(TypeError):
         result.task.proposal.action_arguments["duration_days"] = 90
     component_ids = result.task.proposal.action_arguments["component_ids"]

@@ -10,6 +10,9 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..application.context import ActorContext
+from ..application.product_package_evidence_admission import (
+    ReceiptBackedProductPackageSourceResolver,
+)
 from ..application.product_package_source_resolution import ProductPackageSourceResolver
 from ..application.product_package_submission import (
     ProductPackageSubmissionError,
@@ -18,12 +21,16 @@ from ..application.product_package_submission import (
     authorize_product_package_read,
     authorize_product_package_submission,
 )
+from ..infrastructure.product_package_evidence_reader import (
+    SqlAlchemyProductPackageEvidenceReader,
+)
 from ..infrastructure.product_package_submission_repository import (
     SqlAlchemyProductPackageSubmissionRepository,
 )
 from .dependencies import get_actor_context
 
 ProductPackageSourceResolverFactory = Callable[[AsyncSession], ProductPackageSourceResolver]
+ProductPackageSubmissionClock = Callable[[], datetime]
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,15 +41,18 @@ class ProductPackageSubmissionServices:
 
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 _source_resolver_factory: ProductPackageSourceResolverFactory | None = None
+_repository_clock: ProductPackageSubmissionClock | None = None
 
 
 def configure_product_package_submission_services(
     session_factory: async_sessionmaker[AsyncSession] | None,
     source_resolver_factory: ProductPackageSourceResolverFactory | None,
+    repository_clock: ProductPackageSubmissionClock | None = None,
 ) -> None:
-    global _session_factory, _source_resolver_factory
+    global _repository_clock, _session_factory, _source_resolver_factory
     _session_factory = session_factory
     _source_resolver_factory = source_resolver_factory
+    _repository_clock = repository_clock
 
 
 def clear_product_package_submission_services() -> None:
@@ -101,10 +111,21 @@ async def get_product_package_submission_services() -> AsyncGenerator[
             detail="PRODUCT_PACKAGE_TRUSTED_SOURCE_RESOLVER_NOT_CONFIGURED",
         )
     async with _session_factory() as session:
+        repository = (
+            SqlAlchemyProductPackageSubmissionRepository(
+                session,
+                clock=_repository_clock,
+            )
+            if _repository_clock is not None
+            else SqlAlchemyProductPackageSubmissionRepository(session)
+        )
         yield ProductPackageSubmissionServices(
-            repository=SqlAlchemyProductPackageSubmissionRepository(session),
+            repository=repository,
             source_resolver=(
-                _source_resolver_factory(session)
+                ReceiptBackedProductPackageSourceResolver(
+                    inner=_source_resolver_factory(session),
+                    reader=SqlAlchemyProductPackageEvidenceReader(session),
+                )
                 if _source_resolver_factory is not None
                 else None
             ),
@@ -129,6 +150,7 @@ def get_product_package_submission_clock() -> datetime:
 
 __all__ = [
     "ProductPackageSourceResolverFactory",
+    "ProductPackageSubmissionClock",
     "ProductPackageSubmissionServices",
     "clear_product_package_submission_services",
     "configure_product_package_submission_services",

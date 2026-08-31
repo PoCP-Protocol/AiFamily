@@ -21,6 +21,7 @@ from ..api.product_package_submission_dependencies import (
 )
 from ..api.product_package_submission_routes import router
 from ..application.context import ActorContext
+from ..application.evidence_verification import evidence_record_hash
 from ..application.product_package_source_resolution import (
     ProductPackageDesignIntent,
     ResolvedProductPackageSource,
@@ -30,15 +31,24 @@ from ..application.product_package_submission import (
     PRODUCT_PACKAGE_SUBMIT_PERMISSION,
     ProductPackageSubmissionInput,
 )
-from ..domain.entities import ProductConcept
+from ..domain.entities import Evidence, ProductConcept
+from ..domain.evidence_verification import (
+    EvidenceVerificationReceipt,
+    EvidenceVerificationReceiptContent,
+    evidence_verification_receipt_hash,
+)
+from ..domain.product_package_draft import ProductPackageEvidenceRequirement
 from ..domain.zone_entities import DimensionAssessment, ProductZoneAssessment
+from ..infrastructure.evidence_verification_repository import (
+    SqlAlchemyEvidenceVerificationReceiptRepository,
+)
 from ..infrastructure.product_package_submission_repository import ProductPackageDraftRow
 from ..infrastructure.sqlalchemy_models import Base as ProductBase
 from ..infrastructure.sqlalchemy_repository import SqlAlchemyProductIntelligenceRepository
 from ..infrastructure.zone_sqlalchemy_models import Base as ZoneBase
 from ..infrastructure.zone_sqlalchemy_repository import SqlAlchemyZoneAssessmentRepository
 
-NOW = datetime(2026, 9, 1, 8, 0, tzinfo=UTC)
+NOW = datetime(2026, 8, 31, 18, 0, tzinfo=UTC)
 DIMENSIONS = (
     "customer_scarcity",
     "replaceability",
@@ -123,6 +133,51 @@ def _assessment() -> ProductZoneAssessment:
     )
 
 
+def _evidence(kind: str) -> Evidence:
+    return Evidence(
+        id=f"evidence:{kind}:one",
+        version=1,
+        created_at=NOW - timedelta(days=2),
+        updated_at=NOW - timedelta(days=1),
+        created_by="human:researcher",
+        tenant_scope="tenant-a",
+        description=f"redacted {kind} evidence",
+        evidence_ref=f"source:{kind}:one",
+    )
+
+
+def _receipt(kind: str) -> EvidenceVerificationReceipt:
+    evidence = _evidence(kind)
+    content = EvidenceVerificationReceiptContent(
+        receipt_id=f"verification-receipt:{kind}",
+        tenant_scope="tenant-a",
+        evidence_id=evidence.id,
+        evidence_version=evidence.version,
+        evidence_record_hash=evidence_record_hash(evidence),
+        evidence_ref=evidence.evidence_ref,
+        claim_scope=(f"claim:{kind}",),
+        verification_methods=("SOURCE_OPENED", "EVIDENCE_RECORD_HASH_MATCHED"),
+        applicability_scope=("role:PARENT_GUARDIAN", "age:AGE_9_12"),
+        criteria_refs=("evidence-policy:source-integrity:v1",),
+        verification_purpose="product_package_admission",
+        verification_policy_version="product-evidence-verification:v1",
+        task_id=f"task:{kind}",
+        proposal_id=f"proposal:{kind}",
+        decision_id=f"decision:{kind}",
+        request_id=f"request:{kind}",
+        verifier_actor_id="operator:evidence-reviewer",
+        decision_reason="source and scope reviewed",
+        verified_at=NOW - timedelta(hours=1),
+        valid_until=NOW + timedelta(days=30),
+        recorded_at=NOW - timedelta(minutes=50),
+        request_hash=("a" if kind == "market" else "b") * 64,
+    )
+    return EvidenceVerificationReceipt(
+        **content.model_dump(mode="python"),
+        receipt_hash=evidence_verification_receipt_hash(content),
+    )
+
+
 def _payload(**changes: object) -> dict[str, object]:
     payload: dict[str, object] = {
         "source_draft_locator": "model-draft-locator:one",
@@ -141,7 +196,10 @@ def _payload(**changes: object) -> dict[str, object]:
         "stop_conditions": ["stop:safety"],
         "pause_policy": "家长可随时暂停",
         "human_gate_policy": "敏感建议需人工复核",
-        "evidence_locators": ["verification-receipt:market", "verification-receipt:pilot"],
+        "evidence_locators": [
+            "verification-receipt:market",
+            "verification-receipt:pilot",
+        ],
         "assumptions": ["需要小批家庭验证"],
         "unknowns": ["不同年龄段的节奏差异"],
         "next_validation": "完成五个家庭的匿名试点",
@@ -152,10 +210,19 @@ def _payload(**changes: object) -> dict[str, object]:
 
 
 class _TrustedResolver:
-    def __init__(self, *, mismatch: bool = False, exceed_ttl: bool = False):
+    def __init__(
+        self,
+        *,
+        mismatch: bool = False,
+        exceed_ttl: bool = False,
+        self_report_admission: bool = False,
+        uncovered_claim: bool = False,
+    ):
         self.calls = 0
         self.mismatch = mismatch
         self.exceed_ttl = exceed_ttl
+        self.self_report_admission = self_report_admission
+        self.uncovered_claim = uncovered_claim
 
     async def resolve(
         self,
@@ -184,7 +251,31 @@ class _TrustedResolver:
             pause_policy=intent.pause_policy,
             human_gate_policy=intent.human_gate_policy,
             evidence_refs=intent.evidence_locators,
-            evidence_statuses={ref: "VERIFIED" for ref in intent.evidence_locators},
+            evidence_requirements=tuple(
+                ProductPackageEvidenceRequirement(
+                    receipt_locator=locator,
+                    claim_type=(
+                        "MARKET_EXISTENCE"
+                        if locator.endswith("market")
+                        else "DELIVERY_FEASIBILITY"
+                    ),
+                    required_claim_refs=(
+                        ("claim:not-reviewed",)
+                        if self.uncovered_claim and locator.endswith("market")
+                        else (
+                            ("claim:market",)
+                            if locator.endswith("market")
+                            else ("claim:pilot",)
+                        )
+                    ),
+                    required_applicability_refs=(
+                        "role:PARENT_GUARDIAN",
+                        "age:AGE_9_12",
+                    ),
+                )
+                for locator in intent.evidence_locators
+            ),
+            evidence_admissions=((object(),) if self.self_report_admission else ()),
             assumptions=intent.assumptions,
             unknowns=intent.unknowns,
             next_validation=intent.next_validation,
@@ -213,12 +304,18 @@ async def _harness(
     async with factory() as session:
         await SqlAlchemyProductIntelligenceRepository(session).save_product_concept(_concept())
         await SqlAlchemyZoneAssessmentRepository(session).save_zone_assessment(_assessment())
+        product_repo = SqlAlchemyProductIntelligenceRepository(session)
+        receipt_repo = SqlAlchemyEvidenceVerificationReceiptRepository(session)
+        for kind in ("market", "pilot"):
+            await product_repo.save_evidence(_evidence(kind))
+            await receipt_repo.create_receipt_if_absent(_receipt(kind))
         await session.commit()
 
     trusted_resolver = resolver or _TrustedResolver()
     configure_product_package_submission_services(
         factory,
         lambda _session: trusted_resolver,
+        lambda: NOW,
     )
     app = FastAPI()
     app.include_router(router)
@@ -250,6 +347,10 @@ async def test_create_readback_and_idempotent_replay_use_server_canonical_state(
             assert body["draft"]["source_draft_locator"] == "model-draft-locator:one"
             assert len(body["draft"]["intent_hash"]) == 64
             assert body["draft"]["source_provenance_ref"] == "model-draft:canonical:one"
+            assert [
+                item["admission_status"] for item in body["draft"]["evidence_admissions"]
+            ] == ["ADMITTED", "ADMITTED"]
+            assert "evidence_statuses" not in body["draft"]
             assert body["review_task"]["status"] == "OPEN"
             assert created.headers["etag"] == body["etag"]
 
@@ -295,6 +396,10 @@ async def test_create_readback_and_idempotent_replay_use_server_canonical_state(
         ("actor_id", "human:forged"),
         ("zone", "UNIQUE"),
         ("evidence_statuses", {"verification-receipt:market": "VERIFIED"}),
+        ("evidence_requirements", []),
+        ("claim_type", "MARKET_EXISTENCE"),
+        ("required_claim_refs", ["claim:market"]),
+        ("required_applicability_refs", ["role:PARENT_GUARDIAN"]),
         ("source_provenance_ref", "model-draft:forged"),
         ("model_ref", "model:forged"),
         ("confidence", 1.0),
@@ -416,6 +521,61 @@ async def test_mismatched_or_overlong_resolution_writes_nothing(
             )
             assert draft_count == 0
             assert await session.scalar(select(func.count()).select_from(HumanTaskRow)) == 0
+    finally:
+        clear_product_package_submission_services()
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_source_resolver_cannot_self_report_evidence_admission() -> None:
+    engine, factory, app, _resolver = await _harness(
+        _TrustedResolver(self_report_admission=True)
+    )
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/product-intelligence/product-package-review-submissions",
+                headers={"Idempotency-Key": "self-reported-admission"},
+                json=_payload(),
+            )
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "PRODUCT_PACKAGE_SOURCE_SELF_REPORTED_EVIDENCE_ADMISSION"
+        )
+        async with factory() as session:
+            count = await session.scalar(
+                select(func.count()).select_from(ProductPackageDraftRow)
+            )
+            assert count == 0
+    finally:
+        clear_product_package_submission_services()
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_uncovered_claim_scope_blocks_before_submission() -> None:
+    engine, factory, app, resolver = await _harness(
+        _TrustedResolver(uncovered_claim=True)
+    )
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/product-intelligence/product-package-review-submissions",
+                headers={"Idempotency-Key": "claim-scope-blocked"},
+                json=_payload(),
+            )
+        assert response.status_code == 422
+        assert response.json()["detail"] == "PRODUCT_PACKAGE_CLAIM_SCOPE_NOT_COVERED"
+        async with factory() as session:
+            count = await session.scalar(
+                select(func.count()).select_from(ProductPackageDraftRow)
+            )
+            assert count == 0
+        assert resolver.calls == 1
     finally:
         clear_product_package_submission_services()
         await engine.dispose()
@@ -551,7 +711,10 @@ async def test_identity_errors_map_before_service_configuration() -> None:
     ("field", "value"),
     [
         ("component_ids", ["c" * 513]),
-        ("evidence_locators", ["e" * 513]),
+        (
+            "evidence_locators",
+            ["e" * 161],
+        ),
         ("assumptions", ["a" * 2001]),
         ("unknowns", ["u" * 2001]),
         ("stop_conditions", ["s" * 2001]),

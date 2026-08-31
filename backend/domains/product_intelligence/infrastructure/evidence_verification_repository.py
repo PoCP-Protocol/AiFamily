@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from pydantic import ValidationError
 from sqlalchemy import JSON, Integer, String, UniqueConstraint, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,7 @@ from ..domain.entities import Evidence
 from ..domain.errors import (
     ProductIntelligenceConflictError,
     ProductIntelligenceNotFoundError,
+    ProductIntelligenceValidationError,
 )
 from ..domain.evidence_verification import EvidenceVerificationReceipt
 from . import sqlalchemy_models as product_models
@@ -56,7 +58,12 @@ def _utc(value: datetime) -> datetime:
 
 
 def _receipt(row: EvidenceVerificationReceiptRow) -> EvidenceVerificationReceipt:
-    receipt = EvidenceVerificationReceipt.model_validate(row.payload)
+    try:
+        receipt = EvidenceVerificationReceipt.model_validate(row.payload)
+    except (ValidationError, ProductIntelligenceValidationError) as exc:
+        raise ProductIntelligenceConflictError(
+            "evidence_verification_persisted_payload_invalid"
+        ) from exc
     if (
         row.receipt_id != receipt.receipt_id
         or row.tenant_scope != receipt.tenant_scope
