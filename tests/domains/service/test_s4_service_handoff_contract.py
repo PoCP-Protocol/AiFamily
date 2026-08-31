@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.domains.service.application import commands
+from backend.domains.service.application import commands, queries
 from backend.domains.service.application.handoff import (
     HumanHelpHandoffReceipt,
     submit_confirmed_human_help,
@@ -71,6 +71,19 @@ async def test_confirmed_need_enters_canonical_booking_and_delivery(repo, consen
 
     consent.add(granted())
     _provider, offering, slot = await seed_supply(repo, recorder=recorder)
+
+    offerings = await queries.list_service_offerings(repo, tenant_id="tenant-001")
+    assert [(item.service_offering_id, item.open_slot_count) for item in offerings] == [
+        (offering.service_offering_id, 1)
+    ]
+    slots = await queries.list_availability_slots(
+        repo,
+        tenant_id="tenant-001",
+        service_offering_id=offering.service_offering_id,
+    )
+    assert [(item.availability_slot_id, item.remaining_capacity) for item in slots] == [
+        (slot.availability_slot_id, 1)
+    ]
 
     booking = await _request_human_help(
         repo,
@@ -128,6 +141,69 @@ async def test_unconfirmed_or_out_of_scope_need_creates_no_booking(
     assert await repo.list_bookings("tenant-001", FAMILY) == []
     unchanged = await repo.load_slot(slot.availability_slot_id)
     assert (unchanged.reserved_count, unchanged.status) == (0, "AVAILABLE")
+
+
+async def test_expired_provider_is_hidden_and_cannot_be_booked(repo, consent, recorder):
+    consent.add(granted())
+    provider, offering, slot = await seed_supply(repo, recorder=recorder)
+    await repo.save_provider(provider.model_copy(update={"qualification_status": "EXPIRED"}))
+    await repo.commit()
+
+    assert await queries.list_service_offerings(repo, tenant_id="tenant-001") == []
+    with pytest.raises(ServiceConflictError, match="provider_not_bookable"):
+        await _request_human_help(
+            repo,
+            consent,
+            recorder,
+            receipt=_confirmed_receipt(),
+            offering_id=offering.service_offering_id,
+            slot_id=slot.availability_slot_id,
+        )
+
+
+async def test_full_slot_rejects_a_second_confirmed_need(repo, consent, recorder):
+    consent.add(granted())
+    _provider, offering, slot = await seed_supply(repo, recorder=recorder)
+    await _request_human_help(
+        repo,
+        consent,
+        recorder,
+        receipt=_confirmed_receipt(),
+        offering_id=offering.service_offering_id,
+        slot_id=slot.availability_slot_id,
+    )
+
+    with pytest.raises(ServiceConflictError, match="slot_not_available:RESERVED"):
+        await _request_human_help(
+            repo,
+            consent,
+            recorder,
+            receipt=_confirmed_receipt(receipt_ref="need-confirmation-002"),
+            offering_id=offering.service_offering_id,
+            slot_id=slot.availability_slot_id,
+        )
+
+
+async def test_repeated_confirmation_reuses_one_delivery_record(repo, consent, recorder):
+    consent.add(granted())
+    _provider, offering, slot = await seed_supply(repo, recorder=recorder)
+    booking = await _request_human_help(
+        repo,
+        consent,
+        recorder,
+        receipt=_confirmed_receipt(),
+        offering_id=offering.service_offering_id,
+        slot_id=slot.availability_slot_id,
+    )
+
+    _confirmed, first = await commands.confirm_booking_request(
+        repo, make_ctx(), recorder, booking_request_id=booking.booking_request_id
+    )
+    _replayed, second = await commands.confirm_booking_request(
+        repo, make_ctx(), recorder, booking_request_id=booking.booking_request_id
+    )
+    assert first.booking_service_record_id == second.booking_service_record_id
+    assert len(await repo.list_service_records("tenant-001", FAMILY)) == 1
 
 
 async def test_blank_receipt_reference_fails_before_booking(repo, consent, recorder):
