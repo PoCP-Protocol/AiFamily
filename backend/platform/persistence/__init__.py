@@ -9,12 +9,18 @@ platform/persistence *is* the persistence infrastructure itself).
 
 from __future__ import annotations
 
+from backend.platform.persistence.atomic_mutation import (
+    AtomicMutationResult,
+    execute_atomic_mutation,
+)
 from backend.platform.persistence.session import get_engine, get_sessionmaker
 from backend.platform.persistence.unit_of_work import SqlAlchemyUnitOfWork, UnitOfWork
 
 __all__ = [
+    "AtomicMutationResult",
     "SqlAlchemyUnitOfWork",
     "UnitOfWork",
+    "execute_atomic_mutation",
     "get_engine",
     "get_sessionmaker",
 ]
