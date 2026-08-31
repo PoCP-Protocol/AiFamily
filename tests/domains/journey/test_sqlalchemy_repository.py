@@ -14,6 +14,7 @@ from backend.domains.journey.infrastructure.sqlalchemy_repository import (
     JourneyBase,
     SqlAlchemyJourneyRepository,
 )
+from tests.support.postgres import SKIP_REASON, postgres_schema_engine, postgres_test_url
 
 
 @pytest.fixture
@@ -109,3 +110,56 @@ async def test_event_failure_rolls_back_domain_write(session) -> None:
     await session.rollback()
     with pytest.raises(LookupError, match="journey_plan_not_found"):
         await repository.read_plan(plan_id="plan-1", tenant_id="tenant-a", family_id="family-a")
+
+
+@pytest.mark.skipif(postgres_test_url() is None, reason=SKIP_REASON)
+async def test_postgres_plan_and_records_survive_new_session() -> None:
+    async with postgres_schema_engine(JourneyBase.metadata) as engine:
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+
+        async with factory() as first_session:
+
+            async def write_event(*_args):
+                return None
+
+            repository = SqlAlchemyJourneyRepository(first_session, write_event)
+            plan = _plan()
+            await repository.create_plan(plan)
+            await repository.confirm_plan(
+                plan_id=plan.plan_id,
+                actor_id="parent-a",
+                tenant_id="tenant-a",
+                family_id="family-a",
+            )
+            practice = FamilyPractice(
+                practice_id="practice-restart-1",
+                plan_id=plan.plan_id,
+                tenant_id="tenant-a",
+                family_id="family-a",
+                title="冲突时先复述孩子想表达的事",
+                rationale="对应已确认的沟通卡点",
+                day_index=1,
+            )
+            await repository.add_practice(practice, actor_id="parent-a")
+            await repository.record_practice(
+                PracticeRecord(
+                    record_id="record-restart-1",
+                    practice_id=practice.practice_id,
+                    plan_id=plan.plan_id,
+                    tenant_id="tenant-a",
+                    family_id="family-a",
+                    observation="重新打开后仍能看到这次观察",
+                ),
+                actor_id="parent-a",
+            )
+            await first_session.commit()
+
+        async with factory() as reopened_session:
+            reopened = SqlAlchemyJourneyRepository(reopened_session, write_event)
+            readback = await reopened.read_plan(
+                plan_id=plan.plan_id,
+                tenant_id="tenant-a",
+                family_id="family-a",
+            )
+            assert readback["plan"]["status"] == "ACTIVE"
+            assert readback["records"][0]["observation"] == "重新打开后仍能看到这次观察"
