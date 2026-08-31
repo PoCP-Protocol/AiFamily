@@ -82,6 +82,43 @@ def test_unconfirmed_intent_cannot_create_plan() -> None:
         )
 
 
+def test_assessment_confirmation_receipt_is_the_plan_handoff() -> None:
+    service = JourneyPlanService()
+    result = service.create_plan_from_assessment_receipt(
+        receipt={
+            "action": "CONFIRM_GROWTH_HYPOTHESIS",
+            "outcome": "INTENT_CREATED",
+            "intent": {
+                "intent_id": "intent-from-assessment",
+                "need_type": "HOMEWORK_PROCESS",
+                "goal_text": "把作业冲突变成可共同观察的过程",
+                "evidence_refs": ["assessment-evidence-7"],
+                "knowledge_refs": ["TH-006"],
+                "boundary": HUMAN_CONFIRMED_INTENT_BOUNDARY,
+            },
+        },
+        tenant_id="tenant-a",
+        family_id="family-a",
+        actor_id="parent-a",
+        idempotency_key="assessment-handoff-1",
+    )
+    assert result["plan"]["intent_id"] == "intent-from-assessment"
+    assert result["plan"]["focus_id"] == "HOMEWORK_PROCESS"
+    assert result["plan"]["evidence_refs"] == ["assessment-evidence-7"]
+
+
+def test_assessment_dismissal_cannot_become_a_plan() -> None:
+    service = JourneyPlanService()
+    with pytest.raises(JourneyForbiddenError, match="assessment_intent_not_confirmed"):
+        service.create_plan_from_assessment_receipt(
+            receipt={"outcome": "NO_ACTION", "intent": None},
+            tenant_id="tenant-a",
+            family_id="family-a",
+            actor_id="parent-a",
+            idempotency_key="assessment-dismissed-1",
+        )
+
+
 def test_confirmed_intent_boundary_is_explicit() -> None:
     assert HUMAN_CONFIRMED_INTENT_BOUNDARY == "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME"
 

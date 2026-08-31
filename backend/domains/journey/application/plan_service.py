@@ -235,6 +235,46 @@ class JourneyPlanService:
             knowledge_refs=intent.knowledge_refs,
         )
 
+    def create_plan_from_assessment_receipt(
+        self,
+        *,
+        receipt: dict[str, object],
+        tenant_id: str,
+        family_id: str,
+        actor_id: str,
+        idempotency_key: str,
+    ) -> dict[str, object]:
+        """Consume the assessment domain's confirmed-intent receipt.
+
+        This is the product seam between UI-03 and the Journey, not a second
+        assessment implementation.  The receipt must say that a human
+        confirmed the hypothesis; a draft, dismissal, or malformed receipt is
+        never silently converted into a plan.
+        """
+        intent_data = receipt.get("intent")
+        if receipt.get("outcome") != "INTENT_CREATED" or not isinstance(intent_data, dict):
+            raise JourneyForbiddenError("assessment_intent_not_confirmed")
+        required = ("intent_id", "need_type", "boundary")
+        if any(not intent_data.get(field) for field in required):
+            raise JourneyValidationError("assessment_intent_receipt_incomplete")
+        if intent_data["boundary"] != HUMAN_CONFIRMED_INTENT_BOUNDARY:
+            raise JourneyForbiddenError("assessment_intent_boundary_invalid")
+        evidence_refs = tuple(str(ref) for ref in intent_data.get("evidence_refs", ()))
+        return self.create_plan_from_intent(
+            intent=ConfirmedGrowthIntent(
+                intent_id=str(intent_data["intent_id"]),
+                tenant_id=tenant_id,
+                family_id=family_id,
+                actor_id=actor_id,
+                need_type=str(intent_data["need_type"]),
+                goal_text=str(intent_data.get("goal_text") or "基于家庭已确认的关注持续观察"),
+                evidence_refs=evidence_refs,
+                knowledge_refs=tuple(str(ref) for ref in intent_data.get("knowledge_refs", ())),
+                boundary=str(intent_data["boundary"]),
+            ),
+            idempotency_key=idempotency_key,
+        )
+
     def read_plan(self, *, tenant_id: str, family_id: str, plan_id: str) -> dict[str, object]:
         plan = self._required(plan_id, tenant_id, family_id)
         return {
