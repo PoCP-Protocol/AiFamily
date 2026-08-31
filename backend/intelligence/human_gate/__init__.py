@@ -13,6 +13,7 @@ from backend.intelligence.human_gate.contracts import (
     GateStatus,
     HumanDecision,
     HumanTask,
+    HumanTaskClaim,
     NamedActionRequest,
 )
 from backend.intelligence.human_gate.errors import HumanGateError
@@ -33,6 +34,7 @@ __all__ = [
     "HumanDecision",
     "HumanGateError",
     "HumanTask",
+    "HumanTaskClaim",
     "InMemoryHumanGate",
     "HUMAN_TASKS_TABLE",
     "HumanGateBase",
