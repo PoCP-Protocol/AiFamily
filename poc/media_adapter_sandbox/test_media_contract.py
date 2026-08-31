@@ -151,3 +151,43 @@ def test_synthetic_and_fixture_only_are_hard_requirements(
             SyntheticSource(video, source="real", fixture_only=False),
             "family.synthetic.alpha",
         )
+
+
+def test_browser_control_disconnect_recover_stop_and_revoke(video: Path) -> None:
+    adapter = SyntheticMediaAdapter()
+    session = adapter.start(SyntheticSource(video), "family.synthetic.alpha")
+    original = adapter.playback_capability(session.media_session_ref, session.family_ref)
+    with SandboxPlayerServer(adapter) as server:
+        control = f"{server.base_url}/control/{session.media_session_ref}"
+
+        urllib.request.urlopen(urllib.request.Request(f"{control}/disconnect", method="POST"))
+        assert session.state is MediaState.DISCONNECTED
+        recovered = json.loads(
+            urllib.request.urlopen(
+                urllib.request.Request(f"{control}/recover", method="POST")
+            ).read()
+        )
+        assert recovered["state"] == "LIVE"
+        assert recovered["playback_url"].startswith(server.base_url)
+        urllib.request.urlopen(urllib.request.Request(f"{control}/stop", method="POST"))
+        assert session.state is MediaState.STOPPED
+        with pytest.raises(urllib.error.HTTPError) as stopped:
+            urllib.request.urlopen(adapter.playback_url(server, original))
+        assert stopped.value.code == 403
+        revoked_response = json.loads(
+            urllib.request.urlopen(
+                urllib.request.Request(f"{control}/revoke", method="POST")
+            ).read()
+        )
+        assert revoked_response["state"] == "REVOKED"
+
+    revoked_adapter = SyntheticMediaAdapter()
+    revoked = revoked_adapter.start(SyntheticSource(video), "family.synthetic.alpha")
+    token = revoked_adapter.playback_capability(revoked.media_session_ref, revoked.family_ref)
+    with SandboxPlayerServer(revoked_adapter) as server:
+        control = f"{server.base_url}/control/{revoked.media_session_ref}"
+        urllib.request.urlopen(urllib.request.Request(f"{control}/revoke", method="POST"))
+        assert revoked.state is MediaState.REVOKED
+        with pytest.raises(urllib.error.HTTPError) as denied:
+            urllib.request.urlopen(revoked_adapter.playback_url(server, token))
+        assert denied.value.code == 403

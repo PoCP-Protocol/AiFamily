@@ -28,6 +28,7 @@ export type MediaPlaybackDto = {
   state: MediaPlaybackState;
   media_session_ref: string;
   playback_url: string;
+  control_url?: string;
   sha256?: string;
 };
 
@@ -141,12 +142,17 @@ const parseMediaPlaybackDto = (environment: LiveEnvironment): MediaPlaybackDto |
     }
     const playbackUrl = new URL(value.playback_url);
     if (!["localhost", "127.0.0.1"].includes(playbackUrl.hostname)) return null;
+    if (value.control_url) {
+      const controlUrl = new URL(value.control_url);
+      if (!["localhost", "127.0.0.1"].includes(controlUrl.hostname)) return null;
+    }
     return {
       source: "synthetic",
       fixture_only: true,
       state: value.state as MediaPlaybackState,
       media_session_ref: value.media_session_ref,
       playback_url: value.playback_url,
+      ...(typeof value.control_url === "string" ? { control_url: value.control_url } : {}),
       ...(typeof value.sha256 === "string" ? { sha256: value.sha256 } : {}),
     };
   } catch {

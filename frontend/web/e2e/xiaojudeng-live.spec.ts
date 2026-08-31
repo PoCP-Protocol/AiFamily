@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 const mediaPlaybackConfigured = Boolean(process.env.VITE_MEDIA_PLAYBACK_DTO);
 
-test("Xiao Ju Deng homepage card opens the H-LIVE-01 read-only detail", async ({ page }) => {
+test("Xiao Ju Deng homepage card opens the H-LIVE-01 read-only detail", async ({ page }, testInfo) => {
   await page.goto("/");
 
   await expect(page.getByRole("heading", { name: "为家庭问题找到合适的专家场次" })).toBeVisible();
@@ -42,6 +42,23 @@ test("Xiao Ju Deng homepage card opens the H-LIVE-01 read-only detail", async ({
     await expect(page.locator("video")).toHaveAttribute("src", /127\.0\.0\.1/);
     await expect(page.locator("video")).not.toHaveAttribute("autoplay");
     await expect(page.getByText("SANDBOX_SYNTHETIC · FIXTURE_ONLY")).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("h03-live.png"), fullPage: true });
+    await page.getByRole("button", { name: "模拟断流" }).click();
+    await expect(page.getByText("DISCONNECTED")).toBeVisible();
+    await expect(page.locator("video")).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("h03-disconnected.png"), fullPage: true });
+    await page.getByRole("button", { name: "恢复播放" }).click();
+    await expect(page.getByText("LIVE").last()).toBeVisible();
+    await expect(page.locator("video")).toHaveCount(1);
+    await page.screenshot({ path: testInfo.outputPath("h03-recovered.png"), fullPage: true });
+    await page.getByRole("button", { name: "停止直播" }).click();
+    await expect(page.getByText("STOPPED")).toBeVisible();
+    await expect(page.locator("video")).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("h03-stopped.png"), fullPage: true });
+    await page.getByRole("button", { name: "撤回授权" }).click();
+    await expect(page.getByText("REVOKED")).toBeVisible();
+    await expect(page.locator("video")).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("h03-revoked.png"), fullPage: true });
   } else {
     await expect(page.getByText("视频暂不可用")).toBeVisible();
     await expect(page.getByText("WAITING_AUTHORIZATION")).toBeVisible();

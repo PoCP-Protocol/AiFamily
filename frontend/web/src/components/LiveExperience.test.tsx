@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { LiveExperience } from "./LiveExperience";
 import { LiveDetailPage } from "./LiveDetailPage";
 import {
@@ -16,6 +16,7 @@ const SYNTHETIC_PLAYBACK_DTO = JSON.stringify({
   state: "LIVE",
   media_session_ref: "media.synthetic.1",
   playback_url: "http://127.0.0.1:43123/media/media.synthetic.1.mp4?token=test-only",
+  control_url: "http://127.0.0.1:43123/control/media.synthetic.1",
   sha256: "synthetic-test-digest",
 });
 
@@ -82,6 +83,29 @@ describe("Xiao Ju Deng read-only live UI", () => {
     const view = resolveLiveView({ DEV: true, VITE_MEDIA_PLAYBACK_DTO: externalDto });
     expect(view.record?.playback).toBeUndefined();
     expect(view.record?.playback_state).toBe("WAITING_AUTHORIZATION");
+  });
+
+  it("lets an adult simulate disconnect and recover through the sandbox control seam", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ state: "DISCONNECTED" }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          state: "LIVE",
+          playback_url: "http://127.0.0.1:43123/media/media.synthetic.1.mp4?token=recovered",
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LiveExperience environment={{ DEV: true, VITE_MEDIA_PLAYBACK_DTO: SYNTHETIC_PLAYBACK_DTO }} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "查看直播详情" }));
+    await user.click(screen.getByRole("button", { name: "模拟断流" }));
+    expect(await screen.findByText("DISCONNECTED")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "恢复播放" }));
+    expect((await screen.findAllByText("LIVE")).length).toBeGreaterThan(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    vi.unstubAllGlobals();
   });
 
   it.each(["DISCONNECTED", "RESTARTED", "STOPPED", "REVOKED", "FAILED"] as const)(

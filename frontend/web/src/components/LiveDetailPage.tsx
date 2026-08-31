@@ -11,7 +11,8 @@ export function LiveDetailPage({ record, onBack }: Props) {
   const [surfaceState, setSurfaceState] = useState<"WAITING_AUTHORIZATION" | "LOADING" | MediaPlaybackState | "FAILED">(
     playback?.state ?? "WAITING_AUTHORIZATION",
   );
-  const canRenderVideo = playback?.source === "synthetic" && playback.fixture_only && playback.state === "LIVE" && isLocalPlaybackUrl(playback.playback_url);
+  const [mediaUrl, setMediaUrl] = useState(playback?.playback_url ?? "");
+  const canRenderVideo = playback?.source === "synthetic" && playback.fixture_only && ["LIVE", "LOADING", "RESTARTED"].includes(surfaceState) && isLocalPlaybackUrl(mediaUrl);
   const playbackMessage = getPlaybackMessage(surfaceState);
 
   return (
@@ -32,13 +33,20 @@ export function LiveDetailPage({ record, onBack }: Props) {
               controls
               playsInline
               preload="metadata"
-              src={playback.playback_url}
+              src={mediaUrl}
               onError={() => setSurfaceState("FAILED")}
               onLoadStart={() => setSurfaceState("LOADING")}
               onPlaying={() => setSurfaceState("LIVE")}
               onStalled={() => setSurfaceState("DISCONNECTED")}
               onWaiting={() => setSurfaceState("DISCONNECTED")}
             />
+            {playback.control_url ? (
+              <div className="live-video-controls" aria-label="Sandbox 媒体故障演练">
+                <button type="button" onClick={() => void runControl("disconnect")}>模拟断流</button>
+                <button type="button" onClick={() => void runControl("stop")}>停止直播</button>
+                <button type="button" onClick={() => void runControl("revoke")}>撤回授权</button>
+              </div>
+            ) : null}
             <div className="live-video-caption" role="status" aria-live="polite">
               <span className="live-readonly">SANDBOX_SYNTHETIC · FIXTURE_ONLY</span>
               <span className="live-video-state">{surfaceState}</span>
@@ -51,6 +59,12 @@ export function LiveDetailPage({ record, onBack }: Props) {
             <h4 id="live-video-heading">{surfaceState === "WAITING_AUTHORIZATION" ? "视频暂不可用" : playbackMessage}</h4>
             <p>{playbackMessage}</p>
             <span className="live-video-state">{surfaceState}</span>
+            {surfaceState === "DISCONNECTED" && playback?.control_url ? (
+              <button type="button" onClick={() => void runControl("recover")}>恢复播放</button>
+            ) : null}
+            {surfaceState === "STOPPED" && playback?.control_url ? (
+              <button type="button" onClick={() => void runControl("revoke")}>撤回授权</button>
+            ) : null}
           </div>
         )}
       </section>
@@ -71,12 +85,28 @@ export function LiveDetailPage({ record, onBack }: Props) {
         <div><dt>source</dt><dd>{record.source}</dd></div>
         <div><dt>fixture_only</dt><dd>{record.fixture_only ? "true · DEV_ONLY" : "false"}</dd></div>
       </dl>
-      <p className="live-detail-note">本页仅展示审核过的只读字段，不提供互动或状态变更。</p>
+      <p className="live-detail-note">本页仅展示审核过的字段；状态按钮只驱动本地 Sandbox 故障演练。</p>
       <button className="live-back-button" type="button" onClick={onBack}>
         返回直播发现
       </button>
     </article>
   );
+
+  async function runControl(action: "disconnect" | "recover" | "stop" | "revoke") {
+    if (!playback?.control_url || !isLocalPlaybackUrl(playback.control_url)) {
+      setSurfaceState("FAILED");
+      return;
+    }
+    try {
+      const response = await fetch(`${playback.control_url}/${action}`, { method: "POST" });
+      if (!response.ok) throw new Error("control failed");
+      const result = (await response.json()) as { state: MediaPlaybackState; playback_url?: string };
+      if (result.playback_url) setMediaUrl(result.playback_url);
+      setSurfaceState(result.state);
+    } catch {
+      setSurfaceState("FAILED");
+    }
+  }
 }
 
 function isLocalPlaybackUrl(value: string): boolean {

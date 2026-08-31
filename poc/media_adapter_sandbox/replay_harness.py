@@ -194,8 +194,16 @@ class _PlayerHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1:4173")
         self.end_headers()
         self.wfile.write(body)
+
+    def do_OPTIONS(self) -> None:  # noqa: N802 - stdlib handler contract
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1:4173")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib handler contract
         parsed = urllib.parse.urlparse(self.path)
@@ -226,6 +234,44 @@ class _PlayerHandler(BaseHTTPRequestHandler):
             self._send(200, b'{"source":"synthetic","fixture_only":true}', "application/json")
             return
         self._send(404, b"not found", "text/plain; charset=utf-8")
+
+    def do_POST(self) -> None:  # noqa: N802 - stdlib handler contract
+        parsed = urllib.parse.urlparse(self.path)
+        parts = parsed.path.strip("/").split("/")
+        if len(parts) != 3 or parts[0] != "control":
+            self._send(404, b"not found", "text/plain; charset=utf-8")
+            return
+        _, session_ref, action = parts
+        try:
+            if action == "disconnect":
+                self.adapter.disconnect(session_ref)
+            elif action == "recover":
+                self.adapter.reconnect(session_ref)
+            elif action == "stop":
+                self.adapter.stop(session_ref)
+            elif action == "revoke":
+                self.adapter.revoke(session_ref)
+            else:
+                self._send(404, b"unknown action", "text/plain; charset=utf-8")
+                return
+            session = self.adapter._session(session_ref)
+            payload: dict[str, object] = {
+                "state": "REVOKED" if action == "revoke" else session.state.value
+            }
+            if action == "recover":
+                capability = self.adapter.playback_capability(
+                    session.media_session_ref, session.family_ref, ttl_seconds=60
+                )
+                payload["playback_url"] = self.adapter.playback_url(
+                    self.server_ref, capability
+                )
+            self._send(
+                200,
+                json.dumps(payload).encode("utf-8"),
+                "application/json",
+            )
+        except (CapabilityError, PermissionError, KeyError, RuntimeError) as exc:
+            self._send(409, str(exc).encode("utf-8"), "text/plain; charset=utf-8")
 
     def log_message(self, _format: str, *_args: object) -> None:
         return
@@ -305,6 +351,7 @@ def main() -> int:
             "sha256": SyntheticVideoFactory.sha256(artifact),
             "player_url": server.player_url(capability),
             "playback_url": adapter.playback_url(server, capability),
+            "control_url": f"{server.base_url}/control/{session.media_session_ref}",
         }
         print(json.dumps(payload, sort_keys=True))
         if args.serve:
