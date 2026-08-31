@@ -25,6 +25,11 @@ export interface UnderstandingUnknown {
 export interface UnderstandingDraft {
   signalRef: string;
   signalVersion: number;
+  scopeRef: string;
+  reviewedDraftRef: string;
+  draftVersion: number;
+  provenanceRef: string;
+  humanGateReceiptRef: string;
   summary: string;
   explicitClaims: readonly string[];
   alternativeExplanations: readonly string[];
@@ -37,6 +42,11 @@ export interface UnderstandingDraft {
 export interface ConfirmationBinding {
   signalRef: string;
   signalVersion: number;
+  scopeRef: string;
+  reviewedDraftRef: string;
+  draftVersion: number;
+  provenanceRef: string;
+  humanGateReceiptRef: string;
 }
 
 export interface UnderstandingReceipt extends ConfirmationBinding {
