@@ -9,7 +9,10 @@ import {
 } from "react-native";
 
 import { PROBLEM_UNDERSTANDING_COPY } from "./controller";
-import type { ProblemUnderstandingPhase, UnderstandingMapViewModel } from "./model";
+import type {
+  ProblemUnderstandingPhase,
+  UnderstandingMapViewModel,
+} from "./model";
 
 interface ConcernComposerProps {
   value: string;
@@ -42,7 +45,14 @@ export function ConcernComposer({
         style={styles.input}
         value={value}
       />
-      <ActionButton disabled={disabled} label={busy ? "正在整理" : "继续"} onPress={onSubmit} />
+      <Text style={styles.privacyNote}>
+        点“继续”后，我们才会整理这段话。确认前可以退出保存，也可以清空已保存内容。
+      </Text>
+      <ActionButton
+        disabled={disabled}
+        label={busy ? "正在整理" : "继续"}
+        onPress={onSubmit}
+      />
     </View>
   );
 }
@@ -54,13 +64,17 @@ interface UnderstandingMapProps {
 export function UnderstandingMap({ model }: UnderstandingMapProps) {
   return (
     <View style={styles.stack}>
-      <Text accessibilityRole="header" style={styles.title}>我们先把这件事说清楚</Text>
-      <MapSection title="你刚才告诉我的">
+      <Text accessibilityRole="header" style={styles.title}>
+        看看我有没有听对
+      </Text>
+      <MapSection title="你说的">
         {model.originalWords.map((words, index) => (
-          <Text key={`${index}-${words}`} style={styles.body}>“{words}”</Text>
+          <Text key={`${index}-${words}`} style={styles.body}>
+            “{words}”
+          </Text>
         ))}
       </MapSection>
-      <MapSection title="我目前的理解">
+      <MapSection title="我们的理解">
         <Text style={styles.body}>{model.currentUnderstanding}</Text>
       </MapSection>
       {model.alternativeExplanations.length > 0 ? (
@@ -71,16 +85,28 @@ export function UnderstandingMap({ model }: UnderstandingMapProps) {
         </MapSection>
       ) : null}
       <MapSection title="你们已经在努力的地方">
-        {model.familyStrengths.map((item) => <Bullet key={item}>{item}</Bullet>)}
+        {model.familyStrengths.map((item) => (
+          <Bullet key={item}>{item}</Bullet>
+        ))}
       </MapSection>
       <MapSection title="你希望先发生的变化">
         <Text style={styles.emphasis}>{model.desiredChange}</Text>
       </MapSection>
-      <MapSection title={PROBLEM_UNDERSTANDING_COPY.unknownHeading} tone="quiet">
+      <MapSection
+        title={PROBLEM_UNDERSTANDING_COPY.unknownHeading}
+        tone="quiet"
+      >
+        {model.clarificationSkipped ? (
+          <Text style={styles.skippedNote}>
+            已选择先跳过，之后还可以回来补充。
+          </Text>
+        ) : null}
         {model.unknowns.length === 0 ? (
           <Text style={styles.body}>暂时没有需要补充确认的地方。</Text>
         ) : (
-          model.unknowns.map((item) => <Bullet key={item.key}>{item.label}</Bullet>)
+          model.unknowns.map((item) => (
+            <Bullet key={item.key}>{item.label}</Bullet>
+          ))
         )}
       </MapSection>
     </View>
@@ -96,6 +122,8 @@ interface CorrectionConfirmationProps {
   onBeginCorrection: () => void;
   onSubmitCorrection: () => void;
   onConfirm: () => void;
+  onSkipClarification: () => void;
+  onSaveAndExit: () => void;
 }
 
 export function CorrectionConfirmation({
@@ -107,6 +135,8 @@ export function CorrectionConfirmation({
   onBeginCorrection,
   onSubmitCorrection,
   onConfirm,
+  onSkipClarification,
+  onSaveAndExit,
 }: CorrectionConfirmationProps) {
   if (phase === "CORRECTING") {
     return (
@@ -134,8 +164,29 @@ export function CorrectionConfirmation({
 
   return (
     <View style={styles.actions}>
-      <ActionButton disabled={!canCorrect} label="有一点需要调整" onPress={onBeginCorrection} secondary />
-      <ActionButton disabled={!canConfirm} label={PROBLEM_UNDERSTANDING_COPY.confirmAction} onPress={onConfirm} />
+      <ActionButton
+        disabled={!canCorrect}
+        label="有点不对"
+        onPress={onBeginCorrection}
+        secondary
+      />
+      <ActionButton
+        disabled={!canCorrect}
+        label="我想补充"
+        onPress={onBeginCorrection}
+        secondary
+      />
+      <ActionButton
+        label="先跳过澄清"
+        onPress={onSkipClarification}
+        secondary
+      />
+      <ActionButton
+        disabled={!canConfirm}
+        label={PROBLEM_UNDERSTANDING_COPY.confirmAction}
+        onPress={onConfirm}
+      />
+      <ActionButton label="退出并保存" onPress={onSaveAndExit} secondary />
     </View>
   );
 }
@@ -199,7 +250,11 @@ function ActionButton({
         pressed && !disabled && styles.pressedButton,
       ]}
     >
-      <Text style={[styles.buttonText, secondary && styles.secondaryButtonText]}>{label}</Text>
+      <Text
+        style={[styles.buttonText, secondary && styles.secondaryButtonText]}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -207,20 +262,63 @@ function ActionButton({
 const styles = StyleSheet.create({
   actions: { gap: 10 },
   body: { color: "#443A32", fontSize: 16, lineHeight: 25 },
-  button: { alignItems: "center", backgroundColor: "#D8663A", borderRadius: 16, paddingHorizontal: 18, paddingVertical: 14 },
+  button: {
+    alignItems: "center",
+    backgroundColor: "#D8663A",
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+  },
   buttonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
   disabledButton: { opacity: 0.45 },
-  emphasis: { color: "#8B3E22", fontSize: 18, fontWeight: "700", lineHeight: 27 },
-  input: { backgroundColor: "#FFFDFC", borderColor: "#E7D8CC", borderRadius: 18, borderWidth: 1, color: "#302923", fontSize: 16, lineHeight: 25, minHeight: 132, padding: 16, textAlignVertical: "top" },
+  emphasis: {
+    color: "#8B3E22",
+    fontSize: 18,
+    fontWeight: "700",
+    lineHeight: 27,
+  },
+  input: {
+    backgroundColor: "#FFFDFC",
+    borderColor: "#E7D8CC",
+    borderRadius: 18,
+    borderWidth: 1,
+    color: "#302923",
+    fontSize: 16,
+    lineHeight: 25,
+    minHeight: 132,
+    padding: 16,
+    textAlignVertical: "top",
+  },
+  privacyNote: { color: "#6E6258", fontSize: 13, lineHeight: 20 },
   pressedButton: { opacity: 0.78 },
   quietSection: { backgroundColor: "#F3F0EA" },
   recovery: { borderColor: "#D9CBBF", borderWidth: 1 },
-  secondaryButton: { backgroundColor: "#F8EEE7", borderColor: "#DFA889", borderWidth: 1 },
+  secondaryButton: {
+    backgroundColor: "#F8EEE7",
+    borderColor: "#DFA889",
+    borderWidth: 1,
+  },
   secondaryButtonText: { color: "#7C3D27" },
-  section: { backgroundColor: "#FFFFFF", borderRadius: 18, gap: 8, padding: 18 },
-  sectionTitle: { color: "#302923", fontSize: 17, fontWeight: "700", lineHeight: 24 },
+  section: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    gap: 8,
+    padding: 18,
+  },
+  sectionTitle: {
+    color: "#302923",
+    fontSize: 17,
+    fontWeight: "700",
+    lineHeight: 24,
+  },
+  skippedNote: { color: "#6E6258", fontSize: 14, lineHeight: 21 },
   stack: { gap: 12 },
   supporting: { color: "#6E6258", fontSize: 15, lineHeight: 23 },
-  surface: { backgroundColor: "#FFF8F3", borderRadius: 22, gap: 14, padding: 20 },
+  surface: {
+    backgroundColor: "#FFF8F3",
+    borderRadius: 22,
+    gap: 14,
+    padding: 20,
+  },
   title: { color: "#2D261F", fontSize: 25, fontWeight: "800", lineHeight: 34 },
 });
