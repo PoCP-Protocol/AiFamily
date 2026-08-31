@@ -8,7 +8,12 @@ import {
   createProblemUnderstandingState,
   markUnderstandingUnavailable,
   receiveUnderstanding,
+  restoreProblemUnderstandingState,
+  resumeSavedProblemUnderstanding,
   retryUnderstanding,
+  saveProblemUnderstandingForLater,
+  serializeProblemUnderstandingState,
+  skipClarification,
   submitConcern,
   submitCorrection,
 } from "../../features/problem-understanding/controller";
@@ -16,7 +21,10 @@ import { concernInput, initialUnderstanding } from "./fixtures";
 
 describe("Problem Understanding mobile controller", () => {
   it("starts with a low-friction concern and exposes unknowns without inventing answers", () => {
-    const submitted = submitConcern(createProblemUnderstandingState(), concernInput);
+    const submitted = submitConcern(
+      createProblemUnderstandingState(),
+      concernInput,
+    );
     const ready = receiveUnderstanding(submitted, initialUnderstanding);
     const map = buildUnderstandingMap(ready);
 
@@ -101,26 +109,32 @@ describe("Problem Understanding mobile controller", () => {
     ["draftVersion", initialUnderstanding.draftVersion + 1],
     ["provenanceRef", "source-test-other"],
     ["humanGateReceiptRef", "review-test-other"],
-  ] as const)("fails closed when %s does not match the reviewed draft", (field, value) => {
-    const ready = receiveUnderstanding(
-      submitConcern(createProblemUnderstandingState(), concernInput),
-      initialUnderstanding,
-    );
-    const confirming = beginConfirmation(ready);
-    const result = applyConfirmationReceipt(confirming, {
-      ...confirming.pendingConfirmation!,
-      [field]: value,
-      receiptRef: "receipt-test-mismatch",
-      growthIntentRef: "intent-test-mismatch",
-    });
+  ] as const)(
+    "fails closed when %s does not match the reviewed draft",
+    (field, value) => {
+      const ready = receiveUnderstanding(
+        submitConcern(createProblemUnderstandingState(), concernInput),
+        initialUnderstanding,
+      );
+      const confirming = beginConfirmation(ready);
+      const result = applyConfirmationReceipt(confirming, {
+        ...confirming.pendingConfirmation!,
+        [field]: value,
+        receiptRef: "receipt-test-mismatch",
+        growthIntentRef: "intent-test-mismatch",
+      });
 
-    expect(result.phase).toBe("AWAITING_CONFIRMATION");
-    expect(result.receipt).toBeNull();
-    expect(result.recoveryMessage).toContain("最新理解");
-  });
+      expect(result.phase).toBe("AWAITING_CONFIRMATION");
+      expect(result.receipt).toBeNull();
+      expect(result.recoveryMessage).toContain("最新理解");
+    },
+  );
 
   it("preserves all entered content when understanding is unavailable and can retry", () => {
-    const submitted = submitConcern(createProblemUnderstandingState(), concernInput);
+    const submitted = submitConcern(
+      createProblemUnderstandingState(),
+      concernInput,
+    );
     const unavailable = markUnderstandingUnavailable(submitted);
     const retrying = retryUnderstanding(unavailable);
 
@@ -130,5 +144,50 @@ describe("Problem Understanding mobile controller", () => {
     expect(retrying.phase).toBe("UNDERSTANDING");
     expect(retrying.inputs).toEqual(submitted.inputs);
     expect(retrying.recoveryMessage).toBeNull();
+  });
+
+  it("lets the adult skip clarification without inventing missing evidence", () => {
+    const ready = receiveUnderstanding(
+      submitConcern(createProblemUnderstandingState(), concernInput),
+      initialUnderstanding,
+    );
+    const skipped = skipClarification(ready);
+    const map = buildUnderstandingMap(skipped);
+
+    expect(skipped.phase).toBe("AWAITING_CONFIRMATION");
+    expect(map?.clarificationSkipped).toBe(true);
+    expect(map?.unknowns).toEqual(initialUnderstanding.unknowns);
+    expect(map?.canConfirm).toBe(true);
+  });
+
+  it("saves an exit and restores the exact unconfirmed conversation", () => {
+    const ready = receiveUnderstanding(
+      submitConcern(createProblemUnderstandingState(), concernInput),
+      initialUnderstanding,
+    );
+    const saved = saveProblemUnderstandingForLater(
+      ready,
+      "2026-09-01T10:00:00+08:00",
+    );
+    const restored = restoreProblemUnderstandingState(
+      serializeProblemUnderstandingState(saved),
+    );
+    const resumed = resumeSavedProblemUnderstanding(restored);
+
+    expect(restored.phase).toBe("SAVED");
+    expect(restored.inputs).toEqual([concernInput]);
+    expect(restored.drafts).toEqual([{ ...initialUnderstanding }]);
+    expect(resumed.phase).toBe("AWAITING_CONFIRMATION");
+    expect(buildUnderstandingMap(resumed)?.currentUnderstanding).toBe(
+      initialUnderstanding.summary,
+    );
+  });
+
+  it("fails closed with a recoverable message when saved content is damaged", () => {
+    const restored = restoreProblemUnderstandingState("{not-json");
+
+    expect(restored.phase).toBe("ERROR");
+    expect(restored.inputs).toEqual([]);
+    expect(restored.recoveryMessage).toContain("重新说一遍");
   });
 });

@@ -6,8 +6,9 @@ import type {
 } from "./model";
 
 export const DEV_SYNTHETIC_PROBLEM_UNDERSTANDING = {
-  environment: "DEV",
+  environment: "DEV_ONLY",
   dataSource: "SYNTHETIC",
+  fixtureOnly: true,
   scenarioRef: "problem-understanding-writing-routine-v1",
 } as const;
 
@@ -35,7 +36,9 @@ export function createSyntheticUnderstanding(
     summary: correction
       ? `你补充说“${correction}”。现在更需要先看见的，是怎样让彼此愿意听完再回应。`
       : "你在意的不只是事情有没有完成，也希望彼此说话时少一些对抗。",
-    explicitClaims: correction ? [correction] : ["谈到安排时，家里容易发生争执"],
+    explicitClaims: correction
+      ? [correction]
+      : ["谈到安排时，家里容易发生争执"],
     alternativeExplanations: ["疲惫或节奏不一致，也可能让双方更难听见彼此"],
     familyStrengths: ["你愿意先停下来，寻找一种更能听见彼此的方式"],
     desiredChange: "能把各自的想法说完整，再一起商量接下来的安排",

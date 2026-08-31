@@ -10,11 +10,13 @@ import type {
 export const PROBLEM_UNDERSTANDING_COPY = {
   heading: "说说家里最近发生的一件事",
   prompt: "不用一次说完整，我们可以一起慢慢理清。",
-  unknownHeading: "我还不确定的",
+  unknownHeading: "还不确定",
   correctionHeading: "哪里需要换一种说法？",
-  confirmAction: "这就是我现在想先处理的事",
+  confirmAction: "对，就是这样",
   unavailable: "这次理解暂时没有完成。你说过的内容已经保留，可以稍后继续。",
 } as const;
+
+const PERSISTENCE_VERSION = 1;
 
 export function createProblemUnderstandingState(): ProblemUnderstandingState {
   return {
@@ -27,6 +29,8 @@ export function createProblemUnderstandingState(): ProblemUnderstandingState {
     pendingConfirmation: null,
     receipt: null,
     recoveryMessage: null,
+    clarificationSkipped: false,
+    savedAt: null,
   };
 }
 
@@ -79,10 +83,13 @@ export function receiveUnderstanding(
     },
     pendingConfirmation: null,
     recoveryMessage: null,
+    clarificationSkipped: false,
   };
 }
 
-export function beginCorrection(state: ProblemUnderstandingState): ProblemUnderstandingState {
+export function beginCorrection(
+  state: ProblemUnderstandingState,
+): ProblemUnderstandingState {
   if (!state.activeSignal) {
     return { ...state, phase: "ERROR" };
   }
@@ -117,6 +124,7 @@ export function submitCorrection(
     activeSignal: null,
     pendingConfirmation: null,
     recoveryMessage: null,
+    clarificationSkipped: false,
   };
 }
 
@@ -159,6 +167,7 @@ export function applyConfirmationReceipt(
         : draft,
     ),
     recoveryMessage: null,
+    savedAt: null,
   };
 }
 
@@ -180,6 +189,83 @@ export function retryUnderstanding(
     phase: "UNDERSTANDING",
     recoveryMessage: null,
   };
+}
+
+export function skipClarification(
+  state: ProblemUnderstandingState,
+): ProblemUnderstandingState {
+  if (state.phase !== "AWAITING_CONFIRMATION" || !state.activeSignal) {
+    return { ...state, phase: "ERROR" };
+  }
+  return { ...state, clarificationSkipped: true, recoveryMessage: null };
+}
+
+export function saveProblemUnderstandingForLater(
+  state: ProblemUnderstandingState,
+  savedAt: string,
+): ProblemUnderstandingState {
+  if (state.inputs.length === 0) return state;
+  return {
+    ...state,
+    phase: "SAVED",
+    pendingConfirmation: null,
+    savedAt,
+  };
+}
+
+export function resumeSavedProblemUnderstanding(
+  state: ProblemUnderstandingState,
+): ProblemUnderstandingState {
+  if (state.phase !== "SAVED") return state;
+  return {
+    ...state,
+    phase: state.activeSignal ? "AWAITING_CONFIRMATION" : "DRAFTING",
+    savedAt: null,
+  };
+}
+
+export function serializeProblemUnderstandingState(
+  state: ProblemUnderstandingState,
+): string {
+  return JSON.stringify({ version: PERSISTENCE_VERSION, state });
+}
+
+export function restoreProblemUnderstandingState(
+  serialized: string | null,
+): ProblemUnderstandingState {
+  if (!serialized) return createProblemUnderstandingState();
+  try {
+    const envelope = JSON.parse(serialized) as {
+      version?: number;
+      state?: Partial<ProblemUnderstandingState>;
+    };
+    const state = envelope.state;
+    if (
+      envelope.version !== PERSISTENCE_VERSION ||
+      !state ||
+      !Array.isArray(state.inputs) ||
+      !Array.isArray(state.drafts)
+    ) {
+      return createProblemUnderstandingState();
+    }
+    return {
+      ...createProblemUnderstandingState(),
+      ...state,
+      concernDraft:
+        typeof state.concernDraft === "string" ? state.concernDraft : "",
+      correctionDraft:
+        typeof state.correctionDraft === "string" ? state.correctionDraft : "",
+      clarificationSkipped: state.clarificationSkipped === true,
+      savedAt: typeof state.savedAt === "string" ? state.savedAt : null,
+    } as ProblemUnderstandingState;
+  } catch {
+    return {
+      ...createProblemUnderstandingState(),
+      phase: "ERROR",
+      recoveryMessage:
+        "没有找回上次保存的内容。你可以重新说一遍，我们会从这里继续。",
+    };
+  }
 }
 
 export function selectCurrentDraft(
@@ -213,6 +299,7 @@ export function buildUnderstandingMap(
     canCorrect: draft.lifecycle === "PROPOSED",
     canConfirm:
       draft.lifecycle === "PROPOSED" && state.phase === "AWAITING_CONFIRMATION",
+    clarificationSkipped: state.clarificationSkipped,
   };
 }
 
