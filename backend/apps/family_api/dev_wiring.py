@@ -100,7 +100,10 @@ installing side.
 
 
 def current_environment() -> str:
-    return os.environ.get(ENV_VAR, "development").strip().lower()
+    value = os.environ.get(ENV_VAR)
+    if value is None or not value.strip():
+        return "unset"
+    return value.strip().lower()
 
 
 def is_dev_environment() -> bool:

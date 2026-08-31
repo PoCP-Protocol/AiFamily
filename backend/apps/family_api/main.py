@@ -37,13 +37,6 @@ def create_app(
     # not-found.
     application.include_router(assessment_router, prefix="/families")
     register_assessment_exception_handlers(application)
-    # Dev-only session issuance. Mounted without a prefix because the mobile
-    # client calls `/auth/*` at the root. These four endpoints are the only way
-    # the app obtains a bearer token, so every one of the 34 UI screens depends
-    # on them — they were dropped by the four-layer refactor and restored here.
-    # Their placement in the assessment domain is a recorded architectural debt,
-    # not a design choice: see ADR-0010.
-    application.include_router(dev_auth_router)
     # Mounting membership does NOT make it callable in production: its
     # get_repository / get_action_context / get_actor_context dependencies raise
     # by design (no session factory, and the Account → TenantMembership → Family
@@ -76,6 +69,12 @@ def create_app(
     # See backend/apps/family_api/dev_wiring.py — it synthesises consent grants
     # and uses an in-memory repository (R5: must never be reachable in production).
     if is_dev_environment():
+        # Dev-only session issuance is part of the synthetic wiring boundary,
+        # not merely a dependency override. Keeping these routes out of the
+        # production OpenAPI prevents process-local tokens from looking like a
+        # supported authentication capability when AIFAMILY_ENV is absent,
+        # blank, invalid, or explicitly production.
+        application.include_router(dev_auth_router)
         install_dev_wiring(application)
     if growth_confirmation_wiring is not None:
         growth_confirmation_wiring.install(application)
