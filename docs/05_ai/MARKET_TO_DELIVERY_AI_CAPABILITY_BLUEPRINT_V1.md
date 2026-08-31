@@ -171,7 +171,7 @@ DemandCaptured
 ## 8. 整体平台分层
 
 本蓝图依据 `docs/13_research/market/SERVICE_PRODUCT_PLATFORM_BENCHMARK.md` 的外部证据，
-并由 `governance/ADR/ADR-0136-demand-driven-product-factory-loop.md` 固化运行决策。平台不新增
+并由 `governance/ADR/ADR-0140-demand-driven-product-factory-loop.md` 固化运行决策。平台不新增
 平行业务域，而是在现有唯一 Owner 上形成七层能力：
 
 1. **市场与组合决策层**：Demand/VOC、Market/Competitor Evidence、Opportunity、三区判断和

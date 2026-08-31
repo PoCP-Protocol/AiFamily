@@ -1,4 +1,4 @@
-# ADR-0136: Demand-driven product factory operating loop
+# ADR-0140: Demand-driven product factory operating loop
 
 - Status: Accepted
 - Date: 2026-08-31
