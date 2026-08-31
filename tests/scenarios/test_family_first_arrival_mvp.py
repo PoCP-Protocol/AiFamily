@@ -12,6 +12,8 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 
 from backend.domains.assessment.application.commands import (
     AssessmentCommandHandler,
@@ -32,12 +34,14 @@ from backend.domains.assessment.infrastructure.deterministic_interpretation impo
     DeterministicInterpretationAdapter,
 )
 from backend.domains.assessment.infrastructure.fake_repository import FakeAssessmentRepository
+from backend.domains.journey.application.persistent_service import PersistentJourneyPlanService
 from backend.domains.journey.application.plan_service import (
     ConfirmedGrowthIntent,
     JourneyPlanService,
     PhaseReviewDecision,
 )
 from backend.domains.journey.domain.errors import JourneyForbiddenError
+from backend.domains.journey.infrastructure.sqlalchemy_repository import JourneyBase
 
 SYNTHETIC_SOURCE = "SYNTHETIC_TEST_FIXTURE"
 
@@ -122,6 +126,138 @@ async def test_real_assessment_handlers_feed_the_journey_scenario() -> None:
     )
     assert plan["plan"]["intent_id"] == receipt["intent"]["intent_id"]
     assert plan["plan"]["focus_id"] == "NEED_PARENT_CHILD_COMMUNICATION"
+
+
+async def test_synthetic_assessment_receipt_persists_and_replays_across_sessions() -> None:
+    """The user's first-arrival handoff survives a new application session."""
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
+    async with engine.begin() as connection:
+        await connection.run_sync(JourneyBase.metadata.create_all)
+
+    assessment_repository = FakeAssessmentRepository()
+    assessment_repository.seed_family("synthetic-tenant-p", "synthetic-family-p")
+    assessment_repository.grant_family_manage_permission(
+        "synthetic-family-p", "synthetic-parent-p"
+    )
+    child_id = str(uuid4())
+    assessment_repository.seed_subject("synthetic-family-p", child_id, "小宁")
+    assessment_repository.seed_need_type(
+        "COMMUNICATION",
+        "NEED_PARENT_CHILD_COMMUNICATION",
+        "亲子沟通支持",
+        "先从倾听开始",
+        ["LISTENING_COACH"],
+    )
+    assessment = AssessmentCommandHandler(assessment_repository)
+    interpretation = DeterministicInterpretationAdapter()
+    query = AssessmentQueryHandler(assessment_repository, interpretation)
+    hypothesis = GrowthHypothesisCommandHandler(assessment_repository, interpretation)
+    def meta(key: str) -> MutationMeta:
+        return MutationMeta("synthetic-persistence-correlation", key, SYNTHETIC_SOURCE)
+    started = await assessment.start(
+        StartAssessmentCommand(
+            "synthetic-family-p",
+            "synthetic-tenant-p",
+            "synthetic-parent-p",
+            child_id,
+            None,
+            meta("start"),
+        )
+    )
+    session_id = started["session"]["assessment_session_id"]
+    await assessment.save_response(
+        SaveAssessmentResponseCommand(
+            "synthetic-family-p",
+            "synthetic-tenant-p",
+            "synthetic-parent-p",
+            session_id,
+            "FOCUS",
+            "SINGLE_CHOICE",
+            "COMMUNICATION",
+            meta("response"),
+        )
+    )
+    await assessment.submit(
+        SubmitAssessmentCommand(
+            "synthetic-family-p",
+            "synthetic-tenant-p",
+            "synthetic-parent-p",
+            session_id,
+            meta("submit"),
+        )
+    )
+    projection = await query.get_ui03_projection(
+        GetUi03ProjectionQuery("synthetic-family-p", "synthetic-tenant-p", "synthetic-parent-p")
+    )
+    receipt = await hypothesis.decide(
+        DecideGrowthHypothesisCommand(
+            "synthetic-family-p",
+            "synthetic-tenant-p",
+            "synthetic-parent-p",
+            session_id,
+            projection["hypothesis"]["hypothesis_ref"],
+            "CONFIRM",
+            "synthetic-persistence-correlation",
+            "confirm",
+        )
+    )
+    assert receipt["outcome"] == "INTENT_CREATED"
+    intent = receipt["intent"]
+
+    async def event_writer(*_args):
+        return None
+
+    service = PersistentJourneyPlanService(
+        async_sessionmaker(engine, expire_on_commit=False),
+        event_writer_factory=lambda _session: event_writer,
+    )
+    created = await service.create_plan_from_intent(
+        intent=ConfirmedGrowthIntent(
+            intent_id=intent["intent_id"],
+            tenant_id="synthetic-tenant-p",
+            family_id="synthetic-family-p",
+            actor_id="synthetic-parent-p",
+            need_type=intent["need_type"],
+            goal_text="围绕已确认的亲子沟通方向继续观察并改善",
+            evidence_refs=tuple(intent.get("evidence_refs", ())),
+            knowledge_refs=tuple(intent.get("knowledge_refs", ())),
+        ),
+        idempotency_key="synthetic-persistent-plan",
+    )
+    plan_id = created["plan"]["plan_id"]
+    await service.confirm_plan(
+        tenant_id="synthetic-tenant-p",
+        family_id="synthetic-family-p",
+        actor_id="synthetic-parent-p",
+        plan_id=plan_id,
+        idempotency_key="synthetic-persistent-confirm",
+    )
+    reopened = await service.read_plan(
+        plan_id=plan_id,
+        tenant_id="synthetic-tenant-p",
+        family_id="synthetic-family-p",
+    )
+    replayed = await service.create_plan_from_intent(
+        intent=ConfirmedGrowthIntent(
+            intent_id=intent["intent_id"],
+            tenant_id="synthetic-tenant-p",
+            family_id="synthetic-family-p",
+            actor_id="synthetic-parent-p",
+            need_type=intent["need_type"],
+            goal_text="围绕已确认的亲子沟通方向继续观察并改善",
+            evidence_refs=tuple(intent.get("evidence_refs", ())),
+            knowledge_refs=tuple(intent.get("knowledge_refs", ())),
+        ),
+        idempotency_key="synthetic-persistent-plan",
+    )
+    assert reopened["plan"]["status"] == "ACTIVE"
+    assert reopened["plan"]["intent_id"] == intent["intent_id"]
+    assert replayed["replayed"] is True
+    await engine.dispose()
 
 
 def test_parent_can_complete_first_arrival_growth_loop_with_simulated_data() -> None:
