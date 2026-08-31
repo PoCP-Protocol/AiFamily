@@ -13,6 +13,7 @@ from ..application.product_package_source_resolution import (
     ProductPackageSourceNotFoundError,
     ProductPackageSourceResolutionError,
     ProductPackageSourceUnavailableError,
+    product_package_intent_hash,
     resolve_product_package_source,
 )
 from ..application.product_package_submission import (
@@ -21,6 +22,7 @@ from ..application.product_package_submission import (
     ProductPackageSubmissionForbiddenError,
     ProductPackageSubmissionRepository,
     ProductPackageSubmissionResult,
+    find_product_package_intent_replay,
     get_product_package_submission,
     submit_product_package_draft,
 )
@@ -102,10 +104,30 @@ async def submit_product_package_review(
     now: datetime = Depends(get_product_package_submission_clock),
 ) -> ProductPackageReviewSubmissionResponse:
     try:
+        intent = body.to_intent()
+        intent_hash = product_package_intent_hash(intent)
+        result = await find_product_package_intent_replay(
+            services.repository,
+            context,
+            idempotency_key=idempotency_key,
+            intent_hash=intent_hash,
+        )
+        if result is not None:
+            response.status_code = 200
+            response.headers["Location"] = (
+                "/product-intelligence/product-package-review-submissions/"
+                f"{quote(result.draft.draft_id, safe='')}"
+            )
+            response.headers["ETag"] = _etag(result.draft.content_hash)
+            return _response(result)
+        if services.source_resolver is None:
+            raise ProductPackageSourceUnavailableError(
+                "PRODUCT_PACKAGE_TRUSTED_SOURCE_RESOLVER_NOT_CONFIGURED"
+            )
         source = await resolve_product_package_source(
             services.source_resolver,
             context,
-            body.to_intent(),
+            intent,
             now=now,
         )
         result = await submit_product_package_draft(
@@ -113,6 +135,8 @@ async def submit_product_package_review(
             context,
             source,
             idempotency_key=idempotency_key,
+            intent_hash=intent_hash,
+            source_draft_locator=intent.source_draft_locator,
             now=now,
         )
     except (

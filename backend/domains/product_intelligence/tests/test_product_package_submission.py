@@ -236,7 +236,7 @@ async def test_exact_replay_returns_original_snapshot_and_changed_payload_confli
         )
         with pytest.raises(
             ProductPackageSubmissionConflictError,
-            match="IDEMPOTENCY_REPLAY_MISMATCH",
+            match="INTENT_REPLAY_MISMATCH",
         ):
             await submit_product_package_draft(
                 repo,
@@ -252,6 +252,81 @@ async def test_exact_replay_returns_original_snapshot_and_changed_payload_confli
     assert replay.draft == first.draft
     assert replay.task == first.task
     assert len(events) == 2
+
+
+@pytest.mark.asyncio
+async def test_same_resolved_source_cannot_replay_a_different_browser_intent() -> None:
+    engine, factory = await _factory()
+    async with factory() as session:
+        await _seed(session)
+        repo = SqlAlchemyProductPackageSubmissionRepository(session)
+        await submit_product_package_draft(
+            repo,
+            _context(),
+            _source(),
+            idempotency_key="dual-hash-replay",
+            intent_hash="a" * 64,
+            source_draft_locator="source-locator:one",
+            now=NOW,
+        )
+        with pytest.raises(
+            ProductPackageSubmissionConflictError,
+            match="PRODUCT_PACKAGE_INTENT_REPLAY_MISMATCH",
+        ):
+            await submit_product_package_draft(
+                repo,
+                _context(),
+                _source(),
+                idempotency_key="dual-hash-replay",
+                intent_hash="b" * 64,
+                source_draft_locator="source-locator:two",
+                now=NOW,
+            )
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_repository_rejects_mismatched_resolved_hash_before_any_write() -> None:
+    engine, factory = await _factory()
+    async with factory() as session:
+        await _seed(session)
+        repo = SqlAlchemyProductPackageSubmissionRepository(session)
+        result = await submit_product_package_draft(
+            repo,
+            _context(),
+            _source(),
+            idempotency_key="resolved-hash-lineage",
+            intent_hash="a" * 64,
+            source_draft_locator="source-locator:one",
+            now=NOW,
+        )
+        before = (
+            await session.scalar(select(func.count()).select_from(ProductPackageDraftRow)),
+            await session.scalar(select(func.count()).select_from(HumanTaskRow)),
+            await session.scalar(select(func.count()).select_from(AuditEventRow)),
+        )
+        with pytest.raises(
+            ProductPackageSubmissionConflictError,
+            match="PRODUCT_PACKAGE_INTENT_PERSISTENCE_LINEAGE_MISMATCH",
+        ):
+            await repo.persist_submission(
+                draft=result.draft,
+                proposal=result.task.proposal,
+                task_id=result.task.task_id,
+                actor_id="human:product-owner",
+                idempotency_key="resolved-hash-lineage",
+                request_hash="f" * 64,
+                intent_hash=result.draft.intent_hash,
+                source_draft_locator=result.draft.source_draft_locator,
+            )
+        after = (
+            await session.scalar(select(func.count()).select_from(ProductPackageDraftRow)),
+            await session.scalar(select(func.count()).select_from(HumanTaskRow)),
+            await session.scalar(select(func.count()).select_from(AuditEventRow)),
+        )
+    await engine.dispose()
+
+    assert before == after == (1, 1, 2)
 
 
 @pytest.mark.asyncio
@@ -398,6 +473,67 @@ async def test_readback_rejects_tampered_adoption_arguments() -> None:
                 draft_id=result.draft.draft_id,
                 tenant_scope="tenant-a",
             )
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("field", "value", "code"),
+    [
+        (
+            "request_hash",
+            "f" * 64,
+            "PRODUCT_PACKAGE_PERSISTED_LINEAGE_MISMATCH",
+        ),
+        (
+            "intent_hash",
+            "e" * 64,
+            "PRODUCT_PACKAGE_PERSISTED_LINEAGE_MISMATCH",
+        ),
+        (
+            "source_draft_locator",
+            "source-locator:tampered",
+            "PRODUCT_PACKAGE_PERSISTED_LINEAGE_MISMATCH",
+        ),
+    ],
+)
+async def test_readback_rejects_tampered_intent_lineage(
+    field: str,
+    value: str,
+    code: str,
+) -> None:
+    engine, factory = await _factory()
+    async with factory() as session:
+        await _seed(session)
+        result = await submit_product_package_draft(
+            SqlAlchemyProductPackageSubmissionRepository(session),
+            _context(),
+            _source(),
+            idempotency_key=f"tampered-{field}",
+            intent_hash="a" * 64,
+            source_draft_locator="source-locator:one",
+            now=NOW,
+        )
+        row = await session.get(ProductPackageDraftRow, result.draft.draft_id)
+        assert row is not None
+        setattr(row, field, value)
+        await session.commit()
+
+    async with factory() as session:
+        repo = SqlAlchemyProductPackageSubmissionRepository(session)
+        with pytest.raises(ProductPackageSubmissionConflictError, match=code):
+            await repo.get(
+                draft_id=result.draft.draft_id,
+                tenant_scope="tenant-a",
+            )
+        if field == "request_hash":
+            with pytest.raises(ProductPackageSubmissionConflictError, match=code):
+                await repo.find_intent_replay(
+                    tenant_scope="tenant-a",
+                    actor_id="human:product-owner",
+                    idempotency_key=f"tampered-{field}",
+                    intent_hash="a" * 64,
+                )
     await engine.dispose()
 
 

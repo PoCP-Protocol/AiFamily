@@ -50,10 +50,10 @@ class ProductPackageDraftContent(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal["1.0"] = "1.0"
+    schema_version: Literal["1.1"] = "1.1"
     draft_id: str
     version_id: str
-    version: Literal["1.0.0"] = "1.0.0"
+    version: Literal["1.1.0"] = "1.1.0"
     status: Literal["DRAFT"] = "DRAFT"
     tenant_scope: str
     authored_by: str
@@ -84,6 +84,9 @@ class ProductPackageDraftContent(BaseModel):
     assumptions: tuple[str, ...]
     unknowns: tuple[str, ...]
     next_validation: str
+    source_draft_locator: str
+    intent_hash: str
+    resolved_request_hash: str
     source_provenance_ref: str
     model_ref: str
     prompt_use_case_version: str
@@ -103,6 +106,7 @@ class ProductPackageDraftContent(BaseModel):
         "pause_policy",
         "human_gate_policy",
         "next_validation",
+        "source_draft_locator",
         "source_provenance_ref",
         "model_ref",
         "prompt_use_case_version",
@@ -110,6 +114,18 @@ class ProductPackageDraftContent(BaseModel):
     @classmethod
     def text_fields_are_non_empty(cls, value: str, info) -> str:
         return _text(value, info.field_name)
+
+    @field_validator("intent_hash", "resolved_request_hash")
+    @classmethod
+    def hashes_are_sha256(cls, value: str, info) -> str:
+        normalized = _text(value, info.field_name)
+        if len(normalized) != 64 or any(
+            character not in "0123456789abcdef" for character in normalized
+        ):
+            raise ProductIntelligenceValidationError(
+                f"product_package_{info.field_name}_must_be_sha256"
+            )
+        return normalized
 
     @field_validator(
         "market_insight_refs",

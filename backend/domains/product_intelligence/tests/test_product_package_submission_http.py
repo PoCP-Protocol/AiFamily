@@ -247,6 +247,8 @@ async def test_create_readback_and_idempotent_replay_use_server_canonical_state(
             body = created.json()
             assert body["lifecycle_state"] == "SUBMITTED_FOR_REVIEW"
             assert body["draft"]["approved_zone"] == "UNIQUE"
+            assert body["draft"]["source_draft_locator"] == "model-draft-locator:one"
+            assert len(body["draft"]["intent_hash"]) == 64
             assert body["draft"]["source_provenance_ref"] == "model-draft:canonical:one"
             assert body["review_task"]["status"] == "OPEN"
             assert created.headers["etag"] == body["etag"]
@@ -279,7 +281,7 @@ async def test_create_readback_and_idempotent_replay_use_server_canonical_state(
             assert draft_count == 1
             assert await session.scalar(select(func.count()).select_from(HumanTaskRow)) == 1
             assert await session.scalar(select(func.count()).select_from(AuditEventRow)) == 2
-        assert resolver.calls == 3
+        assert resolver.calls == 1
     finally:
         clear_product_package_submission_services()
         await engine.dispose()
@@ -466,6 +468,53 @@ async def test_readback_does_not_depend_on_source_resolver_availability() -> Non
             readback = await client.get(created.headers["location"])
         assert readback.status_code == 200
         assert readback.json()["draft"]["draft_id"] == created.json()["draft"]["draft_id"]
+    finally:
+        clear_product_package_submission_services()
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_exact_post_replay_precedes_unavailable_or_changed_trusted_source() -> None:
+    engine, factory, app, resolver = await _harness()
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            created = await client.post(
+                "/product-intelligence/product-package-review-submissions",
+                headers={"Idempotency-Key": "replay-without-resolver"},
+                json=_payload(),
+            )
+            assert created.status_code == 201
+            configure_product_package_submission_services(factory, None)
+
+            replay = await client.post(
+                "/product-intelligence/product-package-review-submissions",
+                headers={"Idempotency-Key": "replay-without-resolver"},
+                json=_payload(),
+            )
+            assert replay.status_code == 200
+            assert replay.json()["replayed"] is True
+            assert replay.json()["draft"] == created.json()["draft"]
+
+            mismatch = await client.post(
+                "/product-intelligence/product-package-review-submissions",
+                headers={"Idempotency-Key": "replay-without-resolver"},
+                json=_payload(duration_days=90),
+            )
+            assert mismatch.status_code == 409
+            assert mismatch.json()["detail"] == "PRODUCT_PACKAGE_INTENT_REPLAY_MISMATCH"
+
+            fresh = await client.post(
+                "/product-intelligence/product-package-review-submissions",
+                headers={"Idempotency-Key": "fresh-without-resolver"},
+                json=_payload(),
+            )
+            assert fresh.status_code == 503
+            assert fresh.json()["detail"] == (
+                "PRODUCT_PACKAGE_TRUSTED_SOURCE_RESOLVER_NOT_CONFIGURED"
+            )
+        assert resolver.calls == 1
     finally:
         clear_product_package_submission_services()
         await engine.dispose()

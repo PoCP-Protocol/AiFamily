@@ -88,12 +88,22 @@ class ProductPackageSubmissionResult:
 
 
 class ProductPackageSubmissionRepository(Protocol):
-    async def find_replay(
+    async def find_intent_replay(
         self,
         *,
         tenant_scope: str,
         actor_id: str,
         idempotency_key: str,
+        intent_hash: str,
+    ) -> ProductPackageSubmissionResult | None: ...
+
+    async def find_exact_replay(
+        self,
+        *,
+        tenant_scope: str,
+        actor_id: str,
+        idempotency_key: str,
+        intent_hash: str,
         request_hash: str,
     ) -> ProductPackageSubmissionResult | None: ...
 
@@ -116,6 +126,8 @@ class ProductPackageSubmissionRepository(Protocol):
         actor_id: str,
         idempotency_key: str,
         request_hash: str,
+        intent_hash: str,
+        source_draft_locator: str,
     ) -> ProductPackageSubmissionResult: ...
 
 
@@ -225,6 +237,8 @@ async def submit_product_package_draft(
     source: ProductPackageSubmissionInput,
     *,
     idempotency_key: str,
+    intent_hash: str | None = None,
+    source_draft_locator: str | None = None,
     now: datetime | None = None,
 ) -> ProductPackageSubmissionResult:
     """Freeze the server-resolved design and atomically open an OPEN proposal."""
@@ -234,10 +248,23 @@ async def submit_product_package_draft(
     actor_id = _bounded_text(context.actor_id, "ACTOR_ID_REQUIRED", 128)
     key = _bounded_text(idempotency_key, "IDEMPOTENCY_KEY_REQUIRED", 256)
     request_hash = _canonical_hash(_request_payload(source))
-    replay = await repo.find_replay(
+    frozen_intent_hash = _bounded_text(
+        intent_hash or request_hash,
+        "PRODUCT_PACKAGE_INTENT_HASH_REQUIRED",
+        64,
+    )
+    if len(frozen_intent_hash) != 64:
+        raise ProductPackageSubmissionError("PRODUCT_PACKAGE_INTENT_HASH_INVALID")
+    frozen_source_locator = _bounded_text(
+        source_draft_locator or source.source_provenance_ref,
+        "PRODUCT_PACKAGE_SOURCE_DRAFT_LOCATOR_REQUIRED",
+        256,
+    )
+    replay = await repo.find_exact_replay(
         tenant_scope=tenant_scope,
         actor_id=actor_id,
         idempotency_key=key,
+        intent_hash=frozen_intent_hash,
         request_hash=request_hash,
     )
     if replay is not None:
@@ -313,6 +340,9 @@ async def submit_product_package_draft(
         assumptions=_refs(source.assumptions, "ASSUMPTIONS_REQUIRED", 2000),
         unknowns=_refs(source.unknowns, "UNKNOWNS_REQUIRED", 2000),
         next_validation=source.next_validation,
+        source_draft_locator=frozen_source_locator,
+        intent_hash=frozen_intent_hash,
+        resolved_request_hash=request_hash,
         source_provenance_ref=source.source_provenance_ref,
         model_ref=source.model_ref,
         prompt_use_case_version=source.prompt_use_case_version,
@@ -371,8 +401,39 @@ async def submit_product_package_draft(
         actor_id=actor_id,
         idempotency_key=key,
         request_hash=request_hash,
+        intent_hash=frozen_intent_hash,
+        source_draft_locator=frozen_source_locator,
     )
     return result
+
+
+async def find_product_package_intent_replay(
+    repo: ProductPackageSubmissionRepository,
+    context: ActorContext,
+    *,
+    idempotency_key: str,
+    intent_hash: str,
+) -> ProductPackageSubmissionResult | None:
+    """Return a frozen HTTP replay before mutable trusted sources are resolved."""
+
+    authorize_product_package_submission(context)
+    tenant_scope = _bounded_text(context.tenant_scope, "TENANT_SCOPE_REQUIRED", 128)
+    actor_id = _bounded_text(context.actor_id, "ACTOR_ID_REQUIRED", 128)
+    key = _bounded_text(idempotency_key, "IDEMPOTENCY_KEY_REQUIRED", 256)
+    canonical_intent_hash = _bounded_text(
+        intent_hash,
+        "PRODUCT_PACKAGE_INTENT_HASH_REQUIRED",
+        64,
+    )
+    if len(canonical_intent_hash) != 64:
+        raise ProductPackageSubmissionError("PRODUCT_PACKAGE_INTENT_HASH_INVALID")
+    replay = await repo.find_intent_replay(
+        tenant_scope=tenant_scope,
+        actor_id=actor_id,
+        idempotency_key=key,
+        intent_hash=canonical_intent_hash,
+    )
+    return replace(replay, replayed=True) if replay is not None else None
 
 
 async def get_product_package_submission(
@@ -401,6 +462,7 @@ __all__ = [
     "ProductPackageSubmissionResult",
     "authorize_product_package_read",
     "authorize_product_package_submission",
+    "find_product_package_intent_replay",
     "get_product_package_submission",
     "submit_product_package_draft",
 ]

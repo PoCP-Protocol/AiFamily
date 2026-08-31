@@ -265,6 +265,10 @@ PPT、图片、视频和短剧都必须反链到产品版本与需求证据。
 - DemandFrame 与 MarketInsight 的完整 envelope 缺少独立持久化回读；
 - EvidenceVerificationReceipt 已有 accepted-action/SQL 测试接缝，但尚无提案 Web、撤销影响账本、
   Alembic、PostgreSQL 并发和 ProductPackage resolver 生产接入；
+- ProductPackage HTTP 已按 ADR-0147 在可信来源解析前执行 durable intent replay：浏览器意图、
+  source locator 和 requested TTL 进入 canonical hash，相同 key/相同 intent 返回冻结结果，
+  相同 key/不同 intent 在 resolver 前冲突；resolver 暂不可用时历史 exact replay 仍可回读。
+  新列尚无 Alembic 与 PostgreSQL 并发证明，因此仍不是生产挂载能力；
 - ProductPackage 已有独立可测的 SQL DRAFT→OPEN ActionProposal 与严格 HTTP create/read
   接缝，但尚无可信 evidence-receipt/provenance 解析器、Alembic、生产挂载、Web readback、
   十二项编译报告绑定和真实 PostgreSQL 并发证明；

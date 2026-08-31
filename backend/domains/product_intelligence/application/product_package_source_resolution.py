@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from hashlib import sha256
 from typing import Protocol
 
 from .context import ActorContext
@@ -67,6 +69,22 @@ class ProductPackageSourceResolver(Protocol):
     ) -> ResolvedProductPackageSource: ...
 
 
+def product_package_intent_hash(intent: ProductPackageDesignIntent) -> str:
+    """Hash every browser-controlled design field before any source lookup."""
+
+    payload = {
+        field: getattr(intent, field)
+        for field in ProductPackageDesignIntent.__dataclass_fields__
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return sha256(encoded).hexdigest()
+
+
 _INTENT_FIELDS = (
     "concept_id",
     "zone_assessment_id",
@@ -123,5 +141,6 @@ __all__ = [
     "ProductPackageSourceResolver",
     "ProductPackageSourceUnavailableError",
     "ResolvedProductPackageSource",
+    "product_package_intent_hash",
     "resolve_product_package_source",
 ]

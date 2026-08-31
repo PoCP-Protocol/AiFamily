@@ -51,6 +51,8 @@ class ProductPackageDraftRow(Base):
     tenant_scope: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     actor_id: Mapped[str] = mapped_column(String(128), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    intent_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_draft_locator: Mapped[str] = mapped_column(String(256), nullable=False)
     request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     proposal_id: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -113,12 +115,13 @@ class SqlAlchemyProductPackageSubmissionRepository:
             )
         )
 
-    async def find_replay(
+    async def find_exact_replay(
         self,
         *,
         tenant_scope: str,
         actor_id: str,
         idempotency_key: str,
+        intent_hash: str,
         request_hash: str,
     ) -> ProductPackageSubmissionResult | None:
         row = await self._row_by_key(
@@ -128,9 +131,34 @@ class SqlAlchemyProductPackageSubmissionRepository:
         )
         if row is None:
             return None
+        if row.intent_hash != intent_hash:
+            raise ProductPackageSubmissionConflictError(
+                "PRODUCT_PACKAGE_INTENT_REPLAY_MISMATCH"
+            )
         if row.request_hash != request_hash:
             raise ProductPackageSubmissionConflictError(
                 "PRODUCT_PACKAGE_IDEMPOTENCY_REPLAY_MISMATCH"
+            )
+        return await self._result(row)
+
+    async def find_intent_replay(
+        self,
+        *,
+        tenant_scope: str,
+        actor_id: str,
+        idempotency_key: str,
+        intent_hash: str,
+    ) -> ProductPackageSubmissionResult | None:
+        row = await self._row_by_key(
+            tenant_scope=tenant_scope,
+            actor_id=actor_id,
+            idempotency_key=idempotency_key,
+        )
+        if row is None:
+            return None
+        if row.intent_hash != intent_hash:
+            raise ProductPackageSubmissionConflictError(
+                "PRODUCT_PACKAGE_INTENT_REPLAY_MISMATCH"
             )
         return await self._result(row)
 
@@ -172,6 +200,9 @@ class SqlAlchemyProductPackageSubmissionRepository:
             or row.version_id != draft.version_id
             or row.tenant_scope != draft.tenant_scope
             or row.actor_id != draft.authored_by
+            or row.intent_hash != draft.intent_hash
+            or row.source_draft_locator != draft.source_draft_locator
+            or row.request_hash != draft.resolved_request_hash
             or _utc(row.created_at) != _utc(draft.created_at)
             or _utc(row.expires_at) != _utc(draft.expires_at)
             or proposal.scope.tenant_id != row.tenant_scope
@@ -203,11 +234,22 @@ class SqlAlchemyProductPackageSubmissionRepository:
         actor_id: str,
         idempotency_key: str,
         request_hash: str,
+        intent_hash: str,
+        source_draft_locator: str,
     ) -> ProductPackageSubmissionResult:
-        replay = await self.find_replay(
+        if (
+            draft.intent_hash != intent_hash
+            or draft.source_draft_locator != source_draft_locator
+            or draft.resolved_request_hash != request_hash
+        ):
+            raise ProductPackageSubmissionConflictError(
+                "PRODUCT_PACKAGE_INTENT_PERSISTENCE_LINEAGE_MISMATCH"
+            )
+        replay = await self.find_exact_replay(
             tenant_scope=draft.tenant_scope,
             actor_id=actor_id,
             idempotency_key=idempotency_key,
+            intent_hash=intent_hash,
             request_hash=request_hash,
         )
         if replay is not None:
@@ -242,6 +284,8 @@ class SqlAlchemyProductPackageSubmissionRepository:
                 tenant_scope=draft.tenant_scope,
                 actor_id=actor_id,
                 idempotency_key=idempotency_key,
+                intent_hash=intent_hash,
+                source_draft_locator=source_draft_locator,
                 request_hash=request_hash,
                 content_hash=draft.content_hash,
                 proposal_id=proposal.proposal_id,
@@ -261,10 +305,11 @@ class SqlAlchemyProductPackageSubmissionRepository:
             return ProductPackageSubmissionResult(draft=draft, task=task)
         except IntegrityError as exc:
             await self._session.rollback()
-            replay = await self.find_replay(
+            replay = await self.find_exact_replay(
                 tenant_scope=draft.tenant_scope,
                 actor_id=actor_id,
                 idempotency_key=idempotency_key,
+                intent_hash=intent_hash,
                 request_hash=request_hash,
             )
             if replay is not None:

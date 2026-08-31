@@ -29,7 +29,7 @@ ProductPackageSourceResolverFactory = Callable[[AsyncSession], ProductPackageSou
 @dataclass(frozen=True, slots=True)
 class ProductPackageSubmissionServices:
     repository: ProductPackageSubmissionRepository
-    source_resolver: ProductPackageSourceResolver
+    source_resolver: ProductPackageSourceResolver | None
 
 
 _session_factory: async_sessionmaker[AsyncSession] | None = None
@@ -95,7 +95,7 @@ async def get_authorized_product_package_reader(
 async def get_product_package_submission_services() -> AsyncGenerator[
     ProductPackageSubmissionServices, None
 ]:
-    if _session_factory is None or _source_resolver_factory is None:
+    if _session_factory is None:
         raise HTTPException(
             status_code=503,
             detail="PRODUCT_PACKAGE_TRUSTED_SOURCE_RESOLVER_NOT_CONFIGURED",
@@ -103,7 +103,11 @@ async def get_product_package_submission_services() -> AsyncGenerator[
     async with _session_factory() as session:
         yield ProductPackageSubmissionServices(
             repository=SqlAlchemyProductPackageSubmissionRepository(session),
-            source_resolver=_source_resolver_factory(session),
+            source_resolver=(
+                _source_resolver_factory(session)
+                if _source_resolver_factory is not None
+                else None
+            ),
         )
 
 
