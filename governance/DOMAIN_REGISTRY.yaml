@@ -276,10 +276,10 @@ entries:
 
   - capability: growth_plan_python_stub
     canonical_path: backend/domains/growth_plan
-    status: MIGRATED_STRUCTURE_ONLY
+    status: RETIRED_CANONICAL_CONFLICT
     disposition: MIGRATE
     source_reference: "50_开发_dev/backend/domains/growth_plan"
-    note: "单文件 37 行，仅错误类型枚举。无实体，无行为，零测试。"
+    note: "仅保留历史错误类型；计划行为归入 journey，见 ADR-0012。目录待二次确认后删除。"
     override_reference: "MIGRATION_MANIFEST.yaml → growth_plan_python_stub.project_owner_override（2026-08-29 推翻 ARCHIVE；迁移后仍是错误类型 stub，不假装已有实体模型）"
     registration_note: "本条目为 2026-08-29 补登记，同 market_intelligence。"
     r2_overlap_risk: >
@@ -291,6 +291,16 @@ entries:
       三者之一：(a) 本 stub 并入 journey 后删除本条目；(b) growth_plan 明确降级为
       journey 的内部子模块（不再是独立 capability）；(c) 明确 growth_plan 与 journey
       是两个不同能力并写出边界。在裁决前不得向本 stub 添加实体模型。
+
+  - capability: journey_growth_plan
+    canonical_path: backend/domains/journey
+    status: IN_PROGRESS
+    disposition: REIMPLEMENT
+    source_reference: "AiFamily net-new first vertical slice; ADR-0012 retires growth_plan stub into journey"
+    tests: [tests/domains/journey/test_plan_service.py, tests/domains/journey/test_plan_routes.py]
+    registration_note: >
+      首个业务切片：已确认家庭关注点→21天计划→成人确认→计划回读→阶段复盘。
+      计划结构与节奏归 journey；任务执行事实归 action；效果结论归 outcome。
 
   - capability: design_copilot
     canonical_path: backend/intelligence/design_copilot

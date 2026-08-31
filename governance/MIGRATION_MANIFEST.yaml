@@ -341,6 +341,15 @@ entries:
     evidence: ["单文件 37行，仅错误类型枚举，注释称'mirroring journey-plan.service.ts'但无实体"]
     project_owner_override: "2026-08-29 project-owner指示先迁移全部Python代码,推翻ARCHIVE判定;迁移后仍是错误类型stub,不假装已有实体模型"
 
+  - capability: journey_growth_plan
+    disposition: REIMPLEMENT
+    source: []
+    target: [backend/domains/journey]
+    status: IN_PROGRESS
+    evidence:
+      - "AiFamily net-new first vertical slice; ADR-0012 makes journey the canonical owner of GrowthPlan"
+    reason: "Implement the 21-day plan confirmation, readback, and phase-review seam in the canonical journey domain"
+
   - capability: design_copilot
     disposition: MIGRATE
     source: ["50_开发_dev/backend/intelligence/design_copilot"]
