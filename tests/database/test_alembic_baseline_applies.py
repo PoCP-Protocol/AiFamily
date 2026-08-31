@@ -35,11 +35,11 @@ from tests.support.postgres import SKIP_REASON, postgres_test_url
 
 # Measured by applying the 62 linearised files with psql on an empty Postgres 16.
 # The historical replay creates 151 tables.  Revisions after the replay own
-# five additional tables: the platform audit table, the service check-in
-# table, and the three Journey MVP tables.  Keep this explicit so a new domain
+# six additional tables: the platform audit table, the service check-in
+# table, and the four Journey MVP tables. Keep this explicit so a new domain
 # migration must update the object-count contract rather than silently pass.
 EXPECTED_LEGACY_TABLES = 151
-EXPECTED_POST_BASELINE_TABLES = 5
+EXPECTED_POST_BASELINE_TABLES = 6
 EXPECTED_VIEWS = 7
 EXPECTED_ENUM_TYPES = 60
 
