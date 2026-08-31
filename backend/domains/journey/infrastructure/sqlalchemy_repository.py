@@ -10,9 +10,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
+from json import dumps
 from typing import Any
+from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, Integer, String, select
+from sqlalchemy import JSON, DateTime, Integer, String, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -75,6 +77,72 @@ class JourneyPracticeRecordRow(JourneyBase):
 
 
 EventWriter = Callable[[str, str, str, str, str], Any]
+
+
+def canonical_event_writer(session: AsyncSession) -> EventWriter:
+    """Build a writer for the platform's existing audit and outbox tables.
+
+    The returned callable deliberately does not commit.  It is intended to be
+    passed to :class:`SqlAlchemyJourneyRepository` while the caller owns one
+    transaction, so a missing audit or outbox row rolls the Journey mutation
+    back with it.  `audit_logs` and `outbox_events` are platform tables from
+    the baseline; this function does not create a Journey-specific event
+    ledger.
+    """
+
+    async def write_event(
+        action: str, resource_id: str, actor_id: str, tenant_id: str, family_id: str
+    ) -> None:
+        correlation_id = str(uuid4())
+        payload = {
+            "tenant_id": tenant_id,
+            "family_id": family_id,
+            "resource_id": resource_id,
+            "action": action,
+        }
+        await session.execute(
+            text(
+                """
+                INSERT INTO audit_logs
+                    (family_id, actor_type, actor_id, action_name, resource_type,
+                     resource_id, correlation_id, idempotency_key, result, metadata)
+                VALUES
+                    (:family_id, 'PERSON', :actor_id, :action, 'JOURNEY_MVP',
+                     :resource_id, :correlation_id, :resource_id, 'SUCCESS',
+                     CAST(:metadata AS jsonb))
+                """
+            ),
+            {
+                "family_id": family_id,
+                "actor_id": actor_id,
+                "action": action,
+                "resource_id": resource_id,
+                "correlation_id": correlation_id,
+                "metadata": dumps(payload),
+            },
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO outbox_events
+                    (aggregate_type, aggregate_id, event_name, event_version,
+                     event_id, correlation_id, payload, occurred_at)
+                VALUES
+                    ('JOURNEY_MVP', :resource_id, :event_name, 1, :event_id,
+                     :correlation_id, CAST(:payload AS jsonb), :occurred_at)
+                """
+            ),
+            {
+                "resource_id": resource_id,
+                "event_name": action,
+                "event_id": str(uuid4()),
+                "correlation_id": correlation_id,
+                "payload": dumps(payload),
+                "occurred_at": datetime.now(UTC),
+            },
+        )
+
+    return write_event
 
 
 class SqlAlchemyJourneyRepository:

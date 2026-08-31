@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
@@ -13,6 +15,7 @@ from backend.domains.journey.application.plan_service import (
 from backend.domains.journey.infrastructure.sqlalchemy_repository import (
     JourneyBase,
     SqlAlchemyJourneyRepository,
+    canonical_event_writer,
 )
 from tests.support.postgres import SKIP_REASON, postgres_schema_engine, postgres_test_url
 
@@ -163,3 +166,16 @@ async def test_postgres_plan_and_records_survive_new_session() -> None:
             )
             assert readback["plan"]["status"] == "ACTIVE"
             assert readback["records"][0]["observation"] == "重新打开后仍能看到这次观察"
+
+
+async def test_canonical_event_writer_uses_one_session_for_audit_and_outbox() -> None:
+    session = AsyncMock()
+    writer = canonical_event_writer(session)
+    await writer("PLAN_CREATED", "plan-1", "parent-a", "tenant-a", "family-a")
+    assert session.execute.await_count == 2
+    first_call = session.execute.await_args_list[0]
+    second_call = session.execute.await_args_list[1]
+    assert "audit_logs" in str(first_call.args[0])
+    assert "outbox_events" in str(second_call.args[0])
+    assert first_call.args[1]["family_id"] == "family-a"
+    assert second_call.args[1]["resource_id"] == "plan-1"
