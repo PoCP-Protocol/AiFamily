@@ -8,6 +8,10 @@ from backend.apps.family_api.product_factory_wiring import (
     install_product_factory_actor_resolver,
     mount_product_factory_router,
 )
+from backend.domains.product_intelligence.api import (
+    product_definition_review_routes,
+    product_factory_routes,
+)
 from backend.domains.product_intelligence.api.dependencies import get_actor_context
 from backend.domains.product_intelligence.application.context import ActorContext
 
@@ -20,6 +24,7 @@ def test_product_factory_mount_exposes_draft_contract_without_identity_fallback(
     paths = set(app.openapi()["paths"])
     assert "/product-intelligence/product-factory/demand-frames" in paths
     assert "/product-intelligence/product-factory/product-packages" in paths
+    assert "/product-intelligence/operator/product-definition-review-tasks" in paths
 
 
 def test_product_factory_mount_is_idempotent() -> None:
@@ -34,6 +39,31 @@ def test_product_factory_mount_is_idempotent() -> None:
     ]
     signatures = [(route.path, frozenset(route.methods or ())) for route in routes]
     assert len(signatures) == len(set(signatures))
+
+
+def test_product_factory_mount_completes_a_partial_mount_without_duplicates() -> None:
+    app = FastAPI()
+    app.include_router(product_factory_routes.router)
+
+    mount_product_factory_router(app)
+
+    assert (
+        sum(
+            getattr(route, "original_router", None) is product_factory_routes.router
+            for route in app.routes
+        )
+        == 1
+    )
+    assert (
+        sum(
+            getattr(route, "original_router", None) is product_definition_review_routes.router
+            for route in app.routes
+        )
+        == 1
+    )
+    assert (
+        "/product-intelligence/operator/product-definition-review-tasks" in app.openapi()["paths"]
+    )
 
 
 def test_product_factory_actor_resolver_is_explicitly_injectable() -> None:

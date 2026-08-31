@@ -77,6 +77,10 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .market-evidence-workbench output { display: block; }
 .market-evidence-workbench code { overflow-wrap: anywhere; }
 .product-concept-decision-workbench { margin: 24px auto; max-width: 1180px; }
+.product-definition-review-workbench { margin: 24px auto; max-width: 1100px; }
+.review-task-list { display: grid; gap: 10px; list-style: none; margin: 20px 0; padding: 0; }
+.review-task-list li { align-items: center; border: 1px solid #dce5dc; border-radius: 12px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; padding: 12px; }
+.review-task-detail { border-top: 1px solid #dce5dc; margin-top: 24px; padding-top: 20px; }
 .product-concept-decision-workbench fieldset { border: 1px solid #dce5dc; border-radius: 16px; padding: 18px; }
 .product-concept-decision-workbench legend { color: #174c3b; font-weight: 800; padding: 0 8px; }
 .candidate-reference-row { align-items: end; display: grid; gap: 12px; grid-template-columns: 1fr 1fr auto; margin-bottom: 14px; }

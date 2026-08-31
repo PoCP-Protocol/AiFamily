@@ -10,7 +10,7 @@ describe("ProductStudioWorkspace", () => {
     expect(screen.getByRole("tab", { name: /Market Evidence/ })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByRole("tabpanel")).toHaveAccessibleName(/Demand/);
     expect(screen.getByRole("heading", { name: "创建需求草案" })).toBeInTheDocument();
-    expect(screen.getAllByRole("tabpanel", { hidden: true })).toHaveLength(4);
+    expect(screen.getAllByRole("tabpanel", { hidden: true })).toHaveLength(5);
   });
 
   it("keeps mounted form state while showing only the active panel", async () => {
@@ -52,6 +52,8 @@ describe("ProductStudioWorkspace", () => {
     expect(screen.getByRole("heading", { name: "市场与竞品证据工作台" })).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: /Concept Decision/ }));
     expect(screen.getByRole("heading", { name: "产品概念候选决策台" })).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /PDM Review/ }));
+    expect(screen.getByRole("heading", { name: "PDM 人工评审队列" })).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: /Sandbox/ }));
     expect(screen.getByRole("heading", { name: "产品设计工厂" })).toBeInTheDocument();
   });

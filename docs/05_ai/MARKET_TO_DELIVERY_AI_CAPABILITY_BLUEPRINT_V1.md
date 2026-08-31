@@ -215,8 +215,12 @@ PPT、图片、视频和短剧都必须反链到产品版本与需求证据。
   结果仅为 `ProductDefinition(DRAFT)`，并保留 task/proposal/decision、评估版本、
   provenance，并生成同事务审计记录。具体边界由
   `governance/ADR/ADR-0141-product-definition-human-adoption.md` 固化；
-- 当前 Web 选择仍是未持久化 Decision DRAFT。下一切片先持久化 ProductPackage DRAFT
-  并提交 Human Gate，再接 operator review 和 accepted worker，不允许用直接写接口跨越缺口。
+- 当前 Web 选择仍是未持久化 Decision DRAFT。下一上游切片必须持久化 ProductPackage DRAFT
+  并提交 Human Gate，不允许用直接写接口跨越缺口。
+- Operator Review Queue 已实现为独立可测 Web/API surface：只读取服务端 OPEN HumanTask，
+  浏览器仅提交 outcome + reason，ACCEPT 只生成待执行 NamedActionRequest。当前主应用尚未挂载
+  Product Factory router，生产权限解析器也未安装，故不能宣称生产可用；边界见
+  `governance/ADR/ADR-0143-product-definition-operator-review-surface.md`。
 
 ### Iteration 3：组件与 Skill 闭环
 

@@ -28,11 +28,12 @@ class FakeSessionPort:
 def _app(resolver: ProductFactoryBearerActorResolver) -> FastAPI:
     app = FastAPI()
 
-    async def actor(context: ActorContext = Depends(get_actor_context)) -> dict[str, str]:
+    async def actor(context: ActorContext = Depends(get_actor_context)) -> dict[str, object]:
         return {
             "actor_id": context.actor_id,
             "tenant_scope": context.tenant_scope,
             "trace_id": context.trace_id or "",
+            "permissions": sorted(context.permissions),
         }
 
     app.get("/actor")(actor)
@@ -44,6 +45,7 @@ def _app(resolver: ProductFactoryBearerActorResolver) -> FastAPI:
     install_product_factory_bearer_identity(
         resolver.session_port,
         resolver.tenant_scope_resolver,
+        resolver.permission_resolver,
     )
     app.state.clear_product_factory_actor_resolver = clear_product_factory_actor_resolver
     return app
@@ -74,6 +76,7 @@ def test_bearer_bridge_introspects_and_resolves_tenant() -> None:
         "actor_id": "account:account-1",
         "tenant_scope": "tenant-a",
         "trace_id": "identity-session:session-1",
+        "permissions": [],
     }
     assert session_port.tokens == ["opaque-token"]
 
@@ -127,3 +130,37 @@ def test_bearer_bridge_rejects_tenant_resolver_failure() -> None:
         app.state.clear_product_factory_actor_resolver()
 
     assert response.status_code == 500
+
+
+def test_bearer_bridge_resolves_permissions_from_trusted_policy() -> None:
+    session_port = FakeSessionPort(
+        VerifiedIdentitySession(
+            session_id="session-1",
+            account_id="account-1",
+            family_id="family-1",
+            expires_at=datetime.now(UTC) + timedelta(minutes=5),
+        )
+    )
+
+    async def tenant_scope(_session, _request):
+        return "tenant-a"
+
+    async def permissions(session, tenant, _request):
+        assert session.account_id == "account-1"
+        assert tenant == "tenant-a"
+        return frozenset({"product_intelligence.product_definition.review"})
+
+    app = _app(
+        ProductFactoryBearerActorResolver(
+            session_port,
+            tenant_scope,
+            permission_resolver=permissions,
+        )
+    )
+    try:
+        response = TestClient(app).get("/actor", headers={"Authorization": "Bearer opaque-token"})
+    finally:
+        app.state.clear_product_factory_actor_resolver()
+
+    assert response.status_code == 200
+    assert response.json()["permissions"] == ["product_intelligence.product_definition.review"]

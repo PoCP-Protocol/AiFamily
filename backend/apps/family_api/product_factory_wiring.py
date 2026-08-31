@@ -12,16 +12,24 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.apps.family_api.product_factory_identity import (
+    PermissionResolver,
     ProductFactoryBearerActorResolver,
     TenantScopeResolver,
 )
-from backend.domains.product_intelligence.api import product_factory_routes
+from backend.domains.product_intelligence.api import (
+    product_definition_review_routes,
+    product_factory_routes,
+)
 from backend.domains.product_intelligence.api.dependencies import (
     ActorResolver,
     clear_actor_resolver,
     clear_session_factory,
     configure_actor_resolver,
     configure_session_factory,
+)
+from backend.domains.product_intelligence.api.product_definition_review_dependencies import (
+    clear_product_definition_review_session_factory,
+    configure_product_definition_review_session_factory,
 )
 from backend.platform.identity.session_port import IdentitySessionPort
 
@@ -35,18 +43,24 @@ def mount_product_factory_router(application: FastAPI) -> None:
     OpenAPI operations or request dispatch entries.
     """
 
-    expected = {
-        (route.path, frozenset(route.methods or ()))
-        for route in product_factory_routes.router.routes
-    }
-    registered = {
-        (getattr(route, "path", None), frozenset(getattr(route, "methods", None) or ()))
-        for route in application.routes
-    }
-    if expected and expected.issubset(registered):
-        return
-
-    application.include_router(product_factory_routes.router)
+    for domain_router in (
+        product_factory_routes.router,
+        product_definition_review_routes.router,
+    ):
+        if any(
+            getattr(route, "original_router", None) is domain_router for route in application.routes
+        ):
+            continue
+        expected = {(route.path, frozenset(route.methods or ())) for route in domain_router.routes}
+        registered = {
+            (
+                getattr(route, "path", None),
+                frozenset(getattr(route, "methods", None) or ()),
+            )
+            for route in application.routes
+        }
+        if expected and not expected.issubset(registered):
+            application.include_router(domain_router)
 
 
 def install_product_factory_session_factory(
@@ -55,12 +69,14 @@ def install_product_factory_session_factory(
     """Bind an explicit app-owned async session factory for production."""
 
     configure_session_factory(session_factory)
+    configure_product_definition_review_session_factory(session_factory)
 
 
 def clear_product_factory_session_factory() -> None:
     """Clear Product Factory persistence wiring between app instances/tests."""
 
     clear_session_factory()
+    clear_product_definition_review_session_factory()
 
 
 def install_product_factory_actor_resolver(
@@ -80,6 +96,7 @@ def clear_product_factory_actor_resolver() -> None:
 def install_product_factory_bearer_identity(
     session_port: IdentitySessionPort,
     tenant_scope_resolver: TenantScopeResolver,
+    permission_resolver: PermissionResolver | None = None,
 ) -> None:
     """Compose the standard Bearer-to-ActorContext bridge for the app."""
 
@@ -87,6 +104,7 @@ def install_product_factory_bearer_identity(
         ProductFactoryBearerActorResolver(
             session_port=session_port,
             tenant_scope_resolver=tenant_scope_resolver,
+            permission_resolver=permission_resolver,
         )
     )
 
