@@ -30,6 +30,8 @@ describe("UI-03 family assessment result contract", () => {
     expect(source).toContain("readableSecondary");
     expect(source).toContain("gatePrimaryConfirmed");
     expect(source).toContain("gateSecondaryDismissed");
+    expect(source).toContain('knowledgeTitle: { color: "#4A3514"');
+    expect(source).toContain('knowledgeSource: { color: "#6A501C"');
     expect(source).toContain("依据");
     expect(source).toContain("可能的方向");
     expect(source).toContain("还未知");

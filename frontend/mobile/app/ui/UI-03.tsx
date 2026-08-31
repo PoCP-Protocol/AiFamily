@@ -558,7 +558,7 @@ export default function GrowthExplanationScreen() {
               style={styles.knowledgeCard}
             >
               <Text style={styles.sectionLabel}>知识参考</Text>
-              <Text style={[styles.knowledgeTitle, { color: colors.text }]}>为什么先看「{displayedKnowledge?.title ?? "家庭互动"}」</Text>
+              <Text style={styles.knowledgeTitle}>为什么先看「{displayedKnowledge?.title ?? "家庭互动"}」</Text>
               <Text style={styles.knowledgeText}>
                 {displayedKnowledge?.familyLens ?? "先看家庭互动与环境，再决定是否需要更多支持。"}
               </Text>
@@ -1138,10 +1138,10 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 9,
   },
-  knowledgeTitle: { fontSize: 17, lineHeight: 24, fontWeight: "900" },
+  knowledgeTitle: { color: "#4A3514", fontSize: 17, lineHeight: 24, fontWeight: "900" },
   knowledgeText: { color: "#624B22", fontSize: 14, lineHeight: 22, fontWeight: "700" },
   knowledgeDivider: { height: 1, backgroundColor: "#F1E7D2" },
-  knowledgeSource: { color: "#8A7043", fontSize: 12, lineHeight: 18 },
+  knowledgeSource: { color: "#6A501C", fontSize: 12, lineHeight: 18 },
   themeRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   themeChip: { borderRadius: 10, backgroundColor: "#FFF2D6", paddingHorizontal: 9, paddingVertical: 5 },
   themeChipText: { color: "#76551C", fontSize: 11, lineHeight: 16, fontWeight: "900" },
