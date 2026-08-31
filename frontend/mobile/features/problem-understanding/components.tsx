@@ -64,51 +64,58 @@ interface UnderstandingMapProps {
 export function UnderstandingMap({ model }: UnderstandingMapProps) {
   return (
     <View style={styles.stack}>
-      <Text accessibilityRole="header" style={styles.title}>
-        看看我有没有听对
-      </Text>
-      <MapSection title="你说的">
-        {model.originalWords.map((words, index) => (
-          <Text key={`${index}-${words}`} style={styles.body}>
-            “{words}”
-          </Text>
-        ))}
-      </MapSection>
-      <MapSection title="我们的理解">
-        <Text style={styles.body}>{model.currentUnderstanding}</Text>
-      </MapSection>
-      {model.alternativeExplanations.length > 0 ? (
-        <MapSection title="也可能是另一种情况">
-          {model.alternativeExplanations.map((item) => (
+      <View style={styles.mapHeading}>
+        <Text accessibilityRole="header" style={styles.title}>
+          看看我有没有听对
+        </Text>
+        <Text style={styles.supporting}>
+          先核对重点，不准确的地方随时可以改。
+        </Text>
+      </View>
+      <View style={styles.mapGrid}>
+        <MapSection title="你说的">
+          {model.originalWords.map((words, index) => (
+            <Text key={`${index}-${words}`} style={styles.body}>
+              “{words}”
+            </Text>
+          ))}
+        </MapSection>
+        <MapSection title="我们的理解" tone="highlight">
+          <Text style={styles.body}>{model.currentUnderstanding}</Text>
+        </MapSection>
+        <MapSection title="你希望先发生的变化">
+          <Text style={styles.emphasis}>{model.desiredChange}</Text>
+        </MapSection>
+        <MapSection
+          title={PROBLEM_UNDERSTANDING_COPY.unknownHeading}
+          tone="quiet"
+        >
+          {model.clarificationSkipped ? (
+            <Text style={styles.skippedNote}>
+              已选择先跳过，之后还可以回来补充。
+            </Text>
+          ) : null}
+          {model.unknowns.length === 0 ? (
+            <Text style={styles.body}>暂时没有需要补充确认的地方。</Text>
+          ) : (
+            model.unknowns.map((item) => (
+              <Bullet key={item.key}>{item.label}</Bullet>
+            ))
+          )}
+        </MapSection>
+        {model.alternativeExplanations.length > 0 ? (
+          <MapSection title="也可能是另一种情况">
+            {model.alternativeExplanations.map((item) => (
+              <Bullet key={item}>{item}</Bullet>
+            ))}
+          </MapSection>
+        ) : null}
+        <MapSection title="可以从这里开始">
+          {model.familyStrengths.map((item) => (
             <Bullet key={item}>{item}</Bullet>
           ))}
         </MapSection>
-      ) : null}
-      <MapSection title="你们已经在努力的地方">
-        {model.familyStrengths.map((item) => (
-          <Bullet key={item}>{item}</Bullet>
-        ))}
-      </MapSection>
-      <MapSection title="你希望先发生的变化">
-        <Text style={styles.emphasis}>{model.desiredChange}</Text>
-      </MapSection>
-      <MapSection
-        title={PROBLEM_UNDERSTANDING_COPY.unknownHeading}
-        tone="quiet"
-      >
-        {model.clarificationSkipped ? (
-          <Text style={styles.skippedNote}>
-            已选择先跳过，之后还可以回来补充。
-          </Text>
-        ) : null}
-        {model.unknowns.length === 0 ? (
-          <Text style={styles.body}>暂时没有需要补充确认的地方。</Text>
-        ) : (
-          model.unknowns.map((item) => (
-            <Bullet key={item.key}>{item.label}</Bullet>
-          ))
-        )}
-      </MapSection>
+      </View>
     </View>
   );
 }
@@ -163,30 +170,37 @@ export function CorrectionConfirmation({
   }
 
   return (
-    <View style={styles.actions}>
-      <ActionButton
-        disabled={!canCorrect}
-        label="有点不对"
-        onPress={onBeginCorrection}
-        secondary
-      />
-      <ActionButton
-        disabled={!canCorrect}
-        label="我想补充"
-        onPress={onBeginCorrection}
-        secondary
-      />
-      <ActionButton
-        label="先跳过澄清"
-        onPress={onSkipClarification}
-        secondary
-      />
+    <View style={[styles.surface, styles.actions]}>
+      <Text accessibilityRole="header" style={styles.sectionTitle}>
+        这份理解准确吗？
+      </Text>
+      <Text style={styles.actionHint}>只有你确认后，才会进入下一步。</Text>
       <ActionButton
         disabled={!canConfirm}
         label={PROBLEM_UNDERSTANDING_COPY.confirmAction}
         onPress={onConfirm}
       />
-      <ActionButton label="退出并保存" onPress={onSaveAndExit} secondary />
+      <View style={styles.actionRow}>
+        <View style={styles.actionCell}>
+          <ActionButton
+            disabled={!canCorrect}
+            label="有点不对"
+            onPress={onBeginCorrection}
+            secondary
+          />
+        </View>
+        <View style={styles.actionCell}>
+          <ActionButton
+            disabled={!canCorrect}
+            label="我想补充"
+            onPress={onBeginCorrection}
+            secondary
+          />
+        </View>
+      </View>
+      <View style={styles.divider} />
+      <ActionButton label="先跳过澄清" onPress={onSkipClarification} quiet />
+      <ActionButton label="退出并保存" onPress={onSaveAndExit} quiet />
     </View>
   );
 }
@@ -213,10 +227,16 @@ function MapSection({
 }: {
   children: ReactNode;
   title: string;
-  tone?: "regular" | "quiet";
+  tone?: "regular" | "quiet" | "highlight";
 }) {
   return (
-    <View style={[styles.section, tone === "quiet" && styles.quietSection]}>
+    <View
+      style={[
+        styles.section,
+        tone === "quiet" && styles.quietSection,
+        tone === "highlight" && styles.highlightSection,
+      ]}
+    >
       <Text style={styles.sectionTitle}>{title}</Text>
       {children}
     </View>
@@ -232,11 +252,13 @@ function ActionButton({
   label,
   onPress,
   secondary = false,
+  quiet = false,
 }: {
   disabled?: boolean;
   label: string;
   onPress: () => void;
   secondary?: boolean;
+  quiet?: boolean;
 }) {
   return (
     <Pressable
@@ -246,12 +268,17 @@ function ActionButton({
       style={({ pressed }) => [
         styles.button,
         secondary && styles.secondaryButton,
+        quiet && styles.quietButton,
         disabled && styles.disabledButton,
         pressed && !disabled && styles.pressedButton,
       ]}
     >
       <Text
-        style={[styles.buttonText, secondary && styles.secondaryButtonText]}
+        style={[
+          styles.buttonText,
+          secondary && styles.secondaryButtonText,
+          quiet && styles.quietButtonText,
+        ]}
       >
         {label}
       </Text>
@@ -260,6 +287,9 @@ function ActionButton({
 }
 
 const styles = StyleSheet.create({
+  actionCell: { flex: 1, minWidth: 130 },
+  actionHint: { color: "#6E6258", fontSize: 13, lineHeight: 20 },
+  actionRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   actions: { gap: 10 },
   body: { color: "#443A32", fontSize: 16, lineHeight: 25 },
   button: {
@@ -271,6 +301,7 @@ const styles = StyleSheet.create({
   },
   buttonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
   disabledButton: { opacity: 0.45 },
+  divider: { backgroundColor: "#EADDD3", height: 1, marginVertical: 2 },
   emphasis: {
     color: "#8B3E22",
     fontSize: 18,
@@ -289,9 +320,14 @@ const styles = StyleSheet.create({
     padding: 16,
     textAlignVertical: "top",
   },
+  highlightSection: { backgroundColor: "#FFF4EC", borderColor: "#EBC3A9" },
+  mapGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  mapHeading: { gap: 4 },
   privacyNote: { color: "#6E6258", fontSize: 13, lineHeight: 20 },
   pressedButton: { opacity: 0.78 },
   quietSection: { backgroundColor: "#F3F0EA" },
+  quietButton: { backgroundColor: "transparent", paddingVertical: 10 },
+  quietButtonText: { color: "#765B4C", fontSize: 14 },
   recovery: { borderColor: "#D9CBBF", borderWidth: 1 },
   secondaryButton: {
     backgroundColor: "#F8EEE7",
@@ -301,7 +337,11 @@ const styles = StyleSheet.create({
   secondaryButtonText: { color: "#7C3D27" },
   section: {
     backgroundColor: "#FFFFFF",
+    borderColor: "#EFE5DE",
     borderRadius: 18,
+    borderWidth: 1,
+    flexBasis: 280,
+    flexGrow: 1,
     gap: 8,
     padding: 18,
   },
