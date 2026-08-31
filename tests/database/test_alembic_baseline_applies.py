@@ -34,7 +34,12 @@ from backend.platform.persistence.session import DATABASE_URL_ENV_VAR
 from tests.support.postgres import SKIP_REASON, postgres_test_url
 
 # Measured by applying the 62 linearised files with psql on an empty Postgres 16.
+# The historical replay creates 151 tables.  Revisions after the replay own
+# five additional tables: the platform audit table, the service check-in
+# table, and the three Journey MVP tables.  Keep this explicit so a new domain
+# migration must update the object-count contract rather than silently pass.
 EXPECTED_LEGACY_TABLES = 151
+EXPECTED_POST_BASELINE_TABLES = 5
 EXPECTED_VIEWS = 7
 EXPECTED_ENUM_TYPES = 60
 
@@ -128,13 +133,15 @@ async def test_upgrade_head_applies_to_empty_postgres(throwaway_database_url: st
 
     after = await _count_objects(throwaway_database_url)
     assert after == {
-        "tables": EXPECTED_LEGACY_TABLES + _ALEMBIC_BOOKKEEPING_TABLES,
+        "tables": EXPECTED_LEGACY_TABLES
+        + EXPECTED_POST_BASELINE_TABLES
+        + _ALEMBIC_BOOKKEEPING_TABLES,
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     }, f"replayed schema does not match the psql-measured reference: {after}"
 
     current = _run_alembic("current", database_url=throwaway_database_url)
-    assert "0001_legacy_schema_baseline" in current.stdout
+    assert "0004_journey_mvp_persistence" in current.stdout
     assert "(head)" in current.stdout
 
 
@@ -147,9 +154,7 @@ async def test_downgrade_then_upgrade_is_repeatable(throwaway_database_url: str)
     the database in a state no command reported correctly. Asserting a full
     up -> down -> up cycle is what makes that class of bug visible.
     """
-    assert (
-        _run_alembic("upgrade", "head", database_url=throwaway_database_url).returncode == 0
-    )
+    assert _run_alembic("upgrade", "head", database_url=throwaway_database_url).returncode == 0
 
     down = _run_alembic("downgrade", "base", database_url=throwaway_database_url)
     assert down.returncode == 0, f"alembic downgrade base failed:\n{down.stdout}\n{down.stderr}"
@@ -164,4 +169,7 @@ async def test_downgrade_then_upgrade_is_repeatable(throwaway_database_url: str)
     assert up_again.returncode == 0, f"re-upgrade failed:\n{up_again.stdout}\n{up_again.stderr}"
 
     after_up = await _count_objects(throwaway_database_url)
-    assert after_up["tables"] == EXPECTED_LEGACY_TABLES + _ALEMBIC_BOOKKEEPING_TABLES
+    assert (
+        after_up["tables"]
+        == EXPECTED_LEGACY_TABLES + EXPECTED_POST_BASELINE_TABLES + _ALEMBIC_BOOKKEEPING_TABLES
+    )
