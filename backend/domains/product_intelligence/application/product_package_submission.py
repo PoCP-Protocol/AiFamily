@@ -32,6 +32,7 @@ from .product_definition_adoption import (
 )
 
 PRODUCT_PACKAGE_SUBMIT_PERMISSION = "product_intelligence.product_package.submit"
+PRODUCT_PACKAGE_READ_PERMISSION = "product_intelligence.product_package.read"
 PRODUCT_PACKAGE_PROCESSING_BASIS = "processing-basis:internal-product-design:v1"
 
 
@@ -102,6 +103,10 @@ class ProductPackageSubmissionRepository(Protocol):
         self, entity_id: str, tenant_scope: str
     ) -> ProductZoneAssessment: ...
 
+    async def get(
+        self, *, draft_id: str, tenant_scope: str
+    ) -> ProductPackageSubmissionResult: ...
+
     async def persist_submission(
         self,
         *,
@@ -127,8 +132,8 @@ def _bounded_text(value: str, code: str, maximum: int) -> str:
     return normalized
 
 
-def _refs(values: tuple[str, ...], code: str) -> tuple[str, ...]:
-    normalized = tuple(_required_text(value, code) for value in values)
+def _refs(values: tuple[str, ...], code: str, maximum: int = 512) -> tuple[str, ...]:
+    normalized = tuple(_bounded_text(value, code, maximum) for value in values)
     if not normalized:
         raise ProductPackageSubmissionError(code)
     if len(set(normalized)) != len(normalized):
@@ -189,10 +194,29 @@ def _stable_id(kind: str, tenant_scope: str, actor_id: str, idempotency_key: str
 
 def _authorize(context: ActorContext) -> None:
     if (
-        context.actor_type not in {"HUMAN", "AI"}
+        context.actor_type != "HUMAN"
         or PRODUCT_PACKAGE_SUBMIT_PERMISSION not in context.permissions
     ):
-        raise ProductPackageSubmissionForbiddenError("product_package_submit_permission_required")
+        raise ProductPackageSubmissionForbiddenError(
+            "product_package_human_submit_permission_required"
+        )
+
+
+def authorize_product_package_submission(context: ActorContext) -> None:
+    """Fail before any trusted-source lookup for an unauthorized caller."""
+
+    _authorize(context)
+    _bounded_text(context.tenant_scope, "TENANT_SCOPE_REQUIRED", 128)
+    _bounded_text(context.actor_id, "ACTOR_ID_REQUIRED", 128)
+
+
+def authorize_product_package_read(context: ActorContext) -> None:
+    """Reject untrusted reads before opening a repository session."""
+
+    if PRODUCT_PACKAGE_READ_PERMISSION not in context.permissions:
+        raise ProductPackageSubmissionForbiddenError("PRODUCT_PACKAGE_READ_FORBIDDEN")
+    _bounded_text(context.tenant_scope, "TENANT_SCOPE_REQUIRED", 128)
+    _bounded_text(context.actor_id, "ACTOR_ID_REQUIRED", 128)
 
 
 async def submit_product_package_draft(
@@ -205,7 +229,7 @@ async def submit_product_package_draft(
 ) -> ProductPackageSubmissionResult:
     """Freeze the server-resolved design and atomically open an OPEN proposal."""
 
-    _authorize(context)
+    authorize_product_package_submission(context)
     tenant_scope = _bounded_text(context.tenant_scope, "TENANT_SCOPE_REQUIRED", 128)
     actor_id = _bounded_text(context.actor_id, "ACTOR_ID_REQUIRED", 128)
     key = _bounded_text(idempotency_key, "IDEMPOTENCY_KEY_REQUIRED", 256)
@@ -278,7 +302,7 @@ async def submit_product_package_draft(
         skill_ids=_refs(source.skill_ids, "SKILL_IDS_REQUIRED"),
         success_metric_ids=_refs(source.success_metric_ids, "SUCCESS_METRIC_IDS_REQUIRED"),
         guardrail_ids=_refs(source.guardrail_ids, "GUARDRAIL_IDS_REQUIRED"),
-        stop_conditions=_refs(source.stop_conditions, "STOP_CONDITIONS_REQUIRED"),
+        stop_conditions=_refs(source.stop_conditions, "STOP_CONDITIONS_REQUIRED", 2000),
         pause_policy=source.pause_policy,
         human_gate_policy=source.human_gate_policy,
         evidence_refs=evidence_refs,
@@ -286,8 +310,8 @@ async def submit_product_package_draft(
             {"evidence_ref": ref, "status": evidence_statuses[ref]}
             for ref in sorted(evidence_statuses)
         ),
-        assumptions=_refs(source.assumptions, "ASSUMPTIONS_REQUIRED"),
-        unknowns=_refs(source.unknowns, "UNKNOWNS_REQUIRED"),
+        assumptions=_refs(source.assumptions, "ASSUMPTIONS_REQUIRED", 2000),
+        unknowns=_refs(source.unknowns, "UNKNOWNS_REQUIRED", 2000),
         next_validation=source.next_validation,
         source_provenance_ref=source.source_provenance_ref,
         model_ref=source.model_ref,
@@ -351,8 +375,23 @@ async def submit_product_package_draft(
     return result
 
 
+async def get_product_package_submission(
+    repo: ProductPackageSubmissionRepository,
+    context: ActorContext,
+    *,
+    draft_id: str,
+) -> ProductPackageSubmissionResult:
+    """Read one tenant-scoped immutable draft and its current review receipt."""
+
+    authorize_product_package_read(context)
+    tenant_scope = _bounded_text(context.tenant_scope, "TENANT_SCOPE_REQUIRED", 128)
+    normalized_draft_id = _bounded_text(draft_id, "DRAFT_ID_REQUIRED", 160)
+    return await repo.get(draft_id=normalized_draft_id, tenant_scope=tenant_scope)
+
+
 __all__ = [
     "PRODUCT_PACKAGE_PROCESSING_BASIS",
+    "PRODUCT_PACKAGE_READ_PERMISSION",
     "PRODUCT_PACKAGE_SUBMIT_PERMISSION",
     "ProductPackageSubmissionConflictError",
     "ProductPackageSubmissionError",
@@ -360,5 +399,8 @@ __all__ = [
     "ProductPackageSubmissionInput",
     "ProductPackageSubmissionRepository",
     "ProductPackageSubmissionResult",
+    "authorize_product_package_read",
+    "authorize_product_package_submission",
+    "get_product_package_submission",
     "submit_product_package_draft",
 ]

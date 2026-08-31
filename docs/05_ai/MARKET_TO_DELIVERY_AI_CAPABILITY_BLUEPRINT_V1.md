@@ -217,8 +217,10 @@ PPT、图片、视频和短剧都必须反链到产品版本与需求证据。
   `governance/ADR/ADR-0141-product-definition-human-adoption.md` 固化；
 - 当前 Web 选择仍是未持久化 Decision DRAFT。应用/SQL 测试面已按 ADR-0145 增加不可变
   `ProductPackageDraftVersion`，冻结 approved-zone、证据、组件/Skill、AI provenance 和 content
-  hash，并与 OPEN HumanTask 在同一事务提交；但 Alembic、registry、严格 HTTP readback、Web
-  create-read 验证和真实 PostgreSQL 并发仍未落地，因此不能把测试面称为 Web 或生产能力。
+  hash，并与 OPEN HumanTask 在同一事务提交。严格 HTTP create/read 测试面只接受业务意图和
+  opaque locator，拒绝浏览器提供 zone、证据状态、AI provenance、身份和 Gate 字段；但可信
+  evidence-receipt/provenance 解析器、Alembic、registry、生产挂载、Web create-read 验证和真实
+  PostgreSQL 并发仍未落地，因此不能把测试面称为 Web 或生产能力。
 - Operator Review Queue 已实现为独立可测 Web/API surface：只读取服务端 OPEN HumanTask，
   浏览器仅提交 outcome + reason，ACCEPT 只生成待执行 NamedActionRequest。当前主应用尚未挂载
   Product Factory router，生产权限解析器也未安装，故不能宣称生产可用；边界见
@@ -256,8 +258,9 @@ PPT、图片、视频和短剧都必须反链到产品版本与需求证据。
 - Product Factory 尚未在 canonical `family_api` 完成无争议的生产挂载与真实身份组合；
 - HTTP 幂等键尚未真正接入平台幂等执行；
 - DemandFrame 与 MarketInsight 的完整 envelope 缺少独立持久化回读；
-- ProductPackage 已有独立可测的 SQL DRAFT→OPEN ActionProposal 应用接缝，但尚无 Alembic、
-  HTTP/Web readback、十二项编译报告绑定和真实 PostgreSQL 并发证明；
+- ProductPackage 已有独立可测的 SQL DRAFT→OPEN ActionProposal 与严格 HTTP create/read
+  接缝，但尚无可信 evidence-receipt/provenance 解析器、Alembic、生产挂载、Web readback、
+  十二项编译报告绑定和真实 PostgreSQL 并发证明；
 - Component/Skill Catalog、PilotRun、GateRecord、ReleaseBaseline 和多模态资产主数据尚未形成
   可运行闭环；
 - Web 的历史 `ProductStudio` 状态机仍是 Sandbox，不得作为真实 Gate 或能力完成证明。

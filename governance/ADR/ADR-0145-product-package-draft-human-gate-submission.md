@@ -54,7 +54,8 @@ approves a proposal.
 
 ### DRAFT and ActionProposal remain distinct
 
-Saving a DRAFT creates a separate `ActionProposal` for the fixed named action
+Explicitly submitting a DRAFT for review creates a separate `ActionProposal`
+for the fixed named action
 `ADOPT_PRODUCT_CONCEPT_AS_DEFINITION`. The proposal references the exact draft
 and carries only the strict `ProductDefinitionAdoptionArguments`; richer
 package evidence remains on the immutable source version.
@@ -62,6 +63,11 @@ package evidence remains on the immutable source version.
 The resulting HumanTask is `OPEN`. Creation does not decide the task, create a
 NamedActionRequest, persist a ProductDefinition, enter PILOT or advance PLM.
 Those transitions remain separate human-controlled steps.
+
+Only a trusted human actor with explicit submit permission may perform this
+transition. AI generation completion, autosave and page load cannot call it.
+The current slice does not yet provide a separate server-side SAVED_DRAFT
+checkpoint; the Web must not label this review-submission endpoint as autosave.
 
 ### Atomicity, replay and tenancy
 
@@ -85,12 +91,13 @@ This ADR's first implementation provides the domain contract, SQL repository,
 atomic Human Gate submission and SQLite-backed integration proof. It does not
 claim production availability until all of these are true:
 
-1. the shared Alembic 0011-0048 work is committed and a single linear 0049
-   migration creates the draft table;
+1. the shared Alembic chain through its then-current head is committed and the
+   next single linear migration creates the draft table without a second head;
 2. `DOMAIN_REGISTRY.yaml` and `CAPABILITY_REGISTRY.yaml` are updated by or with
    their current owners, without overwriting concurrent WIP;
-3. a strict HTTP create/read adapter resolves provenance and evidence status
-   server-side and rejects governance fields;
+3. the strict HTTP create/read adapter is paired with a production source
+   resolver that consumes server-owned evidence-verification receipts and AI
+   provenance records rather than trusting browser or legacy card status;
 4. the Web workbench performs create-read verification before it offers Human
    Gate submission;
 5. real PostgreSQL concurrency and migration-vs-ORM tests pass.
