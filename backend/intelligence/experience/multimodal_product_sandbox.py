@@ -55,6 +55,7 @@ PURPOSE = "multimodal_family_understanding_sandbox"
 PROMPT_VERSION = "multimodal-family-understanding.v1"
 SCHEMA_VERSION = "multimodal-family-draft-insight.v1"
 DRAFT_VERSION = "multimodal-family-draft-insight.v1"
+KNOWLEDGE_REF = "synthetic:knowledge:family-coordination.v1"
 EXPECTED_MODEL = "fake-deterministic"
 EXPECTED_MODEL_VERSION = "1.0.0"
 DEFAULT_PROVIDER_ID = "multimodal-sandbox-fake"
@@ -138,6 +139,8 @@ class SyntheticFamilyInput:
     audio_ref: str
     audio_sha256: str
     transcript_ref: str
+    image_ref: str | None = None
+    image_sha256: str | None = None
     source: str = SANDBOX_SOURCE
     fixture_only: bool = True
     consent_granted: bool = True
@@ -161,6 +164,8 @@ class SyntheticFamilyInput:
             raise SandboxPolicyError("SYNTHETIC_FIXTURE_REQUIRED")
         if self.consent_granted is not True or not self.consent_ref.startswith("synthetic:"):
             raise SandboxPolicyError("SYNTHETIC_CONSENT_REQUIRED")
+        if (self.image_ref is None) != (self.image_sha256 is None):
+            raise SandboxPolicyError("IMAGE_FIXTURE_INCOMPLETE")
         for value in (
             self.input_id,
             self.tenant_id,
@@ -172,10 +177,16 @@ class SyntheticFamilyInput:
         ):
             if not value.startswith("synthetic:"):
                 raise SandboxPolicyError("NON_SYNTHETIC_INPUT_REJECTED")
+        for value in (self.image_ref, self.image_sha256):
+            if value is not None and not value.startswith("synthetic:"):
+                raise SandboxPolicyError("NON_SYNTHETIC_INPUT_REJECTED")
 
     @property
     def source_refs(self) -> tuple[str, ...]:
-        return (self.audio_ref, self.transcript_ref)
+        refs = [self.audio_ref, self.transcript_ref]
+        if self.image_ref is not None:
+            refs.append(self.image_ref)
+        return tuple(refs)
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +200,8 @@ class StructuredPreview:
     normalized_text: str
     source_refs: tuple[str, ...]
     media_sha256: str
+    image_ref: str | None
+    image_sha256: str | None
     preview_hash: str
     source: str
     fixture_only: bool
@@ -226,6 +239,7 @@ class DraftInsight:
     context_policy: SandboxContextPolicy
     created_at: datetime
     expires_at: datetime
+    knowledge_refs: tuple[str, ...] = ()
 
     @property
     def status(self) -> Literal["DRAFT"]:
@@ -420,6 +434,7 @@ class MultimodalProductSandbox:
                 "normalized_text": normalized,
                 "source_refs": input_data.source_refs,
                 "media_sha256": input_data.audio_sha256,
+                "image_sha256": input_data.image_sha256,
             }
         )
         preview = StructuredPreview(
@@ -430,6 +445,8 @@ class MultimodalProductSandbox:
             normalized_text=normalized,
             source_refs=input_data.source_refs,
             media_sha256=input_data.audio_sha256,
+            image_ref=input_data.image_ref,
+            image_sha256=input_data.image_sha256,
             preview_hash=preview_hash,
             source=input_data.source,
             fixture_only=input_data.fixture_only,
@@ -473,9 +490,12 @@ class MultimodalProductSandbox:
                     "normalized_text": normalized,
                     "source_refs": preview.source_refs,
                     "media_sha256": preview.media_sha256,
+                    "image_sha256": preview.image_sha256,
                 }
             ),
             media_sha256=preview.media_sha256,
+            image_ref=preview.image_ref,
+            image_sha256=preview.image_sha256,
             source=SANDBOX_SOURCE,
             fixture_only=True,
             human_edited=True,
@@ -531,6 +551,7 @@ class MultimodalProductSandbox:
                 "input_id": preview.input_id,
                 "normalized_text": preview.normalized_text,
                 "source_refs": list(preview.source_refs),
+                "knowledge_refs": [KNOWLEDGE_REF],
                 "context_policy": {
                     "purpose": self._policy.purpose,
                     "consent_version": self._policy.consent_version,
@@ -542,14 +563,7 @@ class MultimodalProductSandbox:
             output_schema=_draft_schema(),
             context_snapshot_ref=context_ref,
             input_refs=preview.source_refs,
-            media_inputs=(
-                MediaInput(
-                    media_type="AUDIO",
-                    uri=preview.source_refs[0],
-                    mime_type="audio/mpeg",
-                    sha256=preview.media_sha256,
-                ),
-            ),
+            media_inputs=self._media_inputs(preview),
             request_id=run_id,
             policy_context=PolicyContext(),
         )
@@ -592,6 +606,7 @@ class MultimodalProductSandbox:
                     "support_card": support_card,
                     "limitations": limitations,
                     "provenance": _stable_provenance(gateway_draft.provenance),
+                    "knowledge_refs": (KNOWLEDGE_REF,),
                 }
             )
             task = self._gate.submit_model_draft(
@@ -634,6 +649,7 @@ class MultimodalProductSandbox:
                 context_policy=self._policy,
                 created_at=timestamp,
                 expires_at=timestamp + self._review_ttl,
+                knowledge_refs=(KNOWLEDGE_REF,),
             )
             self._record_event(
                 tenant_id=draft.tenant_id,
@@ -763,6 +779,7 @@ class MultimodalProductSandbox:
                     failure_stop=False,
                     timestamp=timestamp,
                     extra={
+                        "knowledge_refs": draft.knowledge_refs,
                         "human_gate_outcome": outcome.value,
                         "edited_perspective_sha256": (
                             hashlib.sha256(edited_perspective.encode("utf-8")).hexdigest()
@@ -793,6 +810,27 @@ class MultimodalProductSandbox:
         self._reviews[task.task_id] = result
         self._review_fingerprints[task.task_id] = fingerprint
         return result
+
+    @staticmethod
+    def _media_inputs(preview: StructuredPreview) -> tuple[MediaInput, ...]:
+        media = [
+            MediaInput(
+                media_type="AUDIO",
+                uri=preview.source_refs[0],
+                mime_type="audio/mpeg",
+                sha256=preview.media_sha256,
+            )
+        ]
+        if preview.image_ref is not None and preview.image_sha256 is not None:
+            media.append(
+                MediaInput(
+                    media_type="IMAGE",
+                    uri=preview.image_ref,
+                    mime_type="image/png",
+                    sha256=preview.image_sha256,
+                )
+            )
+        return tuple(media)
 
     @staticmethod
     def _assert_preview_scope(

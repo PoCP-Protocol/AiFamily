@@ -32,7 +32,9 @@ MEDIA_SHA256 = "synthetic:sha256:multimodal-001"
 
 
 def make_input(
-    *, text: str = "合成语音转写：家庭希望把晚间学习启动变得更容易协作。"
+    *,
+    text: str = "合成语音转写：家庭希望把晚间学习启动变得更容易协作。",
+    with_image: bool = False,
 ) -> SyntheticFamilyInput:
     return SyntheticFamilyInput(
         input_id="synthetic:input:multimodal-001",
@@ -43,6 +45,8 @@ def make_input(
         audio_ref=AUDIO_REF,
         audio_sha256=MEDIA_SHA256,
         transcript_ref=TRANSCRIPT_REF,
+        image_ref="synthetic:image:multimodal-001" if with_image else None,
+        image_sha256="synthetic:image-sha256:multimodal-001" if with_image else None,
     )
 
 
@@ -131,6 +135,37 @@ async def test_text_and_synthetic_voice_replay_creates_scoped_draft_and_gate() -
     assert event.after["fixture_only"] is True
     assert event.after["draft_hash"] == draft.draft_hash
     assert event.after["failure_stop"] is False
+
+
+@pytest.mark.asyncio
+async def test_optional_synthetic_image_is_grounded_and_replayed_without_new_runtime() -> None:
+    sandbox = build_multimodal_product_sandbox()
+    preview = sandbox.build_preview(make_input(with_image=True))
+    draft = await sandbox.generate_draft(preview, run_id="synthetic-run:image-001", now=NOW)
+
+    request = sandbox.provider.invocations[0]
+    assert request.media_inputs[0].media_type == "AUDIO"
+    assert request.media_inputs[1].media_type == "IMAGE"
+    assert request.media_inputs[1].uri == "synthetic:image:multimodal-001"
+    assert request.payload["knowledge_refs"] == ["synthetic:knowledge:family-coordination.v1"]
+    assert draft.knowledge_refs == ("synthetic:knowledge:family-coordination.v1",)
+    assert draft.provenance.data_class == "SYNTHETIC"
+    assert draft.may_mutate_business_state is False
+
+
+def test_partial_image_fixture_is_rejected() -> None:
+    with pytest.raises(SandboxPolicyError, match="IMAGE_FIXTURE_INCOMPLETE"):
+        SyntheticFamilyInput(
+            input_id="synthetic:input:partial-image",
+            tenant_id=TENANT,
+            family_id=FAMILY,
+            guardian_id=GUARDIAN,
+            text="fixture",
+            audio_ref=AUDIO_REF,
+            audio_sha256=MEDIA_SHA256,
+            transcript_ref=TRANSCRIPT_REF,
+            image_ref="synthetic:image:partial",
+        )
 
 
 @pytest.mark.asyncio
