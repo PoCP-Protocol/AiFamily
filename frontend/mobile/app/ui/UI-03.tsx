@@ -136,6 +136,17 @@ type SupportLoopProjection = {
   } | null;
 };
 
+type ConfirmedIntentReceipt = {
+  action: "CONFIRM_GROWTH_HYPOTHESIS";
+  outcome: "INTENT_CREATED";
+  hypothesis_ref: string;
+  intent: {
+    intent_id: string;
+    boundary: "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME";
+  };
+  replayed: boolean;
+};
+
 export default function GrowthExplanationScreen() {
   const colors = useColors();
   const readableSecondary = colors.background === "#0F1620" ? "#C5D2E4" : "#40556D";
@@ -231,6 +242,8 @@ export default function GrowthExplanationScreen() {
   const [interpretationDecision, setInterpretationDecision] = useState<
     "idle" | "saving" | "confirmed" | "dismissed" | "retry"
   >("idle");
+  const [confirmedIntentReceipt, setConfirmedIntentReceipt] =
+    useState<ConfirmedIntentReceipt | null>(null);
 
   const keyFor = (fingerprint: string) => {
     operationKeys.current[fingerprint] ??= createMobileRequestId(
@@ -247,7 +260,7 @@ export default function GrowthExplanationScreen() {
     }
     setInterpretationDecision("saving");
     void familyApi
-      .decideGrowthHypothesis(
+      .decideGrowthHypothesis<ConfirmedIntentReceipt | { outcome: "NO_ACTION" }>(
         session.token!,
         session.selectedFamily!.family_id,
         {
@@ -257,7 +270,15 @@ export default function GrowthExplanationScreen() {
         },
         keyFor(`assessment-interpretation:${assessmentSessionId}:${hypothesis.hypothesis_ref}:${decision}`),
       )
-      .then(() => setInterpretationDecision(decision === "CONFIRM" ? "confirmed" : "dismissed"))
+      .then((receipt: ConfirmedIntentReceipt | { outcome: "NO_ACTION" }) => {
+        if (decision === "CONFIRM" && receipt.outcome === "INTENT_CREATED") {
+          setConfirmedIntentReceipt(receipt);
+          setInterpretationDecision("confirmed");
+        } else {
+          setConfirmedIntentReceipt(null);
+          setInterpretationDecision("dismissed");
+        }
+      })
       .catch(() => setInterpretationDecision("retry"));
   };
 
@@ -652,6 +673,13 @@ export default function GrowthExplanationScreen() {
                           ? "暂时无法记录你的选择，请稍后重试。"
                           : "正在记录你的选择…"}
                   </Text>
+                ) : null}
+                {confirmedIntentReceipt ? (
+                  <View testID="assessment-confirmed-intent-receipt" style={styles.receiptBox}>
+                    <Text style={styles.receiptTitle}>已生成家庭关注确认凭据</Text>
+                    <Text style={[styles.receiptText, { color: readableSecondary }]}>编号：{confirmedIntentReceipt.intent.intent_id}</Text>
+                    <Text style={[styles.receiptText, { color: readableSecondary }]}>这是你确认的关注，不是诊断或结果；后续方案仍需由你决定。</Text>
+                  </View>
                 ) : null}
               </View>
             </View>
@@ -1168,6 +1196,9 @@ const styles = StyleSheet.create({
   humanGate: { borderRadius: 15, backgroundColor: "#FFFFFF", padding: 12, gap: 7 },
   humanGateTitle: { color: "#2A245B", fontSize: 14, lineHeight: 20, fontWeight: "900" },
   humanGateText: { fontSize: 12, lineHeight: 18 },
+  receiptBox: { borderRadius: 12, backgroundColor: "#ECFDF3", padding: 10, gap: 3 },
+  receiptTitle: { color: "#176B45", fontSize: 12, lineHeight: 17, fontWeight: "900" },
+  receiptText: { fontSize: 11, lineHeight: 17 },
   gatePrimary: { flex: 1, minHeight: 40, borderRadius: 13, backgroundColor: "#7665D8", alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
   gatePrimaryConfirmed: { backgroundColor: "#2E7D61" },
   gatePrimaryDisabled: { backgroundColor: "#8293A6", opacity: 1 },

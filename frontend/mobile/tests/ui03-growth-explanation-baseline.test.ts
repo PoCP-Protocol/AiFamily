@@ -64,4 +64,16 @@ describe("UI-03 family assessment result contract", () => {
     expect(source).toContain('testID="assessment-open-journey-plan"');
     expect(source).toContain('router.push("/ui/UI-04" as Href)');
   });
+
+  it("exposes the S1 confirmed-intent receipt and keeps dismissal from creating one", () => {
+    expect(source).toContain("ConfirmedIntentReceipt");
+    expect(source).toContain('outcome: "INTENT_CREATED"');
+    expect(source).toContain('boundary: "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME"');
+    expect(source).toContain('testID="assessment-confirmed-intent-receipt"');
+    expect(source).toContain("确认这份理解");
+    expect(source).toContain("暂不采用");
+    expect(source).toContain("setConfirmedIntentReceipt(null)");
+    expect(source).toContain("编号：");
+    expect(source).toContain("不是诊断或结果");
+  });
 });
