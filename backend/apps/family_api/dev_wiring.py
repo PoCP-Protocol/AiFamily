@@ -69,8 +69,10 @@ from fastapi import FastAPI, Header, HTTPException
 from backend.domains.assessment.api import dependencies as assessment_deps
 from backend.domains.assessment.api.dev_auth import get_state as get_dev_auth_state
 from backend.domains.assessment.application.commands import AssessmentCommandHandler
+from backend.domains.assessment.application.growth_hypothesis_commands import (
+    GrowthHypothesisCommandHandler,
+)
 from backend.domains.assessment.application.growth_intent_handoff import (
-    AssessmentGrowthIntentHandoff,
     ConfirmGrowthIntentInput,
     GrowthIntentReceipt,
     ViewedUnderstandingSignal,
@@ -457,8 +459,9 @@ def _dev_query_handler() -> AssessmentQueryHandler:
     return AssessmentQueryHandler(_assessment_repository, _assessment_interpretation)
 
 
-def _dev_growth_hypothesis_handler() -> AssessmentGrowthIntentHandoff:
-    return AssessmentGrowthIntentHandoff(
+def _dev_growth_hypothesis_handler() -> GrowthHypothesisCommandHandler:
+    return GrowthHypothesisCommandHandler(
+        _assessment_repository,
         _viewed_signal_reader,
         _growth_intent_confirmation,
     )

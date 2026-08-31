@@ -4,19 +4,23 @@ from __future__ import annotations
 
 from dataclasses import replace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
 
 from backend.apps.family_api import dev_wiring
 from backend.apps.family_api.main import create_app
+from backend.domains.assessment.application.growth_hypothesis_commands import (
+    GrowthHypothesisCommandHandler,
+)
 from backend.domains.assessment.application.growth_intent_handoff import (
     ViewedUnderstandingSignal,
 )
 
 FAMILY = "family-a"
 SUBJECT = "subject-a"
-SESSION = "session-a"
+SESSION = "11111111-1111-4111-8111-111111111111"
 SIGNAL = "signal-a"
 GATE = "dev-synthetic:human-gate:signal-a"
 
@@ -109,6 +113,11 @@ def _decide(
     )
 
 
+def test_decision_route_uses_canonical_command_handler() -> None:
+    """The HTTP route must not bypass scope, consent, replay, or persistence."""
+    assert isinstance(dev_wiring._dev_growth_hypothesis_handler(), GrowthHypothesisCommandHandler)
+
+
 def test_confirm_binds_seeded_signal_and_growth_replays_once(client: TestClient) -> None:
     _seed()
 
@@ -128,7 +137,50 @@ def test_confirm_binds_seeded_signal_and_growth_replays_once(client: TestClient)
     assert first.json()["replayed"] is False
     assert replay.json()["replayed"] is True
     assert dev_wiring._growth_intent_confirmation.call_count == 1
+    assert len(dev_wiring._assessment_repository.hypothesis_decisions) == 1
     assert not hasattr(dev_wiring._dev_growth_hypothesis_handler(), "_interpretation")
+
+
+def test_scope_and_consent_checks_run_before_canonical_replay(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed()
+    repository = dev_wiring._assessment_repository
+    scope_check = AsyncMock(wraps=repository.assert_tenant_family_scope)
+    consent_check = AsyncMock(wraps=repository.assert_subject_consent)
+    monkeypatch.setattr(repository, "assert_tenant_family_scope", scope_check)
+    monkeypatch.setattr(repository, "assert_subject_consent", consent_check)
+
+    first = _decide(client, _body(), key="decision-check-order")
+    replay = _decide(client, _body(), key="decision-check-order")
+
+    assert first.status_code == 200, first.text
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["replayed"] is True
+    assert scope_check.await_count == 2
+    assert consent_check.await_count == 2
+    assert len(repository.hypothesis_decisions) == 1
+    assert dev_wiring._growth_intent_confirmation.call_count == 1
+
+
+def test_guardian_manage_permission_is_required_before_decision(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    auth = _auth(client)
+    _seed()
+    repository = dev_wiring._assessment_repository
+    monkeypatch.setattr(
+        repository,
+        "grant_family_manage_permission",
+        lambda family_id, person_id, role="OWNER_GUARDIAN": None,
+    )
+
+    response = _decide(client, _body(), auth=auth, key="decision-no-manage")
+
+    assert response.status_code == 403, response.text
+    assert response.json()["detail"] == "actor_has_family_manage_permission"
+    assert not repository.hypothesis_decisions
+    assert dev_wiring._growth_intent_confirmation.call_count == 0
 
 
 def test_dismiss_records_no_growth_intent(client: TestClient) -> None:
