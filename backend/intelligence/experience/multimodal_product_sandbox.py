@@ -56,6 +56,9 @@ PROMPT_VERSION = "multimodal-family-understanding.v1"
 SCHEMA_VERSION = "multimodal-family-draft-insight.v1"
 DRAFT_VERSION = "multimodal-family-draft-insight.v1"
 KNOWLEDGE_REF = "synthetic:knowledge:family-coordination.v1"
+PLAN_PURPOSE = "multimodal_family_plan_draft_sandbox"
+PLAN_PROMPT_VERSION = "multimodal-family-plan-draft.v1"
+PLAN_SCHEMA_VERSION = "multimodal-family-plan-draft.v1"
 EXPECTED_MODEL = "fake-deterministic"
 EXPECTED_MODEL_VERSION = "1.0.0"
 DEFAULT_PROVIDER_ID = "multimodal-sandbox-fake"
@@ -255,6 +258,30 @@ class DraftInsight:
 
 
 @dataclass(frozen=True, slots=True)
+class PlanDraft:
+    """A non-canonical plan proposal produced only after human approval."""
+
+    run_id: str
+    source_draft_hash: str
+    tenant_id: str
+    family_id: str
+    title: str
+    steps: tuple[str, ...]
+    limitations: tuple[str, ...]
+    knowledge_refs: tuple[str, ...]
+    provenance: AiProvenance
+    draft_hash: str
+
+    @property
+    def status(self) -> Literal["DRAFT"]:
+        return "DRAFT"
+
+    @property
+    def may_mutate_business_state(self) -> Literal[False]:
+        return False
+
+
+@dataclass(frozen=True, slots=True)
 class ReviewResult:
     run_id: str
     task_id: str
@@ -293,6 +320,12 @@ def _default_response(request: StructuredRequest) -> dict[str, Any]:
     """Deterministic provider output; it never echoes family text."""
 
     refs = list(request.input_refs)
+    if request.use_case == PLAN_PURPOSE:
+        return {
+            "title": "晚间学习启动协作草案",
+            "steps": ["成人确认一个五分钟启动时段。", "家庭执行后记录是否更容易协作。"],
+            "limitations": ["这是待家庭确认的计划草案，不是 canonical Plan。"],
+        }
     return {
         "perspective": {
             "text": "待家庭确认的视角：这段表达可能与晚间学习协作有关。",
@@ -341,6 +374,18 @@ def _draft_schema() -> dict[str, Any]:
             "limitations": {"type": "array", "items": {"type": "string"}},
         },
         "required": ["perspective", "hypotheses", "support_card", "limitations"],
+    }
+
+
+def _plan_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "steps": {"type": "array", "items": {"type": "string"}},
+            "limitations": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["title", "steps", "limitations"],
     }
 
 
@@ -394,6 +439,7 @@ class MultimodalProductSandbox:
         self._audit = AuditRecorder()
         self._previews: dict[str, StructuredPreview] = {}
         self._drafts: dict[str, DraftInsight] = {}
+        self._plan_drafts: dict[str, PlanDraft] = {}
         self._gateway_drafts: dict[str, ModelDraft] = {}
         self._tasks: dict[str, Any] = {}
         self._reviews: dict[str, ReviewResult] = {}
@@ -680,6 +726,151 @@ class MultimodalProductSandbox:
         self._tasks[run_id] = task
         return draft
 
+    async def generate_plan_draft(
+        self,
+        draft: DraftInsight,
+        review: ReviewResult,
+        *,
+        now: datetime | None = None,
+    ) -> PlanDraft:
+        """Create a non-canonical plan draft only after human acceptance."""
+
+        timestamp = _aware_now(now)
+        if self._drafts.get(draft.run_id) is not draft or review.run_id != draft.run_id:
+            raise SandboxPolicyError("DRAFT_REVIEW_SCOPE_MISMATCH")
+        if review.draft_hash != draft.draft_hash:
+            raise SandboxPolicyError("DRAFT_REVIEW_HASH_MISMATCH")
+        if review.human_gate_outcome is not DecisionOutcome.ACCEPT:
+            raise SandboxPolicyError("PLAN_REQUIRES_HUMAN_APPROVAL")
+        existing = self._plan_drafts.get(draft.run_id)
+        if existing is not None:
+            return existing
+
+        context_ref = (
+            f"synthetic-plan-context:{draft.tenant_id}:{draft.family_id}:{draft.draft_hash}"
+        )
+        request = StructuredRequest(
+            use_case=PLAN_PURPOSE,
+            prompt_version=PLAN_PROMPT_VERSION,
+            schema_version=PLAN_SCHEMA_VERSION,
+            data_class="SYNTHETIC",
+            payload={
+                "source": SANDBOX_SOURCE,
+                "fixture_only": True,
+                "source_draft_hash": draft.draft_hash,
+                "knowledge_refs": [KNOWLEDGE_REF],
+                "source_refs": list(draft.source_refs),
+                "context_policy": {
+                    "purpose": self._policy.purpose,
+                    "consent_version": self._policy.consent_version,
+                    "allowed_tools": [],
+                    "denied_tools": sorted(self._policy.denied_tools),
+                    "may_mutate_business_state": False,
+                },
+            },
+            output_schema=_plan_schema(),
+            context_snapshot_ref=context_ref,
+            input_refs=draft.source_refs,
+            request_id=f"{review.task_id}:plan",
+            policy_context=PolicyContext(),
+        )
+        try:
+            gateway_draft = await self._gateway.generate_structured(
+                request, provider_id=self._provider.provider_id
+            )
+            if (
+                gateway_draft.provenance.provider_id != self._provider.provider_id
+                or gateway_draft.provenance.model != EXPECTED_MODEL
+                or gateway_draft.provenance.model_version != EXPECTED_MODEL_VERSION
+                or gateway_draft.provenance.prompt_version != PLAN_PROMPT_VERSION
+                or gateway_draft.provenance.schema_version != PLAN_SCHEMA_VERSION
+                or gateway_draft.provenance.context_snapshot_ref != context_ref
+                or gateway_draft.provenance.use_case != PLAN_PURPOSE
+                or gateway_draft.provenance.data_class != "SYNTHETIC"
+            ):
+                raise SandboxPolicyError("PLAN_PROVENANCE_MISMATCH")
+            title, steps, limitations = self._parse_plan_output(gateway_draft.output)
+            plan_hash = _canonical_hash(
+                {
+                    "source_draft_hash": draft.draft_hash,
+                    "tenant_id": draft.tenant_id,
+                    "family_id": draft.family_id,
+                    "title": title,
+                    "steps": steps,
+                    "limitations": limitations,
+                    "provenance": _stable_provenance(gateway_draft.provenance),
+                }
+            )
+            plan = PlanDraft(
+                run_id=draft.run_id,
+                source_draft_hash=draft.draft_hash,
+                tenant_id=draft.tenant_id,
+                family_id=draft.family_id,
+                title=title,
+                steps=steps,
+                limitations=limitations,
+                knowledge_refs=(KNOWLEDGE_REF,),
+                provenance=gateway_draft.provenance,
+                draft_hash=plan_hash,
+            )
+            self._record_event(
+                tenant_id=draft.tenant_id,
+                family_id=draft.family_id,
+                run_id=draft.run_id,
+                correlation_id=draft.scope.correlation_id,
+                action="sandbox.multimodal.plan_draft_created",
+                reason=(
+                    "Synthetic plan draft created after human approval; "
+                    "canonical Plan is unchanged."
+                ),
+                timestamp=timestamp,
+                metadata={
+                    "source": SANDBOX_SOURCE,
+                    "fixture_only": True,
+                    "tenant_id": draft.tenant_id,
+                    "family_id": draft.family_id,
+                    "source_draft_hash": draft.draft_hash,
+                    "draft_hash": plan_hash,
+                    "draft_version": PLAN_SCHEMA_VERSION,
+                    "knowledge_refs": (KNOWLEDGE_REF,),
+                    "decision": "DRAFT_CREATED",
+                    "failure_stop": False,
+                    "failure_requires_manual_takeover": False,
+                    "may_mutate_business_state": False,
+                    "sandbox_only": True,
+                },
+            )
+        except Exception as exc:
+            self._record_event(
+                tenant_id=draft.tenant_id,
+                family_id=draft.family_id,
+                run_id=draft.run_id,
+                correlation_id=draft.scope.correlation_id,
+                action="sandbox.multimodal.plan_generation_failed",
+                reason="Synthetic plan generation stopped; manual takeover is required.",
+                timestamp=timestamp,
+                metadata={
+                    "source": SANDBOX_SOURCE,
+                    "fixture_only": True,
+                    "tenant_id": draft.tenant_id,
+                    "family_id": draft.family_id,
+                    "source_draft_hash": draft.draft_hash,
+                    "draft_hash": None,
+                    "draft_version": PLAN_SCHEMA_VERSION,
+                    "knowledge_refs": (KNOWLEDGE_REF,),
+                    "decision": "STOPPED",
+                    "failure_stop": True,
+                    "failure_kind": _failure_code(exc),
+                    "failure_requires_manual_takeover": True,
+                    "may_mutate_business_state": False,
+                    "sandbox_only": True,
+                },
+            )
+            raise
+
+        self._plan_drafts[draft.run_id] = plan
+        return plan
+
     async def review_draft(
         self,
         draft: DraftInsight,
@@ -865,6 +1056,28 @@ class MultimodalProductSandbox:
             or provenance.data_class != "SYNTHETIC"
         ):
             raise SandboxPolicyError("PROVENANCE_MISMATCH")
+
+    @staticmethod
+    def _parse_plan_output(output: dict[str, Any]) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
+        expected = {"title", "steps", "limitations"}
+        if set(output) != expected:
+            raise SandboxPolicyError("PLAN_SCHEMA_DRIFT")
+        title = output.get("title")
+        steps = output.get("steps")
+        limitations = output.get("limitations")
+        if (
+            not isinstance(title, str)
+            or not title.strip()
+            or not isinstance(steps, list)
+            or not steps
+            or any(not isinstance(step, str) or not step.strip() for step in steps)
+            or not isinstance(limitations, list)
+            or any(not isinstance(item, str) or not item.strip() for item in limitations)
+        ):
+            raise SandboxPolicyError("PLAN_CONTRACT_INVALID")
+        for value in (title, *steps, *limitations):
+            _assert_safe_text(value, code="UNSAFE_PLAN_OUTPUT")
+        return title, tuple(steps), tuple(limitations)
 
     @staticmethod
     def _parse_draft_output(
@@ -1163,7 +1376,12 @@ def _demo_input() -> SyntheticFamilyInput:
     )
 
 
-async def _run_demo(decision: ReviewDecision, edited_perspective: str | None) -> dict[str, Any]:
+async def _run_demo(
+    decision: ReviewDecision,
+    edited_perspective: str | None,
+    *,
+    with_plan: bool = False,
+) -> dict[str, Any]:
     sandbox = build_multimodal_product_sandbox()
     input_data = _demo_input()
     preview = sandbox.build_preview(input_data)
@@ -1182,7 +1400,7 @@ async def _run_demo(decision: ReviewDecision, edited_perspective: str | None) ->
         edited_perspective=edited_perspective,
         now=datetime(2026, 8, 31, 10, 1, tzinfo=UTC),
     )
-    return {
+    result: dict[str, Any] = {
         "source": SANDBOX_SOURCE,
         "fixture_only": True,
         "preview_hash": preview.preview_hash,
@@ -1196,6 +1414,19 @@ async def _run_demo(decision: ReviewDecision, edited_perspective: str | None) ->
         else None,
         "may_mutate_business_state": draft.may_mutate_business_state,
     }
+    if with_plan:
+        plan = await sandbox.generate_plan_draft(
+            draft, review, now=datetime(2026, 8, 31, 10, 2, tzinfo=UTC)
+        )
+        result.update(
+            {
+                "plan_draft_hash": plan.draft_hash,
+                "plan_draft_status": plan.status,
+                "plan_title": plan.title,
+                "plan_knowledge_refs": plan.knowledge_refs,
+            }
+        )
+    return result
 
 
 def main() -> None:
@@ -1208,8 +1439,15 @@ def main() -> None:
         default=ReviewDecision.APPROVE.value,
     )
     parser.add_argument("--edited-perspective", default=None)
+    parser.add_argument("--with-plan", action="store_true")
     args = parser.parse_args()
-    result = asyncio.run(_run_demo(ReviewDecision(args.decision), args.edited_perspective))
+    result = asyncio.run(
+        _run_demo(
+            ReviewDecision(args.decision),
+            args.edited_perspective,
+            with_plan=args.with_plan,
+        )
+    )
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
 
 
@@ -1221,6 +1459,7 @@ __all__ = [
     "DraftInsight",
     "HypothesisDraft",
     "MultimodalProductSandbox",
+    "PlanDraft",
     "ReviewDecision",
     "ReviewResult",
     "SandboxContextPolicy",

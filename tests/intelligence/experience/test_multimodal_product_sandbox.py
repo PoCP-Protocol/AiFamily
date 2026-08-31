@@ -8,10 +8,12 @@ from backend.intelligence.experience.multimodal_product_sandbox import (
     DEFAULT_PROVIDER_ID,
     EXPECTED_MODEL,
     EXPECTED_MODEL_VERSION,
+    KNOWLEDGE_REF,
     PURPOSE,
     SANDBOX_SOURCE,
     DraftInsight,
     MultimodalProductSandbox,
+    PlanDraft,
     ReviewDecision,
     SandboxContextPolicy,
     SandboxPolicyError,
@@ -255,6 +257,47 @@ async def test_approve_reject_and_replay_are_idempotent_human_gate_paths() -> No
             run_id="synthetic-run:approve-001",
             now=NOW,
         )
+
+
+@pytest.mark.asyncio
+async def test_approved_understanding_can_create_only_a_noncanonical_plan_draft() -> None:
+    sandbox = build_multimodal_product_sandbox()
+    _, draft = await generate(sandbox, run_id="synthetic-run:plan-001")
+    review = await sandbox.review_draft(
+        draft,
+        tenant_id=TENANT,
+        family_id=FAMILY,
+        guardian_id=GUARDIAN,
+        decision=ReviewDecision.APPROVE,
+        reason="成人确认理解草案，可继续形成待确认计划草案。",
+        now=NOW + timedelta(minutes=1),
+    )
+    plan = await sandbox.generate_plan_draft(draft, review, now=NOW + timedelta(minutes=2))
+    replay = await sandbox.generate_plan_draft(draft, review, now=NOW + timedelta(minutes=3))
+
+    assert isinstance(plan, PlanDraft)
+    assert replay is plan
+    assert plan.status == "DRAFT"
+    assert plan.source_draft_hash == draft.draft_hash
+    assert plan.provenance.use_case == "multimodal_family_plan_draft_sandbox"
+    assert plan.knowledge_refs == (KNOWLEDGE_REF,)
+    assert plan.may_mutate_business_state is False
+    assert sandbox.audit_events[-1].action == "sandbox.multimodal.plan_draft_created"
+    assert sandbox.audit_events[-1].after["failure_stop"] is False
+
+    reject_sandbox = build_multimodal_product_sandbox()
+    _, rejected_draft = await generate(reject_sandbox, run_id="synthetic-run:no-plan-001")
+    rejected_review = await reject_sandbox.review_draft(
+        rejected_draft,
+        tenant_id=TENANT,
+        family_id=FAMILY,
+        guardian_id=GUARDIAN,
+        decision=ReviewDecision.REJECT,
+        reason="成人拒绝该理解草案。",
+        now=NOW + timedelta(minutes=1),
+    )
+    with pytest.raises(SandboxPolicyError, match="PLAN_REQUIRES_HUMAN_APPROVAL"):
+        await reject_sandbox.generate_plan_draft(rejected_draft, rejected_review, now=NOW)
 
 
 @pytest.mark.asyncio
