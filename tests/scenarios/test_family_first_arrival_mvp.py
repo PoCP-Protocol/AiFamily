@@ -9,8 +9,29 @@ production evidence.
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
 
+from backend.domains.assessment.application.commands import (
+    AssessmentCommandHandler,
+    MutationMeta,
+    SaveAssessmentResponseCommand,
+    StartAssessmentCommand,
+    SubmitAssessmentCommand,
+)
+from backend.domains.assessment.application.growth_hypothesis_commands import (
+    DecideGrowthHypothesisCommand,
+    GrowthHypothesisCommandHandler,
+)
+from backend.domains.assessment.application.queries import (
+    AssessmentQueryHandler,
+    GetUi03ProjectionQuery,
+)
+from backend.domains.assessment.infrastructure.deterministic_interpretation import (
+    DeterministicInterpretationAdapter,
+)
+from backend.domains.assessment.infrastructure.fake_repository import FakeAssessmentRepository
 from backend.domains.journey.application.plan_service import (
     ConfirmedGrowthIntent,
     JourneyPlanService,
@@ -18,6 +39,88 @@ from backend.domains.journey.application.plan_service import (
 from backend.domains.journey.domain.errors import JourneyForbiddenError
 
 SYNTHETIC_SOURCE = "SYNTHETIC_TEST_FIXTURE"
+
+
+async def test_real_assessment_handlers_feed_the_journey_scenario() -> None:
+    """Exercise the existing Assessment application layer, not a copied receipt."""
+    repository = FakeAssessmentRepository()
+    repository.seed_family("synthetic-tenant-b", "synthetic-family-b")
+    child_id = str(uuid4())
+    repository.seed_subject("synthetic-family-b", child_id, "小明")
+    repository.seed_need_type(
+        "COMMUNICATION",
+        "NEED_PARENT_CHILD_COMMUNICATION",
+        "亲子沟通支持",
+        "先从倾听开始",
+        ["LISTENING_COACH"],
+    )
+    assessment = AssessmentCommandHandler(repository)
+    interpretation = DeterministicInterpretationAdapter()
+    query = AssessmentQueryHandler(repository, interpretation)
+    hypothesis = GrowthHypothesisCommandHandler(repository, interpretation)
+
+    def meta(key: str) -> MutationMeta:
+        return MutationMeta("synthetic-correlation", key, SYNTHETIC_SOURCE)
+
+    started = await assessment.start(
+        StartAssessmentCommand(
+            "synthetic-family-b",
+            "synthetic-tenant-b",
+            "actor-1",
+            child_id,
+            None,
+            meta("assessment-start"),
+        )
+    )
+    session_id = started["session"]["assessment_session_id"]
+    await assessment.save_response(
+        SaveAssessmentResponseCommand(
+            "synthetic-family-b",
+            "synthetic-tenant-b",
+            "actor-1",
+            session_id,
+            "FOCUS",
+            "SINGLE_CHOICE",
+            "COMMUNICATION",
+            meta("assessment-focus"),
+        )
+    )
+    await assessment.submit(
+        SubmitAssessmentCommand(
+            "synthetic-family-b",
+            "synthetic-tenant-b",
+            "actor-1",
+            session_id,
+            meta("assessment-submit"),
+        )
+    )
+    projection = await query.get_ui03_projection(
+        GetUi03ProjectionQuery("synthetic-family-b", "synthetic-tenant-b", "actor-1")
+    )
+    receipt = await hypothesis.decide(
+        DecideGrowthHypothesisCommand(
+            "synthetic-family-b",
+            "synthetic-tenant-b",
+            "actor-1",
+            session_id,
+            projection["hypothesis"]["hypothesis_ref"],
+            "CONFIRM",
+            "synthetic-correlation",
+            "assessment-confirm",
+        )
+    )
+    assert receipt["outcome"] == "INTENT_CREATED"
+
+    journey = JourneyPlanService()
+    plan = journey.create_plan_from_assessment_receipt(
+        receipt=receipt,
+        tenant_id="synthetic-tenant-b",
+        family_id="synthetic-family-b",
+        actor_id="actor-1",
+        idempotency_key="journey-from-assessment",
+    )
+    assert plan["plan"]["intent_id"] == receipt["intent"]["intent_id"]
+    assert plan["plan"]["focus_id"] == "NEED_PARENT_CHILD_COMMUNICATION"
 
 
 def test_parent_can_complete_first_arrival_growth_loop_with_simulated_data() -> None:
