@@ -3,6 +3,7 @@ import { MarketEvidenceWorkbench } from "./MarketEvidenceWorkbench";
 import { ProductConceptDecisionWorkbench } from "./ProductConceptDecisionWorkbench";
 import { ProductDefinitionOperatorReviewWorkbench } from "./ProductDefinitionOperatorReviewWorkbench";
 import { ProductFactoryComposer } from "./ProductFactoryComposer";
+import { ProductPackageReviewWorkbench } from "./ProductPackageReviewWorkbench";
 import { ProductStudio } from "./ProductStudio";
 import { sandboxProductStudioState } from "./sandboxFixture";
 
@@ -10,6 +11,7 @@ const WORKSPACE_TABS = [
   { id: "demand", label: "Demand" },
   { id: "market-evidence", label: "Market Evidence" },
   { id: "concept-decision", label: "Concept Decision" },
+  { id: "package-review", label: "Package Review" },
   { id: "pdm-review", label: "PDM Review" },
   { id: "sandbox", label: "Sandbox" },
 ] as const;
@@ -88,6 +90,9 @@ export function ProductStudioWorkspace() {
       </div>
       <div aria-labelledby="workspace-tab-concept-decision" hidden={activeTab !== "concept-decision"} id="workspace-panel-concept-decision" role="tabpanel" tabIndex={0}>
         <ProductConceptDecisionWorkbench />
+      </div>
+      <div aria-labelledby="workspace-tab-package-review" hidden={activeTab !== "package-review"} id="workspace-panel-package-review" role="tabpanel" tabIndex={0}>
+        <ProductPackageReviewWorkbench contractPreview />
       </div>
       <div aria-labelledby="workspace-tab-pdm-review" hidden={activeTab !== "pdm-review"} id="workspace-panel-pdm-review" role="tabpanel" tabIndex={0}>
         <ProductDefinitionOperatorReviewWorkbench />

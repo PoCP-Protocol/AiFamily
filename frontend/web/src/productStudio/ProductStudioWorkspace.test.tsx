@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { ProductStudioWorkspace } from "./ProductStudioWorkspace";
@@ -10,7 +10,7 @@ describe("ProductStudioWorkspace", () => {
     expect(screen.getByRole("tab", { name: /Market Evidence/ })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByRole("tabpanel")).toHaveAccessibleName(/Demand/);
     expect(screen.getByRole("heading", { name: "创建需求草案" })).toBeInTheDocument();
-    expect(screen.getAllByRole("tabpanel", { hidden: true })).toHaveLength(5);
+    expect(screen.getAllByRole("tabpanel", { hidden: true })).toHaveLength(6);
   });
 
   it("keeps mounted form state while showing only the active panel", async () => {
@@ -18,13 +18,14 @@ describe("ProductStudioWorkspace", () => {
     fireEvent.change(screen.getByLabelText("需求陈述"), { target: { value: "保留的需求内容" } });
     await userEvent.setup().click(screen.getByRole("tab", { name: /Market Evidence/ }));
     expect(screen.getByLabelText("需求陈述")).not.toBeVisible();
-    fireEvent.change(screen.getByLabelText("需求引用"), { target: { value: "demand:kept" } });
+    const marketPanel = screen.getByRole("tabpanel");
+    fireEvent.change(within(marketPanel).getByLabelText("需求引用"), { target: { value: "demand:kept" } });
 
     await userEvent.setup().click(screen.getByRole("tab", { name: /Demand/ }));
     expect(screen.getByLabelText("需求陈述")).toHaveValue("保留的需求内容");
-    expect(screen.getByLabelText("需求引用")).not.toBeVisible();
+    expect(within(marketPanel).getByLabelText("需求引用")).not.toBeVisible();
     await userEvent.setup().click(screen.getByRole("tab", { name: /Market Evidence/ }));
-    expect(screen.getByLabelText("需求引用")).toHaveValue("demand:kept");
+    expect(within(screen.getByRole("tabpanel")).getByLabelText("需求引用")).toHaveValue("demand:kept");
   });
 
   it("supports arrow, Home, and End keyboard navigation with roving focus", () => {
@@ -52,6 +53,10 @@ describe("ProductStudioWorkspace", () => {
     expect(screen.getByRole("heading", { name: "市场与竞品证据工作台" })).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: /Concept Decision/ }));
     expect(screen.getByRole("heading", { name: "产品概念候选决策台" })).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /Package Review/ }));
+    expect(screen.getByRole("heading", { name: "产品包证据准入与评审" })).toBeInTheDocument();
+    expect(screen.getByRole("note")).toHaveTextContent("合同预览，尚未接入生产运行时");
+    expect(screen.getByRole("button", { name: "提交 ProductPackage 人工评审" })).toBeDisabled();
     await user.click(screen.getByRole("tab", { name: /PDM Review/ }));
     expect(screen.getByRole("heading", { name: "PDM 人工评审队列" })).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: /Sandbox/ }));

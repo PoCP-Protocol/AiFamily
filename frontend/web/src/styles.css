@@ -78,6 +78,23 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .market-evidence-workbench code { overflow-wrap: anywhere; }
 .product-concept-decision-workbench { margin: 24px auto; max-width: 1180px; }
 .product-definition-review-workbench { margin: 24px auto; max-width: 1100px; }
+.product-package-review-workbench { margin: 24px auto; max-width: 1180px; }
+.product-package-review-workbench form { display: grid; gap: 18px; margin-top: 26px; }
+.product-package-review-workbench fieldset { border: 1px solid #dce5dc; border-radius: 16px; display: grid; gap: 14px; padding: 18px; }
+.product-package-review-workbench legend { color: #174c3b; font-weight: 800; padding: 0 8px; }
+.product-package-review-workbench label { color: #415e53; display: grid; font-size: 0.82rem; font-weight: 700; gap: 6px; }
+.product-package-review-workbench select { background: #fbfdfb; border: 1px solid #cbd9ce; border-radius: 12px; color: #17231f; font: inherit; padding: 12px 14px; width: 100%; }
+.product-package-form-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.product-package-review-result { border-top: 1px solid #dce5dc; display: block; margin-top: 28px; padding-top: 24px; }
+.product-package-result-hero { align-items: start; display: flex; gap: 18px; justify-content: space-between; }
+.review-state { background: #edf4ef; border-radius: 14px; display: grid; gap: 4px; min-width: 140px; padding: 12px 14px; text-align: right; }
+.review-state span { color: #668077; font-size: 0.74rem; }
+.review-state strong { color: #126b50; }
+.evidence-admission-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.evidence-admission-grid article { border: 1px solid #cbd9ce; border-radius: 16px; min-width: 0; padding: 16px; }
+.evidence-admission-grid article > div { align-items: center; display: flex; gap: 10px; }
+.evidence-admission-grid p { color: #415e53; font-size: 0.82rem; line-height: 1.5; }
+.evidence-admission-grid code { overflow-wrap: anywhere; }
 .review-task-list { display: grid; gap: 10px; list-style: none; margin: 20px 0; padding: 0; }
 .review-task-list li { align-items: center; border: 1px solid #dce5dc; border-radius: 12px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; padding: 12px; }
 .review-task-detail { border-top: 1px solid #dce5dc; margin-top: 24px; padding-top: 20px; }
@@ -101,7 +118,7 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .candidate-human-decision { border-top: 1px solid #dce5dc; margin-top: 28px; padding-top: 8px; }
 .product-studio-workspace { margin: 0 auto; max-width: 1240px; padding: 44px clamp(16px, 4vw, 56px); }
 .product-studio-workspace-header h1 { font-size: clamp(2rem, 5vw, 4rem); margin-bottom: 16px; }
-.product-workspace-tabs { background: #edf4ef; border: 1px solid #cbd9ce; border-radius: 18px; display: grid; gap: 6px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 28px 0 20px; padding: 6px; }
+.product-workspace-tabs { background: #edf4ef; border: 1px solid #cbd9ce; border-radius: 18px; display: grid; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 28px 0 20px; padding: 6px; }
 .product-workspace-tabs [role="tab"] { background: transparent; border: 0; border-radius: 13px; color: #415e53; font-weight: 750; min-width: 0; padding: 12px 10px; }
 .product-workspace-tabs [role="tab"] span { color: #668077; margin-right: 6px; }
 .product-workspace-tabs [role="tab"][aria-selected="true"] { background: #fff; box-shadow: 0 2px 10px rgb(23 35 31 / 8%); color: #126b50; }
@@ -114,6 +131,9 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
   .intro-column { position: static; }
   h1 { font-size: clamp(2.7rem, 14vw, 4.2rem); }
   .candidate-reference-row { grid-template-columns: 1fr; }
+  .product-package-form-grid { grid-template-columns: 1fr; }
+  .product-package-result-hero { display: grid; }
+  .review-state { text-align: left; }
   .product-workspace-tabs { grid-template-columns: 1fr 1fr; }
 }
 

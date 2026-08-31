@@ -46,7 +46,6 @@ const clientWith = (overrides: Partial<ProductStudioApiClient> = {}): ProductStu
   createCompetitorEvidence: vi.fn(async () => evidenceDraft),
   getCompetitorEvidence: vi.fn(async () => evidenceDraft),
   createMarketInsight: vi.fn(async () => insightDraft),
-  createProductPackage: vi.fn(),
   ...overrides,
 });
 

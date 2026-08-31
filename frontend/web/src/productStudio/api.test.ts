@@ -65,7 +65,6 @@ describe("HttpProductStudioApiClient", () => {
     ["createDemandFrame", "/demand-frames", draft],
     ["createMarketInsight", "/market-insights", marketInsightDraft],
     ["createCompetitorEvidence", "/competitor-evidence", competitorDraft],
-    ["createProductPackage", "/product-packages", draft],
   ] as const)("maps %s to the draft-only product factory route", async (method, suffix, responseBody) => {
     const fetchImpl = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(responseBody), { status: 201 }));
     const client = new HttpProductStudioApiClient({ baseUrl: "https://api.example.test", fetchImpl });

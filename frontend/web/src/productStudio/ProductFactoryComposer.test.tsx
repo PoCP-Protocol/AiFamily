@@ -39,7 +39,6 @@ const clientWith = (result: ProductDraftResponse | Error): ProductStudioApiClien
   }),
   createMarketInsight: vi.fn(),
   createCompetitorEvidence: vi.fn(),
-  createProductPackage: vi.fn(),
 });
 
 describe("ProductFactoryComposer", () => {

@@ -280,9 +280,12 @@ PPT、图片、视频和短剧都必须反链到产品版本与需求证据。
   typed EvidenceDescriptor 与 Alembic。真实 PostgreSQL 的 metadata-schema 测试已证明同意图
   并发收敛及行锁等待后的证据漂移会 fail closed，但尚未证明 Alembic 产出的结构具备同等行为，
   故仍只是一条非生产但可验证的可信证据准入接缝；
-- ProductPackage 已有独立可测的 SQL DRAFT→OPEN ActionProposal、receipt-backed resolver 与严格
-  HTTP create/read 接缝，但尚无生产 source/provenance resolver、Alembic、生产挂载、前端 Web 工作台、
-  十二项编译报告绑定和 Alembic-schema PostgreSQL 并发证明；
+- ProductPackage 已有独立可测的 SQL DRAFT→OPEN ActionProposal、receipt-backed resolver、严格
+  HTTP create/read 接缝，以及 Web 合同预览工作台。Web 只发送设计意图与 receipt locator，运行时
+  严格校验冻结意图、证据准入判据、时间窗口、Human Gate provenance 与 ETag，并已移除允许浏览器
+  自报三区结论的旧 ProductPackage client 方法。该入口在真实身份会话、canonical route、生产
+  source/provenance resolver 接通前保持禁用并明确标注为合同预览；仍缺 Alembic、十二项编译报告绑定
+  和 Alembic-schema PostgreSQL 并发证明；
 - Component/Skill Catalog、PilotRun、GateRecord、ReleaseBaseline 和多模态资产主数据尚未形成
   可运行闭环；
 - Web 的历史 `ProductStudio` 状态机仍是 Sandbox，不得作为真实 Gate 或能力完成证明。

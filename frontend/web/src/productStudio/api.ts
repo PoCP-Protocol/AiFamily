@@ -135,24 +135,6 @@ export type CompetitorEvidenceInput = DraftEnvelopeInput & {
   source_type?: string;
 };
 
-export type ProductPackageInput = DraftEnvelopeInput & {
-  concept_id: string;
-  product_kind: "MICRO_CAMP" | "SCALE_PLAN" | "CUSTOM";
-  duration_days: 21 | 90;
-  zone: "HOMOGENEOUS" | "ADVANTAGE" | "UNIQUE_CANDIDATE" | "EXCLUSIVE_CANDIDATE";
-  primary_contradiction: string;
-  demand_ref: string;
-  market_insight_refs: string[];
-  competitor_evidence_refs: string[];
-  component_ids: string[];
-  skill_ids: string[];
-  success_metric_ids: string[];
-  guardrail_ids: string[];
-  stop_conditions: string[];
-  pause_policy: string;
-  human_gate_policy: string;
-};
-
 export type ProductStudioAccessTokenProvider = () => string | undefined;
 
 export type ClientOptions = {
@@ -167,7 +149,6 @@ export interface ProductStudioApiClient {
   createMarketInsight(input: MarketInsightInput, idempotencyKey: string): Promise<MarketInsightDraftResponse>;
   createCompetitorEvidence(input: CompetitorEvidenceInput, idempotencyKey: string): Promise<CompetitorEvidenceDraftResponse>;
   getCompetitorEvidence?(evidenceId: string): Promise<CompetitorEvidenceDraftResponse>;
-  createProductPackage(input: ProductPackageInput, idempotencyKey: string): Promise<ProductDraftResponse>;
 }
 
 const FACTORY_PREFIX = "/product-intelligence/product-factory";
@@ -219,10 +200,6 @@ export class HttpProductStudioApiClient implements ProductStudioApiClient {
       throw new ProductStudioApiError("INVALID_RESPONSE", "Product Studio 返回了不可解析的响应。", response.status);
     }
     return validateCompetitorEvidenceResponse(validateDraftResponse(body, response.status));
-  }
-
-  createProductPackage(input: ProductPackageInput, idempotencyKey: string): Promise<ProductDraftResponse> {
-    return this.postDraft("/product-packages", input, idempotencyKey);
   }
 
   private async postDraft(path: string, input: object, idempotencyKey: string): Promise<ProductDraftResponse> {
