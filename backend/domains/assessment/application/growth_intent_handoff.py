@@ -9,6 +9,7 @@ the guardian reviewed and owns idempotency plus the returned intent receipt.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal, Protocol
 
 from ..domain.errors import (
@@ -49,6 +50,13 @@ class ViewedUnderstandingSignal:
     goal_text: str
     required_capability_keys: tuple[str, ...]
     evidence_refs: tuple[str, ...]
+    reviewed_at: datetime | None = None
+    expires_at: datetime | None = None
+    revoked_at: datetime | None = None
+    revocation_ref: str | None = None
+    draft_source: str | None = None
+    output_schema_ref: str | None = None
+    view_event_ref: str | None = None
 
     def __post_init__(self) -> None:
         required = (
@@ -169,9 +177,7 @@ class AssessmentGrowthIntentHandoff:
         self._signal_reader = signal_reader
         self._growth_intents = growth_intents
 
-    async def decide(
-        self, command: DecideViewedUnderstandingInput
-    ) -> UnderstandingDecisionReceipt:
+    async def decide(self, command: DecideViewedUnderstandingInput) -> UnderstandingDecisionReceipt:
         if command.actor_type != "FAMILY_GUARDIAN":
             raise AssessmentForbiddenError("guardian_confirmation_required")
         if command.decision_type not in ("CONFIRM", "DISMISS"):
