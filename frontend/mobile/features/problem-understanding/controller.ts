@@ -71,6 +71,11 @@ export function receiveUnderstanding(
     activeSignal: {
       signalRef: draft.signalRef,
       signalVersion: draft.signalVersion,
+      scopeRef: draft.scopeRef,
+      reviewedDraftRef: draft.reviewedDraftRef,
+      draftVersion: draft.draftVersion,
+      provenanceRef: draft.provenanceRef,
+      humanGateReceiptRef: draft.humanGateReceiptRef,
     },
     pendingConfirmation: null,
     recoveryMessage: null,
@@ -185,7 +190,9 @@ export function selectCurrentDraft(
     state.drafts.find(
       (draft) =>
         draft.signalRef === state.activeSignal?.signalRef &&
-        draft.signalVersion === state.activeSignal.signalVersion,
+        draft.signalVersion === state.activeSignal.signalVersion &&
+        draft.reviewedDraftRef === state.activeSignal.reviewedDraftRef &&
+        draft.draftVersion === state.activeSignal.draftVersion,
     ) ?? null
   );
 }
@@ -216,6 +223,11 @@ function sameBinding(
   return (
     expected !== null &&
     expected.signalRef === actual.signalRef &&
-    expected.signalVersion === actual.signalVersion
+    expected.signalVersion === actual.signalVersion &&
+    expected.scopeRef === actual.scopeRef &&
+    expected.reviewedDraftRef === actual.reviewedDraftRef &&
+    expected.draftVersion === actual.draftVersion &&
+    expected.provenanceRef === actual.provenanceRef &&
+    expected.humanGateReceiptRef === actual.humanGateReceiptRef
   );
 }
