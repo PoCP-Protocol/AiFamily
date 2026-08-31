@@ -74,6 +74,16 @@ entries:
     evidence:
       - "TS 侧 AuditModule (audit.module.ts 8行 + audit.service.ts 22行) 是最小实现，值得参考但太薄，需按 R6 重新设计"
 
+  - capability: platform_outbox
+    disposition: REIMPLEMENT
+    target: [backend/platform/outbox]
+    status: IN_PROGRESS
+    evidence:
+      - "复用 baseline outbox_events；提供 application-neutral immutable envelope 与 caller-owned AsyncSession append seam，不自行 commit"
+    reason: "为业务事实、canonical Audit 与 integration event 提供同一 UnitOfWork 原子提交边界"
+    known_gaps:
+      - "真实 PostgreSQL、worker、retry/DLQ 与 retention 仍须分别验收；本 append adapter 不拥有发布消费生命周期"
+
   - capability: platform_idempotency
     disposition: REIMPLEMENT
     target: [backend/platform/idempotency]
