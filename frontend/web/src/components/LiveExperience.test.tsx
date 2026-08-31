@@ -20,40 +20,34 @@ const SYNTHETIC_PLAYBACK_DTO = JSON.stringify({
   sha256: "synthetic-test-digest",
 });
 
-describe("Xiao Ju Deng read-only live UI", () => {
-  it("shows the discovery card and the H-LIVE-01 detail fields", async () => {
+describe("Xiao Ju Deng live product surface", () => {
+  it("puts expert value first and keeps technical evidence collapsed", async () => {
     render(<LiveExperience environment={{ DEV: true }} />);
+
+    expect(screen.getByRole("heading", { name: "和专家一起，把家庭难题聊明白" })).toBeInTheDocument();
     expect(screen.getByText("小橘灯：家庭沟通中的温柔练习")).toBeInTheDocument();
-    expect(screen.getAllByText("小橘灯老师")).toHaveLength(2);
-    expect(screen.getByText("直播中")).toBeInTheDocument();
-    expect(screen.getByText("即将开始")).toBeInTheDocument();
-    expect(screen.getByText("已结束 / 回看受限")).toBeInTheDocument();
-    expect(screen.getByText("SCHEDULED")).toBeInTheDocument();
-    expect(screen.getByText("ENDED")).toBeInTheDocument();
+    expect(screen.getByText("真实场景、清楚方法、当下就能用。")).toBeInTheDocument();
+    expect(screen.getByText("直播预告", { selector: ".live-pill" })).toBeInTheDocument();
+    expect(screen.getByText("往期直播", { selector: "h3" })).toBeInTheDocument();
     expect(screen.getAllByText("#家庭沟通")).toHaveLength(2);
-    expect(screen.getAllByText("视频暂不可用")).toHaveLength(2);
-    expect(screen.queryByText("围绕家庭沟通中的具体场景，练习可核对、可暂停的表达方式。")).not.toBeInTheDocument();
+    expect(screen.getAllByText("内容已审核")).toHaveLength(2);
+    expect(screen.queryByText("MEDIA_READY")).not.toBeInTheDocument();
+    expect(screen.queryByText("NO_MEDIA")).not.toBeInTheDocument();
 
     await userEvent.setup().click(screen.getByRole("button", { name: "查看直播详情" }));
 
-    expect(screen.getByText("H-LIVE-01 · 只读详情")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "一个可以马上练习的沟通方法" })).toBeInTheDocument();
+    expect(screen.getByText("围绕家庭沟通中的具体场景，练习可核对、可暂停的表达方式。")).toBeInTheDocument();
+    expect(screen.getByText("直播视频尚未获得播放授权。")).toBeInTheDocument();
+    expect(screen.getByText("收藏与回看将在获得明确授权后开放。")).toBeInTheDocument();
+    const diagnostics = screen.getByText("开发诊断信息").closest("details");
+    expect(diagnostics).not.toHaveAttribute("open");
     expect(screen.getByText("review:H-LIVE-01")).toBeInTheDocument();
     expect(screen.getByText("H-LIVE-01.v1")).toBeInTheDocument();
-    expect(screen.getByText("true · DEV_ONLY")).toBeInTheDocument();
-    expect(screen.getByText("APPROVED")).toBeInTheDocument();
-    expect(screen.getByText("UNEXPIRED")).toBeInTheDocument();
-    expect(screen.getByText("FAMILY")).toBeInTheDocument();
-    expect(screen.getByText("视频暂不可用")).toBeInTheDocument();
-    expect(screen.getByText("等待授权后才可评估播放能力；当前不会加载媒体。")).toBeInTheDocument();
-    expect(screen.getByText("WAITING_AUTHORIZATION")).toBeInTheDocument();
-    expect(screen.getAllByText("LOCKED · 不可用")).toHaveLength(2);
     expect(screen.queryByRole("button", { name: /收藏|回看/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("article")).toHaveTextContent("family-private");
-    expect(screen.getByText("2026-08-30T18:00:00+08:00")).toBeInTheDocument();
     expect(XIAO_JU_DENG_FIXTURE.source).toBe("SANDBOX_SYNTHETIC");
     expect(XIAO_JU_DENG_FIXTURE.fixture_only).toBe(true);
     expect(XIAO_JU_DENG_FIXTURE.capabilities).toEqual({ favorite: "LOCKED", replay: "LOCKED" });
-    expect(XIAO_JU_DENG_FIXTURE.playback_state).toBe("WAITING_AUTHORIZATION");
   });
 
   it("keeps production fixture access fail-closed", () => {
@@ -63,29 +57,31 @@ describe("Xiao Ju Deng read-only live UI", () => {
     expect(screen.queryByText(XIAO_JU_DENG_FIXTURE.title)).not.toBeInTheDocument();
   });
 
-  it("renders a video surface only for a local synthetic playback DTO", async () => {
-    const { container } = render(<LiveExperience environment={{ DEV: true, VITE_MEDIA_PLAYBACK_DTO: SYNTHETIC_PLAYBACK_DTO }} />);
-    await userEvent.setup().click(screen.getByRole("button", { name: "查看直播详情" }));
+  it("renders a non-autoplay video only for a local synthetic playback DTO", async () => {
+    const { container } = render(
+      <LiveExperience environment={{ DEV: true, VITE_MEDIA_PLAYBACK_DTO: SYNTHETIC_PLAYBACK_DTO }} />,
+    );
+    await userEvent.setup().click(screen.getByRole("button", { name: "进入直播间" }));
 
     const video = container.querySelector("video");
     expect(video).not.toBeNull();
     expect(video?.getAttribute("aria-label")).toBe("小橘灯合成视频播放区域");
-    expect(video?.getAttribute("src")).toBe("http://127.0.0.1:43123/media/media.synthetic.1.mp4?token=test-only");
+    expect(video?.getAttribute("src")).toContain("http://127.0.0.1:43123/");
     expect(video?.hasAttribute("controls")).toBe(true);
     expect(video?.hasAttribute("playsinline")).toBe(true);
-    expect(screen.getByText("SANDBOX_SYNTHETIC · FIXTURE_ONLY")).toBeInTheDocument();
-    expect(container.querySelector(".live-video-state")?.textContent).toBe("LIVE");
-    expect(screen.queryByText("视频暂不可用")).not.toBeInTheDocument();
+    expect(video?.hasAttribute("autoplay")).toBe(false);
+    expect(screen.getByText("可以播放")).toBeInTheDocument();
+    expect(screen.queryByText("LIVE")).not.toBeInTheDocument();
   });
 
-  it("rejects a non-local playback URL and keeps the sandbox surface fail-closed", () => {
+  it("rejects a non-local playback URL and keeps the surface fail-closed", () => {
     const externalDto = SYNTHETIC_PLAYBACK_DTO.replace("http://127.0.0.1:43123", "https://unverified.example");
     const view = resolveLiveView({ DEV: true, VITE_MEDIA_PLAYBACK_DTO: externalDto });
     expect(view.record?.playback).toBeUndefined();
     expect(view.record?.playback_state).toBe("WAITING_AUTHORIZATION");
   });
 
-  it("lets an adult simulate disconnect and recover through the sandbox control seam", async () => {
+  it("lets an adult recover from a simulated disconnect without leaking tokens", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({ ok: true, json: async () => ({ state: "DISCONNECTED" }) })
@@ -97,36 +93,48 @@ describe("Xiao Ju Deng read-only live UI", () => {
         }),
       });
     vi.stubGlobal("fetch", fetchMock);
-    render(<LiveExperience environment={{ DEV: true, VITE_MEDIA_PLAYBACK_DTO: SYNTHETIC_PLAYBACK_DTO }} />);
+    const { container } = render(
+      <LiveExperience environment={{ DEV: true, VITE_MEDIA_PLAYBACK_DTO: SYNTHETIC_PLAYBACK_DTO }} />,
+    );
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "查看直播详情" }));
-    await user.click(screen.getByRole("button", { name: "模拟断流" }));
-    expect(await screen.findByText("DISCONNECTED")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "恢复播放" }));
-    expect((await screen.findAllByText("LIVE")).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: "进入直播间" }));
+    await user.click(screen.getByText("连接演练工具"));
+    await user.click(screen.getByRole("button", { name: "中断连接" }));
+    expect(await screen.findByText("直播连接中断。")).toBeInTheDocument();
+    expect(container.querySelector("video")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "重新连接" }));
+    expect(await screen.findByText("可以播放")).toBeInTheDocument();
+    expect(container.querySelector("video")).not.toBeNull();
+    expect(container.textContent).not.toContain("token=recovered");
     expect(fetchMock).toHaveBeenCalledTimes(2);
     vi.unstubAllGlobals();
   });
 
-  it.each(["DISCONNECTED", "RESTARTED", "STOPPED", "REVOKED", "FAILED"] as const)(
-    "keeps the video surface fail-closed for %s",
-    (state) => {
-      const record = {
-        ...XIAO_JU_DENG_FIXTURE,
-        playback_state: state,
-        playback: { ...JSON.parse(SYNTHETIC_PLAYBACK_DTO), state },
-      } as typeof XIAO_JU_DENG_FIXTURE;
-      render(<LiveDetailPage record={record} onBack={() => undefined} />);
-      expect(screen.queryByRole("video")).not.toBeInTheDocument();
-      expect(screen.getByText(state)).toBeInTheDocument();
-    },
-  );
+  it.each([
+    ["DISCONNECTED", "直播连接中断。", false],
+    ["RESTARTED", "连接已经恢复，可以继续观看。", true],
+    ["STOPPED", "本场直播已经停止。", false],
+    ["REVOKED", "观看权限已经撤回。", false],
+    ["FAILED", "视频暂时不可用。", false],
+  ] as const)("renders the expected safe video surface for %s", (state, message, showsVideo) => {
+    const record = {
+      ...XIAO_JU_DENG_FIXTURE,
+      playback_state: state,
+      playback: { ...JSON.parse(SYNTHETIC_PLAYBACK_DTO), state },
+    } as typeof XIAO_JU_DENG_FIXTURE;
+    const { container } = render(<LiveDetailPage record={record} onBack={() => undefined} />);
+    expect(Boolean(container.querySelector("video"))).toBe(showsVideo);
+    expect(screen.getByText(message)).toBeInTheDocument();
+  });
 
-  it("shows a local empty result when the problem search has no match", async () => {
+  it("shows a useful empty result when the problem search has no match", async () => {
     render(<LiveExperience environment={{ DEV: true }} />);
-    await userEvent.setup().type(screen.getByRole("searchbox", { name: "问题搜索" }), "不存在的问题");
-    expect(screen.getByText("没有匹配的直播场次")).toBeInTheDocument();
-    expect(screen.getAllByText("暂无可展示场次。", { exact: true })).toHaveLength(3);
+    await userEvent.setup().type(
+      screen.getByRole("searchbox", { name: "你想解决什么问题？" }),
+      "不存在的问题",
+    );
+    expect(screen.getByText("没有匹配的直播")).toBeInTheDocument();
+    expect(screen.getAllByText("暂时没有内容", { exact: true })).toHaveLength(3);
   });
 
   it.each<LiveViewState>([
@@ -149,11 +157,11 @@ describe("Xiao Ju Deng read-only live UI", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("does not render prohibited room, token, child, score, or commerce fields", async () => {
+  it("does not render prohibited room, child profile, ranking, or commerce fields", async () => {
     const { container } = render(<LiveExperience environment={{ DEV: true }} />);
     await userEvent.setup().click(screen.getByRole("button", { name: "查看直播详情" }));
     const text = container.textContent?.toLowerCase() ?? "";
-    for (const prohibited of ["room", "token", "画像", "排序", "分数", "购买", "预约", "观看"]) {
+    for (const prohibited of ["room", "token", "画像", "排序", "分数", "购买", "预约"]) {
       expect(text).not.toContain(prohibited);
     }
     expect(container.querySelector("video")).toBeNull();

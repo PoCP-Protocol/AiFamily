@@ -16,9 +16,9 @@ type Props = {
 };
 
 const SECTION_COPY: Record<LiveSectionKey, { title: string; subtitle: string }> = {
-  "live-now": { title: "直播中", subtitle: "当前进行" },
-  upcoming: { title: "即将开始", subtitle: "下一场" },
-  ended: { title: "已结束 / 回看受限", subtitle: "回看受限" },
+  "live-now": { title: "正在直播", subtitle: "现在就能看" },
+  upcoming: { title: "直播预告", subtitle: "提前了解主题" },
+  ended: { title: "往期直播", subtitle: "回看开放后可观看" },
 };
 
 const SECTION_ORDER: LiveSectionKey[] = ["live-now", "upcoming", "ended"];
@@ -58,16 +58,17 @@ export function LiveExperience({ environment = import.meta.env, viewModel }: Pro
       <div className="live-home-hero">
         <div className="live-shell-heading">
           <div>
-            <p className="live-kicker">小橘灯 · 专家直播</p>
-            <h2 id="live-discovery-heading">为家庭问题找到合适的专家场次</h2>
+            <p className="live-kicker">小橘灯直播</p>
+            <h2 id="live-discovery-heading">和专家一起，把家庭难题聊明白</h2>
+            <p className="live-hero-copy">真实场景、清楚方法、当下就能用。</p>
           </div>
           <div className="live-hero-badges">
-            <span className="live-scope-badge">family-private</span>
-            <span className="live-readonly">SANDBOX · DEV_ONLY</span>
+            <span className="live-scope-badge">家庭专属</span>
+            <span className="live-sandbox-mark" title="当前为合成数据演示，不代表真实直播">演示</span>
           </div>
         </div>
         <label className="live-question-search" htmlFor="live-question-search">
-          <span>问题搜索</span>
+          <span>你想解决什么问题？</span>
           <input
             id="live-question-search"
             type="search"
@@ -85,8 +86,8 @@ export function LiveExperience({ environment = import.meta.env, viewModel }: Pro
           <div id="live-status" className="live-sections">
             {query.trim() && SECTION_ORDER.every((key) => filteredSections[key].length === 0) ? (
               <div className="live-empty-search" role="status">
-                <strong>没有匹配的直播场次</strong>
-                <p>换一个家庭问题关键词，或清空搜索继续浏览。</p>
+                <strong>没有匹配的直播</strong>
+                <p>换一个关键词，或清空搜索继续看看。</p>
               </div>
             ) : null}
             {SECTION_ORDER.map((key) => {
@@ -99,7 +100,7 @@ export function LiveExperience({ environment = import.meta.env, viewModel }: Pro
                       <h3 id={`live-${key}-heading`}>{sectionCopy.title}</h3>
                       <p>{sectionCopy.subtitle}</p>
                     </div>
-                    <span className="live-section-count">{section.length} 场</span>
+                    {section.length > 0 ? <span className="live-section-count">{section.length} 场</span> : null}
                   </div>
                   {section.length > 0 ? (
                     <div className="live-section-grid">
@@ -118,7 +119,7 @@ export function LiveExperience({ environment = import.meta.env, viewModel }: Pro
                       })}
                     </div>
                   ) : (
-                    <p className="live-section-empty">暂无可展示场次。</p>
+                    <p className="live-section-empty">暂时没有内容</p>
                   )}
                 </section>
               );

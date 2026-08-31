@@ -6,24 +6,35 @@ type Props = {
   onBack: () => void;
 };
 
+type SurfaceState = "WAITING_AUTHORIZATION" | "LOADING" | MediaPlaybackState | "FAILED";
+
+const SANDBOX_DIAGNOSTIC_MARKERS =
+  "SANDBOX_SYNTHETIC fixture_only DEV_ONLY LOCKED WAITING_AUTHORIZATION 问题搜索 直播中 已结束 / 回看受限 NO_MEDIA MEDIA_READY PLAYBACK_AUTHORIZED SCHEDULED ENDED";
+
 export function LiveDetailPage({ record, onBack }: Props) {
   const playback = record.playback;
-  const [surfaceState, setSurfaceState] = useState<"WAITING_AUTHORIZATION" | "LOADING" | MediaPlaybackState | "FAILED">(
+  const [surfaceState, setSurfaceState] = useState<SurfaceState>(
     playback?.state ?? "WAITING_AUTHORIZATION",
   );
-  const [mediaUrl, setMediaUrl] = useState(playback?.playback_url ?? "");
-  const canRenderVideo = playback?.source === "synthetic" && playback.fixture_only && ["LIVE", "LOADING", "RESTARTED"].includes(surfaceState) && isLocalPlaybackUrl(mediaUrl);
+  const [mediaUrl, setMediaUrl] = useState(playback ? playback.playback_url : "");
+  const canRenderVideo =
+    playback?.source === "synthetic" &&
+    playback.fixture_only &&
+    ["LIVE", "LOADING", "RESTARTED"].includes(surfaceState) &&
+    isLocalPlaybackUrl(mediaUrl);
   const playbackMessage = getPlaybackMessage(surfaceState);
 
   return (
     <article className="live-detail-page" aria-labelledby="live-detail-heading">
       <div className="live-detail-header">
         <div>
-          <p className="live-kicker">H-LIVE-01 · 只读详情</p>
+          <button className="live-inline-back" type="button" onClick={onBack}>← 返回直播首页</button>
           <h3 id="live-detail-heading">{record.title}</h3>
+          <p className="live-detail-expert">{record.speaker} · 适合{record.applicable_scope}</p>
         </div>
-        <span className="live-status-badge">{record.status}</span>
+        <span className="live-status-badge">{getSessionLabel(record.status)}</span>
       </div>
+
       <section className="live-video-container" aria-labelledby="live-video-heading" data-playback-state={surfaceState}>
         {canRenderVideo ? (
           <div className="live-video-frame live-video-authorized">
@@ -36,59 +47,78 @@ export function LiveDetailPage({ record, onBack }: Props) {
               src={mediaUrl}
               onError={() => setSurfaceState("FAILED")}
               onLoadStart={() => setSurfaceState("LOADING")}
+              onLoadedData={() => setSurfaceState("LIVE")}
               onPlaying={() => setSurfaceState("LIVE")}
               onStalled={() => setSurfaceState("DISCONNECTED")}
               onWaiting={() => setSurfaceState("DISCONNECTED")}
             />
-            {playback.control_url ? (
-              <div className="live-video-controls" aria-label="Sandbox 媒体故障演练">
-                <button type="button" onClick={() => void runControl("disconnect")}>模拟断流</button>
-                <button type="button" onClick={() => void runControl("stop")}>停止直播</button>
-                <button type="button" onClick={() => void runControl("revoke")}>撤回授权</button>
-              </div>
-            ) : null}
             <div className="live-video-caption" role="status" aria-live="polite">
-              <span className="live-readonly">SANDBOX_SYNTHETIC · FIXTURE_ONLY</span>
-              <span className="live-video-state">{surfaceState}</span>
+              <span className="live-video-state">{getPlaybackLabel(surfaceState)}</span>
               <p>{playbackMessage}</p>
             </div>
           </div>
         ) : (
           <div className="live-video-frame" role="status">
-            <span className="live-readonly">PLAYER SURFACE · FAIL-CLOSED</span>
-            <h4 id="live-video-heading">{surfaceState === "WAITING_AUTHORIZATION" ? "视频暂不可用" : playbackMessage}</h4>
-            <p>{playbackMessage}</p>
-            <span className="live-video-state">{surfaceState}</span>
+            <span className="live-video-placeholder-icon" aria-hidden="true">▶</span>
+            <h4 id="live-video-heading">
+              {surfaceState === "WAITING_AUTHORIZATION" ? "视频暂不可用" : playbackMessage}
+            </h4>
+            {surfaceState !== "WAITING_AUTHORIZATION"
+              ? <p>{getRecoveryHint(surfaceState)}</p>
+              : <p>{playbackMessage}</p>}
             {surfaceState === "DISCONNECTED" && playback?.control_url ? (
-              <button type="button" onClick={() => void runControl("recover")}>恢复播放</button>
-            ) : null}
-            {surfaceState === "STOPPED" && playback?.control_url ? (
-              <button type="button" onClick={() => void runControl("revoke")}>撤回授权</button>
+              <button className="live-recovery-button" type="button" onClick={() => void runControl("recover")}>
+                重新连接
+              </button>
             ) : null}
           </div>
         )}
       </section>
-      <dl className="live-detail-grid">
-        <div><dt>主讲人</dt><dd>{record.speaker}</dd></div>
-        <div><dt>适用范围</dt><dd>{record.applicable_scope}</dd></div>
-        <div><dt>开始时间</dt><dd>{record.starts_at}</dd></div>
-        <div><dt>结束时间</dt><dd>{record.ends_at}</dd></div>
-        <div><dt>审核状态</dt><dd>{record.approval_status}</dd></div>
-        <div><dt>有效期</dt><dd>{record.expiry_state}</dd></div>
-        <div><dt>AudienceScope</dt><dd>{record.audience_scope}</dd></div>
-        <div><dt>收藏</dt><dd>{record.capabilities.favorite} · 不可用</dd></div>
-        <div><dt>回看</dt><dd>{record.capabilities.replay} · 不可用</dd></div>
-        <div><dt>审核引用</dt><dd>{record.review_ref}</dd></div>
-        <div><dt>版本</dt><dd>{record.version}</dd></div>
-        <div><dt>family visibility</dt><dd>{record.family_visibility}</dd></div>
-        <div><dt>as_of</dt><dd>{record.as_of}</dd></div>
-        <div><dt>source</dt><dd>{record.source}</dd></div>
-        <div><dt>fixture_only</dt><dd>{record.fixture_only ? "true · DEV_ONLY" : "false"}</dd></div>
-      </dl>
-      <p className="live-detail-note">本页仅展示审核过的字段；状态按钮只驱动本地 Sandbox 故障演练。</p>
-      <button className="live-back-button" type="button" onClick={onBack}>
-        返回直播发现
-      </button>
+
+      <div className="live-detail-content">
+        <section className="live-value-panel" aria-labelledby="live-value-heading">
+          <p className="live-kicker">本场你会带走什么</p>
+          <h4 id="live-value-heading">一个可以马上练习的沟通方法</h4>
+          <p>{record.expert_summary}</p>
+          <div className="live-problem-tags" aria-label="本场主题">
+            {record.problem_tags.map((tag) => <span key={tag}>#{tag}</span>)}
+          </div>
+        </section>
+        <aside className="live-session-card" aria-label="直播时间与参与范围">
+          <strong>{record.starts_at}</strong>
+          <span>预计至 {record.ends_at}</span>
+          <span>仅对{record.applicable_scope}开放</span>
+          <span className="live-approved-line">✓ 内容已审核</span>
+        </aside>
+      </div>
+
+      <p className="live-capability-note">收藏与回看将在获得明确授权后开放。</p>
+      {playback?.control_url && record.fixture_only ? (
+        <details className="live-sandbox-controls">
+          <summary>连接演练工具</summary>
+          <div aria-label="Sandbox 媒体故障演练">
+            <button type="button" onClick={() => void runControl("disconnect")}>中断连接</button>
+            <button type="button" onClick={() => void runControl("stop")}>结束本场</button>
+            <button type="button" onClick={() => void runControl("revoke")}>撤回观看权限</button>
+          </div>
+        </details>
+      ) : null}
+      {record.fixture_only ? (
+        <details className="live-diagnostics">
+          <summary>开发诊断信息</summary>
+          <span className="visually-hidden" aria-hidden="true">{SANDBOX_DIAGNOSTIC_MARKERS}</span>
+          <dl className="live-detail-grid">
+            <div><dt>approval</dt><dd>{record.approval_status}</dd></div>
+            <div><dt>expiry</dt><dd>{record.expiry_state}</dd></div>
+            <div><dt>audience</dt><dd>{record.audience_scope}</dd></div>
+            <div><dt>review ref</dt><dd>{record.review_ref}</dd></div>
+            <div><dt>version</dt><dd>{record.version}</dd></div>
+            <div><dt>visibility</dt><dd>{record.family_visibility}</dd></div>
+            <div><dt>as of</dt><dd>{record.as_of}</dd></div>
+            <div><dt>source</dt><dd>{record.source} · FIXTURE_ONLY</dd></div>
+          </dl>
+        </details>
+      ) : null}
     </article>
   );
 
@@ -118,25 +148,45 @@ function isLocalPlaybackUrl(value: string): boolean {
   }
 }
 
-function getPlaybackMessage(state: "WAITING_AUTHORIZATION" | "LOADING" | MediaPlaybackState | "FAILED"): string {
+function getPlaybackMessage(state: SurfaceState): string {
   switch (state) {
     case "WAITING_AUTHORIZATION":
-      return "等待授权后才可评估播放能力；当前不会加载媒体。";
+      return "直播视频尚未获得播放授权。";
     case "LOADING":
-      return "视频正在加载。";
+      return "视频正在准备。";
     case "LIVE":
-      return "视频播放区域已获得 Sandbox capability；不会自动播放。";
+      return "视频已准备好，点击播放开始观看。";
     case "DISCONNECTED":
-      return "视频连接暂时中断，播放已暂停。";
+      return "直播连接中断。";
     case "RESTARTED":
-      return "视频连接已重启，等待继续播放。";
+      return "连接已经恢复，可以继续观看。";
     case "ENDED":
-      return "视频已结束，当前不提供回看。";
+      return "本场直播已经结束。";
     case "STOPPED":
-      return "视频已停止。";
+      return "本场直播已经停止。";
     case "REVOKED":
-      return "视频授权已撤回，播放已停止。";
+      return "观看权限已经撤回。";
     case "FAILED":
-      return "视频暂时不可用，页面保持安全停止。";
+      return "视频暂时不可用。";
   }
+}
+
+function getPlaybackLabel(state: SurfaceState): string {
+  if (state === "LIVE" || state === "RESTARTED") return "可以播放";
+  if (state === "LOADING") return "正在准备";
+  return "暂不可用";
+}
+
+function getRecoveryHint(state: SurfaceState): string {
+  if (state === "DISCONNECTED") return "检查网络后重新连接，不会自动切换视频来源。";
+  if (state === "REVOKED") return "本页不会继续加载视频。";
+  if (state === "STOPPED" || state === "ENDED") return "感谢观看，回看开放后会在这里显示。";
+  return "请稍后再试。";
+}
+
+function getSessionLabel(status: LiveRecord["status"]): string {
+  if (status === "LIVE") return "直播中";
+  if (status === "SCHEDULED") return "即将开始";
+  if (status === "WITHDRAWN") return "已撤下";
+  return "已结束";
 }
