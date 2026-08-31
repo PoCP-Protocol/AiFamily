@@ -10,6 +10,7 @@ from backend.intelligence.family_understanding.api import (
     create_family_understanding_router,
 )
 from backend.intelligence.family_understanding.application import FamilyUnderstandingApplication
+from backend.intelligence.family_understanding.contracts import KnowledgeRef
 from backend.intelligence.family_understanding.eval import FamilyUnderstandingEvaluator
 from backend.intelligence.model_gateway.gateway import ModelGateway
 from backend.intelligence.model_gateway.provider_registry import ProviderRegistry
@@ -31,6 +32,17 @@ class StaticAuthorizedContexts:
             consent_ref="consent-1",
             context_snapshot_ref="context-http-1",
             context_expires_at=datetime(2099, 1, 1, tzinfo=UTC),
+            reviewed_knowledge_refs=(
+                KnowledgeRef(
+                    ref="knowledge-reviewed-001",
+                    source="reviewed-guidance",
+                    version="1",
+                    chunk_ref="chunk-001",
+                    content_digest="sha256:reviewed-001",
+                    applicability="Family routine reflection",
+                    limitations=("Not a diagnosis",),
+                ),
+            ),
         )
 
 
@@ -42,18 +54,29 @@ def request_body(text: str = "一写作业就要反复提醒。", index: int = 1
         "guardian_text": text,
         "revision": 1,
         "prior_draft_artifact_hash": None,
-        "reviewed_knowledge_refs": [
-            {
-                "ref": "knowledge-reviewed-001",
-                "source": "reviewed-guidance",
-                "version": "1",
-                "chunk_ref": "chunk-001",
-                "content_digest": "sha256:reviewed-001",
-                "applicability": "Family routine reflection",
-                "limitations": ["Not a diagnosis"],
-            }
-        ],
     }
+
+
+def test_client_cannot_supply_or_override_reviewed_knowledge() -> None:
+    body = request_body()
+    body["reviewed_knowledge_refs"] = [
+        {
+            "ref": "invented-client-source",
+            "source": "untrusted-client",
+            "version": "1",
+            "chunk_ref": "invented",
+            "content_digest": "sha256:invented",
+            "applicability": "anything",
+            "limitations": ["none"],
+        }
+    ]
+
+    response = client_for(application_with(semantic_provider())).post(
+        "/v1/families/family-1/understanding-drafts",
+        json=body,
+    )
+
+    assert response.status_code == 422
 
 
 def client_for(application: FamilyUnderstandingApplication) -> TestClient:

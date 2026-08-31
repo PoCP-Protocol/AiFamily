@@ -19,18 +19,6 @@ from backend.intelligence.family_understanding.eval import FamilyUnderstandingRe
 from backend.intelligence.model_gateway.errors import ModelGatewayError
 
 
-class KnowledgeRefBody(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ref: str = Field(min_length=1)
-    source: str = Field(min_length=1)
-    version: str = Field(min_length=1)
-    chunk_ref: str = Field(min_length=1)
-    content_digest: str = Field(min_length=1)
-    applicability: str = Field(min_length=1)
-    limitations: list[str] = Field(min_length=1)
-
-
 class GenerateUnderstandingBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -40,7 +28,6 @@ class GenerateUnderstandingBody(BaseModel):
     guardian_text: str = Field(min_length=1)
     revision: int = Field(ge=1)
     prior_draft_artifact_hash: str | None = None
-    reviewed_knowledge_refs: list[KnowledgeRefBody] = Field(min_length=1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +38,7 @@ class AuthorizedFamilyContext:
     consent_ref: str
     context_snapshot_ref: str
     context_expires_at: datetime
+    reviewed_knowledge_refs: tuple[KnowledgeRef, ...]
 
 
 class AuthorizedContextResolver(Protocol):
@@ -126,18 +114,7 @@ def create_family_understanding_router(
                     guardian_text=body.guardian_text,
                     revision=body.revision,
                     prior_draft_artifact_hash=body.prior_draft_artifact_hash,
-                    reviewed_knowledge_refs=tuple(
-                        KnowledgeRef(
-                            ref=item.ref,
-                            source=item.source,
-                            version=item.version,
-                            chunk_ref=item.chunk_ref,
-                            content_digest=item.content_digest,
-                            applicability=item.applicability,
-                            limitations=tuple(item.limitations),
-                        )
-                        for item in body.reviewed_knowledge_refs
-                    ),
+                    reviewed_knowledge_refs=authorized.reviewed_knowledge_refs,
                 )
             )
         except FamilyUnderstandingRejected as exc:
