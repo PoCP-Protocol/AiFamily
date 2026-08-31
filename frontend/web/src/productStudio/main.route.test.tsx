@@ -14,6 +14,8 @@ describe("Web Product Studio route", () => {
     expect(screen.getByRole("heading", { name: "产品设计工厂" })).toBeInTheDocument();
     expect(screen.getByTestId("product-studio-environment")).toHaveTextContent("Sandbox");
     expect(screen.getByRole("heading", { name: "创建需求草案" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "市场与竞品证据工作台" })).toBeInTheDocument();
+    expect(screen.getByText(/新证据固定以 UNKNOWN 创建/)).toBeInTheDocument();
     expect(screen.getByText(/提交后仅显示 DRAFT 和可追溯 provenance/)).toBeInTheDocument();
     expect(screen.getByText(/所有 AI 内容均为 DRAFT/)).toBeInTheDocument();
   });

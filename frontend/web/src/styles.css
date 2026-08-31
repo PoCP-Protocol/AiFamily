@@ -70,6 +70,12 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .action-grid { display: flex; flex-wrap: wrap; gap: 10px; }
 .action-note { margin-bottom: 0; }
 .footer-note { color: #668077; font-size: 0.78rem; margin: 0 auto; max-width: 1240px; padding: 0 clamp(20px, 5vw, 72px) 32px; }
+.market-evidence-workbench { margin: 24px auto; max-width: 920px; }
+.market-evidence-workbench fieldset { border: 1px solid #dce5dc; border-radius: 16px; margin: 24px 0 0; padding: 18px; }
+.market-evidence-workbench fieldset:disabled { background: #f7f9f6; }
+.market-evidence-workbench legend { color: #174c3b; font-weight: 800; padding: 0 8px; }
+.market-evidence-workbench output { display: block; }
+.market-evidence-workbench code { overflow-wrap: anywhere; }
 
 @media (max-width: 840px) {
   .page-grid { grid-template-columns: 1fr; padding-top: 42px; }

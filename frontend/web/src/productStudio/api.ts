@@ -51,6 +51,11 @@ export type ProductCompilerReport = {
 export type ProductDraftResponse = {
   status: "DRAFT";
   provenance_ref: string;
+  evidence_refs?: string[];
+  assumptions?: string[];
+  unknowns?: string[];
+  next_validation?: string;
+  expires_at?: string;
   draft_id?: string;
   product_definition_id?: string | null;
   ai_provenance?: ProductAiProvenance;
@@ -59,6 +64,36 @@ export type ProductDraftResponse = {
   confidence?: number | null;
   compiler_report?: ProductCompilerReport;
   [key: string]: unknown;
+};
+
+export type CompetitorEvidenceDraftResponse = ProductDraftResponse & {
+  evidence_id: string;
+  competitor_ref: string;
+  claim: string;
+  source_refs: string[];
+  evidence_status: "VERIFIED" | "UNKNOWN" | "STALE" | "CONTRADICTED";
+  source_type: string;
+  evidence_refs: string[];
+  assumptions: string[];
+  unknowns: string[];
+  next_validation: string;
+  expires_at: string;
+  demand_ref?: string | null;
+  market_insight_ref?: string | null;
+};
+
+export type MarketInsightDraftResponse = ProductDraftResponse & {
+  insight_id: string;
+  demand_ref: string;
+  statement: string;
+  source_refs: string[];
+  competitor_evidence_refs: string[];
+  evidence_refs: string[];
+  assumptions: string[];
+  unknowns: string[];
+  next_validation: string;
+  expires_at: string;
+  segment_ref?: string | null;
 };
 
 export type DraftEnvelopeInput = {
@@ -118,12 +153,20 @@ export type ProductPackageInput = DraftEnvelopeInput & {
   human_gate_policy: string;
 };
 
-export type ClientOptions = { baseUrl?: string; fetchImpl?: ProductStudioFetch };
+export type ProductStudioAccessTokenProvider = () => string | undefined;
+
+export type ClientOptions = {
+  baseUrl?: string;
+  fetchImpl?: ProductStudioFetch;
+  accessToken?: string;
+  accessTokenProvider?: ProductStudioAccessTokenProvider;
+};
 
 export interface ProductStudioApiClient {
   createDemandFrame(input: DemandFrameInput, idempotencyKey: string): Promise<ProductDraftResponse>;
-  createMarketInsight(input: MarketInsightInput, idempotencyKey: string): Promise<ProductDraftResponse>;
-  createCompetitorEvidence(input: CompetitorEvidenceInput, idempotencyKey: string): Promise<ProductDraftResponse>;
+  createMarketInsight(input: MarketInsightInput, idempotencyKey: string): Promise<MarketInsightDraftResponse>;
+  createCompetitorEvidence(input: CompetitorEvidenceInput, idempotencyKey: string): Promise<CompetitorEvidenceDraftResponse>;
+  getCompetitorEvidence?(evidenceId: string): Promise<CompetitorEvidenceDraftResponse>;
   createProductPackage(input: ProductPackageInput, idempotencyKey: string): Promise<ProductDraftResponse>;
 }
 
@@ -132,22 +175,50 @@ const FACTORY_PREFIX = "/product-intelligence/product-factory";
 export class HttpProductStudioApiClient implements ProductStudioApiClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: ProductStudioFetch;
+  private readonly accessToken?: string;
+  private readonly accessTokenProvider?: ProductStudioAccessTokenProvider;
 
   constructor(options: ClientOptions = {}) {
     this.baseUrl = options.baseUrl ?? "";
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
+    this.accessToken = options.accessToken;
+    this.accessTokenProvider = options.accessTokenProvider;
   }
 
   createDemandFrame(input: DemandFrameInput, idempotencyKey: string): Promise<ProductDraftResponse> {
     return this.postDraft("/demand-frames", input, idempotencyKey);
   }
 
-  createMarketInsight(input: MarketInsightInput, idempotencyKey: string): Promise<ProductDraftResponse> {
-    return this.postDraft("/market-insights", input, idempotencyKey);
+  async createMarketInsight(input: MarketInsightInput, idempotencyKey: string): Promise<MarketInsightDraftResponse> {
+    return validateMarketInsightResponse(await this.postDraft("/market-insights", input, idempotencyKey));
   }
 
-  createCompetitorEvidence(input: CompetitorEvidenceInput, idempotencyKey: string): Promise<ProductDraftResponse> {
-    return this.postDraft("/competitor-evidence", input, idempotencyKey);
+  async createCompetitorEvidence(input: CompetitorEvidenceInput, idempotencyKey: string): Promise<CompetitorEvidenceDraftResponse> {
+    return validateCompetitorEvidenceResponse(await this.postDraft("/competitor-evidence", input, idempotencyKey));
+  }
+
+  async getCompetitorEvidence(evidenceId: string): Promise<CompetitorEvidenceDraftResponse> {
+    const normalizedId = evidenceId.trim();
+    if (!normalizedId) {
+      throw new ProductStudioApiError("INVALID_INPUT", "缺少竞品证据 ID，无法回读。");
+    }
+    let response: Response;
+    try {
+      response = await this.fetchImpl(
+        `${this.baseUrl}${FACTORY_PREFIX}/competitor-evidence/${encodeURIComponent(normalizedId)}`,
+        { method: "GET", headers: this.authorizationHeaders() },
+      );
+    } catch {
+      throw new ProductStudioApiError("TIMEOUT", "Product Studio API 暂时不可达，请稍后重试。");
+    }
+    if (!response.ok) throw await mapProductStudioHttpError(response);
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      throw new ProductStudioApiError("INVALID_RESPONSE", "Product Studio 返回了不可解析的响应。", response.status);
+    }
+    return validateCompetitorEvidenceResponse(validateDraftResponse(body, response.status));
   }
 
   createProductPackage(input: ProductPackageInput, idempotencyKey: string): Promise<ProductDraftResponse> {
@@ -162,7 +233,11 @@ export class HttpProductStudioApiClient implements ProductStudioApiClient {
     try {
       response = await this.fetchImpl(`${this.baseUrl}${FACTORY_PREFIX}${path}`, {
         method: "POST",
-        headers: { "content-type": "application/json", "Idempotency-Key": idempotencyKey },
+        headers: {
+          ...this.authorizationHeaders(),
+          "content-type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
         body: JSON.stringify(input),
       });
     } catch {
@@ -177,6 +252,68 @@ export class HttpProductStudioApiClient implements ProductStudioApiClient {
     }
     return validateDraftResponse(body, response.status);
   }
+
+  private authorizationHeaders(): Record<string, string> {
+    const rawToken = this.accessTokenProvider?.() ?? this.accessToken;
+    const token = rawToken?.trim();
+    if (!token) return {};
+    return {
+      Authorization: token.toLowerCase().startsWith("bearer ") ? token : `Bearer ${token}`,
+    };
+  }
+}
+
+function requireResponseString(body: ProductDraftResponse, field: string): string {
+  const value = body[field];
+  if (typeof value !== "string" || !value.trim()) {
+    throw new ProductStudioApiError("INVALID_RESPONSE", `产品草案缺少 ${field}。`);
+  }
+  return value.trim();
+}
+
+function requireResponseStrings(body: ProductDraftResponse, field: string): string[] {
+  const value = body[field];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) {
+    throw new ProductStudioApiError("INVALID_RESPONSE", `产品草案的 ${field} 无效。`);
+  }
+  return value.map((item) => item.trim());
+}
+
+function validateCompetitorEvidenceResponse(body: ProductDraftResponse): CompetitorEvidenceDraftResponse {
+  const evidenceStatus = body.evidence_status;
+  if (!["VERIFIED", "UNKNOWN", "STALE", "CONTRADICTED"].includes(String(evidenceStatus))) {
+    throw new ProductStudioApiError("INVALID_RESPONSE", "竞品证据状态无效。");
+  }
+  return {
+    ...body,
+    evidence_id: requireResponseString(body, "evidence_id"),
+    competitor_ref: requireResponseString(body, "competitor_ref"),
+    claim: requireResponseString(body, "claim"),
+    source_refs: requireResponseStrings(body, "source_refs"),
+    evidence_refs: requireResponseStrings(body, "evidence_refs"),
+    assumptions: requireResponseStrings(body, "assumptions"),
+    unknowns: requireResponseStrings(body, "unknowns"),
+    next_validation: requireResponseString(body, "next_validation"),
+    expires_at: requireResponseString(body, "expires_at"),
+    evidence_status: evidenceStatus as CompetitorEvidenceDraftResponse["evidence_status"],
+    source_type: requireResponseString(body, "source_type"),
+  };
+}
+
+function validateMarketInsightResponse(body: ProductDraftResponse): MarketInsightDraftResponse {
+  return {
+    ...body,
+    insight_id: requireResponseString(body, "insight_id"),
+    demand_ref: requireResponseString(body, "demand_ref"),
+    statement: requireResponseString(body, "statement"),
+    source_refs: requireResponseStrings(body, "source_refs"),
+    competitor_evidence_refs: requireResponseStrings(body, "competitor_evidence_refs"),
+    evidence_refs: requireResponseStrings(body, "evidence_refs"),
+    assumptions: requireResponseStrings(body, "assumptions"),
+    unknowns: requireResponseStrings(body, "unknowns"),
+    next_validation: requireResponseString(body, "next_validation"),
+    expires_at: requireResponseString(body, "expires_at"),
+  };
 }
 
 function validateDraftResponse(value: unknown, httpStatus?: number): ProductDraftResponse {
