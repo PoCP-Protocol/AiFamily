@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -179,3 +181,64 @@ async def test_canonical_event_writer_uses_one_session_for_audit_and_outbox() ->
     assert "outbox_events" in str(second_call.args[0])
     assert first_call.args[1]["family_id"] == "family-a"
     assert second_call.args[1]["resource_id"] == "plan-1"
+
+
+@pytest.mark.skipif(postgres_test_url() is None, reason=SKIP_REASON)
+async def test_postgres_canonical_writer_persists_audit_and_outbox_atomically() -> None:
+    async with postgres_schema_engine(JourneyBase.metadata) as engine:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    """
+                    CREATE TABLE audit_logs (
+                        audit_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                        family_id uuid NULL,
+                        actor_type varchar(32) NOT NULL,
+                        actor_id varchar(128) NOT NULL,
+                        action_name varchar(128) NOT NULL,
+                        resource_type varchar(64) NOT NULL,
+                        resource_id varchar(128) NULL,
+                        correlation_id varchar(128) NOT NULL,
+                        idempotency_key varchar(128) NULL,
+                        result varchar(32) NOT NULL,
+                        metadata jsonb NOT NULL,
+                        created_at timestamptz NOT NULL DEFAULT now()
+                    )
+                    """
+                )
+            )
+            await connection.execute(
+                text(
+                    """
+                    CREATE TABLE outbox_events (
+                        outbox_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                        aggregate_type varchar(64) NOT NULL,
+                        aggregate_id varchar(128) NOT NULL,
+                        event_name varchar(128) NOT NULL,
+                        event_version integer NOT NULL,
+                        event_id uuid NOT NULL UNIQUE,
+                        correlation_id varchar(128) NOT NULL,
+                        payload jsonb NOT NULL,
+                        occurred_at timestamptz NOT NULL,
+                        published_at timestamptz NULL,
+                        retry_count integer NOT NULL DEFAULT 0,
+                        created_at timestamptz NOT NULL DEFAULT now()
+                    )
+                    """
+                )
+            )
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        tenant_id = "00000000-0000-0000-0000-000000000001"
+        family_id = "00000000-0000-0000-0000-000000000002"
+        async with factory() as session:
+            repository = SqlAlchemyJourneyRepository(session, canonical_event_writer(session))
+            plan = _plan()
+            plan = replace(plan, tenant_id=tenant_id, family_id=family_id)
+            await repository.create_plan(plan)
+            await session.commit()
+            counts = await session.execute(
+                text(
+                    "SELECT (SELECT count(*) FROM audit_logs), (SELECT count(*) FROM outbox_events)"
+                )
+            )
+            assert tuple(counts.one()) == (1, 1)
