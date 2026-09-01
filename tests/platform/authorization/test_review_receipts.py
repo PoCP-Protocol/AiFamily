@@ -84,6 +84,21 @@ def test_unregistered_action_is_denied_fail_closed() -> None:
         issuer(register=False).issue(actor(), binding(), evaluated_at=NOW)
 
 
+def test_view_only_policy_cannot_issue_an_effective_confirmation_receipt() -> None:
+    policy = PolicyEngine()
+    policy.register(
+        PolicyRule(
+            action="view_family_understanding",
+            resource_type=REVIEW_RESOURCE_TYPE,
+            human_only=True,
+        )
+    )
+    service = ReviewReceiptIssuer(policy, signing_key=b"r" * 32)
+
+    with pytest.raises(ReviewReceiptDenied, match="fail-closed"):
+        service.issue(actor(), binding(), evaluated_at=NOW)
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
