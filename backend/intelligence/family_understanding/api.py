@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Literal, Protocol
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -47,6 +47,69 @@ class AuthorizedContextResolver(Protocol):
     ) -> AuthorizedFamilyContext | None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class AuthorizedReviewContext:
+    tenant_id: str
+    family_id: str
+    actor_id: str
+    subject_person_id: str
+    consent_ref: str
+
+
+class AuthorizedReviewContextResolver(Protocol):
+    async def resolve_for_review(
+        self, *, family_id: str
+    ) -> AuthorizedReviewContext | None: ...
+
+
+class ReviewUnderstandingBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_version: int = Field(ge=1)
+    provenance_ref: str = Field(min_length=1)
+    view_event_ref: str = Field(min_length=1)
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewUnderstandingCommand:
+    tenant_id: str
+    family_id: str
+    actor_id: str
+    subject_person_id: str
+    consent_ref: str
+    artifact_ref: str
+    artifact_version: int
+    provenance_ref: str
+    view_event_ref: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewUnderstandingView:
+    receipt_ref: str
+    status: Literal["EFFECTIVE"]
+    scope_ref: str
+    artifact_ref: str
+    artifact_version: int
+    provenance_ref: str
+    expires_at: datetime
+
+
+class UnderstandingReviewApplication(Protocol):
+    async def review(self, command: ReviewUnderstandingCommand) -> ReviewUnderstandingView: ...
+
+
+class ReviewUnderstandingResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    receipt_ref: str
+    status: Literal["EFFECTIVE"]
+    scope_ref: str
+    artifact_ref: str
+    artifact_version: int
+    provenance_ref: str
+    expires_at: datetime
+
+
 class UnderstandingDraftResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -79,6 +142,8 @@ class UnderstandingDraftResponse(BaseModel):
 def create_family_understanding_router(
     application: FamilyUnderstandingApplication,
     authorized_contexts: AuthorizedContextResolver,
+    review_application: UnderstandingReviewApplication | None = None,
+    review_contexts: AuthorizedReviewContextResolver | None = None,
 ) -> APIRouter:
     router = APIRouter(tags=["family-understanding"])
 
@@ -131,6 +196,44 @@ def create_family_understanding_router(
         except (KeyError, TypeError, ValueError) as exc:
             raise _http_error(status.HTTP_422_UNPROCESSABLE_ENTITY, "REQUEST_INVALID") from exc
         return _response(view)
+
+    @router.post(
+        "/v1/families/{family_id}/understanding-drafts/{artifact_ref}/views",
+        response_model=ReviewUnderstandingResponse,
+        status_code=status.HTTP_200_OK,
+    )
+    async def review_understanding(
+        family_id: str,
+        artifact_ref: str,
+        body: ReviewUnderstandingBody,
+    ) -> ReviewUnderstandingResponse:
+        if review_application is None or review_contexts is None:
+            raise _unavailable()
+        authorized = await review_contexts.resolve_for_review(family_id=family_id)
+        if authorized is None or authorized.family_id != family_id:
+            raise _http_error(status.HTTP_403_FORBIDDEN, "FAMILY_SCOPE_MISMATCH")
+        view = await review_application.review(
+            ReviewUnderstandingCommand(
+                tenant_id=authorized.tenant_id,
+                family_id=authorized.family_id,
+                actor_id=authorized.actor_id,
+                subject_person_id=authorized.subject_person_id,
+                consent_ref=authorized.consent_ref,
+                artifact_ref=artifact_ref,
+                artifact_version=body.artifact_version,
+                provenance_ref=body.provenance_ref,
+                view_event_ref=body.view_event_ref,
+            )
+        )
+        return ReviewUnderstandingResponse(
+            receipt_ref=view.receipt_ref,
+            status=view.status,
+            scope_ref=view.scope_ref,
+            artifact_ref=view.artifact_ref,
+            artifact_version=view.artifact_version,
+            provenance_ref=view.provenance_ref,
+            expires_at=view.expires_at,
+        )
 
     return router
 

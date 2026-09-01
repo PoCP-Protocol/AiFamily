@@ -7,6 +7,9 @@ from fastapi.testclient import TestClient
 
 from backend.intelligence.family_understanding.api import (
     AuthorizedFamilyContext,
+    AuthorizedReviewContext,
+    ReviewUnderstandingCommand,
+    ReviewUnderstandingView,
     create_family_understanding_router,
 )
 from backend.intelligence.family_understanding.application import FamilyUnderstandingApplication
@@ -48,6 +51,36 @@ class StaticAuthorizedContexts:
         )
 
 
+class StaticReviewContexts:
+    async def resolve_for_review(self, *, family_id: str):
+        if family_id != "family-1":
+            return None
+        return AuthorizedReviewContext(
+            tenant_id="tenant-1",
+            family_id="family-1",
+            actor_id="guardian-1",
+            subject_person_id="guardian-1",
+            consent_ref="consent-1",
+        )
+
+
+class CapturingReviewApplication:
+    def __init__(self) -> None:
+        self.commands: list[ReviewUnderstandingCommand] = []
+
+    async def review(self, command: ReviewUnderstandingCommand) -> ReviewUnderstandingView:
+        self.commands.append(command)
+        return ReviewUnderstandingView(
+            receipt_ref="review-receipt:v1:sha256:test",
+            status="EFFECTIVE",
+            scope_ref="family://tenant-1/family-1/problem-understanding",
+            artifact_ref=command.artifact_ref,
+            artifact_version=command.artifact_version,
+            provenance_ref=command.provenance_ref,
+            expires_at=datetime(2099, 1, 1, tzinfo=UTC),
+        )
+
+
 def request_body(text: str = "一写作业就要反复提醒。", index: int = 1) -> dict[str, object]:
     return {
         "run_id": f"http-run-{index}",
@@ -85,6 +118,76 @@ def client_for(application: FamilyUnderstandingApplication) -> TestClient:
     app = FastAPI()
     app.include_router(create_family_understanding_router(application, StaticAuthorizedContexts()))
     return TestClient(app)
+
+
+def review_client(review_application: CapturingReviewApplication) -> TestClient:
+    app = FastAPI()
+    app.include_router(
+        create_family_understanding_router(
+            application_with(semantic_provider()),
+            StaticAuthorizedContexts(),
+            review_application,
+            StaticReviewContexts(),
+        )
+    )
+    return TestClient(app)
+
+
+def test_review_http_accepts_only_artifact_binding_and_server_context() -> None:
+    review = CapturingReviewApplication()
+    response = review_client(review).post(
+        "/v1/families/family-1/understanding-drafts/artifact-1/views",
+        json={
+            "artifact_version": 2,
+            "provenance_ref": "air-provenance:v1:sha256:one",
+            "view_event_ref": "view-event-1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["receipt_ref"].startswith("review-receipt:v1:sha256:")
+    assert review.commands == [
+        ReviewUnderstandingCommand(
+            tenant_id="tenant-1",
+            family_id="family-1",
+            actor_id="guardian-1",
+            subject_person_id="guardian-1",
+            consent_ref="consent-1",
+            artifact_ref="artifact-1",
+            artifact_version=2,
+            provenance_ref="air-provenance:v1:sha256:one",
+            view_event_ref="view-event-1",
+        )
+    ]
+
+
+def test_review_http_rejects_client_authored_need_fields_and_cross_family() -> None:
+    review = CapturingReviewApplication()
+    body = {
+        "artifact_version": 1,
+        "provenance_ref": "air-provenance:v1:sha256:one",
+        "view_event_ref": "view-event-1",
+        "need_type": "CLIENT_INVENTED",
+        "goal_text": "client controlled",
+        "evidence_refs": ["client-evidence"],
+    }
+
+    invented = review_client(review).post(
+        "/v1/families/family-1/understanding-drafts/artifact-1/views",
+        json=body,
+    )
+    cross_family = review_client(review).post(
+        "/v1/families/family-2/understanding-drafts/artifact-1/views",
+        json={
+            key: value
+            for key, value in body.items()
+            if key not in {"need_type", "goal_text", "evidence_refs"}
+        },
+    )
+
+    assert invented.status_code == 422
+    assert cross_family.status_code == 403
+    assert review.commands == []
 
 
 def test_http_contract_returns_typed_generated_draft() -> None:
