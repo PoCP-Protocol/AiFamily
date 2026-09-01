@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from backend.platform.persistence.session import DATABASE_URL_ENV_VAR
 from tests.support.postgres import SKIP_REASON, postgres_test_url
 
-REVISION = "0005_reviewed_signal"
+HEAD_REVISION = "0006_understanding_scope_binding"
 PARENT = "0004_ai_run_ledger"
 TABLE_NAME = "assessment_reviewed_understanding_signals"
 
@@ -141,7 +141,7 @@ async def test_upgrade_downgrade_restart_and_reupgrade_reviewed_signal(
 
     current = _run_alembic("current", database_url=throwaway_database_url)
     assert current.returncode == 0, current.stdout + current.stderr
-    assert f"{REVISION} (head)" in current.stdout
+    assert f"{HEAD_REVISION} (head)" in current.stdout
 
     downgrade = _run_alembic("downgrade", PARENT, database_url=throwaway_database_url)
     assert downgrade.returncode == 0, downgrade.stdout + downgrade.stderr
