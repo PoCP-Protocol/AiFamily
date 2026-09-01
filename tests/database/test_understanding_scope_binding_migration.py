@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 from backend.platform.persistence.session import DATABASE_URL_ENV_VAR
 from tests.support.postgres import SKIP_REASON, postgres_test_url
 
-REVISION = "0006_understanding_scope_binding"
+HEAD_REVISION = "0007_understanding_snapshot"
 PARENT = "0005_reviewed_signal"
 TABLE_NAME = "assessment_reviewed_understanding_signals"
 TENANT_ID = "10000000-0000-4000-8000-000000000001"
@@ -266,7 +266,7 @@ async def test_upgrade_enforces_exact_scope_xor_and_downgrade_boundary(
         assert (
             (_run_alembic("current", database_url=throwaway_database_url).stdout)
             .strip()
-            .endswith(f"{REVISION} (head)")
+            .endswith(f"{HEAD_REVISION} (head)")
         )
     finally:
         await engine.dispose()
