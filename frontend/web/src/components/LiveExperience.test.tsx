@@ -6,6 +6,7 @@ import { LiveDetailPage } from "./LiveDetailPage";
 import {
   LIVE_STATE_COPY,
   XIAO_JU_DENG_FIXTURE,
+  resolveLiveCommerceBaseUrl,
   resolveLiveReplayBaseUrl,
   resolveLiveView,
   type LiveViewState,
@@ -236,6 +237,59 @@ describe("Xiao Ju Deng live product surface", () => {
     expect(resolveLiveReplayBaseUrl({
       DEV: true,
       VITE_LIVE_REPLAY_BASE_URL: "https://unverified.example",
+    })).toBeUndefined();
+  });
+
+  it("shows adult membership and records a no-side-effect expert tip", async () => {
+    const record = {
+      ...XIAO_JU_DENG_FIXTURE,
+      status: "LIVE",
+      playback_state: "LIVE",
+      playback: JSON.parse(SYNTHETIC_PLAYBACK_DTO),
+    } as typeof XIAO_JU_DENG_FIXTURE;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          membership: "ORANGE_LIGHT_MEMBER",
+          source: "SANDBOX_SYNTHETIC",
+          fixture_only: true,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          status: "SANDBOX_AUTHORIZED",
+          gross_amount: 500,
+          allocations: [
+            { beneficiary_ref: "expert.synthetic.1", amount: 400 },
+            { beneficiary_ref: "platform:aifamily", amount: 100 },
+          ],
+          external_effect: false,
+          source: "SANDBOX_SYNTHETIC",
+          fixture_only: true,
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <LiveDetailPage
+        record={record}
+        commerceBaseUrl="http://127.0.0.1:55400"
+        onBack={() => undefined}
+      />,
+    );
+    expect(await screen.findByText("橘灯会员 · 成人专属")).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "打赏 5 元" }));
+    expect(await screen.findByText(/专家分配 400 分/)).toBeInTheDocument();
+    expect(screen.getByText(/未发生真实扣款/)).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects non-local commerce adapters", () => {
+    expect(resolveLiveCommerceBaseUrl({
+      DEV: true,
+      VITE_LIVE_COMMERCE_BASE_URL: "https://unverified.example",
     })).toBeUndefined();
   });
 

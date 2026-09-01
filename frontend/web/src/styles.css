@@ -752,6 +752,26 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
   font-size: 0.68rem;
   margin: 8px 4px 0;
 }
+.live-room-support {
+  border-top: 1px solid rgb(255 237 213 / 12%);
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+}
+.live-room-support > div:first-child { display: flex; justify-content: space-between; }
+.live-room-support strong { color: #fff7ed; font-size: 0.78rem; }
+.live-room-support span, .live-room-support small { color: #fdba74; font-size: 0.64rem; }
+.live-room-support-actions { display: grid; gap: 7px; grid-template-columns: 1fr 1fr; }
+.live-room-support-actions button {
+  background: #f97316;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 8px;
+}
 .live-replay-panel {
   align-items: center;
   background: linear-gradient(120deg, #2a130c, #160b07);

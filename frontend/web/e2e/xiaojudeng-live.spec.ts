@@ -29,6 +29,8 @@ let questionApiUrl: string;
 let browserQuestionApiUrl: string;
 let replayApiUrl: string;
 const browserReplayApiUrl = "http://127.0.0.1:4173/sandbox-replay";
+let commerceApiUrl: string;
+const browserCommerceApiUrl = "http://127.0.0.1:4173/sandbox-commerce";
 let replayProcess: ChildProcess;
 const replayDatabasePath = resolve(tmpdir(), `xiaojudeng-replay-${Date.now()}.sqlite3`);
 const mediaOutputPath = resolve(tmpdir(), `xiaojudeng-playwright-${Date.now()}.mp4`);
@@ -45,6 +47,7 @@ test.beforeAll(async () => {
   await startQuestionSandbox(questionPort);
   sandboxDto = await startMediaSandbox();
   replayProcess = await startReplaySandbox(await reserveFreePort());
+  await startCommerceSandbox(await reserveFreePort());
   browserMediaDto = {
     ...sandboxDto,
     playback_url: toBrowserProxyUrl(sandboxDto.playback_url),
@@ -54,7 +57,13 @@ test.beforeAll(async () => {
   if (!mediaProbe.ok) throw new Error(`media sandbox probe failed: ${mediaProbe.status}`);
   await Promise.all([
     startVite(4181),
-    startVite(4182, JSON.stringify(browserMediaDto), browserQuestionApiUrl, browserReplayApiUrl),
+    startVite(
+      4182,
+      JSON.stringify(browserMediaDto),
+      browserQuestionApiUrl,
+      browserReplayApiUrl,
+      browserCommerceApiUrl,
+    ),
   ]);
 });
 
@@ -151,6 +160,12 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
   await expect(page.getByText("怎样先听懂再回应？")).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("desktop-approved-question.png"), fullPage: true });
 
+  await expect(page.getByText("橘灯会员 · 成人专属")).toBeVisible();
+  await page.getByRole("button", { name: "打赏 5 元" }).click();
+  await expect(page.getByText(/专家分配 400 分/)).toBeVisible();
+  await expect(page.getByText(/未发生真实扣款/)).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("desktop-adult-support.png"), fullPage: true });
+
   await page.getByText("连接演练工具").click();
   await page.getByRole("button", { name: "结束本场" }).click();
   await expect(page.getByText("本场直播已经停止。")).toBeVisible();
@@ -214,6 +229,7 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
     replay: "PASS",
     replay_old_url_after_delete_status: replayAfterDelete.status(),
     replay_after_restart: "DELETED",
+    adult_membership_and_support: "PASS_NO_EXTERNAL_EFFECT",
   }, null, 2);
   await writeFile(testInfo.outputPath("state-results.json"), stateResults, "utf8");
   await testInfo.attach("state-results.json", {
@@ -260,12 +276,15 @@ async function installOriginProxy(
     const isMediaRequest = incoming.pathname.startsWith("/sandbox-media/");
     const isQuestionRequest = incoming.pathname.startsWith("/sandbox-question/");
     const isReplayRequest = incoming.pathname.startsWith("/sandbox-replay/");
+    const isCommerceRequest = incoming.pathname.startsWith("/sandbox-commerce/");
     const path = isMediaRequest
       ? incoming.pathname.replace("/sandbox-media", "")
       : isQuestionRequest
         ? incoming.pathname.replace("/sandbox-question", "")
         : isReplayRequest
           ? incoming.pathname.replace("/sandbox-replay", "")
+        : isCommerceRequest
+          ? incoming.pathname.replace("/sandbox-commerce", "")
         : incoming.pathname;
     const source = new URL(
       `${path}${incoming.search}`,
@@ -275,6 +294,8 @@ async function installOriginProxy(
           ? questionApiUrl
           : isReplayRequest
             ? replayApiUrl
+            : isCommerceRequest
+              ? commerceApiUrl
             : sourceBaseUrl,
     );
     const response = await route.fetch({ url: source.toString() });
@@ -287,12 +308,14 @@ async function startVite(
   mediaDto?: string,
   interactionBaseUrl?: string,
   replayBaseUrl?: string,
+  commerceBaseUrl?: string,
 ): Promise<void> {
   const env = { ...process.env };
   delete env.VITE_MEDIA_PLAYBACK_DTO;
   if (mediaDto) env.VITE_MEDIA_PLAYBACK_DTO = mediaDto;
   if (interactionBaseUrl) env.VITE_LIVE_INTERACTION_BASE_URL = interactionBaseUrl;
   if (replayBaseUrl) env.VITE_LIVE_REPLAY_BASE_URL = replayBaseUrl;
+  if (commerceBaseUrl) env.VITE_LIVE_COMMERCE_BASE_URL = commerceBaseUrl;
   const child = spawn(
     process.execPath,
     [viteEntrypoint, "--host", "127.0.0.1", "--port", String(port), "--strictPort"],
@@ -300,6 +323,25 @@ async function startVite(
   );
   processes.push(child);
   await waitForUrl(`http://127.0.0.1:${port}/`);
+}
+
+async function startCommerceSandbox(port: number): Promise<void> {
+  commerceApiUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(
+    pythonExecutable,
+    [
+      "-m",
+      "poc.standalone_live_commerce_sandbox.commerce_api",
+      "--serve",
+      "--port",
+      String(port),
+    ],
+    { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  processes.push(child);
+  child.stdout?.resume();
+  child.stderr?.resume();
+  await waitForUrl(`${commerceApiUrl}/health`);
 }
 
 async function startReplaySandbox(port: number): Promise<ChildProcess> {
