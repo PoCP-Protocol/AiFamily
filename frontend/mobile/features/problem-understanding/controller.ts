@@ -131,14 +131,21 @@ export function submitCorrection(
 export function beginConfirmation(
   state: ProblemUnderstandingState,
 ): ProblemUnderstandingState {
-  if (!state.activeSignal || state.phase !== "AWAITING_CONFIRMATION") {
+  if (
+    !state.activeSignal ||
+    !state.activeSignal.humanGateReceiptRef ||
+    state.phase !== "AWAITING_CONFIRMATION"
+  ) {
     return { ...state, phase: "ERROR" };
   }
 
   return {
     ...state,
     phase: "CONFIRMING",
-    pendingConfirmation: { ...state.activeSignal },
+    pendingConfirmation: {
+      ...state.activeSignal,
+      humanGateReceiptRef: state.activeSignal.humanGateReceiptRef,
+    },
   };
 }
 
@@ -298,7 +305,9 @@ export function buildUnderstandingMap(
     unknowns: draft.unknowns,
     canCorrect: draft.lifecycle === "PROPOSED",
     canConfirm:
-      draft.lifecycle === "PROPOSED" && state.phase === "AWAITING_CONFIRMATION",
+      draft.lifecycle === "PROPOSED" &&
+      state.phase === "AWAITING_CONFIRMATION" &&
+      Boolean(state.activeSignal?.humanGateReceiptRef),
     clarificationSkipped: state.clarificationSkipped,
   };
 }

@@ -30,7 +30,7 @@ export interface UnderstandingDraft {
   reviewedDraftRef: string;
   draftVersion: number;
   provenanceRef: string;
-  humanGateReceiptRef: string;
+  humanGateReceiptRef: string | null;
   summary: string;
   explicitClaims: readonly string[];
   alternativeExplanations: readonly string[];
@@ -38,6 +38,16 @@ export interface UnderstandingDraft {
   desiredChange: string;
   unknowns: readonly UnderstandingUnknown[];
   lifecycle: "PROPOSED" | "SUPERSEDED" | "CONFIRMED";
+}
+
+export interface DraftBinding {
+  signalRef: string;
+  signalVersion: number;
+  scopeRef: string;
+  reviewedDraftRef: string;
+  draftVersion: number;
+  provenanceRef: string;
+  humanGateReceiptRef: string | null;
 }
 
 export interface ConfirmationBinding {
@@ -61,7 +71,7 @@ export interface ProblemUnderstandingState {
   correctionDraft: string;
   inputs: readonly UnderstandingInput[];
   drafts: readonly UnderstandingDraft[];
-  activeSignal: ConfirmationBinding | null;
+  activeSignal: DraftBinding | null;
   pendingConfirmation: ConfirmationBinding | null;
   receipt: UnderstandingReceipt | null;
   recoveryMessage: string | null;

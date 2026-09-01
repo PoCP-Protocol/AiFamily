@@ -391,6 +391,29 @@ export class FamilyApiClient {
     return this.request<T>(`/families/${familyId}/ui/02/assessment`, { token });
   }
 
+  generateFamilyUnderstanding<T>(
+    token: string,
+    familyId: string,
+    body: {
+      run_id: string;
+      tenant_id: string;
+      guardian_input_ref: string;
+      guardian_text: string;
+      revision: number;
+      prior_draft_artifact_hash: string | null;
+    },
+  ) {
+    return this.request<T>(`/v1/families/${familyId}/understanding-drafts`, {
+      method: "POST",
+      token,
+      body,
+      headers: {
+        "x-correlation-id": createMobileRequestId("family-understanding"),
+        "x-source": "family-ai-mobile",
+      },
+    });
+  }
+
   startFamilyAssessment<T>(token: string, familyId: string, body: { subject_person_id: string; tool_ref?: string }, idempotencyKey: string) {
     return this.request<T>(`/families/${familyId}/assessments/sessions`, {
       method: "POST", token, body,
