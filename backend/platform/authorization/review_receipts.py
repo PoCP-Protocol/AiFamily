@@ -18,7 +18,7 @@ from typing import Literal
 from backend.platform.authorization.policy import PolicyEngine
 from backend.platform.identity.context import ActorContext
 
-REVIEW_ACTION = "view_family_understanding"
+REVIEW_ACTION = "confirm_family_understanding"
 REVIEW_RESOURCE_TYPE = "UnderstandingDraft"
 _RECEIPT_PREFIX = "review-receipt:v1:sha256:"
 
