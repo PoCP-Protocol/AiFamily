@@ -8,24 +8,31 @@ the test readable; nothing here depends on async test infrastructure.
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.apps.family_api.main import create_app
+from backend.platform.persistence.session import clear_engine_cache
+
+
+@pytest.fixture(autouse=True)
+def isolated_engine_cache() -> None:
+    clear_engine_cache()
+    yield
+    clear_engine_cache()
 
 
 def test_health_returns_200_ok() -> None:
-    client = TestClient(create_app())
-
-    response = client.get("/health")
+    with TestClient(create_app()) as client:
+        response = client.get("/health")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
 
 def test_ready_returns_200_when_database_is_reachable() -> None:
-    client = TestClient(create_app())
-
-    response = client.get("/ready")
+    with TestClient(create_app()) as client:
+        response = client.get("/ready")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ready"}

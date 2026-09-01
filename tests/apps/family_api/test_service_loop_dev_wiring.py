@@ -53,7 +53,8 @@ ACCOUNT = "parent-a"
 
 
 @pytest.fixture()
-def client() -> TestClient:
+def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    monkeypatch.setenv(ENV_VAR, "dev")
     reset_dev_state()
     return TestClient(create_app())
 

@@ -98,6 +98,17 @@ def is_postgres_url(database_url: str) -> bool:
     return database_url.startswith(("postgresql", "postgres://"))
 
 
+def clear_engine_cache() -> None:
+    """Forget process-cached engines without changing existing bindings.
+
+    A sessionmaker already handed to a running application keeps its engine.
+    Tests creating independent application/event-loop lifecycles call this
+    boundary so the next lifecycle cannot reuse a pooled async connection that
+    belongs to the previous loop.
+    """
+    _cached_engine.cache_clear()
+
+
 @lru_cache(maxsize=8)
 def _cached_engine(database_url: str) -> AsyncEngine:
     if database_url.startswith("sqlite"):
