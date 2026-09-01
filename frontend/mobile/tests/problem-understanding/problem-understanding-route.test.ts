@@ -14,6 +14,10 @@ const controller = readFileSync(
   resolve(process.cwd(), "features/problem-understanding/controller.ts"),
   "utf8",
 );
+const api = readFileSync(
+  resolve(process.cwd(), "features/problem-understanding/api.ts"),
+  "utf8",
+);
 const rootLayout = readFileSync(
   resolve(process.cwd(), "app/_layout.tsx"),
   "utf8",
@@ -31,6 +35,11 @@ describe("Problem Understanding standalone Expo route", () => {
 
   it("uses only the real family-understanding HTTP response at runtime", () => {
     expect(route).toContain("familyApi.generateFamilyUnderstanding");
+    expect(route).toContain("recordUnderstandingView");
+    expect(route).toContain("confirmUnderstanding");
+    expect(route).toContain("toUnderstandingReceipt");
+    expect(api).toContain('"views"');
+    expect(api).toContain('"confirmations"');
     expect(route).toContain("toUnderstandingDraft");
     expect(route).toContain("prior_draft_artifact_hash");
     expect(route).not.toContain("createSyntheticUnderstanding");

@@ -1,10 +1,12 @@
 import type {
   ConfirmationBinding,
+  DraftBinding,
   ProblemUnderstandingState,
   UnderstandingDraft,
   UnderstandingInput,
   UnderstandingMapViewModel,
   UnderstandingReceipt,
+  ViewedDraftBinding,
 } from "./model";
 
 export const PROBLEM_UNDERSTANDING_COPY = {
@@ -80,6 +82,7 @@ export function receiveUnderstanding(
       draftVersion: draft.draftVersion,
       provenanceRef: draft.provenanceRef,
       humanGateReceiptRef: draft.humanGateReceiptRef,
+      viewEventRef: null,
     },
     pendingConfirmation: null,
     recoveryMessage: null,
@@ -133,7 +136,7 @@ export function beginConfirmation(
 ): ProblemUnderstandingState {
   if (
     !state.activeSignal ||
-    !state.activeSignal.humanGateReceiptRef ||
+    !state.activeSignal.viewEventRef ||
     state.phase !== "AWAITING_CONFIRMATION"
   ) {
     return { ...state, phase: "ERROR" };
@@ -143,9 +146,33 @@ export function beginConfirmation(
     ...state,
     phase: "CONFIRMING",
     pendingConfirmation: {
-      ...state.activeSignal,
-      humanGateReceiptRef: state.activeSignal.humanGateReceiptRef,
+      signalRef: state.activeSignal.signalRef,
+      signalVersion: state.activeSignal.signalVersion,
+      scopeRef: state.activeSignal.scopeRef,
+      reviewedDraftRef: state.activeSignal.reviewedDraftRef,
+      draftVersion: state.activeSignal.draftVersion,
+      provenanceRef: state.activeSignal.provenanceRef,
+      viewEventRef: state.activeSignal.viewEventRef,
     },
+  };
+}
+
+export function applyUnderstandingView(
+  state: ProblemUnderstandingState,
+  viewed: ViewedDraftBinding,
+): ProblemUnderstandingState {
+  if (!sameDraftBinding(state.activeSignal, viewed)) {
+    return {
+      ...state,
+      recoveryMessage: "内容已经更新，请看过最新理解后再确认。",
+    };
+  }
+  const activeSignal = state.activeSignal;
+  if (activeSignal === null) return state;
+  return {
+    ...state,
+    activeSignal: { ...activeSignal, viewEventRef: viewed.viewEventRef },
+    recoveryMessage: null,
   };
 }
 
@@ -306,15 +333,14 @@ export function buildUnderstandingMap(
     canCorrect: draft.lifecycle === "PROPOSED",
     canConfirm:
       draft.lifecycle === "PROPOSED" &&
-      state.phase === "AWAITING_CONFIRMATION" &&
-      Boolean(state.activeSignal?.humanGateReceiptRef),
+      state.phase === "AWAITING_CONFIRMATION",
     clarificationSkipped: state.clarificationSkipped,
   };
 }
 
 function sameBinding(
-  expected: ConfirmationBinding | null,
-  actual: ConfirmationBinding,
+  expected: ViewedDraftBinding | null,
+  actual: UnderstandingReceipt,
 ): boolean {
   return (
     expected !== null &&
@@ -324,6 +350,23 @@ function sameBinding(
     expected.reviewedDraftRef === actual.reviewedDraftRef &&
     expected.draftVersion === actual.draftVersion &&
     expected.provenanceRef === actual.provenanceRef &&
-    expected.humanGateReceiptRef === actual.humanGateReceiptRef
+    expected.viewEventRef === actual.viewEventRef &&
+    actual.humanGateReceiptRef === actual.receiptRef
+  );
+}
+
+
+function sameDraftBinding(
+  expected: DraftBinding | null,
+  actual: ViewedDraftBinding,
+): boolean {
+  return (
+    expected !== null &&
+    expected.signalRef === actual.signalRef &&
+    expected.signalVersion === actual.signalVersion &&
+    expected.scopeRef === actual.scopeRef &&
+    expected.reviewedDraftRef === actual.reviewedDraftRef &&
+    expected.draftVersion === actual.draftVersion &&
+    expected.provenanceRef === actual.provenanceRef
   );
 }
