@@ -44,6 +44,7 @@ from backend.domains.assessment.infrastructure.sqlalchemy_reviewed_understanding
     SqlAlchemyReviewedUnderstandingSignals,
 )
 from backend.intelligence.family_understanding.api import AuthorizedFamilyContext
+from backend.intelligence.family_understanding.contracts import KnowledgeRef
 from backend.intelligence.model_gateway.errors import ModelGatewayError
 from backend.platform.audit import AuditBase
 from backend.platform.outbox import OutboxMetadata
@@ -346,6 +347,17 @@ class AuthorizedContexts:
             consent_ref="consent-1",
             context_snapshot_ref="context-1",
             context_expires_at=datetime(2099, 1, 1, tzinfo=UTC),
+            reviewed_knowledge_refs=(
+                KnowledgeRef(
+                    ref="knowledge-1",
+                    source="reviewed-guidance",
+                    version="1",
+                    chunk_ref="chunk-1",
+                    content_digest="sha256:knowledge-1",
+                    applicability="family communication",
+                    limitations=("not a diagnosis",),
+                ),
+            ),
         )
 
 
@@ -364,17 +376,6 @@ def test_create_app_mounts_understanding_and_propagates_gateway_failure_as_503()
             "guardian_text": "晚饭后总会因为写作业争吵",
             "revision": 1,
             "prior_draft_artifact_hash": None,
-            "reviewed_knowledge_refs": [
-                {
-                    "ref": "knowledge-1",
-                    "source": "reviewed-guidance",
-                    "version": "1",
-                    "chunk_ref": "chunk-1",
-                    "content_digest": "sha256:knowledge-1",
-                    "applicability": "family communication",
-                    "limitations": ["not a diagnosis"],
-                }
-            ],
         },
     )
 
