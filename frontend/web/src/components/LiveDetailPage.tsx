@@ -4,6 +4,7 @@ import type { LiveRecord, MediaPlaybackState } from "../live/liveCatalog";
 type Props = {
   record: LiveRecord;
   interactionBaseUrl?: string;
+  replayBaseUrl?: string;
   onBack: () => void;
 };
 
@@ -17,6 +18,24 @@ type LiveQuestion = {
 };
 
 type SurfaceState = "WAITING_AUTHORIZATION" | "LOADING" | MediaPlaybackState | "FAILED";
+type ReplayState = "idle" | "loading" | "available" | "deleting" | "deleted" | "error";
+
+type ReplayView = {
+  session_ref: string;
+  state: "AVAILABLE" | "DELETED";
+  playback_url: string | null;
+  source: "SANDBOX_SYNTHETIC";
+  fixture_only: true;
+};
+
+type DeletionView = {
+  deletion_ref: string;
+  session_ref: string;
+  affected_refs: string[];
+  state: "DELETED";
+  source: "SANDBOX_SYNTHETIC";
+  fixture_only: true;
+};
 
 const SANDBOX_DIAGNOSTIC_MARKERS =
   "SANDBOX_SYNTHETIC fixture_only DEV_ONLY LOCKED WAITING_AUTHORIZATION 问题搜索 直播中 已结束 / 回看受限 NO_MEDIA MEDIA_READY PLAYBACK_AUTHORIZED SCHEDULED ENDED";
@@ -34,7 +53,7 @@ const SYNTHETIC_ACTOR_HEADERS = {
   "X-Actor-Role": "ADULT_VIEWER",
 };
 
-export function LiveDetailPage({ record, interactionBaseUrl, onBack }: Props) {
+export function LiveDetailPage({ record, interactionBaseUrl, replayBaseUrl, onBack }: Props) {
   const playback = record.playback;
   const [surfaceState, setSurfaceState] = useState<SurfaceState>(
     playback?.state ?? "WAITING_AUTHORIZATION",
@@ -44,6 +63,9 @@ export function LiveDetailPage({ record, interactionBaseUrl, onBack }: Props) {
   const [questions, setQuestions] = useState<LiveQuestion[]>([]);
   const [questionText, setQuestionText] = useState("");
   const [questionState, setQuestionState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [replayState, setReplayState] = useState<ReplayState>("idle");
+  const [replayUrl, setReplayUrl] = useState("");
+  const [deletedRefs, setDeletedRefs] = useState<string[]>([]);
   const hasStartedPlayback = useRef(false);
   const canRenderVideo =
     playback?.source === "synthetic" &&
@@ -232,6 +254,43 @@ export function LiveDetailPage({ record, interactionBaseUrl, onBack }: Props) {
           ) : null}
         </section>
       ) : null}
+      {showAdultNextStep && replayBaseUrl ? (
+        <section className="live-replay-panel" aria-labelledby="live-replay-heading">
+          <div>
+            <p className="live-kicker">直播回看</p>
+            <h4 id="live-replay-heading">错过的部分，现在接着看</h4>
+            <p>回看仅对当前合成家庭开放；删除后旧播放链接立即失效。</p>
+          </div>
+          {replayState === "available" && replayUrl ? (
+            <div className="live-replay-player">
+              <video
+                aria-label="小橘灯合成直播回看"
+                controls
+                playsInline
+                preload="metadata"
+                src={replayUrl}
+              />
+              <button type="button" className="live-replay-delete" onClick={() => void deleteReplay()}>
+                删除回看
+              </button>
+            </div>
+          ) : null}
+          {replayState === "deleted" ? (
+            <div className="live-replay-receipt" role="status">
+              <strong>回看已删除</strong>
+              <p>源视频、转码、字幕、章节、缓存和供应商副本均已进入删除范围。</p>
+              <small>{deletedRefs.length} 项血缘已确认；刷新或重启后也不会恢复。</small>
+            </div>
+          ) : null}
+          {["idle", "error"].includes(replayState) ? (
+            <button type="button" className="live-replay-open" onClick={() => void loadReplay()}>
+              {replayState === "error" ? "重新获取回看" : "播放回看"}
+            </button>
+          ) : null}
+          {replayState === "loading" ? <p role="status">正在获取回看…</p> : null}
+          {replayState === "deleting" ? <p role="status">正在删除全部回看副本…</p> : null}
+        </section>
+      ) : null}
       {playback?.control_url && record.fixture_only ? (
         <details className="live-sandbox-controls">
           <summary>连接演练工具</summary>
@@ -302,6 +361,67 @@ export function LiveDetailPage({ record, interactionBaseUrl, onBack }: Props) {
       setQuestionState("sent");
     } catch {
       setQuestionState("error");
+    }
+  }
+
+  async function loadReplay() {
+    if (!replayBaseUrl || !isLocalPlaybackUrl(replayBaseUrl)) {
+      setReplayState("error");
+      return;
+    }
+    setReplayState("loading");
+    try {
+      const response = await fetch(`${replayBaseUrl}/sandbox/replays/media.synthetic.1`, {
+        cache: "no-store",
+        headers: SYNTHETIC_ACTOR_HEADERS,
+      });
+      if (!response.ok) throw new Error("replay read failed");
+      const replay = (await response.json()) as ReplayView;
+      if (replay.source !== "SANDBOX_SYNTHETIC" || replay.fixture_only !== true) {
+        throw new Error("replay source rejected");
+      }
+      if (replay.state === "DELETED") {
+        setReplayUrl("");
+        setReplayState("deleted");
+        return;
+      }
+      if (!replay.playback_url || !isLocalPlaybackUrl(replay.playback_url)) {
+        throw new Error("replay capability rejected");
+      }
+      setReplayUrl(replay.playback_url);
+      setReplayState("available");
+    } catch {
+      setReplayState("error");
+    }
+  }
+
+  async function deleteReplay() {
+    if (!replayBaseUrl || !isLocalPlaybackUrl(replayBaseUrl)) {
+      setReplayState("error");
+      return;
+    }
+    setReplayState("deleting");
+    const reference = `replay-deletion.${Date.now()}`;
+    try {
+      const response = await fetch(`${replayBaseUrl}/sandbox/replays/media.synthetic.1/delete`, {
+        method: "POST",
+        headers: SYNTHETIC_ACTOR_HEADERS,
+        body: JSON.stringify({
+          deletion_ref: reference,
+          idempotency_key: reference,
+          reason: "adult requested sandbox replay deletion",
+        }),
+      });
+      if (!response.ok) throw new Error("replay deletion failed");
+      const receipt = (await response.json()) as DeletionView;
+      if (receipt.source !== "SANDBOX_SYNTHETIC" || receipt.fixture_only !== true) {
+        throw new Error("deletion receipt rejected");
+      }
+      setReplayUrl("");
+      setDeletedRefs(receipt.affected_refs);
+      setReplayState("deleted");
+    } catch {
+      setReplayState("error");
     }
   }
 }

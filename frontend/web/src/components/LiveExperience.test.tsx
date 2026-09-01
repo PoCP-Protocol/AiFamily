@@ -6,6 +6,7 @@ import { LiveDetailPage } from "./LiveDetailPage";
 import {
   LIVE_STATE_COPY,
   XIAO_JU_DENG_FIXTURE,
+  resolveLiveReplayBaseUrl,
   resolveLiveView,
   type LiveViewState,
 } from "../live/liveCatalog";
@@ -179,6 +180,63 @@ describe("Xiao Ju Deng live product surface", () => {
     expect(screen.getByRole("heading", { name: "需要继续支持？先了解专家服务方式" })).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("button", { name: "了解服务方式" }));
     expect(screen.getByText("当前仅展示服务说明，不会自动下单、扣费或联系专家。")).toBeInTheDocument();
+  });
+
+  it("plays an authorized replay and removes it with a lineage receipt", async () => {
+    const record = {
+      ...XIAO_JU_DENG_FIXTURE,
+      playback_state: "STOPPED",
+      playback: { ...JSON.parse(SYNTHETIC_PLAYBACK_DTO), state: "STOPPED" },
+    } as typeof XIAO_JU_DENG_FIXTURE;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          session_ref: "media.synthetic.1",
+          state: "AVAILABLE",
+          playback_url: "http://127.0.0.1:55300/sandbox/replays/media.synthetic.1/media?capability=test",
+          source: "SANDBOX_SYNTHETIC",
+          fixture_only: true,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          deletion_ref: "replay-deletion.test",
+          session_ref: "media.synthetic.1",
+          affected_refs: ["asset.source", "asset.transcode", "asset.transcript", "asset.chapters", "asset.cache", "asset.provider"],
+          state: "DELETED",
+          source: "SANDBOX_SYNTHETIC",
+          fixture_only: true,
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const { container } = render(
+      <LiveDetailPage
+        record={record}
+        replayBaseUrl="http://127.0.0.1:55300"
+        onBack={() => undefined}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "播放回看" }));
+    expect(await screen.findByLabelText("小橘灯合成直播回看")).toBeInTheDocument();
+    const oldUrl = container.querySelector("video")?.getAttribute("src");
+    expect(oldUrl).toContain("capability=test");
+    await user.click(screen.getByRole("button", { name: "删除回看" }));
+    expect(await screen.findByText("回看已删除")).toBeInTheDocument();
+    expect(screen.getByText("6 项血缘已确认；刷新或重启后也不会恢复。")).toBeInTheDocument();
+    expect(container.querySelector("video")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects non-local replay adapters", () => {
+    expect(resolveLiveReplayBaseUrl({
+      DEV: true,
+      VITE_LIVE_REPLAY_BASE_URL: "https://unverified.example",
+    })).toBeUndefined();
   });
 
   it("shows a useful empty result when the problem search has no match", async () => {

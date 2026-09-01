@@ -752,6 +752,33 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
   font-size: 0.68rem;
   margin: 8px 4px 0;
 }
+.live-replay-panel {
+  align-items: center;
+  background: linear-gradient(120deg, #2a130c, #160b07);
+  border-radius: 20px;
+  color: #fff7ed;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-top: 18px;
+  padding: 22px;
+}
+.live-replay-panel h4 { font-size: 1.18rem; margin: 5px 0 8px; }
+.live-replay-panel p { color: #fed7aa; font-size: 0.82rem; margin: 0; }
+.live-replay-open, .live-replay-delete {
+  background: #f97316;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  font-weight: 850;
+  padding: 11px 18px;
+}
+.live-replay-player { display: grid; gap: 10px; justify-items: end; width: min(440px, 42vw); }
+.live-replay-player video { aspect-ratio: 16 / 9; background: #050302; border-radius: 14px; width: 100%; }
+.live-replay-delete { background: transparent; border: 1px solid #fb923c; color: #fed7aa; }
+.live-replay-receipt { max-width: 430px; }
+.live-replay-receipt strong { color: #fdba74; }
+.live-replay-receipt small { color: #d6a98f; display: block; margin-top: 7px; }
 .live-detail-content { margin-top: 20px; }
 
 @media (max-width: 900px) {
@@ -767,4 +794,6 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
   .live-room-rail { min-height: 260px; padding: 16px; }
   .live-room-topic { margin-top: 14px; }
   .live-room-chat { margin-top: 16px; }
+  .live-replay-panel { align-items: stretch; grid-template-columns: 1fr; }
+  .live-replay-player { justify-items: stretch; width: 100%; }
 }

@@ -27,6 +27,11 @@ const mediaUrl = "http://127.0.0.1:4182/";
 const mediaBrowserOrigin = "http://127.0.0.1:4173/";
 let questionApiUrl: string;
 let browserQuestionApiUrl: string;
+let replayApiUrl: string;
+const browserReplayApiUrl = "http://127.0.0.1:4173/sandbox-replay";
+let replayProcess: ChildProcess;
+const replayDatabasePath = resolve(tmpdir(), `xiaojudeng-replay-${Date.now()}.sqlite3`);
+const mediaOutputPath = resolve(tmpdir(), `xiaojudeng-playwright-${Date.now()}.mp4`);
 const processes: ChildProcess[] = [];
 let sandboxDto: SandboxDto;
 let browserMediaDto: SandboxDto;
@@ -39,6 +44,7 @@ test.beforeAll(async () => {
   browserQuestionApiUrl = "http://127.0.0.1:4173/sandbox-question";
   await startQuestionSandbox(questionPort);
   sandboxDto = await startMediaSandbox();
+  replayProcess = await startReplaySandbox(await reserveFreePort());
   browserMediaDto = {
     ...sandboxDto,
     playback_url: toBrowserProxyUrl(sandboxDto.playback_url),
@@ -48,7 +54,7 @@ test.beforeAll(async () => {
   if (!mediaProbe.ok) throw new Error(`media sandbox probe failed: ${mediaProbe.status}`);
   await Promise.all([
     startVite(4181),
-    startVite(4182, JSON.stringify(browserMediaDto), browserQuestionApiUrl),
+    startVite(4182, JSON.stringify(browserMediaDto), browserQuestionApiUrl, browserReplayApiUrl),
   ]);
 });
 
@@ -155,6 +161,39 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
   expect(stoppedOldCapability.status()).toBe(403);
   await page.screenshot({ path: testInfo.outputPath("desktop-stopped.png"), fullPage: true });
 
+  const browserReplayProbe = await page.evaluate(async ({ baseUrl, headers }) => {
+    try {
+      const response = await fetch(`${baseUrl}/sandbox/replays/media.synthetic.1`, { headers });
+      return { status: response.status, body: await response.text() };
+    } catch (error) {
+      return { status: 0, body: String(error) };
+    }
+  }, { baseUrl: browserReplayApiUrl, headers: syntheticActorHeaders() });
+  expect(browserReplayProbe.status, browserReplayProbe.body).toBe(200);
+  await page.getByRole("button", { name: "播放回看" }).click();
+  const replayVideo = page.getByLabel("小橘灯合成直播回看");
+  await expect(replayVideo).toBeVisible();
+  const replayCapability = await replayVideo.getAttribute("src");
+  expect(replayCapability).toContain("capability=");
+  const replayBeforeDelete = await page.request.get(replayCapability!);
+  expect(replayBeforeDelete.status()).toBe(200);
+  await page.screenshot({ path: testInfo.outputPath("desktop-replay.png"), fullPage: true });
+
+  await page.getByRole("button", { name: "删除回看" }).click();
+  await expect(page.getByText("回看已删除")).toBeVisible();
+  await expect(replayVideo).toHaveCount(0);
+  const replayAfterDelete = await page.request.get(replayCapability!);
+  expect(replayAfterDelete.status()).toBe(410);
+  await page.screenshot({ path: testInfo.outputPath("desktop-replay-deleted.png"), fullPage: true });
+
+  replayProcess.kill();
+  replayProcess = await startReplaySandbox(await reserveFreePort());
+  const replayAfterRestart = await fetch(`${replayApiUrl}/sandbox/replays/media.synthetic.1`, {
+    headers: syntheticActorHeaders(),
+  });
+  expect(replayAfterRestart.status).toBe(200);
+  expect((await replayAfterRestart.json()).state).toBe("DELETED");
+
   await page.getByRole("button", { name: "撤回观看权限" }).click();
   await expect(page.getByText("观看权限已经撤回。")).toBeVisible();
   await expect(page.locator("video")).toHaveCount(0);
@@ -172,6 +211,9 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
     revoked: "PASS",
     revoked_old_url_status: revokedOldCapability.status(),
     adult_only_service_next_step: "PASS",
+    replay: "PASS",
+    replay_old_url_after_delete_status: replayAfterDelete.status(),
+    replay_after_restart: "DELETED",
   }, null, 2);
   await writeFile(testInfo.outputPath("state-results.json"), stateResults, "utf8");
   await testInfo.attach("state-results.json", {
@@ -188,7 +230,7 @@ async function startMediaSandbox(): Promise<SandboxDto> {
       "poc.media_adapter_sandbox.replay_harness",
       "--serve",
       "--output",
-      resolve(tmpdir(), "xiaojudeng-playwright.mp4"),
+      mediaOutputPath,
       "--duration",
       "3",
       "--ttl",
@@ -217,25 +259,40 @@ async function installOriginProxy(
     const incoming = new URL(route.request().url());
     const isMediaRequest = incoming.pathname.startsWith("/sandbox-media/");
     const isQuestionRequest = incoming.pathname.startsWith("/sandbox-question/");
+    const isReplayRequest = incoming.pathname.startsWith("/sandbox-replay/");
     const path = isMediaRequest
       ? incoming.pathname.replace("/sandbox-media", "")
       : isQuestionRequest
         ? incoming.pathname.replace("/sandbox-question", "")
+        : isReplayRequest
+          ? incoming.pathname.replace("/sandbox-replay", "")
         : incoming.pathname;
     const source = new URL(
       `${path}${incoming.search}`,
-      isMediaRequest ? mediaProviderOrigin : isQuestionRequest ? questionApiUrl : sourceBaseUrl,
+      isMediaRequest
+        ? mediaProviderOrigin
+        : isQuestionRequest
+          ? questionApiUrl
+          : isReplayRequest
+            ? replayApiUrl
+            : sourceBaseUrl,
     );
     const response = await route.fetch({ url: source.toString() });
     await route.fulfill({ response });
   });
 }
 
-async function startVite(port: number, mediaDto?: string, interactionBaseUrl?: string): Promise<void> {
+async function startVite(
+  port: number,
+  mediaDto?: string,
+  interactionBaseUrl?: string,
+  replayBaseUrl?: string,
+): Promise<void> {
   const env = { ...process.env };
   delete env.VITE_MEDIA_PLAYBACK_DTO;
   if (mediaDto) env.VITE_MEDIA_PLAYBACK_DTO = mediaDto;
   if (interactionBaseUrl) env.VITE_LIVE_INTERACTION_BASE_URL = interactionBaseUrl;
+  if (replayBaseUrl) env.VITE_LIVE_REPLAY_BASE_URL = replayBaseUrl;
   const child = spawn(
     process.execPath,
     [viteEntrypoint, "--host", "127.0.0.1", "--port", String(port), "--strictPort"],
@@ -243,6 +300,41 @@ async function startVite(port: number, mediaDto?: string, interactionBaseUrl?: s
   );
   processes.push(child);
   await waitForUrl(`http://127.0.0.1:${port}/`);
+}
+
+async function startReplaySandbox(port: number): Promise<ChildProcess> {
+  replayApiUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(
+    pythonExecutable,
+    [
+      "-m",
+      "poc.standalone_live_replay_sandbox.replay_api",
+      "--serve",
+      "--database",
+      replayDatabasePath,
+      "--media",
+      mediaOutputPath,
+      "--port",
+      String(port),
+    ],
+    { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  processes.push(child);
+  child.stdout?.resume();
+  child.stderr?.resume();
+  await waitForUrl(`${replayApiUrl}/health`);
+  return child;
+}
+
+function syntheticActorHeaders(): Record<string, string> {
+  return {
+    "X-Sandbox-Source": "SANDBOX_SYNTHETIC",
+    "X-Fixture-Only": "true",
+    "X-Tenant-Id": "tenant.synthetic.alpha",
+    "X-Family-Id": "family.synthetic.alpha",
+    "X-Actor-Id": "actor.synthetic.adult",
+    "X-Actor-Role": "ADULT_VIEWER",
+  };
 }
 
 async function startQuestionSandbox(port: number): Promise<void> {

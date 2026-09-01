@@ -4,6 +4,7 @@ import { LiveDetailPage } from "./LiveDetailPage";
 import {
   LIVE_STATE_COPY,
   resolveLiveInteractionBaseUrl,
+  resolveLiveReplayBaseUrl,
   resolveLiveView,
   type LiveEnvironment,
   type LiveSectionKey,
@@ -85,6 +86,7 @@ export function LiveExperience({ environment = import.meta.env, viewModel }: Pro
           <LiveDetailPage
             record={model.record}
             interactionBaseUrl={resolveLiveInteractionBaseUrl(environment)}
+            replayBaseUrl={resolveLiveReplayBaseUrl(environment)}
             onBack={() => setShowDetail(false)}
           />
         ) : (
