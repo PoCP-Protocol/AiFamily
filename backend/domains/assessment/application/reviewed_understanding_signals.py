@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Literal, Protocol
 
 from ..domain.errors import AssessmentForbiddenError, AssessmentValidationError
+from ..domain.understanding_scope import is_supported_understanding_scope
 from .growth_intent_handoff import ViewedUnderstandingSignal
 
 
@@ -60,8 +61,11 @@ class RecordReviewedUnderstandingService:
             raise AssessmentForbiddenError("model_gateway_reviewed_draft_required")
         if not command.output_schema_ref.strip() or not command.view_event_ref.strip():
             raise AssessmentValidationError("reviewed_draft_verification_required")
-        expected_scope = f"family://{command.tenant_id}/{command.family_id}/assessment"
-        if command.scope_ref != expected_scope:
+        if not is_supported_understanding_scope(
+            scope_ref=command.scope_ref,
+            tenant_id=command.tenant_id,
+            family_id=command.family_id,
+        ):
             raise AssessmentForbiddenError("human_gate_scope_mismatch")
         if command.expires_at is not None and command.expires_at <= command.reviewed_at:
             raise AssessmentValidationError("reviewed_understanding_expiry_invalid")

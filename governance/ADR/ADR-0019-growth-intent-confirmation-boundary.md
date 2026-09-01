@@ -35,6 +35,11 @@ Assessment 来源，但不包含 draft、provenance 或 Human Gate binding 列�
    `goal_text`。
 7. 该确认只创建 `OPEN` GrowthIntent，不创建 Fact、Outcome、诊断、计划、任务或商业
    决策；AI 不参与确认写入。
+8. Reviewed understanding 的 canonical family scope 是封闭集合：
+   `family://{tenant}/{family}/assessment` 与
+   `family://{tenant}/{family}/problem-understanding`。后者保持独立语义，不得改写成
+   assessment；Assessment 在写 reviewed signal 前校验 exact scope，Growth 对同一
+   immutable binding 再做结构校验。新增 scope kind 必须另行 ADR 裁决。
 
 ## Alternatives Considered
 

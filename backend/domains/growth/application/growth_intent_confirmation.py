@@ -8,6 +8,9 @@ from dataclasses import asdict, dataclass
 from typing import Protocol
 from uuid import UUID
 
+from backend.domains.assessment.domain.understanding_scope import (
+    is_supported_understanding_scope,
+)
 from backend.domains.assessment.domain.value_objects import GROWTH_INTENT_BOUNDARY
 
 SOURCE_TYPE = "ASSESSMENT_HYPOTHESIS"
@@ -116,8 +119,11 @@ class ValidatedConfirmationBinding:
             raise GrowthConfirmationValidationError("confirmation_capability_reference_missing")
         if not self.evidence_refs or not all(value.strip() for value in self.evidence_refs):
             raise GrowthConfirmationValidationError("confirmation_evidence_reference_missing")
-        expected_scope = f"family://{self.tenant_id}/{self.family_id}/assessment"
-        if self.scope_ref != expected_scope:
+        if not is_supported_understanding_scope(
+            scope_ref=self.scope_ref,
+            tenant_id=self.tenant_id,
+            family_id=self.family_id,
+        ):
             raise GrowthConfirmationValidationError("confirmation_scope_mismatch")
         if self.source_type != SOURCE_TYPE or self.boundary != GROWTH_INTENT_BOUNDARY:
             raise GrowthConfirmationValidationError("confirmation_boundary_invalid")
