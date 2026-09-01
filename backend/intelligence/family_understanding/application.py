@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from backend.intelligence.family_understanding.contracts import (
+    OUTPUT_SCHEMA,
     ContextInput,
     FamilyUnderstandingContextV1,
     KnowledgeRef,
@@ -13,6 +14,9 @@ from backend.intelligence.family_understanding.contracts import (
 from backend.intelligence.family_understanding.eval import (
     EvaluationArtifact,
     FamilyUnderstandingEvaluator,
+)
+from backend.intelligence.family_understanding.provenance import (
+    UnderstandingProvenanceBinding,
 )
 
 
@@ -47,6 +51,7 @@ class UnderstandingDraftView:
     run_id: str
     artifact_hash: str
     request_hash: str
+    provenance_ref: str
     version: int
     prior_draft_artifact_hash: str | None
     status: str
@@ -138,10 +143,27 @@ def _to_view(
         }
         for item in draft.strengths
     )
+    evidence_refs = tuple(
+        dict.fromkeys((*draft.perspective.source_refs, *draft.perspective.knowledge_refs))
+    )
+    binding = UnderstandingProvenanceBinding(
+        artifact_hash=artifact.artifact_hash,
+        draft_version=version,
+        output_schema=OUTPUT_SCHEMA,
+        context_snapshot_ref=draft.provenance.context_snapshot_ref,
+        source_refs=draft.perspective.source_refs,
+        evidence_refs=evidence_refs,
+        provider_id=draft.provenance.provider_id,
+        model=draft.provenance.model,
+        model_version=draft.provenance.model_version,
+        prompt_version=draft.provenance.prompt_version,
+        schema_version=draft.provenance.schema_version,
+    )
     return UnderstandingDraftView(
         run_id=artifact.run_id,
         artifact_hash=artifact.artifact_hash,
         request_hash=artifact.request_hash,
+        provenance_ref=binding.provenance_ref,
         version=version,
         prior_draft_artifact_hash=prior_draft_artifact_hash,
         status=draft.status,
@@ -164,6 +186,12 @@ def _to_view(
         schema_version=draft.provenance.schema_version,
         context_snapshot_ref=draft.provenance.context_snapshot_ref,
         provenance={
+            "provenance_ref": binding.provenance_ref,
+            "artifact_hash": artifact.artifact_hash,
+            "draft_version": version,
+            "output_schema": OUTPUT_SCHEMA,
+            "source_refs": draft.perspective.source_refs,
+            "evidence_refs": evidence_refs,
             "provider_id": draft.provenance.provider_id,
             "model": draft.provenance.model,
             "model_version": draft.provenance.model_version,
