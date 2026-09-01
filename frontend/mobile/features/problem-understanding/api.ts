@@ -13,6 +13,7 @@ export interface GeneratedUnderstandingResponse {
   run_id: string;
   artifact_hash: string;
   request_hash: string;
+  provenance_ref: string;
   version: number;
   prior_draft_artifact_hash: string | null;
   status: string;
@@ -56,7 +57,13 @@ export function toUnderstandingDraft(
     .filter((item): item is string => item !== null);
   const desiredChange = readText(response.desired_change.statement);
 
-  if (!response.artifact_hash || !response.request_hash || !response.summary || !desiredChange) {
+  if (
+    !response.artifact_hash ||
+    !response.request_hash ||
+    !response.provenance_ref ||
+    !response.summary ||
+    !desiredChange
+  ) {
     throw new Error("UNDERSTANDING_RESPONSE_INVALID");
   }
 
@@ -66,7 +73,7 @@ export function toUnderstandingDraft(
     scopeRef: `family://${tenantId}/${familyId}/problem-understanding`,
     reviewedDraftRef: response.artifact_hash,
     draftVersion: response.version,
-    provenanceRef: response.request_hash,
+    provenanceRef: response.provenance_ref,
     humanGateReceiptRef: null,
     summary: response.summary,
     explicitClaims: hypotheses,

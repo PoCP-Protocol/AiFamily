@@ -11,6 +11,7 @@ function generatedResponse(): GeneratedUnderstandingResponse {
     run_id: "run-1",
     artifact_hash: "artifact-1",
     request_hash: "request-1",
+    provenance_ref: "air-provenance:v1:sha256:provenance-1",
     version: 1,
     prior_draft_artifact_hash: null,
     status: "DRAFT",
@@ -44,6 +45,10 @@ describe("generative family-understanding mobile contract", () => {
     ]);
     expect(draft.unknowns[0].label).toBe("周末和工作日是否一样？");
     expect(draft.humanGateReceiptRef).toBeNull();
+    expect(draft.provenanceRef).toBe(
+      "air-provenance:v1:sha256:provenance-1",
+    );
+    expect(draft.provenanceRef).not.toBe(generatedResponse().request_hash);
     expect(draft.scopeRef).toBe(
       "family://tenant-1/family-1/problem-understanding",
     );
