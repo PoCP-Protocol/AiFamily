@@ -185,6 +185,7 @@ async def test_correction_v2_generates_a_new_draft_and_replay_is_stable() -> Non
     assert corrected.prior_draft_artifact_hash == first.artifact_hash
     assert "睡前节奏" in corrected.summary
     assert corrected.artifact_hash != first.artifact_hash
+    assert corrected.provenance_ref != first.provenance_ref
     assert replay == corrected
     assert len(provider.invocations) == 2
 

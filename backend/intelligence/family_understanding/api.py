@@ -53,6 +53,7 @@ class UnderstandingDraftResponse(BaseModel):
     run_id: str
     artifact_hash: str
     request_hash: str
+    provenance_ref: str
     version: int
     prior_draft_artifact_hash: str | None
     status: str
@@ -139,6 +140,7 @@ def _response(view: UnderstandingDraftView) -> UnderstandingDraftResponse:
         run_id=view.run_id,
         artifact_hash=view.artifact_hash,
         request_hash=view.request_hash,
+        provenance_ref=view.provenance_ref,
         version=view.version,
         prior_draft_artifact_hash=view.prior_draft_artifact_hash,
         status=view.status,

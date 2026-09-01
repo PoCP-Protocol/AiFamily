@@ -103,6 +103,17 @@ def test_http_contract_returns_typed_generated_draft() -> None:
     assert body["follow_up_questions"]
     assert body["knowledge_references"] == ["knowledge-reviewed-001"]
     assert body["provenance"]["context_snapshot_ref"] == "context-http-1"
+    assert body["provenance_ref"].startswith("air-provenance:v1:sha256:")
+    assert body["provenance"]["provenance_ref"] == body["provenance_ref"]
+    assert body["provenance"]["artifact_hash"] == body["artifact_hash"]
+    assert body["provenance"]["draft_version"] == body["version"]
+    assert body["provenance"]["context_snapshot_ref"] == "context-http-1"
+    assert body["provenance"]["source_refs"] == ["guardian-input-1"]
+    assert body["provenance"]["evidence_refs"] == [
+        "guardian-input-1",
+        "knowledge-reviewed-001",
+    ]
+    assert body["provenance_ref"] != body["request_hash"]
 
 
 def test_http_three_new_inputs_return_three_semantically_different_drafts() -> None:
