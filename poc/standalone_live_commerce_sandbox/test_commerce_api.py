@@ -66,3 +66,38 @@ def test_support_is_idempotent_and_conflict_returns_409() -> None:
     assert first.json() == second.json()
     conflict = client.post(url, headers=headers(), json={**payload, "amount": 200})
     assert conflict.status_code == 409
+
+
+def test_refund_and_chargeback_reverse_split_and_reject_cross_family() -> None:
+    client = TestClient(create_app())
+    support_url = "/sandbox/live-commerce/sessions/media.synthetic.1/support"
+    support = {
+        "intent_ref": "support.4",
+        "idempotency_key": "support-key.4",
+        "kind": "TIP",
+        "amount": 500,
+        "currency": "CNY_CENT",
+    }
+    assert client.post(support_url, headers=headers(), json=support).status_code == 200
+    refund = {
+        "refund_ref": "refund.4",
+        "support_intent_ref": "support.4",
+        "idempotency_key": "refund-key.4",
+        "reason": "chargeback",
+    }
+    denied = client.post(
+        "/sandbox/live-commerce/refunds",
+        headers=headers(family="family.synthetic.other"),
+        json=refund,
+    )
+    assert denied.status_code == 403
+    reversed_response = client.post(
+        "/sandbox/live-commerce/refunds", headers=headers(), json=refund
+    )
+    assert reversed_response.status_code == 200
+    assert reversed_response.json()["status"] == "SANDBOX_REVERSED"
+    assert sum(item["amount"] for item in reversed_response.json()["reversed_allocations"]) == -500
+    assert (
+        client.post("/sandbox/live-commerce/refunds", headers=headers(), json=refund).json()
+        == reversed_response.json()
+    )

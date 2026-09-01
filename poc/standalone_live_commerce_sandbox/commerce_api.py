@@ -35,6 +35,13 @@ class SupportRequest(BaseModel):
     currency: str
 
 
+class RefundRequest(BaseModel):
+    refund_ref: str = Field(min_length=3, max_length=120)
+    support_intent_ref: str = Field(min_length=3, max_length=120)
+    idempotency_key: str = Field(min_length=3, max_length=120)
+    reason: str = Field(min_length=2, max_length=240)
+
+
 def create_app() -> FastAPI:
     port = InMemoryCanonicalCommerceFixture()
     service = LiveCommerceService(port)
@@ -76,6 +83,8 @@ def create_app() -> FastAPI:
                     intent_ref=request.intent_ref,
                     session_ref=session_ref,
                     expert_ref="expert.synthetic.1",
+                    tenant_id="tenant.synthetic.alpha",
+                    family_id="family.synthetic.alpha",
                     kind=request.kind,
                     amount=request.amount,
                     currency=request.currency,
@@ -94,6 +103,38 @@ def create_app() -> FastAPI:
                 {"beneficiary_ref": item.beneficiary_ref, "amount": item.amount}
                 for item in receipt.allocations
             ],
+            "external_effect": False,
+            "source": receipt.source,
+            "fixture_only": receipt.fixture_only,
+        }
+
+    @app.post("/sandbox/live-commerce/refunds")
+    def refund(
+        request: RefundRequest,
+        actor: Annotated[SyntheticActor, Depends(actor_headers())],
+    ) -> dict[str, object]:
+        require_role(actor, {"ADULT_VIEWER"})
+        try:
+            receipt = service.refund_support(
+                actor=commerce_actor(actor),
+                support_intent_ref=request.support_intent_ref,
+                refund_ref=request.refund_ref,
+                reason=request.reason,
+                idempotency_key=request.idempotency_key,
+            )
+        except CommerceConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except CommerceRejected as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        return {
+            "refund_ref": receipt.refund_ref,
+            "support_intent_ref": receipt.support_intent_ref,
+            "status": receipt.status,
+            "reversed_allocations": [
+                {"beneficiary_ref": item.beneficiary_ref, "amount": item.amount}
+                for item in receipt.reversed_allocations
+            ],
+            "reason": receipt.reason,
             "external_effect": False,
             "source": receipt.source,
             "fixture_only": receipt.fixture_only,

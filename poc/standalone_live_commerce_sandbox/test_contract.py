@@ -28,6 +28,8 @@ def tip() -> SupportIntent:
         intent_ref="support.synthetic.1",
         session_ref="media.synthetic.1",
         expert_ref="expert.synthetic.1",
+        tenant_id="tenant.synthetic.alpha",
+        family_id="family.synthetic.alpha",
         kind=SupportKind.TIP,
         amount=500,
         currency="CNY_CENT",
@@ -95,6 +97,42 @@ def test_provider_failure_creates_no_success_receipt() -> None:
     with pytest.raises(CommerceRejected, match="unavailable"):
         LiveCommerceService(port).support_expert(actor=adult(), intent=tip())
     assert port._by_key == {}
+
+
+def test_cross_family_support_and_refund_are_rejected() -> None:
+    port = InMemoryCanonicalCommerceFixture()
+    service = LiveCommerceService(port)
+    with pytest.raises(CommerceRejected, match="crossed tenant/family"):
+        service.support_expert(
+            actor=replace(adult(), family_id="family.synthetic.other"),
+            intent=tip(),
+        )
+    service.support_expert(actor=adult(), intent=tip())
+    with pytest.raises(CommerceRejected, match="refund crossed"):
+        service.refund_support(
+            actor=replace(adult(), family_id="family.synthetic.other"),
+            support_intent_ref=tip().intent_ref,
+            refund_ref="refund.1",
+            reason="chargeback",
+            idempotency_key="refund-key.1",
+        )
+
+
+def test_refund_reverses_every_allocation_and_is_idempotent() -> None:
+    service = LiveCommerceService(InMemoryCanonicalCommerceFixture())
+    service.support_expert(actor=adult(), intent=tip())
+    kwargs = {
+        "actor": adult(),
+        "support_intent_ref": tip().intent_ref,
+        "refund_ref": "refund.2",
+        "reason": "adult requested refund",
+        "idempotency_key": "refund-key.2",
+    }
+    first = service.refund_support(**kwargs)
+    second = service.refund_support(**kwargs)
+    assert first is second
+    assert first.status == "SANDBOX_REVERSED"
+    assert sum(item.amount for item in first.reversed_allocations) == -500
 
 
 def test_membership_is_adult_only_and_read_through() -> None:
