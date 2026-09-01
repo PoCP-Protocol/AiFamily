@@ -81,6 +81,8 @@ describe("Problem Understanding standalone Expo route", () => {
     expect(route).toContain("maxWidth: 1180");
     expect(components).toContain("这份理解准确吗？");
     expect(components).toContain("只有你确认后，才会进入下一步");
+    expect(components).toContain("你可以继续补充，也可以先保存这份理解");
+    expect(components).toContain("先保存，稍后继续");
   });
 
   it("lets the adult add context or start a new understanding after confirmation", () => {

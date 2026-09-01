@@ -174,12 +174,23 @@ export function CorrectionConfirmation({
       <Text accessibilityRole="header" style={styles.sectionTitle}>
         这份理解准确吗？
       </Text>
-      <Text style={styles.actionHint}>只有你确认后，才会进入下一步。</Text>
-      <ActionButton
-        disabled={!canConfirm}
-        label={PROBLEM_UNDERSTANDING_COPY.confirmAction}
-        onPress={onConfirm}
-      />
+      <Text style={styles.actionHint}>
+        {canConfirm
+          ? "只有你确认后，才会进入下一步。"
+          : "你可以继续补充，也可以先保存这份理解，稍后再回来。"}
+      </Text>
+      {canConfirm ? (
+        <ActionButton
+          label={PROBLEM_UNDERSTANDING_COPY.confirmAction}
+          onPress={onConfirm}
+        />
+      ) : (
+        <ActionButton
+          label="先保存，稍后继续"
+          onPress={onSaveAndExit}
+          secondary
+        />
+      )}
       <View style={styles.actionRow}>
         <View style={styles.actionCell}>
           <ActionButton
