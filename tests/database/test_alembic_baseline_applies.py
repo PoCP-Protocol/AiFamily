@@ -39,6 +39,10 @@ EXPECTED_VIEWS = 7
 EXPECTED_ENUM_TYPES = 60
 
 _ALEMBIC_BOOKKEEPING_TABLES = 1
+# Revisions 0002, 0003, 0004, 0005 and 0007 each add one canonical table.
+# Revision 0006 alters the reviewed-signal table without adding another.
+_POST_BASELINE_MIGRATION_TABLES = 5
+_HEAD_REVISION = "0007_understanding_snapshot"
 
 
 @pytest.fixture
@@ -128,14 +132,15 @@ async def test_upgrade_head_applies_to_empty_postgres(throwaway_database_url: st
 
     after = await _count_objects(throwaway_database_url)
     assert after == {
-        "tables": EXPECTED_LEGACY_TABLES + _ALEMBIC_BOOKKEEPING_TABLES,
+        "tables": (
+            EXPECTED_LEGACY_TABLES + _ALEMBIC_BOOKKEEPING_TABLES + _POST_BASELINE_MIGRATION_TABLES
+        ),
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     }, f"replayed schema does not match the psql-measured reference: {after}"
 
     current = _run_alembic("current", database_url=throwaway_database_url)
-    assert "0001_legacy_schema_baseline" in current.stdout
-    assert "(head)" in current.stdout
+    assert f"{_HEAD_REVISION} (head)" in current.stdout
 
 
 async def test_downgrade_then_upgrade_is_repeatable(throwaway_database_url: str) -> None:
@@ -147,9 +152,7 @@ async def test_downgrade_then_upgrade_is_repeatable(throwaway_database_url: str)
     the database in a state no command reported correctly. Asserting a full
     up -> down -> up cycle is what makes that class of bug visible.
     """
-    assert (
-        _run_alembic("upgrade", "head", database_url=throwaway_database_url).returncode == 0
-    )
+    assert _run_alembic("upgrade", "head", database_url=throwaway_database_url).returncode == 0
 
     down = _run_alembic("downgrade", "base", database_url=throwaway_database_url)
     assert down.returncode == 0, f"alembic downgrade base failed:\n{down.stdout}\n{down.stderr}"
@@ -164,4 +167,6 @@ async def test_downgrade_then_upgrade_is_repeatable(throwaway_database_url: str)
     assert up_again.returncode == 0, f"re-upgrade failed:\n{up_again.stdout}\n{up_again.stderr}"
 
     after_up = await _count_objects(throwaway_database_url)
-    assert after_up["tables"] == EXPECTED_LEGACY_TABLES + _ALEMBIC_BOOKKEEPING_TABLES
+    assert after_up["tables"] == (
+        EXPECTED_LEGACY_TABLES + _ALEMBIC_BOOKKEEPING_TABLES + _POST_BASELINE_MIGRATION_TABLES
+    )

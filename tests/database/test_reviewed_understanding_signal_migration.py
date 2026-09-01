@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from backend.platform.persistence.session import DATABASE_URL_ENV_VAR
 from tests.support.postgres import SKIP_REASON, postgres_test_url
 
-HEAD_REVISION = "0006_understanding_scope_binding"
+HEAD_REVISION = "0007_understanding_snapshot"
 PARENT = "0004_ai_run_ledger"
 TABLE_NAME = "assessment_reviewed_understanding_signals"
 

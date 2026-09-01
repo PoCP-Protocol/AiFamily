@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from backend.platform.persistence.session import DATABASE_URL_ENV_VAR
 from tests.support.postgres import SKIP_REASON, postgres_test_url
 
+HEAD_REVISION = "0007_understanding_snapshot"
+
 
 @pytest.fixture
 async def throwaway_database_url() -> str:
@@ -75,7 +77,7 @@ async def test_upgrade_downgrade_and_reupgrade_ai_run_ledger(
 
     current = _run_alembic("current", database_url=throwaway_database_url)
     assert current.returncode == 0, current.stdout + current.stderr
-    assert "0004_ai_run_ledger (head)" in current.stdout
+    assert f"{HEAD_REVISION} (head)" in current.stdout
 
     downgrade = _run_alembic(
         "downgrade", "0003_service_booking_additions", database_url=throwaway_database_url
