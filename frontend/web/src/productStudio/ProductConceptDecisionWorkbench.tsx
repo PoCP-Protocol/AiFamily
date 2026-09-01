@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   DecisionApiError,
   HttpProductDecisionApiClient,
@@ -10,6 +10,7 @@ import {
   type ZoneDimension,
 } from "./decisionApi";
 import { OpportunityLineagePanel } from "./OpportunityLineagePanel";
+import { deriveEvidenceCoverage, type EvidenceCoverage } from "./evidenceCoverage";
 
 const ZONE_LABELS: Record<RecommendedZone, string> = {
   COMMODITY: "同质区",
@@ -40,6 +41,7 @@ export type CandidateDecisionDraft = {
   recommended_zone: RecommendedZone;
   approved_zone: RecommendedZone | null;
   candidate_set_refs: string[];
+  research_context: (EvidenceCoverage & { derived_from_chain_versions: string[] }) | null;
   reason: string;
   persisted: false;
   created_at: string;
@@ -73,12 +75,17 @@ export function ProductConceptDecisionWorkbench({
   const [decisionDraft, setDecisionDraft] = useState<CandidateDecisionDraft | null>(null);
   const [error, setError] = useState<DecisionApiError | null>(null);
   const [loading, setLoading] = useState(false);
+  const [researchFlowNotice, setResearchFlowNotice] = useState<string | null>(null);
+  const [researchContext, setResearchContext] = useState<EvidenceCoverage | null>(null);
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
 
   const resetDecision = () => {
     setSelectedConceptId(null);
     setReason("");
     setPendingAction(null);
     setDecisionDraft(null);
+    setResearchFlowNotice(null);
+    setResearchContext(null);
   };
 
   const updateReference = (index: number, field: keyof CandidateReference, value: string) => {
@@ -127,6 +134,34 @@ export function ProductConceptDecisionWorkbench({
     && !["REJECTED", "RETIRED"].includes(selected.assessment.status);
   const canPrepare = selected !== null && reason.trim().length > 0;
 
+  const selectCandidateSafely = (
+    conceptId: string,
+    coverage: EvidenceCoverage | null = null,
+    focusReason = false,
+  ) => {
+    if (conceptId === selectedConceptId) {
+      if (coverage) setResearchContext(coverage);
+      if (focusReason) reasonRef.current?.focus();
+      return;
+    }
+    if (pendingAction || decisionDraft) {
+      setResearchFlowNotice("已有待确认动作或决策草案；请先完成当前流程，再切换候选。");
+      if (focusReason) reasonRef.current?.focus();
+      return;
+    }
+    setSelectedConceptId(conceptId);
+    setReason("");
+    setPendingAction(null);
+    setDecisionDraft(null);
+    setResearchFlowNotice(null);
+    setResearchContext(coverage);
+    if (focusReason) reasonRef.current?.focus();
+  };
+
+  const beginReturnToResearch = (conceptId: string, coverage: EvidenceCoverage) => {
+    selectCandidateSafely(conceptId, coverage, true);
+  };
+
   const prepare = (action: PendingAction) => {
     if (!canPrepare || (action === "PROPOSE_CANDIDATE_SELECTION" && !selectionAllowed)) return;
     setPendingAction(action);
@@ -135,6 +170,7 @@ export function ProductConceptDecisionWorkbench({
 
   const confirm = () => {
     if (!selected || !pendingAction || !reason.trim()) return;
+    const coverage = researchContext ?? deriveEvidenceCoverage(selected.lineage);
     const draft: CandidateDecisionDraft = {
       draft_id: newDraftId(),
       status: "DRAFT",
@@ -149,6 +185,14 @@ export function ProductConceptDecisionWorkbench({
       recommended_zone: selected.assessment.recommended_zone,
       approved_zone: selected.assessment.approved_zone,
       candidate_set_refs: candidates.map(({ concept, assessment }) => `${concept.id}@v${concept.version}|${assessment.id}@v${assessment.version}|${assessment.zone_policy_version_id}`),
+      research_context: pendingAction === "RETURN_TO_RESEARCH" ? {
+        ...coverage,
+        derived_from_chain_versions: [
+          selected.lineage.market_signal,
+          selected.lineage.customer_insight,
+          selected.lineage.opportunity,
+        ].filter((record) => record !== null).map((record) => `${record.id}@v${record.version}`),
+      } : null,
       reason: reason.trim(),
       persisted: false,
       created_at: new Date().toISOString(),
@@ -207,12 +251,7 @@ export function ProductConceptDecisionWorkbench({
                   type="radio"
                   name="product-concept-candidate"
                   checked={selectedConceptId === concept.id}
-                  onChange={() => {
-                    setSelectedConceptId(concept.id);
-                    setReason("");
-                    setPendingAction(null);
-                    setDecisionDraft(null);
-                  }}
+                  onChange={() => selectCandidateSafely(concept.id)}
                 />
                 人工选择候选 {index + 1}
               </label>
@@ -220,7 +259,12 @@ export function ProductConceptDecisionWorkbench({
               <p>{concept.description ?? "暂无描述"}</p>
               <code>{concept.id}</code>
 
-              <OpportunityLineagePanel conceptTitle={concept.title} lineage={lineage} />
+              <OpportunityLineagePanel
+                conceptTitle={concept.title}
+                conceptRef={concept.id}
+                lineage={lineage}
+                onReturnToResearch={(coverage) => beginReturnToResearch(concept.id, coverage)}
+              />
 
               <div className="zone-decision-columns">
                 <div>
@@ -256,7 +300,13 @@ export function ProductConceptDecisionWorkbench({
                   );
                 })}
               </ol>
-              {!selectionAllowed && selectedConceptId === concept.id ? <p role="status">该评估已终止，仅可退回研究。</p> : null}
+              {selectedConceptId === concept.id && !selectionAllowed ? (
+                <p role="status">
+                  {lineage.opportunity === null
+                    ? "UPSTREAM_OPPORTUNITY_NOT_RETURNED：上游机会未返回，仅可退回研究。"
+                    : "ASSESSMENT_OR_CONCEPT_TERMINAL：概念或评估已终止，仅可退回研究。"}
+                </p>
+              ) : null}
             </article>
           ))}
         </div>
@@ -265,7 +315,16 @@ export function ProductConceptDecisionWorkbench({
       {candidates.length > 0 ? (
         <section aria-label="人工候选决策" className="candidate-human-decision">
           <h3>人工决策理由</h3>
+          {researchContext ? (
+            <p className="muted" aria-label="带入的研究缺口">
+              客户端派生研究上下文：验证 {researchContext.verification}；节点缺口 {researchContext.nodes
+                .filter(({ reason_code }) => reason_code)
+                .map(({ reason_code }) => reason_code)
+                .join("；") || "无结构缺口"}
+            </p>
+          ) : null}
           <textarea
+            ref={reasonRef}
             aria-label="人工决策理由"
             rows={3}
             value={reason}
@@ -282,6 +341,8 @@ export function ProductConceptDecisionWorkbench({
           </div>
         </section>
       ) : null}
+
+      {researchFlowNotice ? <p role="status">{researchFlowNotice}</p> : null}
 
       {pendingAction && selected ? (
         <section aria-label="确认人工决策" className="callout">
@@ -303,6 +364,12 @@ export function ProductConceptDecisionWorkbench({
           <p>{decisionDraft.reason}</p>
           <p>冻结版本：Concept v{decisionDraft.concept_version} · Assessment v{decisionDraft.assessment_version} · Opportunity {decisionDraft.opportunity_id ?? "MISSING"}@v{decisionDraft.opportunity_version ?? "MISSING"}</p>
           <p>三区策略：<code>{decisionDraft.zone_policy_version_id}</code> · 候选集合：{decisionDraft.candidate_set_refs.join("；")}</p>
+          {decisionDraft.research_context ? (
+            <p>
+              冻结研究上下文：{decisionDraft.research_context.source} · {decisionDraft.research_context.verification}
+              · {decisionDraft.research_context.derived_from_chain_versions.join("；") || "NO_UPSTREAM_RECORD"}
+            </p>
+          ) : null}
           <p role="status">未持久化；需要后端命名命令与人工 Gate 才能成为正式决定。</p>
         </output>
       ) : null}

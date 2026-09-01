@@ -1,15 +1,19 @@
 import type { OpportunityLineage } from "./decisionApi";
+import { EvidenceCoveragePanel } from "./EvidenceCoveragePanel";
+import type { EvidenceCoverage } from "./evidenceCoverage";
 
 type Props = {
   conceptTitle: string;
+  conceptRef?: string;
   lineage: OpportunityLineage;
+  onReturnToResearch?: (coverage: EvidenceCoverage) => void;
 };
 
 function refs(values: string[]): string {
   return values.length ? values.join("、") : "无已返回引用";
 }
 
-export function OpportunityLineagePanel({ conceptTitle, lineage }: Props) {
+export function OpportunityLineagePanel({ conceptTitle, conceptRef, lineage, onReturnToResearch }: Props) {
   return (
     <details className="opportunity-lineage">
       <summary>查看 {conceptTitle} 的 Evidence → Opportunity 血缘</summary>
@@ -17,6 +21,13 @@ export function OpportunityLineagePanel({ conceptTitle, lineage }: Props) {
         <strong>{lineage.completeness}</strong>
         <span>{lineage.review_state}</span>
       </div>
+
+      <EvidenceCoveragePanel
+        conceptTitle={conceptTitle}
+        conceptRef={conceptRef}
+        lineage={lineage}
+        onReturnToResearch={onReturnToResearch}
+      />
 
       <ol aria-label={`${conceptTitle} Opportunity 血缘节点`}>
         <li>

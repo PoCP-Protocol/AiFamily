@@ -157,8 +157,55 @@ describe("ProductConceptDecisionWorkbench", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "准备退回研究" }));
     await userEvent.setup().click(screen.getByRole("button", { name: "确认生成退回研究草案" }));
     expect(screen.getByLabelText("候选决策草案")).toHaveTextContent("DRAFT · RETURN_TO_RESEARCH");
+    expect(screen.getByLabelText("候选决策草案")).toHaveTextContent("WEB_DERIVED_FROM_CHAIN · UNKNOWN_NOT_IN_CONTRACT");
     expect(client.loadCandidates).toHaveBeenCalledTimes(1);
     expect(Object.keys(client)).toEqual(["loadCandidates"]);
+  });
+
+  it("brings an evidence gap into research without inventing a reason or draft", async () => {
+    const onDecisionDraft = vi.fn();
+    const client = clientWith();
+    render(<ProductConceptDecisionWorkbench client={client} onDecisionDraft={onDecisionDraft} />);
+    fillReferences();
+    await userEvent.setup().click(screen.getByRole("button", { name: "读取候选与三区证据" }));
+    await screen.findByLabelText("产品概念候选列表");
+
+    await userEvent.setup().click(screen.getByRole("button", { name: /带入退回研究：先输入的候选/ }));
+
+    expect(screen.getByRole("radio", { name: "人工选择候选 1" })).toBeChecked();
+    expect(screen.getByLabelText("人工决策理由")).toHaveFocus();
+    expect(screen.getByLabelText("人工决策理由")).toHaveValue("");
+    expect(screen.getByLabelText("带入的研究缺口")).toHaveTextContent("UNKNOWN_NOT_IN_CONTRACT");
+    expect(screen.queryByLabelText("候选决策草案")).not.toBeInTheDocument();
+    expect(onDecisionDraft).not.toHaveBeenCalled();
+    expect(client.loadCandidates).toHaveBeenCalledTimes(1);
+  });
+
+  it("focuses an existing research reason without clearing same-candidate work", async () => {
+    await loadCandidates();
+    await userEvent.setup().click(screen.getByRole("radio", { name: "人工选择候选 1" }));
+    fireEvent.change(screen.getByLabelText("人工决策理由"), { target: { value: "仍需补访谈样本" } });
+    await userEvent.setup().click(screen.getByRole("button", { name: "准备退回研究" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "确认生成退回研究草案" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: /带入退回研究：先输入的候选/ }));
+    expect(screen.getByLabelText("人工决策理由")).toHaveValue("仍需补访谈样本");
+    expect(screen.getByLabelText("人工决策理由")).toHaveFocus();
+    expect(screen.getByLabelText("候选决策草案")).toHaveTextContent("DRAFT · RETURN_TO_RESEARCH");
+  });
+
+  it("does not silently discard a draft when a radio switches candidates", async () => {
+    await loadCandidates();
+    await userEvent.setup().click(screen.getByRole("radio", { name: "人工选择候选 1" }));
+    fireEvent.change(screen.getByLabelText("人工决策理由"), { target: { value: "保留当前研究草案" } });
+    await userEvent.setup().click(screen.getByRole("button", { name: "准备退回研究" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "确认生成退回研究草案" }));
+
+    await userEvent.setup().click(screen.getByRole("radio", { name: "人工选择候选 2" }));
+
+    expect(screen.getByRole("radio", { name: "人工选择候选 1" })).toBeChecked();
+    expect(screen.getByLabelText("人工决策理由")).toHaveValue("保留当前研究草案");
+    expect(screen.getByLabelText("候选决策草案")).toBeInTheDocument();
+    expect(screen.getByText(/请先完成当前流程，再切换候选/)).toBeInTheDocument();
   });
 
   it("returns an incomplete lineage to research without dereferencing a missing Opportunity", async () => {
@@ -179,6 +226,8 @@ describe("ProductConceptDecisionWorkbench", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "读取候选与三区证据" }));
     await screen.findByLabelText("产品概念候选列表");
     await userEvent.setup().click(screen.getByRole("radio", { name: "人工选择候选 1" }));
+    expect(screen.getByText(/UPSTREAM_OPPORTUNITY_NOT_RETURNED/)).toBeInTheDocument();
+    expect(screen.queryByText(/该评估已终止/)).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("人工决策理由"), { target: { value: "上游机会缺失，退回补证。" } });
     await userEvent.setup().click(screen.getByRole("button", { name: "准备退回研究" }));
     await userEvent.setup().click(screen.getByRole("button", { name: "确认生成退回研究草案" }));
@@ -194,7 +243,7 @@ describe("ProductConceptDecisionWorkbench", () => {
     fireEvent.change(screen.getByLabelText("人工决策理由"), { target: { value: "重新研究" } });
     expect(screen.getByRole("button", { name: "准备提议选择候选" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "准备退回研究" })).toBeEnabled();
-    expect(screen.getByText("该评估已终止，仅可退回研究。")).toBeInTheDocument();
+    expect(screen.getByText(/ASSESSMENT_OR_CONCEPT_TERMINAL/)).toBeInTheDocument();
   });
 
   it("shows a stable, understandable API error", async () => {

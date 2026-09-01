@@ -149,6 +149,11 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .semantic-human { background: #daf2e4; color: #126b50; }
 .opportunity-lineage-gaps { background: #fff8e7; border-radius: 12px; padding: 12px; }
 .opportunity-lineage-gaps ul { margin-bottom: 0; padding-left: 20px; }
+.evidence-coverage { background: #f8faf8; border: 1px solid #dce5dc; border-radius: 12px; margin-top: 12px; padding: 12px; }
+.evidence-coverage h4, .evidence-coverage p { margin: 0 0 8px; }
+.evidence-coverage ul { display: grid; gap: 8px; list-style: none; padding: 0; }
+.evidence-coverage li { display: grid; gap: 4px 10px; grid-template-columns: minmax(0, 1fr) auto; min-width: 0; }
+.evidence-coverage li small { grid-column: 1 / -1; overflow-wrap: anywhere; }
 .review-task-list { display: grid; gap: 10px; list-style: none; margin: 20px 0; padding: 0; }
 .review-task-list li { align-items: center; border: 1px solid #dce5dc; border-radius: 12px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; padding: 12px; }
 .review-task-detail { border-top: 1px solid #dce5dc; margin-top: 24px; padding-top: 20px; }
