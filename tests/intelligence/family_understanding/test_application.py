@@ -12,6 +12,10 @@ from backend.intelligence.family_understanding.application import (
 )
 from backend.intelligence.family_understanding.contracts import KnowledgeRef
 from backend.intelligence.family_understanding.eval import FamilyUnderstandingEvaluator
+from backend.intelligence.family_understanding.snapshot import (
+    UnderstandingDraftSnapshot,
+    UnderstandingNeedCandidate,
+)
 from backend.intelligence.model_gateway.gateway import ModelGateway
 from backend.intelligence.model_gateway.provider_registry import ProviderRecord, ProviderRegistry
 from backend.intelligence.model_gateway.providers.fake import deterministic_provider
@@ -98,14 +102,54 @@ def semantic_output(text: str, source_ref: str = "guardian-input-1") -> dict[str
     }
 
 
-def application_with(provider, *, timeout: float = 1.0) -> FamilyUnderstandingApplication:
+class SnapshotStore:
+    def __init__(self) -> None:
+        self.values: list[UnderstandingDraftSnapshot] = []
+
+    async def save(self, snapshot: UnderstandingDraftSnapshot) -> None:
+        existing = next(
+            (
+                value
+                for value in self.values
+                if value.tenant_id == snapshot.tenant_id
+                and value.family_id == snapshot.family_id
+                and value.artifact_ref == snapshot.artifact_ref
+                and value.artifact_version == snapshot.artifact_version
+            ),
+            None,
+        )
+        if existing is None:
+            self.values.append(snapshot)
+        elif existing != snapshot:
+            raise RuntimeError("understanding snapshot immutable binding conflict")
+
+
+class NeedCandidates:
+    async def project(self, **values: object) -> UnderstandingNeedCandidate:
+        source_refs = tuple(str(value) for value in values["source_refs"])  # type: ignore[index]
+        knowledge_refs = tuple(str(value) for value in values["knowledge_refs"])  # type: ignore[index]
+        return UnderstandingNeedCandidate(
+            need_type="PARENT_CHILD_COMMUNICATION_CONFLICT",
+            required_capability_keys=("CAP_PARENT_COACHING",),
+            evidence_refs=(*source_refs, *knowledge_refs),
+        )
+
+
+def application_with(
+    provider,
+    *,
+    timeout: float = 1.0,
+    snapshots: SnapshotStore | None = None,
+) -> FamilyUnderstandingApplication:
     gateway = ModelGateway(
         {provider.provider_id: provider},
         environment="test",
         registry=ProviderRegistry([approved_record(provider.provider_id, timeout=timeout)]),
     )
     return FamilyUnderstandingApplication(
-        FamilyUnderstandingEvaluator(gateway, provider_id=provider.provider_id)
+        FamilyUnderstandingEvaluator(gateway, provider_id=provider.provider_id),
+        snapshots or SnapshotStore(),
+        NeedCandidates(),
     )
 
 
@@ -169,7 +213,8 @@ async def test_three_semantic_inputs_generate_different_structured_drafts(
 
 async def test_correction_v2_generates_a_new_draft_and_replay_is_stable() -> None:
     provider = semantic_provider()
-    app = application_with(provider)
+    snapshots = SnapshotStore()
+    app = application_with(provider, snapshots=snapshots)
     first = await app.generate(command("一写作业就要反复提醒。", 1))
     corrected_command = command(
         "补充：不是作业问题，主要是最近很晚还不愿意睡。",
@@ -188,6 +233,11 @@ async def test_correction_v2_generates_a_new_draft_and_replay_is_stable() -> Non
     assert corrected.provenance_ref != first.provenance_ref
     assert replay == corrected
     assert len(provider.invocations) == 2
+    assert [value.artifact_version for value in snapshots.values] == [1, 2]
+    assert snapshots.values[1].prior_artifact_ref == first.artifact_hash
+    assert snapshots.values[1].provenance_ref == corrected.provenance_ref
+    assert snapshots.values[1].desired_change == corrected.desired_change["statement"]
+    assert snapshots.values[1].need_type == "PARENT_CHILD_COMMUNICATION_CONFLICT"
 
 
 async def test_real_openai_compatible_adapter_is_used_when_explicitly_configured() -> None:
