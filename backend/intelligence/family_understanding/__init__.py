@@ -21,6 +21,15 @@ from backend.intelligence.family_understanding.eval import (
     FamilyUnderstandingEvaluator,
     FamilyUnderstandingRejected,
 )
+from backend.intelligence.family_understanding.snapshot import (
+    ImmutableUnderstandingDraftReader,
+    ImmutableUnderstandingDraftSnapshot,
+    InMemoryUnderstandingDraftSnapshotStore,
+    ReadUnderstandingDraftQuery,
+    UnderstandingDraftSnapshotStore,
+    UnderstandingSnapshotRejected,
+    problem_understanding_scope,
+)
 
 __all__ = [
     "ContextInput",
@@ -32,10 +41,17 @@ __all__ = [
     "FamilyUnderstandingRejected",
     "GenerateUnderstandingCommand",
     "HypothesisDraft",
+    "ImmutableUnderstandingDraftReader",
+    "ImmutableUnderstandingDraftSnapshot",
+    "InMemoryUnderstandingDraftSnapshotStore",
     "KnowledgeRef",
     "PerspectiveDraft",
     "ProblemUnderstandingDraftV1",
+    "ReadUnderstandingDraftQuery",
     "StrengthDraft",
     "UnknownDraft",
     "UnderstandingDraftView",
+    "UnderstandingDraftSnapshotStore",
+    "UnderstandingSnapshotRejected",
+    "problem_understanding_scope",
 ]

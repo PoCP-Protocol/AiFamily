@@ -18,6 +18,14 @@ from backend.intelligence.family_understanding.eval import (
 from backend.intelligence.family_understanding.provenance import (
     UnderstandingProvenanceBinding,
 )
+from backend.intelligence.family_understanding.snapshot import (
+    ImmutableUnderstandingDraftReader,
+    ImmutableUnderstandingDraftSnapshot,
+    InMemoryUnderstandingDraftSnapshotStore,
+    ReadUnderstandingDraftQuery,
+    UnderstandingDraftSnapshotStore,
+    problem_understanding_scope,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,8 +85,14 @@ class UnderstandingDraftView:
 class FamilyUnderstandingApplication:
     """Generate a draft through the one injected evaluator/Model Gateway path."""
 
-    def __init__(self, evaluator: FamilyUnderstandingEvaluator) -> None:
+    def __init__(
+        self,
+        evaluator: FamilyUnderstandingEvaluator,
+        snapshot_store: UnderstandingDraftSnapshotStore | None = None,
+    ) -> None:
         self._evaluator = evaluator
+        self._snapshot_store = snapshot_store or InMemoryUnderstandingDraftSnapshotStore()
+        self._snapshot_reader = ImmutableUnderstandingDraftReader(self._snapshot_store)
 
     async def generate(self, command: GenerateUnderstandingCommand) -> UnderstandingDraftView:
         context = FamilyUnderstandingContextV1(
@@ -110,11 +124,21 @@ class FamilyUnderstandingApplication:
             tenant_id=command.tenant_id,
             family_id=command.family_id,
         )
-        return _to_view(
+        view = _to_view(
             artifact,
             version=command.revision,
             prior_draft_artifact_hash=command.prior_draft_artifact_hash,
         )
+        await self._snapshot_store.put(_to_snapshot(command, artifact, view))
+        return view
+
+    async def read_immutable_snapshot(
+        self, query: ReadUnderstandingDraftQuery
+    ) -> ImmutableUnderstandingDraftSnapshot:
+        return await self._snapshot_reader.read(query)
+
+    async def revoke_snapshot(self, understanding_run_ref: str) -> None:
+        await self._snapshot_store.revoke(understanding_run_ref)
 
 
 def _to_view(
@@ -204,4 +228,29 @@ def _to_view(
         },
         requires_guardian_confirmation=draft.requires_human_confirmation,
         may_mutate_business_state=draft.may_mutate_business_state,
+    )
+
+
+def _to_snapshot(
+    command: GenerateUnderstandingCommand,
+    artifact: EvaluationArtifact,
+    view: UnderstandingDraftView,
+) -> ImmutableUnderstandingDraftSnapshot:
+    evidence_refs = tuple(dict.fromkeys((*view.source_refs, *view.knowledge_references)))
+    return ImmutableUnderstandingDraftSnapshot(
+        understanding_run_ref=command.run_id,
+        tenant_id=command.tenant_id,
+        family_id=command.family_id,
+        scope=problem_understanding_scope(tenant_id=command.tenant_id, family_id=command.family_id),
+        subject_ref=command.subject_ref,
+        consent_ref=command.consent_ref,
+        artifact_hash=view.artifact_hash,
+        request_hash=view.request_hash,
+        draft_version=view.version,
+        provenance_ref=view.provenance_ref,
+        prior_draft_artifact_hash=view.prior_draft_artifact_hash,
+        context_snapshot_ref=view.context_snapshot_ref,
+        evidence_refs=evidence_refs,
+        expires_at=command.context_expires_at,
+        draft=artifact.draft,
     )
