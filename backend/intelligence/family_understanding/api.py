@@ -98,6 +98,35 @@ class UnderstandingReviewApplication(Protocol):
     async def review(self, command: ReviewUnderstandingCommand) -> ReviewUnderstandingView: ...
 
 
+@dataclass(frozen=True, slots=True)
+class ViewedUnderstandingView:
+    view_event_ref: str
+    status: Literal["VIEWED"]
+    scope_ref: str
+    artifact_ref: str
+    artifact_version: int
+    provenance_ref: str
+    viewed_at: datetime
+
+
+class UnderstandingViewApplication(Protocol):
+    async def record_view(
+        self, command: ReviewUnderstandingCommand
+    ) -> ViewedUnderstandingView: ...
+
+
+class ViewedUnderstandingResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    view_event_ref: str
+    status: Literal["VIEWED"]
+    scope_ref: str
+    artifact_ref: str
+    artifact_version: int
+    provenance_ref: str
+    viewed_at: datetime
+
+
 class ReviewUnderstandingResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -142,7 +171,9 @@ class UnderstandingDraftResponse(BaseModel):
 def create_family_understanding_router(
     application: FamilyUnderstandingApplication,
     authorized_contexts: AuthorizedContextResolver,
-    review_application: UnderstandingReviewApplication | None = None,
+    *,
+    view_application: UnderstandingViewApplication | None = None,
+    confirmation_application: UnderstandingReviewApplication | None = None,
     review_contexts: AuthorizedReviewContextResolver | None = None,
 ) -> APIRouter:
     router = APIRouter(tags=["family-understanding"])
@@ -199,20 +230,58 @@ def create_family_understanding_router(
 
     @router.post(
         "/v1/families/{family_id}/understanding-drafts/{artifact_ref}/views",
-        response_model=ReviewUnderstandingResponse,
+        response_model=ViewedUnderstandingResponse,
         status_code=status.HTTP_200_OK,
     )
-    async def review_understanding(
+    async def record_understanding_view(
         family_id: str,
         artifact_ref: str,
         body: ReviewUnderstandingBody,
-    ) -> ReviewUnderstandingResponse:
-        if review_application is None or review_contexts is None:
+    ) -> ViewedUnderstandingResponse:
+        if view_application is None or review_contexts is None:
             raise _unavailable()
         authorized = await review_contexts.resolve_for_review(family_id=family_id)
         if authorized is None or authorized.family_id != family_id:
             raise _http_error(status.HTTP_403_FORBIDDEN, "FAMILY_SCOPE_MISMATCH")
-        view = await review_application.review(
+        view = await view_application.record_view(
+            ReviewUnderstandingCommand(
+                tenant_id=authorized.tenant_id,
+                family_id=authorized.family_id,
+                actor_id=authorized.actor_id,
+                subject_person_id=authorized.subject_person_id,
+                consent_ref=authorized.consent_ref,
+                artifact_ref=artifact_ref,
+                artifact_version=body.artifact_version,
+                provenance_ref=body.provenance_ref,
+                view_event_ref=body.view_event_ref,
+            )
+        )
+        return ViewedUnderstandingResponse(
+            view_event_ref=view.view_event_ref,
+            status=view.status,
+            scope_ref=view.scope_ref,
+            artifact_ref=view.artifact_ref,
+            artifact_version=view.artifact_version,
+            provenance_ref=view.provenance_ref,
+            viewed_at=view.viewed_at,
+        )
+
+    @router.post(
+        "/v1/families/{family_id}/understanding-drafts/{artifact_ref}/confirmations",
+        response_model=ReviewUnderstandingResponse,
+        status_code=status.HTTP_200_OK,
+    )
+    async def confirm_understanding(
+        family_id: str,
+        artifact_ref: str,
+        body: ReviewUnderstandingBody,
+    ) -> ReviewUnderstandingResponse:
+        if confirmation_application is None or review_contexts is None:
+            raise _unavailable()
+        authorized = await review_contexts.resolve_for_review(family_id=family_id)
+        if authorized is None or authorized.family_id != family_id:
+            raise _http_error(status.HTTP_403_FORBIDDEN, "FAMILY_SCOPE_MISMATCH")
+        confirmation = await confirmation_application.review(
             ReviewUnderstandingCommand(
                 tenant_id=authorized.tenant_id,
                 family_id=authorized.family_id,
@@ -226,13 +295,13 @@ def create_family_understanding_router(
             )
         )
         return ReviewUnderstandingResponse(
-            receipt_ref=view.receipt_ref,
-            status=view.status,
-            scope_ref=view.scope_ref,
-            artifact_ref=view.artifact_ref,
-            artifact_version=view.artifact_version,
-            provenance_ref=view.provenance_ref,
-            expires_at=view.expires_at,
+            receipt_ref=confirmation.receipt_ref,
+            status=confirmation.status,
+            scope_ref=confirmation.scope_ref,
+            artifact_ref=confirmation.artifact_ref,
+            artifact_version=confirmation.artifact_version,
+            provenance_ref=confirmation.provenance_ref,
+            expires_at=confirmation.expires_at,
         )
 
     return router
