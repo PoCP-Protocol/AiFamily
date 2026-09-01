@@ -10,6 +10,7 @@ from backend.intelligence.family_understanding.api import (
     AuthorizedReviewContext,
     ReviewUnderstandingCommand,
     ReviewUnderstandingView,
+    ViewedUnderstandingView,
     create_family_understanding_router,
 )
 from backend.intelligence.family_understanding.application import FamilyUnderstandingApplication
@@ -81,6 +82,25 @@ class CapturingReviewApplication:
         )
 
 
+class CapturingViewApplication:
+    def __init__(self) -> None:
+        self.commands: list[ReviewUnderstandingCommand] = []
+
+    async def record_view(
+        self, command: ReviewUnderstandingCommand
+    ) -> ViewedUnderstandingView:
+        self.commands.append(command)
+        return ViewedUnderstandingView(
+            view_event_ref=command.view_event_ref,
+            status="VIEWED",
+            scope_ref="family://tenant-1/family-1/problem-understanding",
+            artifact_ref=command.artifact_ref,
+            artifact_version=command.artifact_version,
+            provenance_ref=command.provenance_ref,
+            viewed_at=datetime(2026, 9, 1, tzinfo=UTC),
+        )
+
+
 def request_body(text: str = "一写作业就要反复提醒。", index: int = 1) -> dict[str, object]:
     return {
         "run_id": f"http-run-{index}",
@@ -120,22 +140,27 @@ def client_for(application: FamilyUnderstandingApplication) -> TestClient:
     return TestClient(app)
 
 
-def review_client(review_application: CapturingReviewApplication) -> TestClient:
+def review_client(
+    view_application: CapturingViewApplication,
+    confirmation_application: CapturingReviewApplication,
+) -> TestClient:
     app = FastAPI()
     app.include_router(
         create_family_understanding_router(
             application_with(semantic_provider()),
             StaticAuthorizedContexts(),
-            review_application,
-            StaticReviewContexts(),
+            view_application=view_application,
+            confirmation_application=confirmation_application,
+            review_contexts=StaticReviewContexts(),
         )
     )
     return TestClient(app)
 
 
-def test_review_http_accepts_only_artifact_binding_and_server_context() -> None:
+def test_view_only_records_presentation_without_confirmation_receipt() -> None:
+    viewed = CapturingViewApplication()
     review = CapturingReviewApplication()
-    response = review_client(review).post(
+    response = review_client(viewed, review).post(
         "/v1/families/family-1/understanding-drafts/artifact-1/views",
         json={
             "artifact_version": 2,
@@ -145,8 +170,9 @@ def test_review_http_accepts_only_artifact_binding_and_server_context() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["receipt_ref"].startswith("review-receipt:v1:sha256:")
-    assert review.commands == [
+    assert response.json()["status"] == "VIEWED"
+    assert "receipt_ref" not in response.json()
+    assert viewed.commands == [
         ReviewUnderstandingCommand(
             tenant_id="tenant-1",
             family_id="family-1",
@@ -159,9 +185,32 @@ def test_review_http_accepts_only_artifact_binding_and_server_context() -> None:
             view_event_ref="view-event-1",
         )
     ]
+    assert review.commands == []
+
+
+def test_explicit_confirmation_returns_effective_exact_binding_receipt() -> None:
+    viewed = CapturingViewApplication()
+    review = CapturingReviewApplication()
+    response = review_client(viewed, review).post(
+        "/v1/families/family-1/understanding-drafts/artifact-v2/confirmations",
+        json={
+            "artifact_version": 2,
+            "provenance_ref": "air-provenance:v1:sha256:v2",
+            "view_event_ref": "view-event-v2",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "EFFECTIVE"
+    assert response.json()["receipt_ref"].startswith("review-receipt:v1:sha256:")
+    assert viewed.commands == []
+    assert review.commands[0].artifact_ref == "artifact-v2"
+    assert review.commands[0].artifact_version == 2
+    assert review.commands[0].provenance_ref.endswith(":v2")
 
 
 def test_review_http_rejects_client_authored_need_fields_and_cross_family() -> None:
+    viewed = CapturingViewApplication()
     review = CapturingReviewApplication()
     body = {
         "artifact_version": 1,
@@ -172,12 +221,12 @@ def test_review_http_rejects_client_authored_need_fields_and_cross_family() -> N
         "evidence_refs": ["client-evidence"],
     }
 
-    invented = review_client(review).post(
-        "/v1/families/family-1/understanding-drafts/artifact-1/views",
+    invented = review_client(viewed, review).post(
+        "/v1/families/family-1/understanding-drafts/artifact-1/confirmations",
         json=body,
     )
-    cross_family = review_client(review).post(
-        "/v1/families/family-2/understanding-drafts/artifact-1/views",
+    cross_family = review_client(viewed, review).post(
+        "/v1/families/family-2/understanding-drafts/artifact-1/confirmations",
         json={
             key: value
             for key, value in body.items()
@@ -187,6 +236,7 @@ def test_review_http_rejects_client_authored_need_fields_and_cross_family() -> N
 
     assert invented.status_code == 422
     assert cross_family.status_code == 403
+    assert viewed.commands == []
     assert review.commands == []
 
 
