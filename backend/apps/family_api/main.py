@@ -19,11 +19,18 @@ from backend.domains.assessment.api import router as assessment_router
 from backend.domains.assessment.api.dev_auth import router as dev_auth_router
 from backend.domains.membership.api.routes import router as membership_router
 from backend.domains.service.api.routes import router as service_router
+from backend.intelligence.family_understanding.api import (
+    AuthorizedContextResolver,
+    create_family_understanding_router,
+)
+from backend.intelligence.family_understanding.application import FamilyUnderstandingApplication
 
 
 def create_app(
     *,
     growth_confirmation_wiring: ProductionGrowthConfirmationWiring | None = None,
+    family_understanding_application: FamilyUnderstandingApplication | None = None,
+    authorized_contexts: AuthorizedContextResolver | None = None,
 ) -> FastAPI:
     application = FastAPI(title="AiFamily family_api", version="0.1.0")
     application.include_router(router)
@@ -78,6 +85,17 @@ def create_app(
         install_dev_wiring(application)
     if growth_confirmation_wiring is not None:
         growth_confirmation_wiring.install(application)
+    if (family_understanding_application is None) != (authorized_contexts is None):
+        raise ValueError(
+            "family understanding application and authorized contexts must be configured together"
+        )
+    if family_understanding_application is not None and authorized_contexts is not None:
+        application.include_router(
+            create_family_understanding_router(
+                family_understanding_application,
+                authorized_contexts,
+            )
+        )
     return application
 
 

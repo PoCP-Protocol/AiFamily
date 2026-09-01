@@ -17,6 +17,9 @@ from backend.domains.assessment.application.growth_intent_handoff import (
 from backend.domains.assessment.infrastructure.sqlalchemy_repository import (
     SqlAlchemyAssessmentRepository,
 )
+from backend.domains.assessment.infrastructure.sqlalchemy_reviewed_understanding_signals import (
+    SqlAlchemyReviewedUnderstandingSignals,
+)
 from backend.domains.growth.infrastructure.sqlalchemy_growth_intent_confirmation import (
     SqlAlchemyGrowthIntentConfirmationAdapter,
 )
@@ -35,7 +38,7 @@ class ProductionGrowthConfirmationWiring:
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
-        viewed_signals: ViewedUnderstandingSignalReaderPort,
+        viewed_signals: ViewedUnderstandingSignalReaderPort | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._viewed_signals = viewed_signals
@@ -45,9 +48,10 @@ class ProductionGrowthConfirmationWiring:
             session = unit_of_work.session
             assert session is not None
             connection = await session.connection()
+            viewed_signals = self._viewed_signals or SqlAlchemyReviewedUnderstandingSignals(session)
             yield GrowthHypothesisCommandHandler(
                 SqlAlchemyAssessmentRepository(connection),
-                self._viewed_signals,
+                viewed_signals,
                 SqlAlchemyGrowthIntentConfirmationAdapter(session),
             )
             await unit_of_work.commit()
