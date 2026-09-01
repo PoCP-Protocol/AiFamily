@@ -232,6 +232,13 @@ PPT、图片、视频和短剧都必须反链到产品版本与需求证据。
   浏览器仅提交 outcome + reason，ACCEPT 只生成待执行 NamedActionRequest。当前主应用尚未挂载
   Product Factory router，生产权限解析器也未安装，故不能宣称生产可用；边界见
   `governance/ADR/ADR-0143-product-definition-operator-review-surface.md`。
+- Web Concept Decision 已开始完整消费现有 canonical ProductConcept chain，而不是只取末端
+  Concept：严格校验 Signal→Insight→Opportunity→Problem→Strategy→Concept 的外键血缘，按
+  FACT/INFERENCE/RECOMMENDATION/HUMAN_DECISION 分区展示，并把 Opportunity 的
+  INVEST/EXPERIMENT/WATCH/MAINTAIN/EXIT 明确标为遗留领域状态，不能当作已证明的人工决定。
+  当前 chain 没有独立 Recommendation、人工 OpportunityDecision、receipt-backed evidence
+  snapshot 或 ProductPackage backlink，Web 以离散 reason code 显示缺口且不补算、不自动推进。
+  因 chain/三区路由和生产身份仍未挂载，Workspace 入口保持禁用合同预览且不加载 fixture。
 
 ### Iteration 3：组件与 Skill 闭环
 
@@ -272,6 +279,9 @@ PPT、图片、视频和短剧都必须反链到产品版本与需求证据。
 - Product Factory 尚未在 canonical `family_api` 完成无争议的生产挂载与真实身份组合；
 - HTTP 幂等键尚未真正接入平台幂等执行；
 - DemandFrame 与 MarketInsight 的完整 envelope 缺少独立持久化回读；
+- Opportunity 目前只有可经 ProductConcept chain 回溯的薄实体，AI 创建后默认 WATCH，但没有
+  DRAFT/PROPOSED envelope、幂等 create/readback、receipt-backed evidence snapshot、独立建议
+  和人工决定血缘；Web 已忠实展示此断点，尚不可把状态当作投资决定或 ProductPackage source；
 - EvidenceVerificationReceipt 已有 accepted-action/SQL 测试接缝，但尚无提案 Web、撤销影响账本、
   Alembic、独立收据创建并发证明和 ProductPackage resolver 生产接入；
 - ProductPackage HTTP 已按 ADR-0147 在可信来源解析前执行 durable intent replay：浏览器意图、

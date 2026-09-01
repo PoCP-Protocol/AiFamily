@@ -9,6 +9,7 @@ import {
   type RecommendedZone,
   type ZoneDimension,
 } from "./decisionApi";
+import { OpportunityLineagePanel } from "./OpportunityLineagePanel";
 
 const ZONE_LABELS: Record<RecommendedZone, string> = {
   COMMODITY: "同质区",
@@ -28,9 +29,17 @@ const DIMENSION_LABELS: Record<ZoneDimension, string> = {
 export type CandidateDecisionDraft = {
   draft_id: string;
   status: "DRAFT";
-  action: "SELECT_CANDIDATE" | "RETURN_TO_RESEARCH";
+  action: "PROPOSE_CANDIDATE_SELECTION" | "RETURN_TO_RESEARCH";
   concept_id: string;
+  concept_version: number;
   assessment_id: string;
+  assessment_version: number;
+  opportunity_id: string | null;
+  opportunity_version: number | null;
+  zone_policy_version_id: string;
+  recommended_zone: RecommendedZone;
+  approved_zone: RecommendedZone | null;
+  candidate_set_refs: string[];
   reason: string;
   persisted: false;
   created_at: string;
@@ -39,6 +48,7 @@ export type CandidateDecisionDraft = {
 type PendingAction = CandidateDecisionDraft["action"];
 type Props = {
   client?: ProductDecisionApiClient;
+  contractPreview?: boolean;
   onDecisionDraft?: (draft: CandidateDecisionDraft) => void;
 };
 
@@ -52,6 +62,7 @@ function newDraftId(): string {
 
 export function ProductConceptDecisionWorkbench({
   client = new HttpProductDecisionApiClient(),
+  contractPreview = false,
   onDecisionDraft,
 }: Props) {
   const [references, setReferences] = useState<CandidateReference[]>([emptyReference(), emptyReference()]);
@@ -111,12 +122,13 @@ export function ProductConceptDecisionWorkbench({
 
   const selected = candidates.find(({ concept }) => concept.id === selectedConceptId) ?? null;
   const selectionAllowed = selected !== null
+    && selected.lineage.opportunity !== null
     && selected.concept.status !== "RETIRED"
     && !["REJECTED", "RETIRED"].includes(selected.assessment.status);
   const canPrepare = selected !== null && reason.trim().length > 0;
 
   const prepare = (action: PendingAction) => {
-    if (!canPrepare || (action === "SELECT_CANDIDATE" && !selectionAllowed)) return;
+    if (!canPrepare || (action === "PROPOSE_CANDIDATE_SELECTION" && !selectionAllowed)) return;
     setPendingAction(action);
     setDecisionDraft(null);
   };
@@ -128,7 +140,15 @@ export function ProductConceptDecisionWorkbench({
       status: "DRAFT",
       action: pendingAction,
       concept_id: selected.concept.id,
+      concept_version: selected.concept.version,
       assessment_id: selected.assessment.id,
+      assessment_version: selected.assessment.version,
+      opportunity_id: selected.lineage.opportunity?.id ?? null,
+      opportunity_version: selected.lineage.opportunity?.version ?? null,
+      zone_policy_version_id: selected.assessment.zone_policy_version_id,
+      recommended_zone: selected.assessment.recommended_zone,
+      approved_zone: selected.assessment.approved_zone,
+      candidate_set_refs: candidates.map(({ concept, assessment }) => `${concept.id}@v${concept.version}|${assessment.id}@v${assessment.version}|${assessment.zone_policy_version_id}`),
       reason: reason.trim(),
       persisted: false,
       created_at: new Date().toISOString(),
@@ -142,9 +162,16 @@ export function ProductConceptDecisionWorkbench({
     <section aria-label="Product Concept Decision Workbench" className="panel product-concept-decision-workbench">
       <div className="section-kicker">IPD · Product Concept · Three-Zone Review</div>
       <h2>产品概念候选决策台</h2>
-      <p className="muted">比较多个候选及其真实六维证据。规则推荐不是人工批准，界面不会排序或自动选择赢家。</p>
+      <p className="muted">比较同一 Opportunity 下的多个候选、六维规则评估与证据引用。规则推荐不是事实或人工批准，界面不会排序或自动选择赢家。</p>
 
-      <fieldset disabled={loading}>
+      {contractPreview ? (
+        <div className="callout" role="note">
+          <strong>合同预览，Concept chain 与三区路由尚未生产挂载</strong>
+          <p>生产身份、路由和权威 Opportunity 决策对象接通前，不发网络请求，也不加载候选 fixture。</p>
+        </div>
+      ) : null}
+
+      <fieldset disabled={loading || contractPreview}>
         <legend>候选引用（2–5 个）</legend>
         {references.map((reference, index) => (
           <div className="candidate-reference-row" key={`candidate-reference-${index + 1}`}>
@@ -173,7 +200,7 @@ export function ProductConceptDecisionWorkbench({
 
       {candidates.length > 0 ? (
         <div aria-label="产品概念候选列表" className="product-candidate-grid">
-          {candidates.map(({ concept, assessment }, index) => (
+          {candidates.map(({ concept, assessment, lineage }, index) => (
             <article className="candidate-card" data-candidate-order={index + 1} key={concept.id}>
               <label className="candidate-choice">
                 <input
@@ -193,35 +220,38 @@ export function ProductConceptDecisionWorkbench({
               <p>{concept.description ?? "暂无描述"}</p>
               <code>{concept.id}</code>
 
+              <OpportunityLineagePanel conceptTitle={concept.title} lineage={lineage} />
+
               <div className="zone-decision-columns">
                 <div>
-                  <span>规则推荐</span>
+                  <span>RULE_RECOMMENDATION</span>
                   <strong>{ZONE_LABELS[assessment.recommended_zone]}</strong>
                   <small>{assessment.recommended_zone} · 非批准</small>
                 </div>
                 <div>
-                  <span>人工批准</span>
+                  <span>人工评审快照</span>
                   <strong>{assessment.approved_zone ? ZONE_LABELS[assessment.approved_zone] : "待人工治理"}</strong>
                   <small>{assessment.approved_zone ?? "approved_zone 未设置"}</small>
                 </div>
               </div>
 
-              <p className="muted">评估状态：{assessment.status} · 差异化 {assessment.differentiation_index} · 防御性 {assessment.defensibility_index}</p>
+              <p className="muted">RULE_ASSESSMENT · 评估状态：{assessment.status} · 差异化指数 {assessment.differentiation_index} · 防御性指数 {assessment.defensibility_index}</p>
               <p className="muted">策略版本：<code>{assessment.zone_policy_version_id}</code></p>
               {assessment.reviewed_by ? (
                 <p className="muted">
-                  人工评审：{assessment.reviewed_by} · {assessment.review_reason}
+                  人工评审：{assessment.reviewed_by} · {assessment.reviewed_at} · {assessment.review_reason}
                   {assessment.override_reason ? ` · 覆盖原因：${assessment.override_reason}` : ""}
                 </p>
               ) : null}
-              <ol aria-label={`${concept.title} 六维证据`} className="zone-evidence-list">
+              <ol aria-label={`${concept.title} 六维规则评估与 FACT_REF`} className="zone-evidence-list">
                 {ZONE_DIMENSIONS.map((dimensionName) => {
                   const dimension = assessment.dimension_assessments.find(({ dimension }) => dimension === dimensionName)!;
                   return (
                     <li key={dimensionName}>
-                      <strong>{DIMENSION_LABELS[dimensionName]} · {dimension.score}</strong>
-                      <span>{dimension.rationale}</span>
-                      <small>证据强度 {dimension.evidence_strength} · {dimension.evidence_refs.join(", ")}</small>
+                      <strong>RULE_ASSESSMENT · {DIMENSION_LABELS[dimensionName]} · {dimension.score}</strong>
+                      <span>规则理由：{dimension.rationale}</span>
+                      <small>RULE_METADATA · evidence_strength {dimension.evidence_strength}</small>
+                      <small>FACT_REF · {dimension.evidence_refs.join(", ")}</small>
                     </li>
                   );
                 })}
@@ -247,7 +277,7 @@ export function ProductConceptDecisionWorkbench({
             placeholder="说明为什么选择，或需要补充哪些研究证据"
           />
           <div className="result-actions">
-            <button type="button" className="primary-button" disabled={!canPrepare || !selectionAllowed} onClick={() => prepare("SELECT_CANDIDATE")}>准备选择候选</button>
+            <button type="button" className="primary-button" disabled={!canPrepare || !selectionAllowed} onClick={() => prepare("PROPOSE_CANDIDATE_SELECTION")}>准备提议选择候选</button>
             <button type="button" className="secondary-button" disabled={!canPrepare} onClick={() => prepare("RETURN_TO_RESEARCH")}>准备退回研究</button>
           </div>
         </section>
@@ -257,11 +287,11 @@ export function ProductConceptDecisionWorkbench({
         <section aria-label="确认人工决策" className="callout">
           <strong>确认生成 DRAFT</strong>
           <p>
-            {pendingAction === "SELECT_CANDIDATE" ? "选择候选" : "退回研究"}：{selected.concept.title}
+            {pendingAction === "PROPOSE_CANDIDATE_SELECTION" ? "提议选择候选" : "退回研究"}：{selected.concept.title}
           </p>
           <p>此操作不会调用 approve/reject，也不会持久化或推进 Gate。</p>
           <button type="button" className="human-button" onClick={confirm}>
-            {pendingAction === "SELECT_CANDIDATE" ? "确认生成选择草案" : "确认生成退回研究草案"}
+            {pendingAction === "PROPOSE_CANDIDATE_SELECTION" ? "确认生成提议选择草案" : "确认生成退回研究草案"}
           </button>
         </section>
       ) : null}
@@ -271,6 +301,8 @@ export function ProductConceptDecisionWorkbench({
           <strong>DRAFT · {decisionDraft.action}</strong>
           <p><code>{decisionDraft.concept_id}</code></p>
           <p>{decisionDraft.reason}</p>
+          <p>冻结版本：Concept v{decisionDraft.concept_version} · Assessment v{decisionDraft.assessment_version} · Opportunity {decisionDraft.opportunity_id ?? "MISSING"}@v{decisionDraft.opportunity_version ?? "MISSING"}</p>
+          <p>三区策略：<code>{decisionDraft.zone_policy_version_id}</code> · 候选集合：{decisionDraft.candidate_set_refs.join("；")}</p>
           <p role="status">未持久化；需要后端命名命令与人工 Gate 才能成为正式决定。</p>
         </output>
       ) : null}

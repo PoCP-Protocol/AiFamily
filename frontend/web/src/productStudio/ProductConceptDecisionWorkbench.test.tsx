@@ -16,9 +16,20 @@ const candidate = (
   approved: "COMMODITY" | "ADVANTAGE" | "UNIQUE" | null = null,
   status: "SCORED" | "UNDER_REVIEW" | "APPROVED" | "REJECTED" | "RETIRED" = "SCORED",
 ): ProductConceptCandidate => ({
-  concept: { id, strategy_id: "strategy:001", title, description: `${title} 描述`, status: "DRAFT" },
+  concept: { id, version: 1, strategy_id: "strategy:001", title, description: `${title} 描述`, status: "DRAFT" },
+  lineage: {
+    market_signal: { id: `signal:${id}`, status: "ACTIVE", version: 1, raw_text: `${title} 市场信号`, source_ref: "research:interview", evidence_refs: [`evidence:${id}:signal`] },
+    customer_insight: { id: `insight:${id}`, status: "ACTIVE", version: 1, statement: `${title} 客户洞察`, signal_id: `signal:${id}`, evidence_refs: [`evidence:${id}:insight`], ai_provenance: null },
+    opportunity: { id: "opportunity:decision-room", status: "WATCH", version: 1, statement: `${title} 机会推断`, insight_id: `insight:${id}`, evidence_refs: [`evidence:${id}:opportunity`], ai_provenance: null },
+    growth_problem: { id: `problem:${id}`, status: "ACTIVE", version: 1, symptom: `${title} 成长问题`, opportunity_id: "opportunity:decision-room", evidence_refs: [`evidence:${id}:problem`] },
+    growth_strategy: { id: "strategy:001", status: "DRAFT", version: 1, statement: `${title} 策略草案`, problem_id: `problem:${id}` },
+    completeness: "STRUCTURALLY_COMPLETE_TO_OPPORTUNITY",
+    review_state: "NEEDS_HUMAN_DECISION",
+    reason_codes: ["AUTHORITATIVE_HUMAN_DECISION_NOT_IN_CONTRACT", "PRODUCT_PACKAGE_BACKLINK_NOT_IN_CONTRACT"],
+  },
   assessment: {
     id: `assessment:${id}`,
+    version: 1,
     subject_type: "PRODUCT_CONCEPT",
     subject_ref: id,
     zone_policy_version_id: "zone-policy:v1",
@@ -27,6 +38,7 @@ const candidate = (
     approved_zone: approved,
     override_reason: approved && approved !== recommended ? "人工判断证据尚不足以支持规则推荐" : null,
     reviewed_by: approved ? "human:reviewer" : null,
+    reviewed_at: approved ? "2026-09-01T00:00:00Z" : null,
     review_reason: approved ? "完成跨职能证据评审" : null,
     differentiation_index: 60,
     defensibility_index: 55,
@@ -68,6 +80,14 @@ async function loadCandidates(client = clientWith()): Promise<ProductDecisionApi
 }
 
 describe("ProductConceptDecisionWorkbench", () => {
+  it("keeps the production workspace fail-closed while chain routes are unmounted", () => {
+    const client = clientWith();
+    render(<ProductConceptDecisionWorkbench client={client} contractPreview />);
+    expect(screen.getByText("合同预览，Concept chain 与三区路由尚未生产挂载")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "读取候选与三区证据" })).toBeDisabled();
+    expect(client.loadCandidates).not.toHaveBeenCalled();
+  });
+
   it("manages 2–5 candidate references", async () => {
     render(<ProductConceptDecisionWorkbench client={clientWith()} />);
     expect(screen.getAllByLabelText(/候选 \d concept_id/)).toHaveLength(2);
@@ -84,7 +104,7 @@ describe("ProductConceptDecisionWorkbench", () => {
   it("preserves server input order and separates recommendation from approval", async () => {
     await loadCandidates();
     const cards = screen.getAllByRole("article");
-    expect(cards.map((card) => within(card).getByRole("heading").textContent)).toEqual(["先输入的候选", "后输入的候选"]);
+    expect(cards.map((card) => within(card).getByRole("heading", { level: 3 }).textContent)).toEqual(["先输入的候选", "后输入的候选"]);
     expect(cards[0]).toHaveAttribute("data-candidate-order", "1");
     expect(cards[0]).toHaveTextContent("同质区");
     expect(cards[0]).toHaveTextContent("待人工治理");
@@ -105,7 +125,7 @@ describe("ProductConceptDecisionWorkbench", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "读取候选与三区证据" }));
     await screen.findByLabelText("产品概念候选列表");
 
-    const prepare = screen.getByRole("button", { name: "准备选择候选" });
+    const prepare = screen.getByRole("button", { name: "准备提议选择候选" });
     expect(prepare).toBeDisabled();
     await userEvent.setup().click(screen.getByRole("radio", { name: "人工选择候选 2" }));
     fireEvent.change(screen.getByLabelText("人工决策理由"), { target: { value: "更符合当前证据，但仍需 Gate。" } });
@@ -113,15 +133,19 @@ describe("ProductConceptDecisionWorkbench", () => {
     await userEvent.setup().click(prepare);
     expect(screen.getByText(/不会调用 approve\/reject/)).toBeInTheDocument();
     expect(onDecisionDraft).not.toHaveBeenCalled();
-    await userEvent.setup().click(screen.getByRole("button", { name: "确认生成选择草案" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "确认生成提议选择草案" }));
 
     const output = screen.getByLabelText("候选决策草案");
-    expect(output).toHaveTextContent("DRAFT · SELECT_CANDIDATE");
+    expect(output).toHaveTextContent("DRAFT · PROPOSE_CANDIDATE_SELECTION");
     expect(output).toHaveTextContent("未持久化");
     expect(onDecisionDraft).toHaveBeenCalledWith(expect.objectContaining({
       status: "DRAFT",
-      action: "SELECT_CANDIDATE",
+      action: "PROPOSE_CANDIDATE_SELECTION",
       concept_id: "concept:second",
+      concept_version: 1,
+      opportunity_id: "opportunity:decision-room",
+      assessment_version: 1,
+      zone_policy_version_id: "zone-policy:v1",
       persisted: false,
     }));
   });
@@ -137,6 +161,30 @@ describe("ProductConceptDecisionWorkbench", () => {
     expect(Object.keys(client)).toEqual(["loadCandidates"]);
   });
 
+  it("returns an incomplete lineage to research without dereferencing a missing Opportunity", async () => {
+    const incomplete = candidates.map((item) => ({
+      ...item,
+      lineage: {
+        ...item.lineage,
+        market_signal: null,
+        customer_insight: null,
+        opportunity: null,
+        growth_problem: { ...item.lineage.growth_problem, opportunity_id: null },
+        completeness: "INCOMPLETE_UPSTREAM" as const,
+      },
+    }));
+    const onDecisionDraft = vi.fn();
+    render(<ProductConceptDecisionWorkbench client={clientWith(incomplete)} onDecisionDraft={onDecisionDraft} />);
+    fillReferences();
+    await userEvent.setup().click(screen.getByRole("button", { name: "读取候选与三区证据" }));
+    await screen.findByLabelText("产品概念候选列表");
+    await userEvent.setup().click(screen.getByRole("radio", { name: "人工选择候选 1" }));
+    fireEvent.change(screen.getByLabelText("人工决策理由"), { target: { value: "上游机会缺失，退回补证。" } });
+    await userEvent.setup().click(screen.getByRole("button", { name: "准备退回研究" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "确认生成退回研究草案" }));
+    expect(onDecisionDraft).toHaveBeenCalledWith(expect.objectContaining({ opportunity_id: null, opportunity_version: null }));
+  });
+
   it("prevents selecting a terminal assessment but still allows returning it to research", async () => {
     await loadCandidates(clientWith([
       candidate("concept:first", "终止候选", "COMMODITY", null, "REJECTED"),
@@ -144,9 +192,9 @@ describe("ProductConceptDecisionWorkbench", () => {
     ]));
     await userEvent.setup().click(screen.getByRole("radio", { name: "人工选择候选 1" }));
     fireEvent.change(screen.getByLabelText("人工决策理由"), { target: { value: "重新研究" } });
-    expect(screen.getByRole("button", { name: "准备选择候选" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "准备提议选择候选" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "准备退回研究" })).toBeEnabled();
-    expect(screen.getByRole("status")).toHaveTextContent("仅可退回研究");
+    expect(screen.getByText("该评估已终止，仅可退回研究。")).toBeInTheDocument();
   });
 
   it("shows a stable, understandable API error", async () => {

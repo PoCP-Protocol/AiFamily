@@ -91,7 +91,7 @@ export function ProductStudioWorkspace() {
         <MarketEvidenceWorkbench />
       </div>
       <div aria-labelledby="workspace-tab-concept-decision" hidden={activeTab !== "concept-decision"} id="workspace-panel-concept-decision" role="tabpanel" tabIndex={0}>
-        <ProductConceptDecisionWorkbench />
+        <ProductConceptDecisionWorkbench contractPreview />
       </div>
       <div aria-labelledby="workspace-tab-package-review" hidden={activeTab !== "package-review"} id="workspace-panel-package-review" role="tabpanel" tabIndex={0}>
         <ProductPackageReviewWorkbench contractPreview />

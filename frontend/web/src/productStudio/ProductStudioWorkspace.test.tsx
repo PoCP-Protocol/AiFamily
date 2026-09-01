@@ -53,6 +53,8 @@ describe("ProductStudioWorkspace", () => {
     expect(screen.getByRole("heading", { name: "市场与竞品证据工作台" })).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: /Concept Decision/ }));
     expect(screen.getByRole("heading", { name: "产品概念候选决策台" })).toBeInTheDocument();
+    expect(screen.getByText("合同预览，Concept chain 与三区路由尚未生产挂载")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "读取候选与三区证据" })).toBeDisabled();
     await user.click(screen.getByRole("tab", { name: /Package Review/ }));
     expect(screen.getByRole("heading", { name: "产品包证据准入与评审" })).toBeInTheDocument();
     expect(screen.getByRole("note")).toHaveTextContent("合同预览，尚未接入生产运行时");
