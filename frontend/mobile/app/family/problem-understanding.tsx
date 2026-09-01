@@ -13,17 +13,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ConcernComposer,
   CorrectionConfirmation,
-  DEV_SYNTHETIC_PROBLEM_UNDERSTANDING,
+  type GeneratedUnderstandingResponse,
   RecoveryNotice,
   UnderstandingMap,
-  applyConfirmationReceipt,
   beginConfirmation,
   beginCorrection,
   buildUnderstandingMap,
   createProblemUnderstandingState,
-  createSyntheticConcern,
-  createSyntheticReceipt,
-  createSyntheticUnderstanding,
   markUnderstandingUnavailable,
   receiveUnderstanding,
   retryUnderstanding,
@@ -34,20 +30,22 @@ import {
   skipClarification,
   submitConcern,
   submitCorrection,
+  toUnderstandingDraft,
   updateConcernDraft,
   updateCorrectionDraft,
 } from "@/features/problem-understanding";
 import { useColors } from "@/hooks/use-colors";
+import {
+  createMobileRequestId,
+  familyApi,
+} from "@/lib/family/family-api-client";
+import { useFamilyApiSession } from "@/lib/family/family-api-session";
 
-const SYNTHETIC_ENABLED =
-  __DEV__ &&
-  DEV_SYNTHETIC_PROBLEM_UNDERSTANDING.environment === "DEV_ONLY" &&
-  DEV_SYNTHETIC_PROBLEM_UNDERSTANDING.fixtureOnly;
-
-const STORAGE_KEY = "aifamily:problem-understanding:dev-only:v1";
+const STORAGE_KEY = "aifamily:problem-understanding:generative:v2";
 
 export default function ProblemUnderstandingRoute() {
   const colors = useColors();
+  const session = useFamilyApiSession();
   const { width } = useWindowDimensions();
   const [state, setState] = useState(createProblemUnderstandingState);
   const [hydrated, setHydrated] = useState(false);
@@ -71,50 +69,96 @@ export default function ProblemUnderstandingRoute() {
     };
   }, []);
 
-  const handleConcernSubmit = () => {
-    if (!SYNTHETIC_ENABLED) {
-      setState(markUnderstandingUnavailable(state));
+  const requestUnderstanding = async (
+    submitted: typeof state,
+    inputRef: string,
+    text: string,
+    revision: number,
+    priorDraftArtifactHash: string | null,
+  ) => {
+    if (
+      session.status !== "connected" ||
+      !session.token ||
+      !session.selectedFamily
+    ) {
+      setState(markUnderstandingUnavailable(submitted));
       return;
     }
+    try {
+      const response =
+        await familyApi.generateFamilyUnderstanding<GeneratedUnderstandingResponse>(
+          session.token,
+          session.selectedFamily.family_id,
+          {
+            run_id: `${inputRef}:v${revision}`,
+            tenant_id: session.selectedFamily.tenant_id,
+            guardian_input_ref: inputRef,
+            guardian_text: text,
+            revision,
+            prior_draft_artifact_hash: priorDraftArtifactHash,
+          },
+        );
+      setState(
+        receiveUnderstanding(
+          submitted,
+          toUnderstandingDraft(
+            response,
+            session.selectedFamily.tenant_id,
+            session.selectedFamily.family_id,
+          ),
+        ),
+      );
+    } catch {
+      setState(markUnderstandingUnavailable(submitted));
+    }
+  };
+
+  const handleConcernSubmit = () => {
+    const text = state.concernDraft.trim();
+    const inputRef = createMobileRequestId("guardian-concern");
     const submitted = submitConcern(
       state,
-      createSyntheticConcern(state.concernDraft),
+      {
+        inputRef,
+        kind: "CONCERN",
+        text,
+        createdAt: new Date().toISOString(),
+      },
     );
-    setState(receiveUnderstanding(submitted, createSyntheticUnderstanding()));
+    setState(submitted);
+    void requestUnderstanding(submitted, inputRef, text, 1, null);
   };
 
   const handleCorrectionSubmit = () => {
-    if (!SYNTHETIC_ENABLED) {
-      setState(markUnderstandingUnavailable(state));
-      return;
-    }
     const correction = state.correctionDraft.trim();
+    const inputRef = createMobileRequestId("guardian-correction");
+    const priorDraft = state.drafts.at(-1) ?? null;
     const submitted = submitCorrection(state, {
-      inputRef: `dev-correction-${Date.now()}`,
+      inputRef,
       kind: "CORRECTION",
       text: correction,
       createdAt: new Date().toISOString(),
     });
-    setState(
-      receiveUnderstanding(submitted, createSyntheticUnderstanding(correction)),
+    setState(submitted);
+    void requestUnderstanding(
+      submitted,
+      inputRef,
+      [...state.inputs.map((item) => item.text), correction].join("\n\n补充或修正："),
+      (priorDraft?.draftVersion ?? 1) + 1,
+      priorDraft?.reviewedDraftRef ?? null,
     );
   };
 
-  const handleConfirm = async () => {
+  const handleConfirm = () => {
     const confirming = beginConfirmation(state);
-    if (!SYNTHETIC_ENABLED || !confirming.pendingConfirmation) {
-      setState(markUnderstandingUnavailable(confirming));
-      return;
-    }
-    const confirmed = applyConfirmationReceipt(
-      confirming,
-      createSyntheticReceipt(confirming.pendingConfirmation),
+    setState(
+      confirming.pendingConfirmation
+        ? confirming
+        : {
+            ...state,
+            recoveryMessage: "确认服务正在连接，请先保存这次理解，稍后继续。",
+          },
     );
-    await AsyncStorage.setItem(
-      STORAGE_KEY,
-      serializeProblemUnderstandingState(confirmed),
-    );
-    setState(confirmed);
   };
 
   const handleSaveAndExit = async () => {
@@ -130,6 +174,11 @@ export default function ProblemUnderstandingRoute() {
   };
 
   const handleDelete = async () => {
+    await AsyncStorage.removeItem(STORAGE_KEY);
+    setState(createProblemUnderstandingState());
+  };
+
+  const handleStartNew = async () => {
     await AsyncStorage.removeItem(STORAGE_KEY);
     setState(createProblemUnderstandingState());
   };
@@ -266,13 +315,19 @@ export default function ProblemUnderstandingRoute() {
             message={state.recoveryMessage}
             onRetry={() => {
               const retrying = retryUnderstanding(state);
-              setState(
-                SYNTHETIC_ENABLED
-                  ? receiveUnderstanding(
-                      retrying,
-                      createSyntheticUnderstanding(),
-                    )
-                  : markUnderstandingUnavailable(retrying),
+              const lastInput = retrying.inputs.at(-1);
+              const priorDraft = retrying.drafts.at(-1) ?? null;
+              setState(retrying);
+              if (!lastInput) {
+                setState(markUnderstandingUnavailable(retrying));
+                return;
+              }
+              void requestUnderstanding(
+                retrying,
+                lastInput.inputRef,
+                retrying.inputs.map((item) => item.text).join("\n\n补充或修正："),
+                priorDraft ? priorDraft.draftVersion + 1 : 1,
+                priorDraft?.reviewedDraftRef ?? null,
               );
             }}
           />
@@ -287,15 +342,23 @@ export default function ProblemUnderstandingRoute() {
               <Text style={styles.confirmedBody}>
                 你确认的是当前想先关注的方向。以后有新情况，还可以回来补充。
               </Text>
-            </View>
-            <View style={styles.nextStepCard}>
-              <Text style={styles.nextStepEyebrow}>接下来</Text>
-              <Text style={styles.nextStepTitle}>
-                选一个彼此都不赶时间的时刻
-              </Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={handleStartNew}
+                style={styles.secondaryButton}
+              >
+                <Text style={styles.secondaryButtonText}>补充新情况</Text>
+              </Pressable>
               <Text style={styles.confirmedBody}>
-                先让每个人把想法说完整，再一起商量下一步；不需要今天一次解决。
+                也可以开始一次新的理解，之前确认的内容仍会保留在家庭记录中。
               </Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={handleStartNew}
+                style={styles.primaryButton}
+              >
+                <Text style={styles.primaryButtonText}>开始新的理解</Text>
+              </Pressable>
             </View>
           </View>
         ) : null}
@@ -350,26 +413,6 @@ const styles = StyleSheet.create({
     lineHeight: 39,
   },
   loadingCard: { margin: 24, padding: 20 },
-  nextStepCard: {
-    backgroundColor: "#FFF8F3",
-    borderColor: "#EDCDBA",
-    borderRadius: 22,
-    borderWidth: 1,
-    gap: 8,
-    padding: 20,
-  },
-  nextStepEyebrow: {
-    color: "#A34D2D",
-    fontSize: 13,
-    fontWeight: "800",
-    letterSpacing: 0.5,
-  },
-  nextStepTitle: {
-    color: "#3B2E26",
-    fontSize: 20,
-    fontWeight: "800",
-    lineHeight: 28,
-  },
   primaryButton: {
     alignItems: "center",
     backgroundColor: "#D8663A",
