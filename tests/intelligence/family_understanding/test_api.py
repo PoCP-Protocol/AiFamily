@@ -16,6 +16,8 @@ from backend.intelligence.model_gateway.gateway import ModelGateway
 from backend.intelligence.model_gateway.provider_registry import ProviderRegistry
 from backend.intelligence.model_gateway.providers.fake import FakeProvider
 from tests.intelligence.family_understanding.test_application import (
+    NeedCandidates,
+    SnapshotStore,
     application_with,
     approved_record,
     semantic_output,
@@ -149,7 +151,9 @@ def test_missing_provider_returns_503_without_a_prebuilt_answer() -> None:
         registry=ProviderRegistry([approved_record("missing-provider")]),
     )
     application = FamilyUnderstandingApplication(
-        FamilyUnderstandingEvaluator(gateway, provider_id="missing-provider")
+        FamilyUnderstandingEvaluator(gateway, provider_id="missing-provider"),
+        SnapshotStore(),
+        NeedCandidates(),
     )
 
     response = client_for(application).post(

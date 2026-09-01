@@ -18,6 +18,11 @@ from backend.intelligence.family_understanding.eval import (
 from backend.intelligence.family_understanding.provenance import (
     UnderstandingProvenanceBinding,
 )
+from backend.intelligence.family_understanding.snapshot import (
+    UnderstandingDraftSnapshot,
+    UnderstandingDraftSnapshotWriter,
+    UnderstandingNeedCandidateProjector,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,8 +82,15 @@ class UnderstandingDraftView:
 class FamilyUnderstandingApplication:
     """Generate a draft through the one injected evaluator/Model Gateway path."""
 
-    def __init__(self, evaluator: FamilyUnderstandingEvaluator) -> None:
+    def __init__(
+        self,
+        evaluator: FamilyUnderstandingEvaluator,
+        snapshot_writer: UnderstandingDraftSnapshotWriter,
+        need_candidates: UnderstandingNeedCandidateProjector,
+    ) -> None:
         self._evaluator = evaluator
+        self._snapshot_writer = snapshot_writer
+        self._need_candidates = need_candidates
 
     async def generate(self, command: GenerateUnderstandingCommand) -> UnderstandingDraftView:
         context = FamilyUnderstandingContextV1(
@@ -110,11 +122,46 @@ class FamilyUnderstandingApplication:
             tenant_id=command.tenant_id,
             family_id=command.family_id,
         )
-        return _to_view(
+        view = _to_view(
             artifact,
             version=command.revision,
             prior_draft_artifact_hash=command.prior_draft_artifact_hash,
         )
+        desired_change = str(view.desired_change["statement"])
+        need_candidate = await self._need_candidates.project(
+            tenant_id=command.tenant_id,
+            family_id=command.family_id,
+            subject_person_id=command.subject_ref,
+            desired_change=desired_change,
+            source_refs=view.source_refs,
+            knowledge_refs=view.knowledge_references,
+        )
+        await self._snapshot_writer.save(
+            UnderstandingDraftSnapshot(
+                tenant_id=command.tenant_id,
+                family_id=command.family_id,
+                understanding_run_ref=command.run_id,
+                artifact_ref=view.artifact_hash,
+                artifact_version=view.version,
+                prior_artifact_ref=view.prior_draft_artifact_hash,
+                provenance_ref=view.provenance_ref,
+                subject_person_id=command.subject_ref,
+                desired_change=desired_change,
+                need_type=need_candidate.need_type,
+                required_capability_keys=need_candidate.required_capability_keys,
+                evidence_refs=need_candidate.evidence_refs,
+                source_refs=view.source_refs,
+                knowledge_refs=view.knowledge_references,
+                provider_id=view.provider_id,
+                model=view.model,
+                model_version=view.model_version,
+                prompt_version=view.prompt_version,
+                schema_version=view.schema_version,
+                context_snapshot_ref=view.context_snapshot_ref,
+                expires_at=command.context_expires_at,
+            )
+        )
+        return view
 
 
 def _to_view(
