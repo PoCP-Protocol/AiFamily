@@ -2,12 +2,6 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import {
-  createSyntheticReceipt,
-  createSyntheticUnderstanding,
-  DEV_SYNTHETIC_PROBLEM_UNDERSTANDING,
-} from "../../features/problem-understanding/dev-synthetic-fixture";
-
 const route = readFileSync(
   resolve(process.cwd(), "app/family/problem-understanding.tsx"),
   "utf8",
@@ -35,37 +29,13 @@ describe("Problem Understanding standalone Expo route", () => {
     expect(rootLayout).toContain("<ResponsivePlatformShell>");
   });
 
-  it("keeps synthetic data explicitly limited to development", () => {
-    expect(DEV_SYNTHETIC_PROBLEM_UNDERSTANDING).toEqual({
-      environment: "DEV_ONLY",
-      dataSource: "SYNTHETIC",
-      fixtureOnly: true,
-      scenarioRef: "problem-understanding-writing-routine-v1",
-    });
-    expect(route).toContain("__DEV__");
-    expect(route).toContain('environment === "DEV_ONLY"');
-    expect(route).toContain("fixtureOnly");
-  });
-
-  it("creates a receipt with the complete reviewed-draft binding", () => {
-    const draft = createSyntheticUnderstanding();
-    const receipt = createSyntheticReceipt({
-      signalRef: draft.signalRef,
-      signalVersion: draft.signalVersion,
-      scopeRef: draft.scopeRef,
-      reviewedDraftRef: draft.reviewedDraftRef,
-      draftVersion: draft.draftVersion,
-      provenanceRef: draft.provenanceRef,
-      humanGateReceiptRef: draft.humanGateReceiptRef,
-    });
-
-    expect(receipt).toMatchObject({
-      scopeRef: draft.scopeRef,
-      reviewedDraftRef: draft.reviewedDraftRef,
-      draftVersion: draft.draftVersion,
-      provenanceRef: draft.provenanceRef,
-      humanGateReceiptRef: draft.humanGateReceiptRef,
-    });
+  it("uses only the real family-understanding HTTP response at runtime", () => {
+    expect(route).toContain("familyApi.generateFamilyUnderstanding");
+    expect(route).toContain("toUnderstandingDraft");
+    expect(route).toContain("prior_draft_artifact_hash");
+    expect(route).not.toContain("createSyntheticUnderstanding");
+    expect(route).not.toContain("createSyntheticReceipt");
+    expect(route).not.toContain("DEV_SYNTHETIC_PROBLEM_UNDERSTANDING");
   });
 
   it("does not expose internal implementation language in visible copy", () => {
@@ -113,11 +83,13 @@ describe("Problem Understanding standalone Expo route", () => {
     expect(components).toContain("只有你确认后，才会进入下一步");
   });
 
-  it("shows a concrete next step only after the adult confirms", () => {
+  it("lets the adult add context or start a new understanding after confirmation", () => {
     expect(route).toContain('state.phase === "CONFIRMED"');
     expect(route).toContain("这次理解已经确认");
-    expect(route).toContain("选一个彼此都不赶时间的时刻");
-    expect(route).toContain("不需要今天一次解决");
+    expect(route).toContain("补充新情况");
+    expect(route).toContain("开始新的理解");
+    expect(route).not.toContain("选一个彼此都不赶时间的时刻");
+    expect(route).not.toContain("不需要今天一次解决");
   });
 
   it("does not force a fixed assessment or automatic action into this path", () => {
