@@ -5,7 +5,6 @@ type Props = {
   record: LiveRecord;
   interactionBaseUrl?: string;
   replayBaseUrl?: string;
-  commerceBaseUrl?: string;
   onBack: () => void;
 };
 
@@ -38,15 +37,6 @@ type DeletionView = {
   fixture_only: true;
 };
 
-type CommerceReceipt = {
-  status: "SANDBOX_AUTHORIZED";
-  gross_amount: number;
-  allocations: { beneficiary_ref: string; amount: number }[];
-  external_effect: false;
-  source: "SANDBOX_SYNTHETIC";
-  fixture_only: true;
-};
-
 const SANDBOX_DIAGNOSTIC_MARKERS =
   "SANDBOX_SYNTHETIC fixture_only DEV_ONLY LOCKED WAITING_AUTHORIZATION 问题搜索 直播中 已结束 / 回看受限 NO_MEDIA MEDIA_READY PLAYBACK_AUTHORIZED SCHEDULED ENDED";
 const SYNTHETIC_VIDEO_POSTER = `data:image/svg+xml,${encodeURIComponent(
@@ -67,7 +57,6 @@ export function LiveDetailPage({
   record,
   interactionBaseUrl,
   replayBaseUrl,
-  commerceBaseUrl,
   onBack,
 }: Props) {
   const playback = record.playback;
@@ -75,16 +64,12 @@ export function LiveDetailPage({
     playback?.state ?? "WAITING_AUTHORIZATION",
   );
   const [mediaUrl, setMediaUrl] = useState(playback ? playback.playback_url : "");
-  const [showServiceDetails, setShowServiceDetails] = useState(false);
   const [questions, setQuestions] = useState<LiveQuestion[]>([]);
   const [questionText, setQuestionText] = useState("");
   const [questionState, setQuestionState] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [replayState, setReplayState] = useState<ReplayState>("idle");
   const [replayUrl, setReplayUrl] = useState("");
   const [deletedRefs, setDeletedRefs] = useState<string[]>([]);
-  const [membership, setMembership] = useState<string | null>(null);
-  const [supportState, setSupportState] = useState<"idle" | "sending" | "sent" | "error">("idle");
-  const [supportReceipt, setSupportReceipt] = useState<CommerceReceipt | null>(null);
   const hasStartedPlayback = useRef(false);
   const canRenderVideo =
     playback?.source === "synthetic" &&
@@ -112,31 +97,6 @@ export function LiveDetailPage({
       });
     return () => controller.abort();
   }, [interactionBaseUrl]);
-
-  useEffect(() => {
-    if (!commerceBaseUrl) return;
-    const controller = new AbortController();
-    void fetch(`${commerceBaseUrl}/sandbox/live-commerce/membership`, {
-      cache: "no-store",
-      headers: SYNTHETIC_ACTOR_HEADERS,
-      signal: controller.signal,
-    })
-      .then((response) => {
-        if (!response.ok) throw new Error("membership read failed");
-        return response.json() as Promise<{
-          membership: string | null;
-          source: "SANDBOX_SYNTHETIC";
-          fixture_only: true;
-        }>;
-      })
-      .then((value) => {
-        if (value.source === "SANDBOX_SYNTHETIC" && value.fixture_only === true) {
-          setMembership(value.membership);
-        }
-      })
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, [commerceBaseUrl]);
 
   return (
     <article className="live-detail-page" aria-labelledby="live-detail-heading">
@@ -254,30 +214,10 @@ export function LiveDetailPage({
           )}
           {questionState === "sent" ? <p className="live-question-feedback" role="status">问题已提交，等待人工审核</p> : null}
           {questionState === "error" ? <p className="live-question-feedback" role="alert">问题暂未送达，请稍后再试</p> : null}
-          {commerceBaseUrl ? (
-            <section className="live-room-support" aria-label="成人支持专家">
-              <div>
-                <strong>支持本场专家</strong>
-                <span>{membership ? "橘灯会员 · 成人专属" : "仅限成人 · Sandbox"}</span>
-              </div>
-              <div className="live-room-support-actions">
-                <button type="button" onClick={() => void supportExpert("TIP", 500, "CNY_CENT")}>
-                  打赏 5 元
-                </button>
-                <button type="button" onClick={() => void supportExpert("POINTS", 100, "POINT")}>
-                  送 100 积分
-                </button>
-              </div>
-              {supportState === "sending" ? <small role="status">正在校验成人权限与账本…</small> : null}
-              {supportState === "sent" && supportReceipt ? (
-                <small role="status">
-                  演示支持已记录；专家分配 {supportReceipt.allocations[0]?.amount ?? 0}
-                  {supportReceipt.gross_amount === 500 ? " 分" : " 积分"}，未发生真实扣款。
-                </small>
-              ) : null}
-              {supportState === "error" ? <small role="alert">支持服务不可用，未产生扣款。</small> : null}
-            </section>
-          ) : null}
+          <a className="live-support-entry" href="#live-service">
+            <strong>支持专家与后续服务</strong>
+            <span>成人主动进入 · 不影响观看和提问</span>
+          </a>
         </aside>
       </div>
 
@@ -307,19 +247,7 @@ export function LiveDetailPage({
             <h4 id="live-service-next-step-heading">需要继续支持？先了解专家服务方式</h4>
             <p>由家长自主决定，不影响当前直播与家庭内容。</p>
           </div>
-          <button
-            className="live-service-button"
-            type="button"
-            aria-expanded={showServiceDetails}
-            onClick={() => setShowServiceDetails((visible) => !visible)}
-          >
-            {showServiceDetails ? "收起说明" : "了解服务方式"}
-          </button>
-          {showServiceDetails ? (
-            <p className="live-service-detail" role="status">
-              当前仅展示服务说明，不会自动下单、扣费或联系专家。
-            </p>
-          ) : null}
+          <a className="live-service-button" href="#live-service">查看服务方案</a>
         </section>
       ) : null}
       {showAdultNextStep && replayBaseUrl ? (
@@ -493,44 +421,6 @@ export function LiveDetailPage({
     }
   }
 
-  async function supportExpert(kind: "TIP" | "POINTS", amount: number, currency: "CNY_CENT" | "POINT") {
-    if (!commerceBaseUrl || !isLocalPlaybackUrl(commerceBaseUrl)) {
-      setSupportState("error");
-      return;
-    }
-    const reference = `support.${kind.toLowerCase()}.${Date.now()}`;
-    setSupportState("sending");
-    try {
-      const response = await fetch(
-        `${commerceBaseUrl}/sandbox/live-commerce/sessions/media.synthetic.1/support`,
-        {
-          method: "POST",
-          headers: SYNTHETIC_ACTOR_HEADERS,
-          body: JSON.stringify({
-            intent_ref: reference,
-            idempotency_key: reference,
-            kind,
-            amount,
-            currency,
-          }),
-        },
-      );
-      if (!response.ok) throw new Error("support rejected");
-      const receipt = (await response.json()) as CommerceReceipt;
-      if (
-        receipt.source !== "SANDBOX_SYNTHETIC" ||
-        receipt.fixture_only !== true ||
-        receipt.external_effect !== false
-      ) {
-        throw new Error("support receipt rejected");
-      }
-      setSupportReceipt(receipt);
-      setSupportState("sent");
-    } catch {
-      setSupportReceipt(null);
-      setSupportState("error");
-    }
-  }
 }
 
 function isLocalPlaybackUrl(value: string): boolean {

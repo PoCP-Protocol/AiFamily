@@ -12,7 +12,8 @@ import { RunStatus } from "./components/RunStatus";
 import { ReplayTimeline } from "./components/ReplayTimeline";
 import { LiveExperience } from "./components/LiveExperience";
 import { LiveModeratorConsole } from "./components/LiveModeratorConsole";
-import { resolveLiveInteractionBaseUrl } from "./live/liveCatalog";
+import { LiveServiceOfferingPage } from "./components/LiveServiceOfferingPage";
+import { resolveLiveCommerceBaseUrl, resolveLiveInteractionBaseUrl } from "./live/liveCatalog";
 import { initialStudioState, studioReducer } from "./state/experienceStudio";
 
 type Props = { client?: ExperienceApiClient };
@@ -34,8 +35,12 @@ const newRunId = () =>
 const defaultClient: ExperienceApiClient = createDefaultExperienceApiClient(import.meta.env);
 
 export default function App({ client = defaultClient }: Props) {
-  const [liveSurface, setLiveSurface] = useState<"viewer" | "ops">(
-    window.location.hash === "#live-ops" ? "ops" : "viewer",
+  const [liveSurface, setLiveSurface] = useState<"viewer" | "ops" | "service">(
+    window.location.hash === "#live-ops"
+      ? "ops"
+      : window.location.hash === "#live-service"
+        ? "service"
+        : "viewer",
   );
   const [state, dispatch] = useReducer(studioReducer, initialStudioState);
   const [runId, setRunId] = useState(newRunId);
@@ -152,7 +157,13 @@ export default function App({ client = defaultClient }: Props) {
   const canAct = hasDraft && state.status === "success";
 
   useEffect(() => {
-    const updateSurface = () => setLiveSurface(window.location.hash === "#live-ops" ? "ops" : "viewer");
+    const updateSurface = () => setLiveSurface(
+      window.location.hash === "#live-ops"
+        ? "ops"
+        : window.location.hash === "#live-service"
+          ? "service"
+          : "viewer",
+    );
     window.addEventListener("hashchange", updateSurface);
     return () => window.removeEventListener("hashchange", updateSurface);
   }, []);
@@ -172,6 +183,8 @@ export default function App({ client = defaultClient }: Props) {
       </header>
       {liveSurface === "ops" ? (
         <LiveModeratorConsole interactionBaseUrl={resolveLiveInteractionBaseUrl(import.meta.env)} />
+      ) : liveSurface === "service" ? (
+        <LiveServiceOfferingPage commerceBaseUrl={resolveLiveCommerceBaseUrl(import.meta.env)} />
       ) : (
         <LiveExperience environment={import.meta.env} />
       )}

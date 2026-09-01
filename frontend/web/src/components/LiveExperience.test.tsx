@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { LiveExperience } from "./LiveExperience";
 import { LiveDetailPage } from "./LiveDetailPage";
+import { LiveServiceOfferingPage } from "./LiveServiceOfferingPage";
 import {
   LIVE_STATE_COPY,
   XIAO_JU_DENG_FIXTURE,
@@ -170,7 +171,7 @@ describe("Xiao Ju Deng live product surface", () => {
     expect(screen.getByText(message)).toBeInTheDocument();
   });
 
-  it("offers an adult-only, non-transactional service next step after a session stops", async () => {
+  it("offers an adult-only link to a separate service page after a session stops", () => {
     const record = {
       ...XIAO_JU_DENG_FIXTURE,
       playback_state: "STOPPED",
@@ -179,8 +180,43 @@ describe("Xiao Ju Deng live product surface", () => {
     render(<LiveDetailPage record={record} onBack={() => undefined} />);
     expect(screen.getByText("仅限成人")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "需要继续支持？先了解专家服务方式" })).toBeInTheDocument();
-    await userEvent.setup().click(screen.getByRole("button", { name: "了解服务方式" }));
-    expect(screen.getByText("当前仅展示服务说明，不会自动下单、扣费或联系专家。")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "查看服务方案" })).toHaveAttribute("href", "#live-service");
+  });
+
+  it("explains price, allocation, rights, refund, and current gate on the service page", () => {
+    render(<LiveServiceOfferingPage />);
+    expect(screen.getByRole("heading", { name: "家庭沟通 · 30分钟专家咨询" })).toBeInTheDocument();
+    expect(screen.getByText("¥99")).toBeInTheDocument();
+    expect(screen.getByText("¥79.20")).toBeInTheDocument();
+    expect(screen.getByText("¥19.80")).toBeInTheDocument();
+    expect(screen.getByText("直播间优先提问或插队权")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "暂不可预约" })).toBeDisabled();
+  });
+
+  it("keeps content support distinct and reversible on the adult hub", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          intent_ref: "support.content.test",
+          external_effect: false,
+          source: "SANDBOX_SYNTHETIC",
+          fixture_only: true,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status: "SANDBOX_REVERSED", external_effect: false }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LiveServiceOfferingPage commerceBaseUrl="http://127.0.0.1:55400" />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "记录内容支持（演示）" }));
+    expect(await screen.findByText("内容支持意向已记录；Sandbox未发生真实扣款。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "撤销并退款（演示）" }));
+    expect(await screen.findByText("内容支持已撤销，专家与平台分配均已冲正。")).toBeInTheDocument();
+    vi.unstubAllGlobals();
   });
 
   it("plays an authorized replay and removes it with a lineage receipt", async () => {
@@ -240,50 +276,16 @@ describe("Xiao Ju Deng live product surface", () => {
     })).toBeUndefined();
   });
 
-  it("shows adult membership and records a no-side-effect expert tip", async () => {
+  it("keeps immediate gifting and points out of the live room", () => {
     const record = {
       ...XIAO_JU_DENG_FIXTURE,
       status: "LIVE",
       playback_state: "LIVE",
       playback: JSON.parse(SYNTHETIC_PLAYBACK_DTO),
     } as typeof XIAO_JU_DENG_FIXTURE;
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          membership: "ORANGE_LIGHT_MEMBER",
-          source: "SANDBOX_SYNTHETIC",
-          fixture_only: true,
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          status: "SANDBOX_AUTHORIZED",
-          gross_amount: 500,
-          allocations: [
-            { beneficiary_ref: "expert.synthetic.1", amount: 400 },
-            { beneficiary_ref: "platform:aifamily", amount: 100 },
-          ],
-          external_effect: false,
-          source: "SANDBOX_SYNTHETIC",
-          fixture_only: true,
-        }),
-      });
-    vi.stubGlobal("fetch", fetchMock);
-    render(
-      <LiveDetailPage
-        record={record}
-        commerceBaseUrl="http://127.0.0.1:55400"
-        onBack={() => undefined}
-      />,
-    );
-    expect(await screen.findByText("橘灯会员 · 成人专属")).toBeInTheDocument();
-    await userEvent.setup().click(screen.getByRole("button", { name: "打赏 5 元" }));
-    expect(await screen.findByText(/专家分配 400 分/)).toBeInTheDocument();
-    expect(screen.getByText(/未发生真实扣款/)).toBeInTheDocument();
-    vi.unstubAllGlobals();
+    render(<LiveDetailPage record={record} onBack={() => undefined} />);
+    expect(screen.queryByRole("button", { name: /打赏|积分|支持 5 元/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/橘灯会员/)).not.toBeInTheDocument();
   });
 
   it("rejects non-local commerce adapters", () => {

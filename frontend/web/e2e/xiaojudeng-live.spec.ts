@@ -160,12 +160,6 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
   await expect(page.getByText("怎样先听懂再回应？")).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("desktop-approved-question.png"), fullPage: true });
 
-  await expect(page.getByText("橘灯会员 · 成人专属")).toBeVisible();
-  await page.getByRole("button", { name: "打赏 5 元" }).click();
-  await expect(page.getByText(/专家分配 400 分/)).toBeVisible();
-  await expect(page.getByText(/未发生真实扣款/)).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath("desktop-adult-support.png"), fullPage: true });
-
   await page.getByText("连接演练工具").click();
   await page.getByRole("button", { name: "结束本场" }).click();
   await expect(page.getByText("本场直播已经停止。")).toBeVisible();
@@ -214,8 +208,24 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
   await expect(page.locator("video")).toHaveCount(0);
   const revokedOldCapability = await page.request.get(sandboxDto.playback_url);
   expect(revokedOldCapability.status()).toBe(403);
-  await page.getByRole("button", { name: "了解服务方式" }).click();
-  await expect(page.getByText("当前仅展示服务说明，不会自动下单、扣费或联系专家。")).toBeVisible();
+  await page.getByRole("link", { name: "查看服务方案" }).click();
+  await expect(page.getByRole("heading", { name: "家庭沟通 · 30分钟专家咨询" })).toBeVisible();
+  await expect(page.getByText("服务价格")).toBeVisible();
+  await expect(page.getByText("¥99")).toBeVisible();
+  await expect(page.getByText("专家服务费")).toBeVisible();
+  await expect(page.getByText("¥79.20")).toBeVisible();
+  await expect(page.getByText("平台服务费")).toBeVisible();
+  await expect(page.getByText("¥19.80")).toBeVisible();
+  await expect(page.getByText("直播间优先提问或插队权")).toBeVisible();
+  await expect(page.getByText("A · 内容支持")).toBeVisible();
+  await expect(page.getByText("B · ServiceOffering购买")).toBeVisible();
+  await expect(page.getByText("C · 平台积分")).toBeVisible();
+  await page.getByRole("button", { name: "记录内容支持（演示）" }).click();
+  await expect(page.getByText("内容支持意向已记录；Sandbox未发生真实扣款。")).toBeVisible();
+  await page.getByRole("button", { name: "撤销并退款（演示）" }).click();
+  await expect(page.getByText("内容支持已撤销，专家与平台分配均已冲正。")).toBeVisible();
+  await expect(page.getByRole("button", { name: "暂不可预约" })).toBeDisabled();
+  await page.screenshot({ path: testInfo.outputPath("desktop-service-offering.png"), fullPage: true });
   await page.screenshot({ path: testInfo.outputPath("desktop-revoked.png"), fullPage: true });
   const stateResults = JSON.stringify({
     live: "PASS",
@@ -229,7 +239,8 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
     replay: "PASS",
     replay_old_url_after_delete_status: replayAfterDelete.status(),
     replay_after_restart: "DELETED",
-    adult_membership_and_support: "PASS_NO_EXTERNAL_EFFECT",
+    adult_contract_separation: "PASS_SUPPORT_SERVICE_POINTS",
+    adult_support_refund: "PASS_NO_EXTERNAL_EFFECT",
   }, null, 2);
   await writeFile(testInfo.outputPath("state-results.json"), stateResults, "utf8");
   await testInfo.attach("state-results.json", {
