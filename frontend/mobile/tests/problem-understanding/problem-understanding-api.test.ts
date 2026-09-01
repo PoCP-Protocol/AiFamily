@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   type GeneratedUnderstandingResponse,
+  confirmUnderstanding,
+  recordUnderstandingView,
+  toUnderstandingReceipt,
   toUnderstandingDraft,
+  toViewedDraftBinding,
 } from "../../features/problem-understanding/api";
 import { FamilyApiClient } from "../../lib/family/family-api-client";
 
@@ -98,5 +102,102 @@ describe("generative family-understanding mobile contract", () => {
       guardian_text: "最近很晚还不愿意睡。",
       revision: 1,
     });
+  });
+
+  it("records VIEWED before confirmation and sends only immutable bindings", async () => {
+    const requests: [RequestInfo | URL, RequestInit | undefined][] = [];
+    const fetcher: typeof fetch = async (input, init) => {
+      requests.push([input, init]);
+      return new Response(
+        JSON.stringify({
+          view_event_ref: "view-1",
+          status: "VIEWED",
+          scope_ref: "family://tenant-1/family-1/problem-understanding",
+          artifact_ref: "artifact-1",
+          artifact_version: 1,
+          provenance_ref: "air-provenance:v1:sha256:provenance-1",
+          viewed_at: "2026-09-01T10:00:00Z",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+    const draft = toUnderstandingDraft(generatedResponse(), "tenant-1", "family-1");
+
+    const response = await recordUnderstandingView(
+      "http://family-api.test",
+      "token-1",
+      "family-1",
+      draft.reviewedDraftRef,
+      {
+        artifact_version: draft.draftVersion,
+        provenance_ref: draft.provenanceRef,
+        view_event_ref: "view-1",
+      },
+      fetcher,
+    );
+    const viewed = toViewedDraftBinding(response, {
+      signalRef: draft.signalRef,
+      signalVersion: draft.signalVersion,
+      scopeRef: draft.scopeRef,
+      reviewedDraftRef: draft.reviewedDraftRef,
+      draftVersion: draft.draftVersion,
+      provenanceRef: draft.provenanceRef,
+      humanGateReceiptRef: null,
+      viewEventRef: null,
+    });
+
+    expect(viewed.viewEventRef).toBe("view-1");
+    expect(String(requests[0][0])).toContain(
+      "/understanding-drafts/artifact-1/views",
+    );
+    expect(JSON.parse(String(requests[0][1]?.body))).toEqual({
+      artifact_version: 1,
+      provenance_ref: "air-provenance:v1:sha256:provenance-1",
+      view_event_ref: "view-1",
+    });
+  });
+
+  it("uses the server receipt and never invents a GrowthIntent", async () => {
+    const fetcher: typeof fetch = async () =>
+      new Response(
+        JSON.stringify({
+          receipt_ref: "review-receipt:v1:sha256:server",
+          status: "EFFECTIVE",
+          scope_ref: "family://tenant-1/family-1/problem-understanding",
+          artifact_ref: "artifact-1",
+          artifact_version: 1,
+          provenance_ref: "air-provenance:v1:sha256:provenance-1",
+          expires_at: "2026-09-02T10:00:00Z",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    const viewed = {
+      signalRef: "understanding:artifact-1",
+      signalVersion: 1,
+      scopeRef: "family://tenant-1/family-1/problem-understanding",
+      reviewedDraftRef: "artifact-1",
+      draftVersion: 1,
+      provenanceRef: "air-provenance:v1:sha256:provenance-1",
+      viewEventRef: "view-1",
+    };
+
+    const response = await confirmUnderstanding(
+      "http://family-api.test",
+      "token-1",
+      "family-1",
+      "artifact-1",
+      {
+        artifact_version: 1,
+        provenance_ref: viewed.provenanceRef,
+        view_event_ref: viewed.viewEventRef,
+      },
+      fetcher,
+    );
+    const receipt = toUnderstandingReceipt(response, viewed);
+
+    expect(receipt.humanGateReceiptRef).toBe(
+      "review-receipt:v1:sha256:server",
+    );
+    expect(receipt.growthIntentRef).toBeNull();
   });
 });

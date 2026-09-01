@@ -16,12 +16,16 @@ import {
   type GeneratedUnderstandingResponse,
   RecoveryNotice,
   UnderstandingMap,
+  applyConfirmationReceipt,
+  applyUnderstandingView,
   beginConfirmation,
   beginCorrection,
   buildUnderstandingMap,
   createProblemUnderstandingState,
+  confirmUnderstanding,
   markUnderstandingUnavailable,
   receiveUnderstanding,
+  recordUnderstandingView,
   retryUnderstanding,
   restoreProblemUnderstandingState,
   resumeSavedProblemUnderstanding,
@@ -31,6 +35,8 @@ import {
   submitConcern,
   submitCorrection,
   toUnderstandingDraft,
+  toUnderstandingReceipt,
+  toViewedDraftBinding,
   updateConcernDraft,
   updateCorrectionDraft,
 } from "@/features/problem-understanding";
@@ -149,16 +155,74 @@ export default function ProblemUnderstandingRoute() {
     );
   };
 
-  const handleConfirm = () => {
-    const confirming = beginConfirmation(state);
-    setState(
-      confirming.pendingConfirmation
-        ? confirming
-        : {
-            ...state,
-            recoveryMessage: "确认服务正在连接，请先保存这次理解，稍后继续。",
+  const handleConfirm = async () => {
+    if (
+      session.status !== "connected" ||
+      !session.token ||
+      !session.selectedFamily ||
+      !state.activeSignal
+    ) {
+      setState({
+        ...state,
+        recoveryMessage: "确认服务正在连接，请先保存这次理解，稍后继续。",
+      });
+      return;
+    }
+
+    try {
+      const viewEventRef =
+        state.activeSignal.viewEventRef ??
+        createMobileRequestId("understanding-view");
+      let viewedState = state;
+      if (!state.activeSignal.viewEventRef) {
+        const response = await recordUnderstandingView(
+          familyApi.baseUrl,
+          session.token,
+          session.selectedFamily.family_id,
+          state.activeSignal.reviewedDraftRef,
+          {
+            artifact_version: state.activeSignal.draftVersion,
+            provenance_ref: state.activeSignal.provenanceRef,
+            view_event_ref: viewEventRef,
           },
-    );
+        );
+        viewedState = applyUnderstandingView(
+          state,
+          toViewedDraftBinding(response, state.activeSignal),
+        );
+      }
+
+      const confirming = beginConfirmation(viewedState);
+      if (!confirming.pendingConfirmation) {
+        throw new Error("UNDERSTANDING_VIEW_NOT_RECORDED");
+      }
+      setState(confirming);
+      const response = await confirmUnderstanding(
+        familyApi.baseUrl,
+        session.token,
+        session.selectedFamily.family_id,
+        confirming.pendingConfirmation.reviewedDraftRef,
+        {
+          artifact_version: confirming.pendingConfirmation.draftVersion,
+          provenance_ref: confirming.pendingConfirmation.provenanceRef,
+          view_event_ref: confirming.pendingConfirmation.viewEventRef,
+        },
+      );
+      setState(
+        applyConfirmationReceipt(
+          confirming,
+          toUnderstandingReceipt(response, confirming.pendingConfirmation),
+        ),
+      );
+    } catch {
+      setState({
+        ...state,
+        phase: "AWAITING_CONFIRMATION",
+        pendingConfirmation: null,
+        recoveryMessage:
+          "这次确认还没有完成。你的理解内容仍在，可以稍后重试。",
+      });
+    }
   };
 
   const handleSaveAndExit = async () => {

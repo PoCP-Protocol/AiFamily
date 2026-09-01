@@ -48,21 +48,26 @@ export interface DraftBinding {
   draftVersion: number;
   provenanceRef: string;
   humanGateReceiptRef: string | null;
+  viewEventRef: string | null;
 }
 
-export interface ConfirmationBinding {
+export interface ViewedDraftBinding {
   signalRef: string;
   signalVersion: number;
   scopeRef: string;
   reviewedDraftRef: string;
   draftVersion: number;
   provenanceRef: string;
+  viewEventRef: string;
+}
+
+export interface ConfirmationBinding extends ViewedDraftBinding {
   humanGateReceiptRef: string;
 }
 
 export interface UnderstandingReceipt extends ConfirmationBinding {
   receiptRef: string;
-  growthIntentRef: string;
+  growthIntentRef: string | null;
 }
 
 export interface ProblemUnderstandingState {
@@ -72,7 +77,7 @@ export interface ProblemUnderstandingState {
   inputs: readonly UnderstandingInput[];
   drafts: readonly UnderstandingDraft[];
   activeSignal: DraftBinding | null;
-  pendingConfirmation: ConfirmationBinding | null;
+  pendingConfirmation: ViewedDraftBinding | null;
   receipt: UnderstandingReceipt | null;
   recoveryMessage: string | null;
   clarificationSkipped: boolean;

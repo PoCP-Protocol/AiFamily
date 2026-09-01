@@ -32,7 +32,7 @@ export function createSyntheticUnderstanding(
     reviewedDraftRef: `dev-reviewed-draft-${draftVersion}`,
     draftVersion,
     provenanceRef: `dev-synthetic-source-${draftVersion}`,
-    humanGateReceiptRef: `dev-review-receipt-${draftVersion}`,
+    humanGateReceiptRef: null,
     summary: correction
       ? `你补充说“${correction}”。现在更需要先看见的，是怎样让彼此愿意听完再回应。`
       : "你在意的不只是事情有没有完成，也希望彼此说话时少一些对抗。",

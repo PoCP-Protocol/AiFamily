@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyConfirmationReceipt,
+  applyUnderstandingView,
   beginConfirmation,
   beginCorrection,
   buildUnderstandingMap,
@@ -18,6 +19,19 @@ import {
   submitCorrection,
 } from "../../features/problem-understanding/controller";
 import { concernInput, initialUnderstanding } from "./fixtures";
+
+function markViewed(state: ReturnType<typeof receiveUnderstanding>) {
+  const active = state.activeSignal!;
+  return applyUnderstandingView(state, {
+    signalRef: active.signalRef,
+    signalVersion: active.signalVersion,
+    scopeRef: active.scopeRef,
+    reviewedDraftRef: active.reviewedDraftRef,
+    draftVersion: active.draftVersion,
+    provenanceRef: active.provenanceRef,
+    viewEventRef: "view-test-001",
+  });
+}
 
 describe("Problem Understanding mobile controller", () => {
   it("starts with a low-friction concern and exposes unknowns without inventing answers", () => {
@@ -64,10 +78,12 @@ describe("Problem Understanding mobile controller", () => {
       submitConcern(createProblemUnderstandingState(), concernInput),
       initialUnderstanding,
     );
-    const confirming = beginConfirmation(ready);
+    const confirming = beginConfirmation(markViewed(ready));
+    const receiptRef = "receipt-test-001";
     const confirmed = applyConfirmationReceipt(confirming, {
       ...confirming.pendingConfirmation!,
-      receiptRef: "receipt-test-001",
+      humanGateReceiptRef: receiptRef,
+      receiptRef,
       growthIntentRef: "intent-test-001",
     });
 
@@ -78,7 +94,7 @@ describe("Problem Understanding mobile controller", () => {
       reviewedDraftRef: initialUnderstanding.reviewedDraftRef,
       draftVersion: initialUnderstanding.draftVersion,
       provenanceRef: initialUnderstanding.provenanceRef,
-      humanGateReceiptRef: initialUnderstanding.humanGateReceiptRef,
+      viewEventRef: "view-test-001",
     });
     expect(confirmed.phase).toBe("CONFIRMED");
     expect(confirmed.receipt?.growthIntentRef).toBe("intent-test-001");
@@ -90,10 +106,12 @@ describe("Problem Understanding mobile controller", () => {
       submitConcern(createProblemUnderstandingState(), concernInput),
       initialUnderstanding,
     );
-    const confirming = beginConfirmation(ready);
+    const confirming = beginConfirmation(markViewed(ready));
+    const receiptRef = "receipt-test-stale";
     const result = applyConfirmationReceipt(confirming, {
       ...confirming.pendingConfirmation!,
-      receiptRef: "receipt-test-stale",
+      humanGateReceiptRef: receiptRef,
+      receiptRef,
       growthIntentRef: "intent-test-stale",
       signalVersion: initialUnderstanding.signalVersion + 1,
     });
@@ -108,7 +126,7 @@ describe("Problem Understanding mobile controller", () => {
     ["reviewedDraftRef", "draft-test-other"],
     ["draftVersion", initialUnderstanding.draftVersion + 1],
     ["provenanceRef", "source-test-other"],
-    ["humanGateReceiptRef", "review-test-other"],
+    ["viewEventRef", "view-test-other"],
   ] as const)(
     "fails closed when %s does not match the reviewed draft",
     (field, value) => {
@@ -116,11 +134,13 @@ describe("Problem Understanding mobile controller", () => {
         submitConcern(createProblemUnderstandingState(), concernInput),
         initialUnderstanding,
       );
-      const confirming = beginConfirmation(ready);
+      const confirming = beginConfirmation(markViewed(ready));
+      const receiptRef = "receipt-test-mismatch";
       const result = applyConfirmationReceipt(confirming, {
         ...confirming.pendingConfirmation!,
         [field]: value,
-        receiptRef: "receipt-test-mismatch",
+        humanGateReceiptRef: receiptRef,
+        receiptRef,
         growthIntentRef: "intent-test-mismatch",
       });
 

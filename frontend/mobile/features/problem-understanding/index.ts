@@ -12,5 +12,6 @@ export type {
   UnderstandingMapViewModel,
   UnderstandingReceipt,
   UnderstandingUnknown,
+  ViewedDraftBinding,
 } from "./model";
 export * from "./api";
