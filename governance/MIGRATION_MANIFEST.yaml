@@ -95,6 +95,21 @@ entries:
       - "50_开发_dev/packages/principal-ai/src/index.ts"
       - "50_开发_dev/packages/principal-runtime/src/index.ts"
 
+  - capability: family_understanding_ai
+    disposition: REIMPLEMENT
+    target: [backend/intelligence/family_understanding]
+    status: IN_PROGRESS
+    evidence:
+      - "Provider-neutral structured draft generation is implemented through backend/intelligence/model_gateway; tests cover three semantically distinct inputs, correction v2, replay, timeout, malformed output, grounding and HTTP failure semantics."
+      - "The mobile consumer uses the HTTP response only; runtime synthetic understanding and synthetic confirmation receipts are not used."
+    reason: >
+      AiFamily needs a first-party generative family-understanding capability that combines
+      guardian expression with reviewed knowledge without copying the legacy direct-provider
+      implementation or creating a second model runtime.
+    known_gaps:
+      - "No external provider is approved for family-private text; the mounted route currently fails closed with HTTP 503."
+      - "Guardian review/confirmation and canonical FamilyNeed creation still require owned HTTP commands before the end-to-end scene can pass."
+
   - capability: fastapi_runtime_entrypoint
     disposition: REIMPLEMENT
     target: [backend/apps/family_api]
