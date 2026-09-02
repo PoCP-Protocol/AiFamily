@@ -240,11 +240,24 @@ def _provider_stack() -> tuple[FakeProvider, ModelGateway, object]:
 
 
 def _request_body() -> dict[str, object]:
+    text_input_ref = f"input:{RUN_ID}:concern"
+    media_ref = "media:authorized:family-scene"
     return {
         "run_id": RUN_ID,
         "prompt_version": "family-understanding.v1",
         "schema_version": "family-understanding-output.v1",
-        "payload": {"guardian_text": "每天一到写作业就开始争吵"},
+        "payload": {
+            "guardian_text": "每天一到写作业就开始争吵",
+            "conversation_turns": [
+                {
+                    "input_ref": text_input_ref,
+                    "kind": "CONCERN",
+                    "text": "每天一到写作业就开始争吵",
+                    "created_at": "2026-09-03T09:00:00+08:00",
+                }
+            ],
+            "prior_run_id": None,
+        },
         "output_schema": {
             "type": "object",
             "required": ["headline", "next_step"],
@@ -256,11 +269,11 @@ def _request_body() -> dict[str, object]:
         },
         "modalities": ["TEXT", "IMAGE"],
         "estimated_input_tokens": 256,
-        "input_refs": [f"evidence:{RUN_ID}"],
+        "input_refs": [text_input_ref, media_ref],
         "media_inputs": [
             {
                 "media_type": "IMAGE",
-                "uri": "https://assets.invalid/family-scene.png",
+                "uri": media_ref,
                 "mime_type": "image/png",
                 "sha256": "a" * 64,
             }
@@ -342,6 +355,19 @@ async def test_multimodal_http_delete_survives_new_engine_and_session(
         assert created.status_code == 200
         draft_id = created.json()["draft_id"]
         assert len(provider.invocations) == 1
+        invocation = provider.invocations[0]
+        assert invocation.payload["conversation_turns"] == (
+            {
+                "input_ref": f"input:{RUN_ID}:concern",
+                "kind": "CONCERN",
+                "text": "每天一到写作业就开始争吵",
+                "created_at": "2026-09-03T09:00:00+08:00",
+            },
+        )
+        assert invocation.payload["prior_run_id"] is None
+        normalized = invocation.payload["normalized_observations"]
+        assert normalized[0]["source_refs"] == (f"input:{RUN_ID}:concern",)
+        assert normalized[1]["source_refs"] == ("media:authorized:family-scene",)
         assert (
             await session.scalar(
                 select(func.count())
