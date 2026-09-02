@@ -196,12 +196,7 @@ def _observation() -> StateObservation:
 
 def _provider_stack() -> tuple[FakeProvider, ModelGateway, object]:
     provider = FakeProvider(
-        {
-            PURPOSE: {
-                "headline": "我理解你们卡在晚间启动的反复拉扯",
-                "next_step": "一起梳理触发点",
-            }
-        },
+        {PURPOSE: _family_understanding_output()},
         provider_id=PROVIDER_ID,
     )
     record = ProviderRecord(
@@ -239,6 +234,93 @@ def _provider_stack() -> tuple[FakeProvider, ModelGateway, object]:
     return provider, gateway, profile
 
 
+def _family_understanding_output() -> dict[str, object]:
+    text_ref = f"input:{RUN_ID}:concern"
+    return {
+        "understanding": {
+            "lived_experience": "每天一到写作业，家长和孩子都像被推入反复催促的拉扯。",
+            "central_tension": "尽快开始作业的现实压力，与孩子进入任务所需的节奏发生冲突。",
+            "care_intent": "家长既在意学习责任，也希望关系不被每天的催促消耗。",
+        },
+        "hypotheses": [
+            {
+                "hypothesis_id": "H1",
+                "statement": "作业启动前的转换可能比作业本身更困难。",
+                "rationale": "冲突集中在开始时刻，需要先区分转换困难与任务难度。",
+                "evidence": [
+                    {
+                        "source_type": "PARENT_TEXT",
+                        "source_ref": text_ref,
+                        "observation": "每天一到写作业就开始争吵",
+                    },
+                    {
+                        "source_type": "AUTHORIZED_IMAGE",
+                        "source_ref": "media:authorized:family-scene",
+                        "observation": "家长授权提供了与作业场景有关的图片。",
+                    },
+                ],
+                "knowledge_refs": ["knowledge:task-transition-reviewed-v1"],
+                "confidence": "MEDIUM",
+                "disconfirming_evidence_needed": "需要了解已经顺利开始作业的例外时刻。",
+            }
+        ],
+        "unknowns": [
+            {
+                "unknown_id": "U1",
+                "description": "最近一次顺利开始作业时有什么不同",
+                "why_it_matters": "这能区分环境转换问题与任务本身的困难",
+                "related_hypothesis_ids": ["H1"],
+            }
+        ],
+        "follow_up_questions": [
+            {
+                "question_id": "Q1",
+                "question": "最近一次没有争吵就开始作业时，当时有什么不同？",
+                "purpose": "寻找能够修正当前解释的真实例外",
+                "answers_unknown_ids": ["U1"],
+            }
+        ],
+        "strengths": [
+            {
+                "statement": "家长已经意识到反复催促正在消耗关系。",
+                "evidence_refs": [text_ref],
+                "why_it_matters": "这种觉察是重新理解互动循环的重要起点。",
+            }
+        ],
+        "desired_change": {
+            "statement": "希望孩子能更平稳地开始作业，家长不必反复催促。",
+            "basis": "EXPLICIT",
+            "observable_signs": ["催促次数减少", "开始作业前能够完成一次平静沟通"],
+            "confirmation_question": "这是否是你最希望先看到的变化？",
+        },
+        "limitations": ["目前主要依据家长本轮表达，仍需孩子视角与例外情境来校正。"],
+    }
+
+
+def _family_understanding_schema() -> dict[str, object]:
+    return {
+        "type": "object",
+        "required": [
+            "understanding",
+            "hypotheses",
+            "unknowns",
+            "follow_up_questions",
+            "strengths",
+            "desired_change",
+            "limitations",
+        ],
+        "properties": {
+            "understanding": {"type": "object"},
+            "hypotheses": {"type": "array", "minItems": 1},
+            "unknowns": {"type": "array", "minItems": 1},
+            "follow_up_questions": {"type": "array", "minItems": 1},
+            "strengths": {"type": "array", "minItems": 1},
+            "desired_change": {"type": "object"},
+            "limitations": {"type": "array", "minItems": 1},
+        },
+    }
+
+
 def _request_body() -> dict[str, object]:
     text_input_ref = f"input:{RUN_ID}:concern"
     media_ref = "media:authorized:family-scene"
@@ -258,15 +340,7 @@ def _request_body() -> dict[str, object]:
             ],
             "prior_run_id": None,
         },
-        "output_schema": {
-            "type": "object",
-            "required": ["headline", "next_step"],
-            "properties": {
-                "headline": {"type": "string"},
-                "next_step": {"type": "string"},
-            },
-            "additionalProperties": False,
-        },
+        "output_schema": _family_understanding_schema(),
         "modalities": ["TEXT", "IMAGE"],
         "estimated_input_tokens": 256,
         "input_refs": [text_input_ref, media_ref],
@@ -353,6 +427,7 @@ async def test_multimodal_http_delete_survives_new_engine_and_session(
             json=_request_body(),
         )
         assert created.status_code == 200
+        assert created.json()["output"] == _family_understanding_output()
         draft_id = created.json()["draft_id"]
         assert len(provider.invocations) == 1
         invocation = provider.invocations[0]

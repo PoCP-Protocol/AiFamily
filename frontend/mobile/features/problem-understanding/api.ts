@@ -19,6 +19,7 @@ export interface MultimodalDraftRequest {
     }[];
     prior_run_id: string | null;
   };
+  output_schema: Record<string, unknown>;
   modalities: ("TEXT" | "IMAGE")[];
   estimated_input_tokens: number;
   strategy: "balanced";
@@ -31,6 +32,166 @@ export interface MultimodalDraftRequest {
   }[];
   session_id: string;
 }
+
+export const FAMILY_UNDERSTANDING_OUTPUT_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "understanding",
+    "hypotheses",
+    "unknowns",
+    "follow_up_questions",
+    "strengths",
+    "desired_change",
+    "limitations",
+  ],
+  properties: {
+    understanding: {
+      type: "object",
+      additionalProperties: false,
+      required: ["lived_experience", "central_tension", "care_intent"],
+      properties: {
+        lived_experience: { type: "string", minLength: 1 },
+        central_tension: { type: "string", minLength: 1 },
+        care_intent: { type: "string", minLength: 1 },
+      },
+    },
+    hypotheses: {
+      type: "array",
+      minItems: 1,
+      maxItems: 3,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "hypothesis_id",
+          "statement",
+          "rationale",
+          "evidence",
+          "knowledge_refs",
+          "confidence",
+          "disconfirming_evidence_needed",
+        ],
+        properties: {
+          hypothesis_id: { type: "string", pattern: "^H[1-3]$" },
+          statement: { type: "string", minLength: 1 },
+          rationale: { type: "string", minLength: 1 },
+          evidence: {
+            type: "array",
+            minItems: 1,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["source_type", "source_ref", "observation"],
+              properties: {
+                source_type: {
+                  type: "string",
+                  enum: ["PARENT_TEXT", "AUTHORIZED_IMAGE"],
+                },
+                source_ref: { type: "string", minLength: 1 },
+                observation: { type: "string", minLength: 1 },
+              },
+            },
+          },
+          knowledge_refs: {
+            type: "array",
+            minItems: 1,
+            items: { type: "string", minLength: 1 },
+          },
+          confidence: { type: "string", enum: ["LOW", "MEDIUM", "HIGH"] },
+          disconfirming_evidence_needed: { type: "string", minLength: 1 },
+        },
+      },
+    },
+    unknowns: {
+      type: "array",
+      minItems: 1,
+      maxItems: 4,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "unknown_id",
+          "description",
+          "why_it_matters",
+          "related_hypothesis_ids",
+        ],
+        properties: {
+          unknown_id: { type: "string", pattern: "^U[1-4]$" },
+          description: { type: "string", minLength: 1 },
+          why_it_matters: { type: "string", minLength: 1 },
+          related_hypothesis_ids: {
+            type: "array",
+            minItems: 1,
+            items: { type: "string", pattern: "^H[1-3]$" },
+          },
+        },
+      },
+    },
+    follow_up_questions: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["question_id", "question", "purpose", "answers_unknown_ids"],
+        properties: {
+          question_id: { type: "string", minLength: 1 },
+          question: { type: "string", minLength: 1 },
+          purpose: { type: "string", minLength: 1 },
+          answers_unknown_ids: {
+            type: "array",
+            minItems: 1,
+            items: { type: "string", pattern: "^U[1-4]$" },
+          },
+        },
+      },
+    },
+    strengths: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["statement", "evidence_refs", "why_it_matters"],
+        properties: {
+          statement: { type: "string", minLength: 1 },
+          evidence_refs: {
+            type: "array",
+            minItems: 1,
+            items: { type: "string", minLength: 1 },
+          },
+          why_it_matters: { type: "string", minLength: 1 },
+        },
+      },
+    },
+    desired_change: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "statement",
+        "basis",
+        "observable_signs",
+        "confirmation_question",
+      ],
+      properties: {
+        statement: { type: "string", minLength: 1 },
+        basis: { type: "string", enum: ["EXPLICIT", "INFERRED"] },
+        observable_signs: {
+          type: "array",
+          minItems: 1,
+          items: { type: "string", minLength: 1 },
+        },
+        confirmation_question: { type: "string", minLength: 1 },
+      },
+    },
+    limitations: {
+      type: "array",
+      minItems: 1,
+      items: { type: "string", minLength: 1 },
+    },
+  },
+};
 
 export interface FamilyUnderstandingOutput {
   understanding: {
@@ -139,6 +300,7 @@ export function buildMultimodalDraftRequest(input: {
       })),
       prior_run_id: input.priorRunId,
     },
+    output_schema: FAMILY_UNDERSTANDING_OUTPUT_SCHEMA,
     modalities: mediaInputs.length > 0 ? ["TEXT", "IMAGE"] : ["TEXT"],
     estimated_input_tokens: Math.max(
       64,
@@ -313,9 +475,7 @@ function assertFamilyUnderstandingOutput(
       knowledgeRefs.length === 0 ||
       evidence.some(
         (item) =>
-          !["PARENT_TEXT", "AUTHORIZED_IMAGE"].includes(
-            item?.source_type,
-          ) ||
+          !["PARENT_TEXT", "AUTHORIZED_IMAGE"].includes(item?.source_type) ||
           !readText(item?.source_ref) ||
           !allowedSourceRefs.has(item.source_ref) ||
           !readText(item?.observation),

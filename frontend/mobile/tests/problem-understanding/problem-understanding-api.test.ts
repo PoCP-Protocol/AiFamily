@@ -246,7 +246,17 @@ describe("S3 multimodal family-understanding mobile contract", () => {
       mime_type: "image/jpeg",
       sha256: "a".repeat(64),
     });
-    expect(request).not.toHaveProperty("output_schema");
+    expect(request.output_schema).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+      required: expect.arrayContaining([
+        "understanding",
+        "hypotheses",
+        "follow_up_questions",
+        "desired_change",
+      ]),
+    });
+    expect(JSON.stringify(request.output_schema)).not.toContain("next_step");
     expect(JSON.stringify(request)).not.toContain("base64");
   });
 
