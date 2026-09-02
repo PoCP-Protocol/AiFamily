@@ -161,6 +161,11 @@ export class FamilyApiClient {
     return this.request<AccountSessionResponse>("/auth/account-session", {
       method: "POST",
       body: { external_ref: externalRef },
+      headers: {
+        "idempotency-key": createMobileRequestId("family-mobile-dev-session"),
+        "x-correlation-id": createMobileRequestId("family-mobile-dev-session"),
+        "x-source": "family-ai-mobile",
+      },
     });
   }
 
