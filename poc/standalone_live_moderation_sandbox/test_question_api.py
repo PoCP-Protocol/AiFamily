@@ -1,6 +1,8 @@
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from poc.standalone_live_moderation_sandbox.question_api import create_app
 
@@ -125,3 +127,124 @@ def test_only_human_moderator_can_decide_and_rejection_stays_hidden(tmp_path: Pa
         ).json()
         == []
     )
+
+
+def test_websocket_broadcasts_pending_then_human_reviewed_event(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "realtime.sqlite3"))
+    query = (
+        "source=SANDBOX_SYNTHETIC&fixture_only=true&tenant_id=tenant.synthetic.alpha&"
+        "family_id=family.synthetic.alpha&actor_id=actor.synthetic.adult&role=ADULT_VIEWER"
+    )
+    with client.websocket_connect(
+        f"/ws/sandbox/live/sessions/live.synthetic.1/questions?{query}"
+    ) as websocket:
+        assert websocket.receive_json()["type"] == "CONNECTED"
+        submitted = client.post(
+            "/sandbox/live/sessions/live.synthetic.1/questions",
+            headers=headers(),
+            json={
+                "question_ref": "question.realtime",
+                "idempotency_key": "submit.realtime",
+                "text": "这个方法可以如何练习？",
+            },
+        )
+        assert submitted.status_code == 202
+        pending_event = websocket.receive_json()
+        assert pending_event["type"] == "QUESTION_SUBMITTED"
+        assert pending_event["question"]["status"] == "PENDING"
+
+        reviewed = client.post(
+            "/sandbox/moderation/questions/question.realtime/decision",
+            headers=headers(role="HUMAN_MODERATOR"),
+            json={
+                "decision_key": "decision.realtime",
+                "action": "APPROVE",
+                "reason": "人工确认可展示",
+            },
+        )
+        assert reviewed.status_code == 200
+        approved_event = websocket.receive_json()
+        assert approved_event["type"] == "QUESTION_REVIEWED"
+        assert approved_event["question"]["status"] == "APPROVED"
+        assert approved_event["external_effect"] is False
+
+
+def test_websocket_rejects_child_and_non_synthetic_scope(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "realtime-denied.sqlite3"))
+    for query in (
+        "source=SANDBOX_SYNTHETIC&fixture_only=true&tenant_id=tenant.synthetic.alpha&"
+        "family_id=family.synthetic.alpha&actor_id=actor.synthetic.child&role=CHILD",
+        "source=REAL&fixture_only=false&tenant_id=tenant.real&family_id=family.real&"
+        "actor_id=actor.real&role=ADULT_VIEWER",
+    ):
+        with (
+            pytest.raises(WebSocketDisconnect) as stopped,
+            client.websocket_connect(
+                f"/ws/sandbox/live/sessions/live.synthetic.1/questions?{query}"
+            ) as websocket,
+        ):
+            websocket.receive_json()
+        assert stopped.value.code == 4403
+
+
+def test_pending_question_is_private_but_approved_event_reaches_family(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "realtime-privacy.sqlite3"))
+    query = (
+        "source=SANDBOX_SYNTHETIC&fixture_only=true&tenant_id=tenant.synthetic.alpha&"
+        "family_id=family.synthetic.alpha&actor_id=actor.synthetic.other&role=ADULT_VIEWER"
+    )
+    with client.websocket_connect(
+        f"/ws/sandbox/live/sessions/live.synthetic.1/questions?{query}"
+    ) as websocket:
+        assert websocket.receive_json()["type"] == "CONNECTED"
+        assert (
+            client.post(
+                "/sandbox/live/sessions/live.synthetic.1/questions",
+                headers=headers(),
+                json={
+                    "question_ref": "question.private",
+                    "idempotency_key": "submit.private",
+                    "text": "等待人工审核的问题",
+                },
+            ).status_code
+            == 202
+        )
+        assert (
+            client.post(
+                "/sandbox/moderation/questions/question.private/decision",
+                headers=headers(role="HUMAN_MODERATOR"),
+                json={
+                    "decision_key": "decision.private",
+                    "action": "APPROVE",
+                    "reason": "人工确认可展示",
+                },
+            ).status_code
+            == 200
+        )
+        event = websocket.receive_json()
+        assert event["type"] == "QUESTION_REVIEWED"
+        assert event["question"]["status"] == "APPROVED"
+
+
+def test_cors_allows_ephemeral_local_preview_ports_only(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "cors.sqlite3"))
+
+    local = client.options(
+        "/sandbox/live/sessions/live.synthetic.1/questions",
+        headers={
+            "Origin": "http://127.0.0.1:4205",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert local.status_code == 200
+    assert local.headers["access-control-allow-origin"] == "http://127.0.0.1:4205"
+
+    external = client.options(
+        "/sandbox/live/sessions/live.synthetic.1/questions",
+        headers={
+            "Origin": "https://example.com",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert external.status_code == 400
+    assert "access-control-allow-origin" not in external.headers

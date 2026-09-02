@@ -54,6 +54,11 @@ let sandboxDto: SandboxDto;
 let browserMediaDto: SandboxDto;
 
 test.describe.configure({ mode: "serial" });
+test.use({
+  launchOptions: {
+    args: ["--disable-features=LocalNetworkAccessChecks"],
+  },
+});
 
 test.beforeAll(async () => {
   const questionPort = await reserveFreePort();
@@ -82,6 +87,7 @@ test.beforeAll(async () => {
       4182,
       JSON.stringify(browserMediaDto),
       browserQuestionApiUrl,
+      questionApiUrl.replace("http://", "ws://"),
       browserReplayApiUrl,
       browserCommerceApiUrl,
       browserObservabilityApiUrl,
@@ -132,6 +138,7 @@ test("390px mobile discovery, empty search, and detail stay usable", async ({ pa
 });
 
 test("desktop media cold-start covers live, disconnect, recover, stop, and revoke", async ({ page }, testInfo) => {
+  test.setTimeout(60_000);
   await installOriginProxy(page, mediaUrl, mediaBrowserOrigin, new URL(sandboxDto.control_url).origin);
   await page.goto(mediaBrowserOrigin);
   expect(await page.evaluate(() => window.location.origin)).toBe("http://127.0.0.1:4173");
@@ -174,18 +181,25 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
   await page.getByRole("button", { name: "提交" }).click();
   await expect(page.getByText("问题已提交，等待人工审核")).toBeVisible();
   await expect(page.getByText("等待人工审核", { exact: true }).last()).toBeVisible();
-  await page.getByRole("link", { name: "专家工作台" }).click();
-  await expect(page.getByRole("heading", { name: "直播提问审核" })).toBeVisible();
-  await expect(page.getByText("怎样先听懂再回应？")).toBeVisible();
-  await page.getByRole("button", { name: "批准展示" }).click();
-  await expect(page.getByText("当前没有待审核问题")).toBeVisible();
-  await page.getByRole("link", { name: "直播首页" }).click();
-  await page.getByRole("button", { name: "进入直播间" }).click();
+  await expect(page.getByText("实时", { exact: true })).toBeVisible();
+  const moderatorPage = await page.context().newPage();
+  await installOriginProxy(
+    moderatorPage,
+    mediaUrl,
+    mediaBrowserOrigin,
+    new URL(sandboxDto.control_url).origin,
+  );
+  await moderatorPage.goto(`${mediaUrl}#live-ops`);
+  await expect(moderatorPage.getByRole("heading", { name: "直播提问审核" })).toBeVisible();
+  await expect(moderatorPage.getByText("怎样先听懂再回应？")).toBeVisible();
+  await moderatorPage.getByRole("button", { name: "批准展示" }).click();
+  await expect(moderatorPage.getByText("当前没有待审核问题")).toBeVisible();
+  await moderatorPage.close();
   await expect(page.getByText("家长提问")).toBeVisible();
   await expect(page.getByText("怎样先听懂再回应？")).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("desktop-approved-question.png"), fullPage: true });
 
-  await page.getByText("连接演练工具").click();
+  await expect(page.getByRole("button", { name: "结束本场" })).toBeVisible();
   await page.getByRole("button", { name: "结束本场" }).click();
   await expect(page.getByText("本场直播已经停止。")).toBeVisible();
   await expect(page.locator("video")).toHaveCount(0);
@@ -663,6 +677,7 @@ async function startVite(
   port: number,
   mediaDto?: string,
   interactionBaseUrl?: string,
+  interactionWsUrl?: string,
   replayBaseUrl?: string,
   commerceBaseUrl?: string,
   observabilityBaseUrl?: string,
@@ -674,6 +689,7 @@ async function startVite(
   delete env.VITE_MEDIA_PLAYBACK_DTO;
   if (mediaDto) env.VITE_MEDIA_PLAYBACK_DTO = mediaDto;
   if (interactionBaseUrl) env.VITE_LIVE_INTERACTION_BASE_URL = interactionBaseUrl;
+  if (interactionWsUrl) env.VITE_LIVE_INTERACTION_WS_URL = interactionWsUrl;
   if (replayBaseUrl) env.VITE_LIVE_REPLAY_BASE_URL = replayBaseUrl;
   if (commerceBaseUrl) env.VITE_LIVE_COMMERCE_BASE_URL = commerceBaseUrl;
   if (observabilityBaseUrl) env.VITE_LIVE_OBSERVABILITY_BASE_URL = observabilityBaseUrl;

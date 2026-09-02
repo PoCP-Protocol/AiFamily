@@ -17,6 +17,7 @@ export type LiveEnvironment = {
   DEV?: boolean;
   VITE_MEDIA_PLAYBACK_DTO?: string;
   VITE_LIVE_INTERACTION_BASE_URL?: string;
+  VITE_LIVE_INTERACTION_WS_URL?: string;
   VITE_LIVE_REPLAY_BASE_URL?: string;
   VITE_LIVE_COMMERCE_BASE_URL?: string;
   VITE_LIVE_OBSERVABILITY_BASE_URL?: string;
@@ -30,6 +31,18 @@ export const resolveLiveInteractionBaseUrl = (environment: LiveEnvironment): str
   try {
     const url = new URL(environment.VITE_LIVE_INTERACTION_BASE_URL);
     if (!["localhost", "127.0.0.1"].includes(url.hostname)) return undefined;
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return undefined;
+  }
+};
+
+export const resolveLiveInteractionWsUrl = (environment: LiveEnvironment): string | undefined => {
+  if (environment.DEV !== true || !environment.VITE_LIVE_INTERACTION_WS_URL) return undefined;
+  try {
+    const url = new URL(environment.VITE_LIVE_INTERACTION_WS_URL);
+    if (!["localhost", "127.0.0.1"].includes(url.hostname)) return undefined;
+    if (!["ws:", "wss:"].includes(url.protocol)) return undefined;
     return url.toString().replace(/\/$/, "");
   } catch {
     return undefined;

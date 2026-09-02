@@ -7,6 +7,7 @@ import {
   resolveLiveCommerceBaseUrl,
   resolveLiveControlBaseUrl,
   resolveLiveInteractionBaseUrl,
+  resolveLiveInteractionWsUrl,
   resolveLiveIncidentBaseUrl,
   resolveLiveReplayBaseUrl,
   resolveLiveView,
@@ -110,6 +111,7 @@ export function LiveExperience({ environment = import.meta.env, viewModel }: Pro
           <LiveDetailPage
             record={selectedRecord}
             interactionBaseUrl={resolveLiveInteractionBaseUrl(environment)}
+            interactionWsUrl={resolveLiveInteractionWsUrl(environment)}
             incidentBaseUrl={resolveLiveIncidentBaseUrl(environment)}
             replayBaseUrl={resolveLiveReplayBaseUrl(environment)}
             commerceBaseUrl={resolveLiveCommerceBaseUrl(environment)}

@@ -16,7 +16,16 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 import uvicorn
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -53,15 +62,64 @@ class SyntheticActor:
     role: str
 
 
+class LiveQuestionHub:
+    """Ephemeral event fanout; SQLite remains the reconnect source of truth."""
+
+    def __init__(self) -> None:
+        self.connections: dict[tuple[str, str, str], list[tuple[WebSocket, SyntheticActor]]] = {}
+
+    async def connect(
+        self,
+        key: tuple[str, str, str],
+        websocket: WebSocket,
+        actor: SyntheticActor,
+    ) -> None:
+        await websocket.accept()
+        self.connections.setdefault(key, []).append((websocket, actor))
+
+    def disconnect(self, key: tuple[str, str, str], websocket: WebSocket) -> None:
+        group = self.connections.get(key)
+        if group is None:
+            return
+        self.connections[key] = [item for item in group if item[0] is not websocket]
+        if not self.connections[key]:
+            self.connections.pop(key, None)
+
+    async def broadcast(
+        self,
+        key: tuple[str, str, str],
+        event: dict[str, object],
+        *,
+        owner_actor_id: str,
+        status: str,
+    ) -> None:
+        stale: list[WebSocket] = []
+        for websocket, subscriber in self.connections.get(key, []).copy():
+            private_event = status in {"PENDING", "REJECTED"}
+            if (
+                private_event
+                and subscriber.role != "HUMAN_MODERATOR"
+                and subscriber.actor_id != owner_actor_id
+            ):
+                continue
+            try:
+                await websocket.send_json(event)
+            except Exception:
+                stale.append(websocket)
+        for websocket in stale:
+            self.disconnect(key, websocket)
+
+
 def create_app(database_path: Path) -> FastAPI:
     app = FastAPI(title="Xiao Ju Deng question sandbox")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://127.0.0.1:4173", "http://127.0.0.1:4192"],
+        allow_origin_regex=r"^http://(?:127\.0\.0\.1|localhost):\d+$",
         allow_methods=["GET", "POST"],
         allow_headers=["*"],
     )
     initialise(database_path)
+    hub = LiveQuestionHub()
 
     @app.get("/health")
     def health() -> dict[str, object]:
@@ -107,7 +165,7 @@ def create_app(database_path: Path) -> FastAPI:
         response_model=QuestionView,
         status_code=202,
     )
-    def submit_question(
+    async def submit_question(
         session_ref: str,
         request: SubmitQuestion,
         actor: Annotated[SyntheticActor, Depends(actor_headers())],
@@ -146,18 +204,25 @@ def create_app(database_path: Path) -> FastAPI:
                 database.commit()
             except sqlite3.IntegrityError as exc:
                 raise HTTPException(status_code=409, detail="question reference conflict") from exc
-        return QuestionView(
+        view = QuestionView(
             question_ref=request.question_ref,
             session_ref=session_ref,
             text=text,
             status="PENDING",
         )
+        await hub.broadcast(
+            (actor.tenant_id, actor.family_id, session_ref),
+            realtime_event("QUESTION_SUBMITTED", view),
+            owner_actor_id=actor.actor_id,
+            status=view.status,
+        )
+        return view
 
     @app.post(
         "/sandbox/moderation/questions/{question_ref}/decision",
         response_model=QuestionView,
     )
-    def review_question(
+    async def review_question(
         question_ref: str,
         request: ReviewQuestion,
         actor: Annotated[SyntheticActor, Depends(actor_headers())],
@@ -213,14 +278,91 @@ def create_app(database_path: Path) -> FastAPI:
                 ),
             )
             database.commit()
-        return QuestionView(
+        view = QuestionView(
             question_ref=question_ref,
             session_ref=row["session_ref"],
             text=next_text,
             status=next_status,
         )
+        await hub.broadcast(
+            (actor.tenant_id, actor.family_id, row["session_ref"]),
+            realtime_event("QUESTION_REVIEWED", view),
+            owner_actor_id=row["actor_id"],
+            status=view.status,
+        )
+        return view
+
+    @app.websocket("/ws/sandbox/live/sessions/{session_ref}/questions")
+    async def question_events(
+        websocket: WebSocket,
+        session_ref: str,
+        source: Annotated[str, Query()],
+        fixture_only: Annotated[bool, Query()],
+        tenant_id: Annotated[str, Query()],
+        family_id: Annotated[str, Query()],
+        actor_id: Annotated[str, Query()],
+        role: Annotated[str, Query()],
+    ) -> None:
+        try:
+            actor = websocket_actor(
+                source=source,
+                fixture_only=fixture_only,
+                tenant_id=tenant_id,
+                family_id=family_id,
+                actor_id=actor_id,
+                role=role,
+            )
+            require_role(actor, {"ADULT_VIEWER", "HUMAN_MODERATOR"})
+        except HTTPException:
+            await websocket.close(code=4403)
+            return
+        key = (actor.tenant_id, actor.family_id, session_ref)
+        await hub.connect(key, websocket, actor)
+        await websocket.send_json(
+            {
+                "type": "CONNECTED",
+                "session_ref": session_ref,
+                "source": SANDBOX_SOURCE,
+                "fixture_only": True,
+            }
+        )
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            hub.disconnect(key, websocket)
 
     return app
+
+
+def websocket_actor(
+    *,
+    source: str,
+    fixture_only: bool,
+    tenant_id: str,
+    family_id: str,
+    actor_id: str,
+    role: str,
+) -> SyntheticActor:
+    values = (tenant_id, family_id, actor_id)
+    if source != SANDBOX_SOURCE or not fixture_only:
+        raise HTTPException(status_code=403, detail="synthetic websocket boundary required")
+    if not all(
+        value.startswith(("tenant.synthetic", "family.synthetic", "actor.synthetic"))
+        for value in values
+    ):
+        raise HTTPException(status_code=403, detail="non-synthetic websocket scope denied")
+    return SyntheticActor(tenant_id, family_id, actor_id, role)
+
+
+def realtime_event(event_type: str, question: QuestionView) -> dict[str, object]:
+    return {
+        "type": event_type,
+        "question": question.model_dump(),
+        "source": SANDBOX_SOURCE,
+        "fixture_only": True,
+        "external_effect": False,
+    }
 
 
 def actor_headers():

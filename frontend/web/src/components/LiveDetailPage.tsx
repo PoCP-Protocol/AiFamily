@@ -4,6 +4,7 @@ import type { LiveRecord, MediaPlaybackState } from "../live/liveCatalog";
 type Props = {
   record: LiveRecord;
   interactionBaseUrl?: string;
+  interactionWsUrl?: string;
   incidentBaseUrl?: string;
   replayBaseUrl?: string;
   commerceBaseUrl?: string;
@@ -88,6 +89,7 @@ const MEDIA_ENTITLEMENT_REF_KEY = "xiaojudeng.sandbox.media_entitlement.purchase
 export function LiveDetailPage({
   record,
   interactionBaseUrl,
+  interactionWsUrl,
   incidentBaseUrl,
   replayBaseUrl,
   commerceBaseUrl,
@@ -101,6 +103,7 @@ export function LiveDetailPage({
   const [questions, setQuestions] = useState<LiveQuestion[]>([]);
   const [questionText, setQuestionText] = useState("");
   const [questionState, setQuestionState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [realtimeState, setRealtimeState] = useState<"offline" | "connecting" | "live">("offline");
   const [incidentState, setIncidentState] = useState<"idle" | "sending" | "reported" | "error">("idle");
   const [replayState, setReplayState] = useState<ReplayState>("idle");
   const [replayUrl, setReplayUrl] = useState("");
@@ -135,6 +138,52 @@ export function LiveDetailPage({
       });
     return () => controller.abort();
   }, [interactionBaseUrl, record.session_ref]);
+
+  useEffect(() => {
+    if (!interactionWsUrl) return;
+    setRealtimeState("connecting");
+    let socket: WebSocket;
+    try {
+      const url = new URL(
+        `/ws/sandbox/live/sessions/${record.session_ref}/questions`,
+        interactionWsUrl,
+      );
+      url.search = new URLSearchParams({
+        source: "SANDBOX_SYNTHETIC",
+        fixture_only: "true",
+        tenant_id: "tenant.synthetic.alpha",
+        family_id: "family.synthetic.alpha",
+        actor_id: "actor.synthetic.adult",
+        role: "ADULT_VIEWER",
+      }).toString();
+      socket = new WebSocket(url);
+    } catch {
+      setRealtimeState("offline");
+      return;
+    }
+    socket.onopen = () => setRealtimeState("live");
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(String(event.data)) as Record<string, unknown>;
+        if (
+          payload.source !== "SANDBOX_SYNTHETIC" ||
+          payload.fixture_only !== true ||
+          payload.external_effect !== false ||
+          !["QUESTION_SUBMITTED", "QUESTION_REVIEWED"].includes(String(payload.type))
+        ) return;
+        const question = parseRealtimeQuestion(payload.question);
+        setQuestions((current) => [
+          ...current.filter((item) => item.question_ref !== question.question_ref),
+          question,
+        ]);
+      } catch {
+        // HTTP reload remains the source of truth after malformed realtime data.
+      }
+    };
+    socket.onerror = () => setRealtimeState("offline");
+    socket.onclose = () => setRealtimeState("offline");
+    return () => socket.close();
+  }, [interactionWsUrl, record.session_ref]);
 
   useEffect(() => {
     if (!commerceBaseUrl || !isLocalPlaybackUrl(commerceBaseUrl)) return;
@@ -237,7 +286,7 @@ export function LiveDetailPage({
           <div className="live-room-chat" aria-label="Sandbox 直播讨论预览">
             <div className="live-room-chat-heading">
               <strong>直播讨论</strong>
-              <span>演示</span>
+              <span>{realtimeState === "live" ? "实时" : "演示"}</span>
             </div>
             <p><b>主持人</b> 欢迎来到小橘灯直播间</p>
             <p><b>小橘灯老师</b> 今天只练习一个方法</p>
@@ -641,6 +690,22 @@ function isLocalPlaybackUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function parseRealtimeQuestion(value: unknown): LiveQuestion {
+  const record = typeof value === "object" && value !== null
+    ? value as Record<string, unknown>
+    : null;
+  if (
+    record === null ||
+    typeof record.question_ref !== "string" ||
+    typeof record.session_ref !== "string" ||
+    typeof record.text !== "string" ||
+    !["PENDING", "APPROVED", "REJECTED"].includes(String(record.status)) ||
+    record.source !== "SANDBOX_SYNTHETIC" ||
+    record.fixture_only !== true
+  ) throw new Error("unsafe realtime question");
+  return record as LiveQuestion;
 }
 
 function getPlaybackMessage(state: SurfaceState): string {
