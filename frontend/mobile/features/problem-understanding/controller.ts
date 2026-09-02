@@ -339,7 +339,7 @@ export function buildUnderstandingMap(
     currentUnderstanding: draft.summary,
     centralTension: draft.centralTension,
     careIntent: draft.careIntent,
-    alternativeExplanations: draft.alternativeExplanations,
+    hypotheses: draft.hypotheses,
     familyStrengths: draft.familyStrengths,
     desiredChange: draft.desiredChange,
     desiredChangeBasis: draft.desiredChangeBasis,

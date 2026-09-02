@@ -23,6 +23,16 @@ export interface UnderstandingUnknown {
   label: string;
 }
 
+export interface UnderstandingHypothesis {
+  key: string;
+  statement: string;
+  rationale: string;
+  evidenceObservations: readonly string[];
+  knowledgeBasisCount: number;
+  confidence: "LOW" | "MEDIUM" | "HIGH";
+  disconfirmingEvidenceNeeded: string;
+}
+
 export interface UnderstandingDraft {
   runId: string;
   signalRef: string;
@@ -36,7 +46,7 @@ export interface UnderstandingDraft {
   centralTension: string;
   careIntent: string;
   explicitClaims: readonly string[];
-  alternativeExplanations: readonly string[];
+  hypotheses: readonly UnderstandingHypothesis[];
   familyStrengths: readonly string[];
   desiredChange: string;
   desiredChangeBasis: "EXPLICIT" | "INFERRED";
@@ -101,7 +111,7 @@ export interface UnderstandingMapViewModel {
   currentUnderstanding: string;
   centralTension: string;
   careIntent: string;
-  alternativeExplanations: readonly string[];
+  hypotheses: readonly UnderstandingHypothesis[];
   familyStrengths: readonly string[];
   desiredChange: string;
   desiredChangeBasis: "EXPLICIT" | "INFERRED";

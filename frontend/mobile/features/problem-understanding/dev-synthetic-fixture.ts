@@ -42,7 +42,20 @@ export function createSyntheticUnderstanding(
     explicitClaims: correction
       ? [correction]
       : ["谈到安排时，家里容易发生争执"],
-    alternativeExplanations: ["疲惫或节奏不一致，也可能让双方更难听见彼此"],
+    hypotheses: [
+      {
+        key: "H1",
+        statement: "疲惫或节奏不一致，可能让双方更难听见彼此",
+        rationale: "分歧发生时，双方都可能正承受时间和完成任务的压力。",
+        evidenceObservations: correction
+          ? [correction]
+          : ["谈到安排时，家里容易发生争执"],
+        knowledgeBasisCount: 1,
+        confidence: "MEDIUM",
+        disconfirmingEvidenceNeeded:
+          "需要了解时间宽松、双方精力较好时是否仍会出现同样的分歧。",
+      },
+    ],
     familyStrengths: ["你愿意先停下来，寻找一种更能听见彼此的方式"],
     desiredChange: "能把各自的想法说完整，再一起商量接下来的安排",
     desiredChangeBasis: "INFERRED",

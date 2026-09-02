@@ -23,7 +23,17 @@ export const initialUnderstanding: UnderstandingDraft = {
   centralTension: "一边担心孩子落下进度，一边又不希望每晚都靠催促维持秩序。",
   careIntent: "你想守住孩子的学习责任，也想守住彼此能够好好说话的关系。",
   explicitClaims: ["一到写作业就容易争吵"],
-  alternativeExplanations: ["疲惫可能让双方更难听见彼此"],
+  hypotheses: [
+    {
+      key: "H1",
+      statement: "疲惫可能让双方更难听见彼此",
+      rationale: "冲突发生在一天接近结束的时候，双方可用的耐心都可能更少。",
+      evidenceObservations: ["一到写作业就容易争吵"],
+      knowledgeBasisCount: 1,
+      confidence: "MEDIUM",
+      disconfirmingEvidenceNeeded: "需要了解精力充足时是否也会发生同样的争吵。",
+    },
+  ],
   familyStrengths: ["你愿意先停下来寻找新的沟通方式"],
   desiredChange: "能讨论作业安排，也能保留彼此的尊重",
   desiredChangeBasis: "EXPLICIT",

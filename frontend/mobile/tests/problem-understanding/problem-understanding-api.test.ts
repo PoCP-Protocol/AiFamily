@@ -96,6 +96,15 @@ describe("S3 multimodal family-understanding mobile contract", () => {
     expect(draft.draftVersion).toBe(2);
     expect(draft.summary).toContain("反复催促");
     expect(draft.centralTension).toContain("现实压力");
+    expect(draft.hypotheses[0]).toMatchObject({
+      key: "H1",
+      confidence: "MEDIUM",
+      knowledgeBasisCount: 1,
+    });
+    expect(draft.hypotheses[0].evidenceObservations[0]).toContain("很晚");
+    expect(draft.hypotheses[0].disconfirmingEvidenceNeeded).toContain(
+      "白天结束较早",
+    );
     expect(draft.unknowns[0].label).toContain("周末和工作日");
     expect(draft.followUpQuestions[0]).toContain("顺利入睡");
     expect(draft.limitations).toHaveLength(1);

@@ -88,6 +88,10 @@ describe("Problem Understanding standalone Expo route", () => {
     expect(components).toContain("请人工帮我看看");
     expect(components).toContain("删除这次内容");
     expect(components).toContain("这份理解从哪里来");
+    expect(components).toContain("几种值得一起验证的理解");
+    expect(components).toContain("我这样理解，是因为你提到");
+    expect(components).toContain("什么信息会改变这个判断");
+    expect(components).toContain("你们已经拥有的力量");
     expect(components).toContain("回答这个问题 →");
     expect(route).toContain("handleAnswerQuestion");
     expect(route).toContain("onAnswerQuestion={handleAnswerQuestion}");
@@ -99,6 +103,7 @@ describe("Problem Understanding standalone Expo route", () => {
     expect(route).toContain("2 确认理解");
     expect(route).toContain("3 继续深入理解");
     expect(route).not.toContain("3 获得下一步");
+    expect(route).not.toContain("获得下一步");
     expect(route).toContain("useWindowDimensions");
     expect(route).toContain("width < 480");
     expect(route).toContain("width >= 960");

@@ -214,24 +214,23 @@ export function toUnderstandingDraft(
 
   assertFamilyUnderstandingOutput(response.output, new Set(sourceRefs));
 
-  const hypothesisStatements = hypotheses
-    .map((item) => {
-      const statement = readText(item?.statement);
-      const rationale = readText(item?.rationale);
-      return statement && rationale
-        ? `${statement}（${rationale}）`
-        : statement;
-    })
-    .filter((item): item is string => item !== null);
-  if (hypothesisStatements.length === 0) {
-    throw new Error("UNDERSTANDING_RESPONSE_INVALID");
-  }
-
   const explicitClaims = hypotheses
     .flatMap((item) => (Array.isArray(item?.evidence) ? item.evidence : []))
     .filter((item) => item?.source_type === "PARENT_TEXT")
     .map((item) => readText(item?.observation))
     .filter((item): item is string => item !== null);
+
+  const mappedHypotheses = hypotheses.map((item) => ({
+    key: item.hypothesis_id,
+    statement: item.statement.trim(),
+    rationale: item.rationale.trim(),
+    evidenceObservations: item.evidence.map((evidence) =>
+      evidence.observation.trim(),
+    ),
+    knowledgeBasisCount: item.knowledge_refs.length,
+    confidence: item.confidence,
+    disconfirmingEvidenceNeeded: item.disconfirming_evidence_needed.trim(),
+  }));
 
   return {
     runId: response.run_id,
@@ -246,7 +245,7 @@ export function toUnderstandingDraft(
     centralTension,
     careIntent,
     explicitClaims: [...new Set(explicitClaims)],
-    alternativeExplanations: hypothesisStatements,
+    hypotheses: mappedHypotheses,
     familyStrengths: strengths
       .map((item) => {
         const statement = readText(item?.statement);

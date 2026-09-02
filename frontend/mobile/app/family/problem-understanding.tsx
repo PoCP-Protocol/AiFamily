@@ -467,7 +467,7 @@ export default function ProblemUnderstandingRoute() {
             说一件正在困扰你的事。你会先看到我们的理解，修正后再由你确认。
           </Text>
           <View
-            accessibilityLabel="说出困扰，确认理解，获得下一步"
+            accessibilityLabel="说出困扰，确认理解，继续深入理解"
             style={styles.steps}
           >
             <Text style={styles.stepActive}>1 说出困扰</Text>

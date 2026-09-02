@@ -121,10 +121,33 @@ export function UnderstandingMap({
             ))
           )}
         </MapSection>
-        {model.alternativeExplanations.length > 0 ? (
-          <MapSection title="也可能是另一种情况">
-            {model.alternativeExplanations.map((item) => (
-              <Bullet key={item}>{item}</Bullet>
+        {model.hypotheses.length > 0 ? (
+          <MapSection title="几种值得一起验证的理解">
+            <Text style={styles.supporting}>
+              这些不是定论。你可以看看哪一种更贴近，也可以告诉我哪里不对。
+            </Text>
+            {model.hypotheses.map((item) => (
+              <View key={item.key} style={styles.hypothesisCard}>
+                <View style={styles.hypothesisMetaRow}>
+                  <Text style={styles.hypothesisLabel}>一种可能</Text>
+                  <Text style={styles.confidenceLabel}>
+                    当前把握：{confidenceLabel(item.confidence)}
+                  </Text>
+                </View>
+                <Text style={styles.emphasis}>{item.statement}</Text>
+                <Text style={styles.body}>{item.rationale}</Text>
+                <Text style={styles.evidenceHeading}>我这样理解，是因为你提到</Text>
+                {item.evidenceObservations.map((observation) => (
+                  <Bullet key={observation}>{observation}</Bullet>
+                ))}
+                {item.knowledgeBasisCount > 0 ? (
+                  <Text style={styles.knowledgeNote}>
+                    同时参考了家庭成长知识库中的相关方法。
+                  </Text>
+                ) : null}
+                <Text style={styles.evidenceHeading}>什么信息会改变这个判断</Text>
+                <Text style={styles.body}>{item.disconfirmingEvidenceNeeded}</Text>
+              </View>
             ))}
           </MapSection>
         ) : null}
@@ -147,7 +170,7 @@ export function UnderstandingMap({
             ))}
           </MapSection>
         ) : null}
-        <MapSection title="可以从这里开始">
+        <MapSection title="你们已经拥有的力量">
           {model.familyStrengths.map((item) => (
             <Bullet key={item}>{item}</Bullet>
           ))}
@@ -333,6 +356,12 @@ function formatGeneratedAt(value: string): string {
   }).format(date);
 }
 
+function confidenceLabel(value: "LOW" | "MEDIUM" | "HIGH"): string {
+  if (value === "HIGH") return "较高";
+  if (value === "MEDIUM") return "中等";
+  return "初步";
+}
+
 function ActionButton({
   disabled = false,
   label,
@@ -407,6 +436,30 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
   },
   highlightSection: { backgroundColor: "#FFF4EC", borderColor: "#EBC3A9" },
+  hypothesisCard: {
+    backgroundColor: "#FFFDFC",
+    borderColor: "#E7D8CC",
+    borderRadius: 15,
+    borderWidth: 1,
+    gap: 8,
+    padding: 15,
+  },
+  hypothesisLabel: { color: "#8B3E22", fontSize: 13, fontWeight: "800" },
+  hypothesisMetaRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    justifyContent: "space-between",
+  },
+  confidenceLabel: { color: "#75675D", fontSize: 12, fontWeight: "700" },
+  evidenceHeading: { color: "#4F443B", fontSize: 13, fontWeight: "800" },
+  knowledgeNote: {
+    color: "#516148",
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 20,
+  },
   mapGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   mapHeading: { gap: 4 },
   privacyNote: { color: "#6E6258", fontSize: 13, lineHeight: 20 },
