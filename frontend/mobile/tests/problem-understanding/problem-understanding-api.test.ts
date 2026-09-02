@@ -108,6 +108,50 @@ describe("S3 multimodal family-understanding mobile contract", () => {
     { draft_id: null },
     { provenance_ref: null },
     { output: { ...generatedResponse().output, hypotheses: [] } },
+    {
+      output: {
+        ...generatedResponse().output,
+        hypotheses: [
+          {
+            ...generatedResponse().output.hypotheses[0],
+            evidence: [],
+          },
+        ],
+      },
+    },
+    {
+      output: {
+        ...generatedResponse().output,
+        unknowns: [
+          {
+            ...generatedResponse().output.unknowns[0],
+            related_hypothesis_ids: ["H3"],
+          },
+        ],
+      },
+    },
+    {
+      output: {
+        ...generatedResponse().output,
+        follow_up_questions: [
+          {
+            ...generatedResponse().output.follow_up_questions[0],
+            answers_unknown_ids: ["U4"],
+          },
+        ],
+      },
+    },
+    {
+      output: {
+        ...generatedResponse().output,
+        strengths: [
+          {
+            ...generatedResponse().output.strengths[0],
+            evidence_refs: [],
+          },
+        ],
+      },
+    },
   ])("rejects an incomplete durable response: %o", (change) => {
     expect(() =>
       toUnderstandingDraft(

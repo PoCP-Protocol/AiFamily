@@ -170,12 +170,16 @@ export function toUnderstandingDraft(
     !centralTension ||
     !careIntent ||
     hypotheses.length === 0 ||
+    unknowns.length === 0 ||
+    followUps.length === 0 ||
     !desiredChange ||
     limitations.length === 0 ||
     !generatedAt
   ) {
     throw new Error("UNDERSTANDING_RESPONSE_INVALID");
   }
+
+  assertFamilyUnderstandingOutput(response.output);
 
   const hypothesisStatements = hypotheses
     .map((item) => {
@@ -247,6 +251,91 @@ export function toUnderstandingDraft(
     mediaCount,
     lifecycle: "PROPOSED",
   };
+}
+
+function assertFamilyUnderstandingOutput(
+  output: FamilyUnderstandingOutput,
+): void {
+  const hypothesisIds = new Set<string>();
+  for (const hypothesis of output.hypotheses) {
+    const id = readText(hypothesis?.hypothesis_id);
+    const statement = readText(hypothesis?.statement);
+    const rationale = readText(hypothesis?.rationale);
+    const disconfirmingEvidence = readText(
+      hypothesis?.disconfirming_evidence_needed,
+    );
+    const evidence = Array.isArray(hypothesis?.evidence)
+      ? hypothesis.evidence
+      : [];
+    const knowledgeRefs = readTextList(hypothesis?.knowledge_refs);
+    if (
+      !id ||
+      !/^H[1-3]$/.test(id) ||
+      hypothesisIds.has(id) ||
+      !statement ||
+      !rationale ||
+      !disconfirmingEvidence ||
+      !["LOW", "MEDIUM", "HIGH"].includes(hypothesis?.confidence) ||
+      evidence.length === 0 ||
+      knowledgeRefs.length === 0 ||
+      evidence.some(
+        (item) =>
+          !["PARENT_TEXT", "AUTHORIZED_IMAGE", "FAMILY_CONTEXT"].includes(
+            item?.source_type,
+          ) ||
+          !readText(item?.source_ref) ||
+          !readText(item?.observation),
+      )
+    ) {
+      throw new Error("UNDERSTANDING_RESPONSE_INVALID");
+    }
+    hypothesisIds.add(id);
+  }
+
+  const unknownIds = new Set<string>();
+  for (const unknown of output.unknowns) {
+    const id = readText(unknown?.unknown_id);
+    const relatedIds = readTextList(unknown?.related_hypothesis_ids);
+    if (
+      !id ||
+      !/^U[1-4]$/.test(id) ||
+      unknownIds.has(id) ||
+      !readText(unknown?.description) ||
+      !readText(unknown?.why_it_matters) ||
+      relatedIds.length === 0 ||
+      relatedIds.some((relatedId) => !hypothesisIds.has(relatedId))
+    ) {
+      throw new Error("UNDERSTANDING_RESPONSE_INVALID");
+    }
+    unknownIds.add(id);
+  }
+
+  for (const question of output.follow_up_questions) {
+    const answeredUnknownIds = readTextList(question?.answers_unknown_ids);
+    if (
+      !readText(question?.question_id) ||
+      !readText(question?.question) ||
+      !readText(question?.purpose) ||
+      answeredUnknownIds.length === 0 ||
+      answeredUnknownIds.some((unknownId) => !unknownIds.has(unknownId))
+    ) {
+      throw new Error("UNDERSTANDING_RESPONSE_INVALID");
+    }
+  }
+
+  if (
+    output.strengths.some(
+      (strength) =>
+        !readText(strength?.statement) ||
+        readTextList(strength?.evidence_refs).length === 0 ||
+        !readText(strength?.why_it_matters),
+    ) ||
+    !["EXPLICIT", "INFERRED"].includes(output.desired_change?.basis) ||
+    readTextList(output.desired_change?.observable_signs).length === 0 ||
+    !readText(output.desired_change?.confirmation_question)
+  ) {
+    throw new Error("UNDERSTANDING_RESPONSE_INVALID");
+  }
 }
 
 export function isAuthorizedMediaAttachment(
