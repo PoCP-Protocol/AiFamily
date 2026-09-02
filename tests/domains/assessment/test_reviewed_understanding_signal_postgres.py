@@ -56,7 +56,8 @@ reviewed_signals = Table(
     Column("reviewed_signal_id", Uuid(as_uuid=True), primary_key=True),
     Column("tenant_id", Uuid(as_uuid=True), nullable=False),
     Column("family_id", Uuid(as_uuid=True), nullable=False),
-    Column("assessment_session_id", Uuid(as_uuid=True), nullable=False),
+    Column("assessment_session_id", Uuid(as_uuid=True), nullable=True),
+    Column("understanding_run_ref", String(256), nullable=True),
     Column("signal_ref", String(256), nullable=False),
     Column("signal_version", Integer, nullable=False),
     Column("scope_ref", String(256), nullable=False),
@@ -283,7 +284,48 @@ def decision(command: RecordReviewedUnderstandingInput) -> DecideViewedUnderstan
         decision_type="CONFIRM",
         correlation_id="correlation-1",
         idempotency_key="decision-1",
+        understanding_run_ref=command.understanding_run_ref,
     )
+
+
+async def test_problem_understanding_signal_survives_restart_and_handoffs(
+    session_factory,
+) -> None:
+    assessment = reviewed_command()
+    command = replace(
+        assessment,
+        assessment_session_id=None,
+        understanding_run_ref="understanding-run-1",
+        scope_ref=(f"family://{assessment.tenant_id}/{assessment.family_id}/problem-understanding"),
+        signal_ref="understanding-signal:v1:sha256:one",
+        signal_version=1,
+        reviewed_draft_ref="artifact-v1",
+        draft_version=1,
+        provenance_ref="air-provenance:v1:sha256:one",
+        human_gate_receipt_ref="review-receipt:v1:sha256:one",
+    )
+    async with session_factory() as session:
+        adapter = SqlAlchemyReviewedUnderstandingSignals(session)
+        first = await RecordReviewedUnderstandingService(adapter).record_viewed(command)
+        replay = await RecordReviewedUnderstandingService(adapter).record_viewed(command)
+        await session.commit()
+    assert replay == first
+
+    growth = GrowthIntentStub()
+    async with session_factory() as restarted_session:
+        adapter = SqlAlchemyReviewedUnderstandingSignals(restarted_session)
+        loaded = await adapter.load_viewed_signal(
+            tenant_id=command.tenant_id,
+            family_id=command.family_id,
+            assessment_session_id=None,
+            understanding_run_ref=command.understanding_run_ref,
+            human_gate_receipt_ref=command.human_gate_receipt_ref,
+        )
+        assert loaded == first
+        receipt = await AssessmentGrowthIntentHandoff(adapter, growth).decide(decision(command))
+
+    assert receipt.outcome == "INTENT_CREATED"
+    assert growth.calls == 1
 
 
 async def test_confirm_uses_exact_durable_binding_and_rejects_stale_version(

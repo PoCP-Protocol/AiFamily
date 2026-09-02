@@ -57,9 +57,7 @@ class AuthorizedReviewContext:
 
 
 class AuthorizedReviewContextResolver(Protocol):
-    async def resolve_for_review(
-        self, *, family_id: str
-    ) -> AuthorizedReviewContext | None: ...
+    async def resolve_for_review(self, *, family_id: str) -> AuthorizedReviewContext | None: ...
 
 
 class ReviewUnderstandingBody(BaseModel):
@@ -110,9 +108,7 @@ class ViewedUnderstandingView:
 
 
 class UnderstandingViewApplication(Protocol):
-    async def record_view(
-        self, command: ReviewUnderstandingCommand
-    ) -> ViewedUnderstandingView: ...
+    async def record_view(self, command: ReviewUnderstandingCommand) -> ViewedUnderstandingView: ...
 
 
 class ViewedUnderstandingResponse(BaseModel):
@@ -281,19 +277,30 @@ def create_family_understanding_router(
         authorized = await review_contexts.resolve_for_review(family_id=family_id)
         if authorized is None or authorized.family_id != family_id:
             raise _http_error(status.HTTP_403_FORBIDDEN, "FAMILY_SCOPE_MISMATCH")
-        confirmation = await confirmation_application.review(
-            ReviewUnderstandingCommand(
-                tenant_id=authorized.tenant_id,
-                family_id=authorized.family_id,
-                actor_id=authorized.actor_id,
-                subject_person_id=authorized.subject_person_id,
-                consent_ref=authorized.consent_ref,
-                artifact_ref=artifact_ref,
-                artifact_version=body.artifact_version,
-                provenance_ref=body.provenance_ref,
-                view_event_ref=body.view_event_ref,
+        try:
+            confirmation = await confirmation_application.review(
+                ReviewUnderstandingCommand(
+                    tenant_id=authorized.tenant_id,
+                    family_id=authorized.family_id,
+                    actor_id=authorized.actor_id,
+                    subject_person_id=authorized.subject_person_id,
+                    consent_ref=authorized.consent_ref,
+                    artifact_ref=artifact_ref,
+                    artifact_version=body.artifact_version,
+                    provenance_ref=body.provenance_ref,
+                    view_event_ref=body.view_event_ref,
+                )
             )
-        )
+        except RuntimeError as exc:
+            reason = getattr(exc, "reason", None)
+            if reason == "UNDERSTANDING_SNAPSHOT_NOT_EFFECTIVE":
+                raise _http_error(status.HTTP_409_CONFLICT, reason) from exc
+            if reason in {
+                "UNDERSTANDING_CONFIRMATION_DENIED",
+                "UNDERSTANDING_SUBJECT_MISMATCH",
+            }:
+                raise _http_error(status.HTTP_403_FORBIDDEN, reason) from exc
+            raise
         return ReviewUnderstandingResponse(
             receipt_ref=confirmation.receipt_ref,
             status=confirmation.status,

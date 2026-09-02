@@ -37,6 +37,7 @@ class SqlAlchemyReviewedUnderstandingSignals(
                     """
                     insert into assessment_reviewed_understanding_signals(
                         reviewed_signal_id,tenant_id,family_id,assessment_session_id,
+                        understanding_run_ref,
                         signal_ref,signal_version,scope_ref,reviewed_draft_ref,draft_version,
                         provenance_ref,draft_source,output_schema_ref,view_event_ref,
                         human_gate_receipt_ref,effective_status,
@@ -44,6 +45,7 @@ class SqlAlchemyReviewedUnderstandingSignals(
                         need_type,goal_text,required_capability_keys,evidence_refs
                     ) values (
                         :reviewed_signal_id,:tenant_id,:family_id,:assessment_session_id,
+                        :understanding_run_ref,
                         :signal_ref,:signal_version,:scope_ref,:reviewed_draft_ref,:draft_version,
                         :provenance_ref,:draft_source,:output_schema_ref,:view_event_ref,
                         :human_gate_receipt_ref,'EFFECTIVE',
@@ -58,7 +60,12 @@ class SqlAlchemyReviewedUnderstandingSignals(
                     "reviewed_signal_id": uuid4(),
                     "tenant_id": UUID(command.tenant_id),
                     "family_id": UUID(command.family_id),
-                    "assessment_session_id": UUID(command.assessment_session_id),
+                    "assessment_session_id": (
+                        UUID(command.assessment_session_id)
+                        if command.assessment_session_id is not None
+                        else None
+                    ),
+                    "understanding_run_ref": command.understanding_run_ref,
                     "signal_ref": command.signal_ref,
                     "signal_version": command.signal_version,
                     "scope_ref": command.scope_ref,
@@ -84,6 +91,7 @@ class SqlAlchemyReviewedUnderstandingSignals(
             tenant_id=command.tenant_id,
             family_id=command.family_id,
             assessment_session_id=command.assessment_session_id,
+            understanding_run_ref=command.understanding_run_ref,
             human_gate_receipt_ref=command.human_gate_receipt_ref,
             lock=True,
         )
@@ -98,23 +106,67 @@ class SqlAlchemyReviewedUnderstandingSignals(
         *,
         tenant_id: str,
         family_id: str,
-        assessment_session_id: str,
+        assessment_session_id: str | None,
+        understanding_run_ref: str | None = None,
         human_gate_receipt_ref: str,
     ) -> ViewedUnderstandingSignal | None:
         return await self._load_by_gate_receipt(
             tenant_id=tenant_id,
             family_id=family_id,
             assessment_session_id=assessment_session_id,
+            understanding_run_ref=understanding_run_ref,
             human_gate_receipt_ref=human_gate_receipt_ref,
             lock=False,
         )
+
+    async def load_confirmation_replay(
+        self,
+        *,
+        tenant_id: str,
+        family_id: str,
+        understanding_run_ref: str,
+        artifact_ref: str,
+        artifact_version: int,
+        provenance_ref: str,
+        actor_id: str,
+        view_event_ref: str,
+    ) -> ViewedUnderstandingSignal | None:
+        row = (
+            (
+                await self._session.execute(
+                    text(
+                        "select * from assessment_reviewed_understanding_signals "
+                        "where tenant_id=:tenant_id and family_id=:family_id "
+                        "and assessment_session_id is null "
+                        "and understanding_run_ref=:understanding_run_ref "
+                        "and reviewed_draft_ref=:artifact_ref and draft_version=:artifact_version "
+                        "and provenance_ref=:provenance_ref and reviewed_by_actor_id=:actor_id "
+                        "and view_event_ref=:view_event_ref"
+                    ),
+                    {
+                        "tenant_id": UUID(tenant_id),
+                        "family_id": UUID(family_id),
+                        "understanding_run_ref": understanding_run_ref,
+                        "artifact_ref": artifact_ref,
+                        "artifact_version": artifact_version,
+                        "provenance_ref": provenance_ref,
+                        "actor_id": UUID(actor_id),
+                        "view_event_ref": view_event_ref,
+                    },
+                )
+            )
+            .mappings()
+            .first()
+        )
+        return _signal_from_row(row)
 
     async def _load_by_gate_receipt(
         self,
         *,
         tenant_id: str,
         family_id: str,
-        assessment_session_id: str,
+        assessment_session_id: str | None,
+        understanding_run_ref: str | None,
         human_gate_receipt_ref: str,
         lock: bool,
     ) -> ViewedUnderstandingSignal | None:
@@ -125,13 +177,19 @@ class SqlAlchemyReviewedUnderstandingSignals(
                     text(
                         "select * from assessment_reviewed_understanding_signals "
                         "where tenant_id=:tenant_id and family_id=:family_id "
-                        "and assessment_session_id=:assessment_session_id "
+                        "and assessment_session_id is not distinct from :assessment_session_id "
+                        "and understanding_run_ref is not distinct from :understanding_run_ref "
                         f"and human_gate_receipt_ref=:human_gate_receipt_ref{suffix}"
                     ),
                     {
                         "tenant_id": UUID(tenant_id),
                         "family_id": UUID(family_id),
-                        "assessment_session_id": UUID(assessment_session_id),
+                        "assessment_session_id": (
+                            UUID(assessment_session_id)
+                            if assessment_session_id is not None
+                            else None
+                        ),
+                        "understanding_run_ref": understanding_run_ref,
                         "human_gate_receipt_ref": human_gate_receipt_ref,
                     },
                 )
@@ -139,40 +197,47 @@ class SqlAlchemyReviewedUnderstandingSignals(
             .mappings()
             .first()
         )
-        if row is None:
-            return None
-        status = str(row["effective_status"])
-        now = datetime.now(UTC)
-        if row["revoked_at"] is not None:
-            status = "REVOKED"
-        elif row["expires_at"] is not None and row["expires_at"] <= now:
-            status = "EXPIRED"
-        return ViewedUnderstandingSignal(
-            tenant_id=str(row["tenant_id"]),
-            family_id=str(row["family_id"]),
-            assessment_session_id=str(row["assessment_session_id"]),
-            signal_ref=str(row["signal_ref"]),
-            signal_version=int(row["signal_version"]),
-            scope_ref=str(row["scope_ref"]),
-            reviewed_draft_ref=str(row["reviewed_draft_ref"]),
-            draft_version=int(row["draft_version"]),
-            provenance_ref=str(row["provenance_ref"]),
-            human_gate_receipt_ref=str(row["human_gate_receipt_ref"]),
-            human_gate_effective_status=status,
-            reviewed_by_actor_id=str(row["reviewed_by_actor_id"]),
-            subject_person_id=str(row["subject_person_id"]),
-            need_type=str(row["need_type"]),
-            goal_text=str(row["goal_text"]),
-            required_capability_keys=tuple(row["required_capability_keys"]),
-            evidence_refs=tuple(row["evidence_refs"]),
-            reviewed_at=row["reviewed_at"],
-            expires_at=row["expires_at"],
-            revoked_at=row["revoked_at"],
-            revocation_ref=row["revocation_ref"],
-            draft_source=str(row["draft_source"]),
-            output_schema_ref=str(row["output_schema_ref"]),
-            view_event_ref=str(row["view_event_ref"]),
-        )
+        return _signal_from_row(row)
+
+
+def _signal_from_row(row) -> ViewedUnderstandingSignal | None:
+    if row is None:
+        return None
+    status = str(row["effective_status"])
+    now = datetime.now(UTC)
+    if row["revoked_at"] is not None:
+        status = "REVOKED"
+    elif row["expires_at"] is not None and row["expires_at"] <= now:
+        status = "EXPIRED"
+    return ViewedUnderstandingSignal(
+        tenant_id=str(row["tenant_id"]),
+        family_id=str(row["family_id"]),
+        assessment_session_id=(
+            str(row["assessment_session_id"]) if row["assessment_session_id"] is not None else None
+        ),
+        understanding_run_ref=row["understanding_run_ref"],
+        signal_ref=str(row["signal_ref"]),
+        signal_version=int(row["signal_version"]),
+        scope_ref=str(row["scope_ref"]),
+        reviewed_draft_ref=str(row["reviewed_draft_ref"]),
+        draft_version=int(row["draft_version"]),
+        provenance_ref=str(row["provenance_ref"]),
+        human_gate_receipt_ref=str(row["human_gate_receipt_ref"]),
+        human_gate_effective_status=status,
+        reviewed_by_actor_id=str(row["reviewed_by_actor_id"]),
+        subject_person_id=str(row["subject_person_id"]),
+        need_type=str(row["need_type"]),
+        goal_text=str(row["goal_text"]),
+        required_capability_keys=tuple(row["required_capability_keys"]),
+        evidence_refs=tuple(row["evidence_refs"]),
+        reviewed_at=row["reviewed_at"],
+        expires_at=row["expires_at"],
+        revoked_at=row["revoked_at"],
+        revocation_ref=row["revocation_ref"],
+        draft_source=str(row["draft_source"]),
+        output_schema_ref=str(row["output_schema_ref"]),
+        view_event_ref=str(row["view_event_ref"]),
+    )
 
 
 def _matches_command(
@@ -180,6 +245,8 @@ def _matches_command(
 ) -> bool:
     return (
         signal.signal_ref == command.signal_ref
+        and signal.assessment_session_id == command.assessment_session_id
+        and signal.understanding_run_ref == command.understanding_run_ref
         and signal.signal_version == command.signal_version
         and signal.scope_ref == command.scope_ref
         and signal.reviewed_draft_ref == command.reviewed_draft_ref

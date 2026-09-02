@@ -35,7 +35,7 @@ class ViewedUnderstandingSignal:
 
     tenant_id: str
     family_id: str
-    assessment_session_id: str
+    assessment_session_id: str | None
     signal_ref: str
     signal_version: int
     scope_ref: str
@@ -50,6 +50,7 @@ class ViewedUnderstandingSignal:
     goal_text: str
     required_capability_keys: tuple[str, ...]
     evidence_refs: tuple[str, ...]
+    understanding_run_ref: str | None = None
     reviewed_at: datetime | None = None
     expires_at: datetime | None = None
     revoked_at: datetime | None = None
@@ -62,7 +63,6 @@ class ViewedUnderstandingSignal:
         required = (
             self.tenant_id,
             self.family_id,
-            self.assessment_session_id,
             self.signal_ref,
             self.scope_ref,
             self.reviewed_draft_ref,
@@ -75,6 +75,19 @@ class ViewedUnderstandingSignal:
         )
         if not all(value.strip() for value in required):
             raise AssessmentValidationError("viewed_understanding_signal_required")
+        assessment_scope = self.scope_ref.endswith("/assessment")
+        problem_scope = self.scope_ref.endswith("/problem-understanding")
+        if not (
+            assessment_scope
+            and self.assessment_session_id is not None
+            and self.assessment_session_id.strip()
+            and self.understanding_run_ref is None
+            or problem_scope
+            and self.assessment_session_id is None
+            and self.understanding_run_ref is not None
+            and self.understanding_run_ref.strip()
+        ):
+            raise AssessmentValidationError("understanding_scope_binding_invalid")
         if self.signal_version < 1:
             raise AssessmentValidationError("understanding_signal_version_invalid")
         if self.draft_version < 1:
@@ -125,7 +138,7 @@ class DecideViewedUnderstandingInput:
     family_id: str
     actor_id: str
     actor_type: Literal["FAMILY_GUARDIAN", "FAMILY_MEMBER", "OPERATOR", "AI"]
-    assessment_session_id: str
+    assessment_session_id: str | None
     signal_ref: str
     signal_version: int
     scope_ref: str
@@ -136,6 +149,7 @@ class DecideViewedUnderstandingInput:
     decision_type: GuardianDecisionType
     correlation_id: str
     idempotency_key: str
+    understanding_run_ref: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,8 +169,9 @@ class ViewedUnderstandingSignalReaderPort(Protocol):
         *,
         tenant_id: str,
         family_id: str,
-        assessment_session_id: str,
+        assessment_session_id: str | None,
         human_gate_receipt_ref: str,
+        understanding_run_ref: str | None = None,
     ) -> ViewedUnderstandingSignal | None: ...
 
 
@@ -198,6 +213,7 @@ class AssessmentGrowthIntentHandoff:
             family_id=command.family_id,
             assessment_session_id=command.assessment_session_id,
             human_gate_receipt_ref=command.human_gate_receipt_ref,
+            understanding_run_ref=command.understanding_run_ref,
         )
         if signal is None:
             raise AssessmentNotFoundError("understanding_signal_not_found")

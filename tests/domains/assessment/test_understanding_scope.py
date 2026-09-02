@@ -18,10 +18,12 @@ from backend.domains.assessment.domain.understanding_scope import (
 
 
 def command(scope_ref: str) -> RecordReviewedUnderstandingInput:
+    problem_understanding = scope_ref.endswith("/problem-understanding")
     return RecordReviewedUnderstandingInput(
         tenant_id="tenant-1",
         family_id="family-1",
-        assessment_session_id="session-1",
+        assessment_session_id=None if problem_understanding else "session-1",
+        understanding_run_ref="understanding-run-1" if problem_understanding else None,
         signal_ref="understanding:artifact-1",
         signal_version=1,
         scope_ref=scope_ref,
@@ -57,6 +59,7 @@ class Writer:
             tenant_id=value.tenant_id,
             family_id=value.family_id,
             assessment_session_id=value.assessment_session_id,
+            understanding_run_ref=value.understanding_run_ref,
             signal_ref=value.signal_ref,
             signal_version=value.signal_version,
             scope_ref=value.scope_ref,

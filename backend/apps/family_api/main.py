@@ -21,6 +21,9 @@ from backend.domains.membership.api.routes import router as membership_router
 from backend.domains.service.api.routes import router as service_router
 from backend.intelligence.family_understanding.api import (
     AuthorizedContextResolver,
+    AuthorizedReviewContextResolver,
+    UnderstandingReviewApplication,
+    UnderstandingViewApplication,
     create_family_understanding_router,
 )
 from backend.intelligence.family_understanding.application import FamilyUnderstandingApplication
@@ -31,6 +34,9 @@ def create_app(
     growth_confirmation_wiring: ProductionGrowthConfirmationWiring | None = None,
     family_understanding_application: FamilyUnderstandingApplication | None = None,
     authorized_contexts: AuthorizedContextResolver | None = None,
+    understanding_view_application: UnderstandingViewApplication | None = None,
+    understanding_confirmation_application: UnderstandingReviewApplication | None = None,
+    authorized_review_contexts: AuthorizedReviewContextResolver | None = None,
 ) -> FastAPI:
     application = FastAPI(title="AiFamily family_api", version="0.1.0")
     application.include_router(router)
@@ -90,10 +96,20 @@ def create_app(
             "family understanding application and authorized contexts must be configured together"
         )
     if family_understanding_application is not None and authorized_contexts is not None:
+        if (
+            understanding_view_application is not None
+            or understanding_confirmation_application is not None
+        ) and authorized_review_contexts is None:
+            raise ValueError(
+                "family understanding review applications require authorized review contexts"
+            )
         application.include_router(
             create_family_understanding_router(
                 family_understanding_application,
                 authorized_contexts,
+                view_application=understanding_view_application,
+                confirmation_application=understanding_confirmation_application,
+                review_contexts=authorized_review_contexts,
             )
         )
     return application

@@ -15,7 +15,7 @@ from .growth_intent_handoff import ViewedUnderstandingSignal
 class RecordReviewedUnderstandingInput:
     tenant_id: str
     family_id: str
-    assessment_session_id: str
+    assessment_session_id: str | None
     signal_ref: str
     signal_version: int
     scope_ref: str
@@ -36,6 +36,7 @@ class RecordReviewedUnderstandingInput:
     goal_text: str
     required_capability_keys: tuple[str, ...]
     evidence_refs: tuple[str, ...]
+    understanding_run_ref: str | None = None
 
 
 class ReviewedUnderstandingSignalWriterPort(Protocol):
@@ -76,6 +77,7 @@ class RecordReviewedUnderstandingService:
             tenant_id=command.tenant_id,
             family_id=command.family_id,
             assessment_session_id=command.assessment_session_id,
+            understanding_run_ref=command.understanding_run_ref,
             signal_ref=command.signal_ref,
             signal_version=command.signal_version,
             scope_ref=command.scope_ref,

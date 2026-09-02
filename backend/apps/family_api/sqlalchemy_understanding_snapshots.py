@@ -80,7 +80,7 @@ class SqlAlchemyUnderstandingDraftSnapshots:
             artifact_ref=artifact_ref,
             artifact_version=artifact_version,
             provenance_ref=provenance_ref,
-            lock=False,
+            lock=True,
         )
         if row is None:
             return None
