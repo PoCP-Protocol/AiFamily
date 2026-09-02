@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -11,6 +12,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -61,6 +63,9 @@ from backend.intelligence.model_gateway.provider_registry import (
 from backend.intelligence.model_gateway.providers.fake import (
     FakeProvider,
     deterministic_provider,
+)
+from backend.intelligence.model_gateway.providers.openai_compatible import (
+    OpenAICompatibleProvider,
 )
 from backend.platform.persistence.session import DATABASE_URL_ENV_VAR
 from tests.support.postgres import SKIP_REASON, postgres_test_url
@@ -243,6 +248,79 @@ def _provider_stack(*, dynamic: bool = False) -> tuple[FakeProvider, ModelGatewa
         deletion_on_termination_committed=True,
     )
     return provider, gateway, profile
+
+
+def _openai_compatible_provider_stack(
+    captured_requests: list[dict[str, object]],
+) -> tuple[OpenAICompatibleProvider, ModelGateway, object, httpx.AsyncClient]:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/chat/completions"
+        assert request.headers["authorization"] == "Bearer test-live-key"
+        body = json.loads(request.content)
+        captured_requests.append(body)
+        user_content = body["messages"][1]["content"]
+        assert isinstance(user_content, list)
+        payload = json.loads(user_content[0]["text"])
+        turns = payload["conversation_turns"]
+        latest = turns[-1]
+        output = _family_understanding_output(
+            text_ref=latest["input_ref"],
+            expression=latest["text"],
+        )
+        return httpx.Response(
+            200,
+            json={
+                "model": "vision-generative-2026-09-03",
+                "choices": [{"message": {"content": json.dumps(output, ensure_ascii=False)}}],
+                "usage": {
+                    "prompt_tokens": 321,
+                    "completion_tokens": 456,
+                    "total_tokens": 777,
+                },
+            },
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = OpenAICompatibleProvider(
+        provider_id="openai-compatible-s3-livecheck",
+        base_url="https://model.example.invalid/v1",
+        api_key="test-live-key",
+        model="vision-generative",
+        client=client,
+    )
+    record = ProviderRecord(
+        provider_id=provider.provider_id,
+        vendor="openai-compatible-livecheck",
+        model="vision-generative",
+        model_version="2026-09-03",
+        status="INTERNAL_APPROVED",
+        approved_environments=("test",),
+        sub_delegates=False,
+        security_assessment_ref="synthetic-contract-test",
+        processing_agreement_ref="synthetic-contract-test",
+        deletion_on_termination_committed=True,
+        processing_region="mock-transport",
+    )
+    gateway = ModelGateway(
+        {provider.provider_id: provider},
+        environment="test",
+        registry=ProviderRegistry((record,)),
+    )
+    profile = replace(
+        QWEN_MULTIMODAL_CANDIDATE,
+        provider_id=provider.provider_id,
+        vendor="openai-compatible-livecheck",
+        model="vision-generative",
+        model_version="2026-09-03",
+        status="INTERNAL_APPROVED",
+        approved_environments=("test",),
+        approved_data_classes=frozenset({"SYNTHETIC"}),
+        sub_delegates=False,
+        security_assessment_ref="synthetic-contract-test",
+        processing_agreement_ref="synthetic-contract-test",
+        deletion_on_termination_committed=True,
+    )
+    return provider, gateway, profile, client
 
 
 def _family_understanding_output(
@@ -681,3 +759,102 @@ async def test_follow_up_regenerates_and_replays_after_postgres_restart(
     assert replay.json()["draft_payload"] == follow_up_payload
     await restarted_session.close()
     await restarted_engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_generation_changes_with_follow_up_and_persists(
+    migrated_database_url: str,
+) -> None:
+    first_run_id = "run-s3-openai-compatible-concern"
+    follow_up_run_id = "run-s3-openai-compatible-follow-up"
+    first_turn = {
+        "input_ref": f"input:{first_run_id}:concern",
+        "kind": "CONCERN",
+        "text": "每天一到写作业就开始争吵",
+        "created_at": "2026-09-03T10:00:00+08:00",
+    }
+    follow_up_turn = {
+        "input_ref": f"input:{follow_up_run_id}:follow-up",
+        "kind": "FOLLOW_UP",
+        "text": "如果我先听他说今天最难的是哪一题，他会愿意坐下来。",
+        "created_at": "2026-09-03T10:06:00+08:00",
+    }
+    captured_requests: list[dict[str, object]] = []
+    provider, gateway, profile, provider_client = _openai_compatible_provider_stack(
+        captured_requests
+    )
+    engine = create_async_engine(migrated_database_url)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    context = AsyncSqlContextBroker(factory)
+    await context.append(_observation())
+    session = factory()
+    registry = SqlAlchemyModelDraftRegistry(session)
+    application = ContextBoundMultimodalExperienceService(
+        context=context,
+        routed=RoutedMultimodalExperienceService(
+            router=MultimodalRouter((profile,)),
+            generation=MultimodalExperienceService(gateway, registry=registry),
+        ),
+        registry=registry,
+    )
+    runtime = MultimodalDraftRuntime(
+        scope=_scope(),
+        application=application,
+        environment="test",
+        run_ledger=CommittedExperienceRunLedger(SqlAlchemyExperienceRunLedger(session), session),
+    )
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=_app(runtime)),
+            base_url="http://aifamily.test",
+        ) as client:
+            first = await client.post(
+                f"/families/{FAMILY_ID}/experience/multimodal/drafts",
+                headers={"Idempotency-Key": f"create:{first_run_id}"},
+                json=_request_body(
+                    run_id=first_run_id,
+                    conversation_turns=[first_turn],
+                ),
+            )
+            follow_up = await client.post(
+                f"/families/{FAMILY_ID}/experience/multimodal/drafts",
+                headers={"Idempotency-Key": f"create:{follow_up_run_id}"},
+                json=_request_body(
+                    run_id=follow_up_run_id,
+                    prior_run_id=first_run_id,
+                    conversation_turns=[first_turn, follow_up_turn],
+                ),
+            )
+            replay = await client.get(
+                f"/families/{FAMILY_ID}/experience/multimodal/runs/{follow_up_run_id}/replay"
+            )
+
+        assert first.status_code == 200, first.text
+        assert follow_up.status_code == 200, follow_up.text
+        assert replay.status_code == 200, replay.text
+        assert first_turn["text"] in first.json()["output"]["understanding"]["lived_experience"]
+        assert (
+            follow_up_turn["text"]
+            in follow_up.json()["output"]["understanding"]["lived_experience"]
+        )
+        assert first.json()["output"] != follow_up.json()["output"]
+        assert replay.json()["draft_payload"] == follow_up.json()["output"]
+        assert follow_up.json()["provenance"]["provider_id"] == provider.provider_id
+        assert follow_up.json()["provenance"]["model"] == "vision-generative-2026-09-03"
+        assert len(captured_requests) == 2
+        request_body = captured_requests[1]
+        assert request_body["model"] == "vision-generative"
+        assert request_body["response_format"] == {"type": "json_object"}
+        system_prompt = request_body["messages"][0]["content"]
+        assert "use_case=family-understanding-multimodal" in system_prompt
+        assert "prompt_version=family-understanding.v1" in system_prompt
+        user_content = request_body["messages"][1]["content"]
+        assert user_content[1] == {
+            "type": "image_url",
+            "image_url": {"url": "media:authorized:family-scene"},
+        }
+    finally:
+        await session.close()
+        await engine.dispose()
+        await provider_client.aclose()
