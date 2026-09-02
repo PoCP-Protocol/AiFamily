@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -23,6 +23,11 @@ from poc.standalone_live_moderation_sandbox.question_api import (
     require_role,
     require_scope,
 )
+from poc.standalone_live_observability_sandbox.slo import (
+    MetricSample,
+    SloReport,
+    evaluate_slo,
+)
 
 COMPONENTS = ("media", "interaction", "replay", "commerce")
 OPS_TENANT = "tenant.synthetic.alpha"
@@ -39,12 +44,16 @@ class ProbeResult:
 
 
 HealthProbe = Callable[[str, float], ProbeResult]
+SloSamplesProvider = Callable[[str, str, str], Sequence[MetricSample]]
+Clock = Callable[[], datetime]
 
 
 def create_app(
     component_targets: Mapping[str, str],
     *,
     probe: HealthProbe | None = None,
+    slo_samples: SloSamplesProvider | None = None,
+    clock: Clock | None = None,
     timeout_seconds: float = 0.75,
 ) -> FastAPI:
     if set(component_targets) != set(COMPONENTS):
@@ -55,6 +64,8 @@ def create_app(
         component: health_url(component_targets[component]) for component in COMPONENTS
     }
     health_probe = probe or http_probe
+    samples_provider = slo_samples or missing_slo_samples
+    current_time = clock or (lambda: datetime.now(UTC))
     app = FastAPI(title="Xiao Ju Deng runtime observability sandbox")
 
     @app.get("/health")
@@ -102,7 +113,89 @@ def create_app(
             "external_effect": False,
         }
 
+    @app.get("/sandbox/live-ops/sessions/{session_ref}/slo")
+    def session_slo(
+        session_ref: str,
+        actor: Annotated[SyntheticActor, Depends(actor_headers())],
+    ) -> dict[str, object]:
+        require_role(actor, {"LIVE_OPERATOR", "HUMAN_MODERATOR"})
+        require_scope(actor, OPS_TENANT, OPS_FAMILY)
+        checked_at = current_time()
+        report = safely_evaluate_slo(
+            samples_provider,
+            tenant_id=actor.tenant_id,
+            family_id=actor.family_id,
+            session_ref=session_ref,
+            now=checked_at,
+        )
+        return slo_snapshot(session_ref, report)
+
     return app
+
+
+def missing_slo_samples(tenant_id: str, family_id: str, session_ref: str) -> Sequence[MetricSample]:
+    del tenant_id, family_id, session_ref
+    return ()
+
+
+def safely_evaluate_slo(
+    provider: SloSamplesProvider,
+    *,
+    tenant_id: str,
+    family_id: str,
+    session_ref: str,
+    now: datetime,
+) -> SloReport:
+    try:
+        samples = provider(tenant_id, family_id, session_ref)
+    except Exception:
+        return stopped_slo_report(now, "metrics provider failure")
+    return evaluate_slo(
+        samples,
+        tenant_id=tenant_id,
+        family_id=family_id,
+        session_ref=session_ref,
+        now=now,
+    )
+
+
+def stopped_slo_report(now: datetime, reason: str) -> SloReport:
+    return SloReport(
+        window_start=now,
+        window_end=now,
+        sample_count=0,
+        startup_success=None,
+        first_frame_ms=None,
+        stall_ratio=None,
+        interaction_latency_ms=None,
+        recovery_ms=None,
+        error_budget=0.0,
+        recommendation="STOP",
+        reasons=(reason,),
+        human_review_required=True,
+    )
+
+
+def slo_snapshot(session_ref: str, report: SloReport) -> dict[str, object]:
+    return {
+        "session_ref": session_ref,
+        "window_start": report.window_start.isoformat(),
+        "window_end": report.window_end.isoformat(),
+        "sample_count": report.sample_count,
+        "startup_success": report.startup_success,
+        "first_frame_p95_ms": report.first_frame_ms,
+        "stall_ratio": report.stall_ratio,
+        "interaction_latency_p95_ms": report.interaction_latency_ms,
+        "recovery_p95_ms": report.recovery_ms,
+        "error_budget": report.error_budget,
+        "recommendation": report.recommendation,
+        "reasons": list(report.reasons),
+        "human_review_required": report.human_review_required,
+        "automatic_stop_issued": report.automatic_stop_issued,
+        "source": "SANDBOX_SYNTHETIC",
+        "fixture_only": True,
+        "external_effect": False,
+    }
 
 
 def safely_probe(probe: HealthProbe, url: str, timeout_seconds: float) -> ProbeResult:
