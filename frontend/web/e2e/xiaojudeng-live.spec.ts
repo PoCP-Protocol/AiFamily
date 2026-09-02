@@ -270,6 +270,66 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
   });
 });
 
+test("adult membership remains independent and restart-readable", async ({ page }, testInfo) => {
+  await installOriginProxy(page, mediaUrl, mediaBrowserOrigin, new URL(sandboxDto.control_url).origin);
+  await page.goto(mediaUrl);
+  await page.evaluate(() => localStorage.removeItem("xiaojudeng.sandbox.membership.purchase_ref"));
+  await page.goto(`${mediaUrl}#live-service`);
+  await expect(page.getByRole("heading", { name: "会员权益" })).toBeVisible();
+
+  const membershipButton = page.getByRole("button", { name: "开通小橘灯会员（演示）" });
+  await expect(membershipButton).toBeEnabled();
+  const [purchaseResponse] = await Promise.all([
+    page.waitForResponse(
+      (response) => response.url().includes("/sandbox/live-commerce/purchases")
+      && response.request().method() === "POST",
+    ),
+    membershipButton.click(),
+  ]);
+  const purchaseBody = await purchaseResponse.json() as {
+    purchase_ref: string;
+    track: string;
+  };
+  expect(purchaseBody.track).toBe("MEMBERSHIP");
+  expect(purchaseBody.purchase_ref).toMatch(/^membership\.ui\./);
+  await expect(page.getByText("会员权益：已开通（演示）")).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("desktop-membership-active.png"), fullPage: true });
+
+  commerceProcess.kill();
+  await waitForProcessExit(commerceProcess);
+  commerceProcess = await startCommerceSandbox(commercePort);
+  await page.reload();
+  await expect(page.getByText("会员权益：已开通（演示）")).toBeVisible();
+  const activeAfterRestart = await fetch(
+    `${commerceApiUrl}/sandbox/live-commerce/purchases/${encodeURIComponent(purchaseBody.purchase_ref)}/balances`,
+    { headers: syntheticActorHeaders() },
+  );
+  expect(activeAfterRestart.status).toBe(200);
+  expect((await activeAfterRestart.json()).entitlement).toBe("ACTIVE");
+
+  await page.getByRole("button", { name: "撤销会员演示记录" }).click();
+  await expect(page.getByText("会员权益：已撤销（演示）")).toBeVisible();
+  commerceProcess.kill();
+  await waitForProcessExit(commerceProcess);
+  commerceProcess = await startCommerceSandbox(commercePort);
+  await page.reload();
+  await expect(page.getByText("会员权益：已撤销（演示）")).toBeVisible();
+  const revokedAfterRestart = await fetch(
+    `${commerceApiUrl}/sandbox/live-commerce/purchases/${encodeURIComponent(purchaseBody.purchase_ref)}/balances`,
+    { headers: syntheticActorHeaders() },
+  );
+  expect(revokedAfterRestart.status).toBe(200);
+  const revokedBody = await revokedAfterRestart.json() as {
+    cash: number;
+    settlement: number;
+    entitlement: string;
+  };
+  expect(revokedBody.cash).toBe(0);
+  expect(revokedBody.settlement).toBe(0);
+  expect(revokedBody.entitlement).toBe("REVOKED");
+  await page.screenshot({ path: testInfo.outputPath("desktop-membership-revoked.png"), fullPage: true });
+});
+
 async function startMediaSandbox(): Promise<SandboxDto> {
   const child = spawn(
     pythonExecutable,

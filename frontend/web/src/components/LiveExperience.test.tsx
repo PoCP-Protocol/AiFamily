@@ -253,6 +253,153 @@ describe("Xiao Ju Deng live product surface", () => {
     vi.unstubAllGlobals();
   });
 
+  it("activates and reverses an independent sandbox membership contract", async () => {
+    localStorage.clear();
+    let membershipPurchaseRef = "";
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(async (_input, init) => {
+        const payload = JSON.parse(String(init?.body)) as {
+          purchase_ref: string;
+          track: string;
+          subject_ref: string;
+          idempotency_key: string;
+        };
+        membershipPurchaseRef = payload.purchase_ref;
+        expect(payload.track).toBe("MEMBERSHIP");
+        expect(payload.subject_ref).toBe("membership.synthetic.orange-light");
+        expect(payload.idempotency_key).toMatch(/^membership-idempotency\.ui\./);
+        expect(payload.purchase_ref).toMatch(/^membership\.ui\./);
+        expect(payload.purchase_ref).not.toMatch(/^content-support\./);
+        return {
+          ok: true,
+          json: async () => ({
+            purchase_ref: payload.purchase_ref,
+            track: "MEMBERSHIP",
+            external_effect: false,
+            source: "SANDBOX_SYNTHETIC",
+            fixture_only: true,
+          }),
+        };
+      })
+      .mockImplementationOnce(async (input) => {
+        expect(String(input)).toContain(encodeURIComponent(membershipPurchaseRef));
+        return {
+          ok: true,
+          json: async () => ({
+            purchase_ref: membershipPurchaseRef,
+            cash: 3000,
+            settlement: 3000,
+            entitlement: "ACTIVE",
+            external_effect: false,
+            source: "SANDBOX_SYNTHETIC",
+            fixture_only: true,
+          }),
+        };
+      })
+      .mockImplementationOnce(async (input, init) => {
+        expect(String(input)).toContain(`${encodeURIComponent(membershipPurchaseRef)}/reversals`);
+        const payload = JSON.parse(String(init?.body)) as { reversal_ref: string };
+        expect(payload.reversal_ref).toMatch(/^membership-reversal\.ui\./);
+        return {
+          ok: true,
+          json: async () => ({
+            state: "REVERSED",
+            external_effect: false,
+            source: "SANDBOX_SYNTHETIC",
+            fixture_only: true,
+          }),
+        };
+      })
+      .mockImplementationOnce(async (input) => {
+        expect(String(input)).toContain(encodeURIComponent(membershipPurchaseRef));
+        return {
+          ok: true,
+          json: async () => ({
+            purchase_ref: membershipPurchaseRef,
+            cash: 0,
+            settlement: 0,
+            entitlement: "REVOKED",
+            external_effect: false,
+            source: "SANDBOX_SYNTHETIC",
+            fixture_only: true,
+          }),
+        };
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LiveServiceOfferingPage commerceBaseUrl="http://127.0.0.1:55400" />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "开通小橘灯会员（演示）" }));
+    expect(await screen.findByText("会员权益：已开通（演示）")).toBeInTheDocument();
+    expect(localStorage.getItem("xiaojudeng.sandbox.membership.purchase_ref")).toBe(membershipPurchaseRef);
+    expect(screen.getByText(/不会影响观看、提问或回看/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "撤销会员演示记录" }));
+    expect(await screen.findByText("会员权益：已撤销（演示）")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it("restores membership from the server balance using only the stored purchase reference", async () => {
+    localStorage.setItem("xiaojudeng.sandbox.membership.purchase_ref", "membership.ui.saved");
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        purchase_ref: "membership.ui.saved",
+        cash: 3000,
+        settlement: 3000,
+        entitlement: "ACTIVE",
+        external_effect: false,
+        source: "SANDBOX_SYNTHETIC",
+        fixture_only: true,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<LiveServiceOfferingPage commerceBaseUrl="http://127.0.0.1:55400" />);
+
+    expect(await screen.findByText("会员权益：已开通（演示）")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:55400/sandbox/live-commerce/purchases/membership.ui.saved/balances",
+      { headers: expect.any(Object) },
+    );
+    expect(localStorage).toHaveLength(1);
+    localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    { source: "UNVERIFIED", fixture_only: true, external_effect: false },
+    { source: "SANDBOX_SYNTHETIC", fixture_only: false, external_effect: false },
+    { source: "SANDBOX_SYNTHETIC", fixture_only: true, external_effect: true },
+  ])("rejects unsafe membership evidence: $source/$fixture_only/$external_effect", async (evidence) => {
+    localStorage.clear();
+    const fetchMock = vi.fn().mockImplementationOnce(async (_input, init) => {
+      const payload = JSON.parse(String(init?.body)) as { purchase_ref: string };
+      return {
+        ok: true,
+        json: async () => ({
+          purchase_ref: payload.purchase_ref,
+          track: "MEMBERSHIP",
+          ...evidence,
+        }),
+      };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LiveServiceOfferingPage commerceBaseUrl="http://127.0.0.1:55400" />);
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "开通小橘灯会员（演示）" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "会员演示服务不可用，没有产生扣款或权益变化。",
+    );
+    expect(localStorage.getItem("xiaojudeng.sandbox.membership.purchase_ref")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+
   it("plays an authorized replay and removes it with a lineage receipt", async () => {
     const record = {
       ...XIAO_JU_DENG_FIXTURE,

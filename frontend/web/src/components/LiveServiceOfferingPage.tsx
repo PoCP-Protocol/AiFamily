@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type Props = { commerceBaseUrl?: string };
 type SupportState = "idle" | "sending" | "active" | "reversing" | "reversed" | "error";
+type MembershipState = "idle" | "loading" | "sending" | "active" | "reversing" | "reversed" | "error";
 
 type SandboxResponse = {
   source: "SANDBOX_SYNTHETIC";
@@ -11,7 +12,7 @@ type SandboxResponse = {
 
 type PurchaseReceipt = SandboxResponse & {
   purchase_ref: string;
-  track: "CONTENT_SUPPORT";
+  track: "CONTENT_SUPPORT" | "MEMBERSHIP";
 };
 
 type BalanceReceipt = SandboxResponse & {
@@ -37,11 +38,30 @@ const CONTRACTS = {
   service: "service-offering.synthetic.consultation-30m",
 } as const;
 
+const MEMBERSHIP_PURCHASE_REF_KEY = "xiaojudeng.sandbox.membership.purchase_ref";
+
 export function LiveServiceOfferingPage({ commerceBaseUrl }: Props) {
   const [supportState, setSupportState] = useState<SupportState>("idle");
   const [supportPurchaseRef, setSupportPurchaseRef] = useState("");
   const [balance, setBalance] = useState<BalanceReceipt | null>(null);
+  const [membershipState, setMembershipState] = useState<MembershipState>("idle");
+  const [membershipPurchaseRef, setMembershipPurchaseRef] = useState("");
+  const [membershipBalance, setMembershipBalance] = useState<BalanceReceipt | null>(null);
   const adapterReady = Boolean(commerceBaseUrl && isLocalUrl(commerceBaseUrl));
+
+  useEffect(() => {
+    if (!commerceBaseUrl || !isLocalUrl(commerceBaseUrl)) return;
+    const storedPurchaseRef = localStorage.getItem(MEMBERSHIP_PURCHASE_REF_KEY);
+    if (!storedPurchaseRef) return;
+    setMembershipState("loading");
+    void loadBalance(commerceBaseUrl, storedPurchaseRef)
+      .then((refreshedBalance) => {
+        setMembershipPurchaseRef(storedPurchaseRef);
+        setMembershipBalance(refreshedBalance);
+        setMembershipState(refreshedBalance.entitlement === "ACTIVE" ? "active" : "reversed");
+      })
+      .catch(() => setMembershipState("error"));
+  }, [commerceBaseUrl]);
 
   return (
     <main className="live-offering-shell" aria-labelledby="live-offering-heading">
@@ -90,8 +110,33 @@ export function LiveServiceOfferingPage({ commerceBaseUrl }: Props) {
 
         <article data-contract-ref={CONTRACTS.membership}>
           <h3>会员权益</h3>
-          <p><strong>状态：未开通</strong></p>
-          <p>会员有自己的确认记录，不会因为支持本场内容自动开通。</p>
+          <p>会员使用独立确认记录，不会因为支持本场内容自动开通，也不会影响观看、提问或回看。</p>
+          <p><strong>SANDBOX_SYNTHETIC · fixture_only=true</strong>，不会真实扣款或产生外部效果。</p>
+          {membershipState === "idle" || membershipState === "error" ? (
+            <button type="button" disabled={!adapterReady} onClick={() => void activateMembership()}>
+              开通小橘灯会员（演示）
+            </button>
+          ) : null}
+          {membershipState === "loading" ? <span role="status">正在读取会员演示状态…</span> : null}
+          {membershipState === "sending" ? <span role="status">正在开通会员演示…</span> : null}
+          {membershipState === "active" && membershipBalance ? (
+            <div className="live-offering-receipt" role="status">
+              <div>
+                <strong>会员权益：已开通（演示）</strong>
+                <p>独立会员记录已生效，没有真实扣款。</p>
+              </div>
+              <button type="button" onClick={() => void reverseMembership()}>
+                撤销会员演示记录
+              </button>
+            </div>
+          ) : null}
+          {membershipState === "reversing" ? <span role="status">正在撤销会员演示记录…</span> : null}
+          {membershipState === "reversed" && membershipBalance ? (
+            <strong role="status">会员权益：已撤销（演示）</strong>
+          ) : null}
+          {membershipState === "error" ? (
+            <span role="alert">会员演示服务不可用，没有产生扣款或权益变化。</span>
+          ) : null}
         </article>
 
         <article data-contract-ref={CONTRACTS.media}>
@@ -179,6 +224,67 @@ export function LiveServiceOfferingPage({ commerceBaseUrl }: Props) {
       setSupportState("reversed");
     } catch {
       setSupportState("error");
+    }
+  }
+
+  async function activateMembership() {
+    if (!commerceBaseUrl || !isLocalUrl(commerceBaseUrl)) return;
+    const purchaseRef = `membership.ui.${Date.now()}`;
+    const idempotencyKey = `membership-idempotency.ui.${Date.now()}`;
+    setMembershipState("sending");
+    try {
+      const purchase = await requestSandbox<PurchaseReceipt>(
+        `${commerceBaseUrl}/sandbox/live-commerce/purchases`,
+        {
+          method: "POST",
+          headers: ACTOR_HEADERS,
+          body: JSON.stringify({
+            purchase_ref: purchaseRef,
+            track: "MEMBERSHIP",
+            subject_ref: CONTRACTS.membership,
+            amount: 3000,
+            currency: "CNY_CENT",
+            idempotency_key: idempotencyKey,
+          }),
+        },
+      );
+      if (purchase.purchase_ref !== purchaseRef || purchase.track !== "MEMBERSHIP") {
+        throw new Error("membership receipt mismatch");
+      }
+      const refreshedBalance = await loadBalance(commerceBaseUrl, purchaseRef);
+      if (refreshedBalance.entitlement !== "ACTIVE") throw new Error("membership is not active");
+      localStorage.setItem(MEMBERSHIP_PURCHASE_REF_KEY, purchaseRef);
+      setMembershipPurchaseRef(purchaseRef);
+      setMembershipBalance(refreshedBalance);
+      setMembershipState("active");
+    } catch {
+      setMembershipState("error");
+    }
+  }
+
+  async function reverseMembership() {
+    if (!commerceBaseUrl || !membershipPurchaseRef || !isLocalUrl(commerceBaseUrl)) return;
+    const reversalRef = `membership-reversal.ui.${Date.now()}`;
+    setMembershipState("reversing");
+    try {
+      await requestSandbox(
+        `${commerceBaseUrl}/sandbox/live-commerce/purchases/${encodeURIComponent(membershipPurchaseRef)}/reversals`,
+        {
+          method: "POST",
+          headers: ACTOR_HEADERS,
+          body: JSON.stringify({
+            reversal_ref: reversalRef,
+            idempotency_key: reversalRef,
+            reason: "adult withdrew synthetic membership record",
+          }),
+        },
+      );
+      const refreshedBalance = await loadBalance(commerceBaseUrl, membershipPurchaseRef);
+      if (refreshedBalance.entitlement !== "REVOKED") throw new Error("membership is not revoked");
+      setMembershipBalance(refreshedBalance);
+      setMembershipState("reversed");
+    } catch {
+      setMembershipState("error");
     }
   }
 }
