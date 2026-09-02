@@ -183,23 +183,40 @@ describe("Xiao Ju Deng live product surface", () => {
     expect(screen.getByRole("link", { name: "查看服务方案" })).toHaveAttribute("href", "#live-service");
   });
 
-  it("explains price, allocation, rights, refund, and current gate on the service page", () => {
+  it("uses adult-facing language and keeps commerce contracts separate", () => {
     render(<LiveServiceOfferingPage />);
-    expect(screen.getByRole("heading", { name: "家庭沟通 · 30分钟专家咨询" })).toBeInTheDocument();
-    expect(screen.getByText("¥99")).toBeInTheDocument();
-    expect(screen.getByText("¥79.20")).toBeInTheDocument();
-    expect(screen.getByText("¥19.80")).toBeInTheDocument();
-    expect(screen.getByText("直播间优先提问或插队权")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "支持这场内容" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "会员权益" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "付费内容" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "预约30分钟真人咨询" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "了解平台积分" })).toBeInTheDocument();
+    expect(screen.getByText(/不会获得优先提问、私聊或预约权/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "暂不可预约" })).toBeDisabled();
   });
 
   it("keeps content support distinct and reversible on the adult hub", async () => {
     const fetchMock = vi
       .fn()
+      .mockImplementationOnce(async (_input, init) => {
+        const payload = JSON.parse(String(init?.body)) as { purchase_ref: string };
+        return {
+          ok: true,
+          json: async () => ({
+            purchase_ref: payload.purchase_ref,
+            track: "CONTENT_SUPPORT",
+            external_effect: false,
+            source: "SANDBOX_SYNTHETIC",
+            fixture_only: true,
+          }),
+        };
+      })
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          intent_ref: "support.content.test",
+          purchase_ref: "content-support.ui.1234",
+          cash: 500,
+          settlement: 500,
+          entitlement: "ACTIVE",
           external_effect: false,
           source: "SANDBOX_SYNTHETIC",
           fixture_only: true,
@@ -207,15 +224,32 @@ describe("Xiao Ju Deng live product surface", () => {
       })
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ status: "SANDBOX_REVERSED", external_effect: false }),
+        json: async () => ({
+          state: "REVERSED",
+          external_effect: false,
+          source: "SANDBOX_SYNTHETIC",
+          fixture_only: true,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          purchase_ref: "content-support.ui.1234",
+          cash: 0,
+          settlement: 0,
+          entitlement: "REVOKED",
+          external_effect: false,
+          source: "SANDBOX_SYNTHETIC",
+          fixture_only: true,
+        }),
       });
     vi.stubGlobal("fetch", fetchMock);
     render(<LiveServiceOfferingPage commerceBaseUrl="http://127.0.0.1:55400" />);
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "记录内容支持（演示）" }));
-    expect(await screen.findByText("内容支持意向已记录；Sandbox未发生真实扣款。")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "撤销并退款（演示）" }));
-    expect(await screen.findByText("内容支持已撤销，专家与平台分配均已冲正。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "支持这场内容（演示）" }));
+    expect(await screen.findByText("演示记录已创建，没有真实扣款。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "撤销演示记录" }));
+    expect(await screen.findByText(/演示记录已撤销/)).toBeInTheDocument();
     vi.unstubAllGlobals();
   });
 

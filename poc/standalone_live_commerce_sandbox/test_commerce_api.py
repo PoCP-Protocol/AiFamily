@@ -1,3 +1,6 @@
+from pathlib import Path
+
+import pytest
 from fastapi.testclient import TestClient
 
 from poc.standalone_live_commerce_sandbox.commerce_api import create_app
@@ -100,4 +103,76 @@ def test_refund_and_chargeback_reverse_split_and_reject_cross_family() -> None:
     assert (
         client.post("/sandbox/live-commerce/refunds", headers=headers(), json=refund).json()
         == reversed_response.json()
+    )
+
+
+@pytest.mark.parametrize(
+    ("track", "currency"),
+    [
+        ("CONTENT_SUPPORT", "CNY_CENT"),
+        ("MEMBERSHIP", "CNY_CENT"),
+        ("MEDIA_ENTITLEMENT", "CNY_CENT"),
+        ("SERVICE_OFFERING", "CNY_CENT"),
+        ("POINTS", "POINT"),
+    ],
+)
+def test_five_track_http_ledger_survives_restart_and_reversal(
+    tmp_path: Path, track: str, currency: str
+) -> None:
+    database = tmp_path / "commerce.sqlite3"
+    client = TestClient(create_app(database))
+    purchase_ref = f"purchase:{track}:http"
+    payload = {
+        "purchase_ref": purchase_ref,
+        "track": track,
+        "subject_ref": f"subject:{track}:http",
+        "amount": 9900,
+        "currency": currency,
+        "idempotency_key": f"purchase-key:{track}:http",
+    }
+    purchased = client.post("/sandbox/live-commerce/purchases", headers=headers(), json=payload)
+    assert purchased.status_code == 200
+    assert purchased.json()["cash_amount"] == (0 if track == "POINTS" else 9900)
+    restarted = TestClient(create_app(database))
+    balance_url = f"/sandbox/live-commerce/purchases/{purchase_ref}/balances"
+    balance = restarted.get(balance_url, headers=headers())
+    assert balance.status_code == 200
+    assert balance.json()["cash"] == (0 if track == "POINTS" else 9900)
+    assert balance.json()["settlement"] == 9900
+    assert balance.json()["entitlement"] == "ACTIVE"
+
+    reversal = restarted.post(
+        f"/sandbox/live-commerce/purchases/{purchase_ref}/reversals",
+        headers=headers(),
+        json={
+            "reversal_ref": f"reversal:{track}:http",
+            "idempotency_key": f"reversal-key:{track}:http",
+            "reason": "撤销合成演示记录",
+        },
+    )
+    assert reversal.status_code == 200
+    after_restart = TestClient(create_app(database)).get(balance_url, headers=headers())
+    assert after_restart.json()["cash"] == 0
+    assert after_restart.json()["settlement"] == 0
+    assert after_restart.json()["entitlement"] == "REVOKED"
+
+
+def test_persistent_ledger_rejects_cross_family_child_and_conflict(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "commerce.sqlite3"))
+    payload = {
+        "purchase_ref": "purchase:membership:http",
+        "track": "MEMBERSHIP",
+        "subject_ref": "membership:orange-light:month",
+        "amount": 3000,
+        "currency": "CNY_CENT",
+        "idempotency_key": "purchase-key:membership:http",
+    }
+    url = "/sandbox/live-commerce/purchases"
+    assert client.post(url, headers=headers(role="CHILD"), json=payload).status_code == 403
+    assert client.post(url, headers=headers(), json=payload).status_code == 200
+    conflict = client.post(url, headers=headers(), json={**payload, "amount": 4000})
+    assert conflict.status_code == 409
+    balance_url = "/sandbox/live-commerce/purchases/purchase:membership:http/balances"
+    assert (
+        client.get(balance_url, headers=headers(family="family.synthetic.other")).status_code == 404
     )

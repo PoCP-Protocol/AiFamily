@@ -195,13 +195,15 @@ class ThreeLedgerSandbox:
             if entitlement is None:
                 raise LedgerRejected("active purchase not found in actor scope")
             database.execute(
-                "UPDATE entitlement_ledger SET state = 'REVOKED' WHERE purchase_ref = ?",
-                (purchase_ref,),
+                "UPDATE entitlement_ledger SET state = 'REVOKED' "
+                "WHERE purchase_ref = ? AND tenant_id = ? AND family_id = ?",
+                (purchase_ref, actor.tenant_id, actor.family_id),
             )
             cash = database.execute(
                 "SELECT amount, currency FROM cash_ledger "
-                "WHERE purchase_ref = ? AND kind = 'CAPTURE'",
-                (purchase_ref,),
+                "WHERE purchase_ref = ? AND tenant_id = ? AND family_id = ? "
+                "AND kind = 'CAPTURE'",
+                (purchase_ref, actor.tenant_id, actor.family_id),
             ).fetchone()
             if cash is not None:
                 database.execute(
@@ -218,8 +220,9 @@ class ThreeLedgerSandbox:
                 )
             accruals = database.execute(
                 "SELECT beneficiary_ref, amount, currency FROM settlement_ledger "
-                "WHERE purchase_ref = ? AND kind = 'ACCRUAL'",
-                (purchase_ref,),
+                "WHERE purchase_ref = ? AND tenant_id = ? AND family_id = ? "
+                "AND kind = 'ACCRUAL'",
+                (purchase_ref, actor.tenant_id, actor.family_id),
             ).fetchall()
             for beneficiary, amount, currency in accruals:
                 database.execute(
@@ -249,24 +252,32 @@ class ThreeLedgerSandbox:
             database.commit()
             return result
 
-    def balances(self, purchase_ref: str) -> dict[str, object]:
+    def balances(self, *, actor: LedgerActor, purchase_ref: str) -> dict[str, object]:
+        self._assert_actor(actor)
         with self._connect() as database:
+            state_row = database.execute(
+                "SELECT state FROM entitlement_ledger "
+                "WHERE purchase_ref = ? AND tenant_id = ? AND family_id = ?",
+                (purchase_ref, actor.tenant_id, actor.family_id),
+            ).fetchone()
+            if state_row is None:
+                raise LedgerRejected("purchase not found in actor scope")
             cash = database.execute(
-                "SELECT COALESCE(SUM(amount), 0) FROM cash_ledger WHERE purchase_ref = ?",
-                (purchase_ref,),
+                "SELECT COALESCE(SUM(amount), 0) FROM cash_ledger "
+                "WHERE purchase_ref = ? AND tenant_id = ? AND family_id = ?",
+                (purchase_ref, actor.tenant_id, actor.family_id),
             ).fetchone()[0]
             settlement = database.execute(
-                "SELECT COALESCE(SUM(amount), 0) FROM settlement_ledger WHERE purchase_ref = ?",
-                (purchase_ref,),
+                "SELECT COALESCE(SUM(amount), 0) FROM settlement_ledger "
+                "WHERE purchase_ref = ? AND tenant_id = ? AND family_id = ?",
+                (purchase_ref, actor.tenant_id, actor.family_id),
             ).fetchone()[0]
-            state_row = database.execute(
-                "SELECT state FROM entitlement_ledger WHERE purchase_ref = ?",
-                (purchase_ref,),
-            ).fetchone()
         return {
+            "purchase_ref": purchase_ref,
             "cash": cash,
             "settlement": settlement,
-            "entitlement": None if state_row is None else state_row[0],
+            "entitlement": state_row[0],
+            "external_effect": False,
         }
 
     def _connect(self) -> sqlite3.Connection:

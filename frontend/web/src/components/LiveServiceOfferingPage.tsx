@@ -1,12 +1,24 @@
 import { useState } from "react";
 
 type Props = { commerceBaseUrl?: string };
+type SupportState = "idle" | "sending" | "active" | "reversing" | "reversed" | "error";
 
-type SupportReceipt = {
-  intent_ref: string;
-  external_effect: false;
+type SandboxResponse = {
   source: "SANDBOX_SYNTHETIC";
   fixture_only: true;
+  external_effect: false;
+};
+
+type PurchaseReceipt = SandboxResponse & {
+  purchase_ref: string;
+  track: "CONTENT_SUPPORT";
+};
+
+type BalanceReceipt = SandboxResponse & {
+  purchase_ref: string;
+  cash: number;
+  settlement: number;
+  entitlement: "ACTIVE" | "REVOKED";
 };
 
 const ACTOR_HEADERS = {
@@ -19,150 +31,177 @@ const ACTOR_HEADERS = {
   "X-Actor-Role": "ADULT_VIEWER",
 };
 
+const CONTRACTS = {
+  membership: "membership.synthetic.orange-light",
+  media: "media-entitlement.synthetic.replay-1",
+  service: "service-offering.synthetic.consultation-30m",
+} as const;
+
 export function LiveServiceOfferingPage({ commerceBaseUrl }: Props) {
-  const [supportState, setSupportState] = useState<"idle" | "sending" | "sent" | "refunding" | "refunded" | "error">("idle");
-  const [supportIntentRef, setSupportIntentRef] = useState("");
+  const [supportState, setSupportState] = useState<SupportState>("idle");
+  const [supportPurchaseRef, setSupportPurchaseRef] = useState("");
+  const [balance, setBalance] = useState<BalanceReceipt | null>(null);
+  const adapterReady = Boolean(commerceBaseUrl && isLocalUrl(commerceBaseUrl));
 
   return (
     <main className="live-offering-shell" aria-labelledby="live-offering-heading">
       <a className="live-inline-back" href="#live-home">← 返回小橘灯直播</a>
+
       <div className="live-offering-hero">
         <div>
-          <p className="live-kicker">成人主动进入 · 服务方案演示</p>
-          <h2 id="live-offering-heading">家庭沟通 · 30分钟专家咨询</h2>
-          <p>适合看完直播后，希望针对一个具体家庭场景获得真人梳理的家长或照护者。</p>
+          <p className="live-kicker">仅限成人 · 内容支持演示</p>
+          <h2 id="live-offering-heading">支持这场内容</h2>
+          <p>如果这场直播对你有帮助，可以留下 ¥5 的支持演示。不支持也不会影响观看、提问、回看或安全求助。</p>
         </div>
         <div className="live-offering-price">
-          <span>服务价格</span>
-          <strong>¥99</strong>
-          <small>Sandbox，不会扣款</small>
+          <span>本次支持</span>
+          <strong>¥5</strong>
+          <small>不会真实扣款</small>
         </div>
       </div>
 
-      <section className="live-offering-grid" aria-label="服务内容与交易说明">
-        <article className="live-offering-support-card">
-          <p className="live-kicker">A · 内容支持</p>
-          <h3>自愿支持本场内容 · ¥5</h3>
-          <p>专家获得¥4，平台内容与技术服务费¥1。不会获得优先提问、私聊、预约或其他服务权利。</p>
-          <p>不支持也不会影响观看、提问、回看或安全求助。</p>
+      <section className="live-offering-grid" aria-label="内容支持与独立服务状态">
+        <article className="live-offering-support-card" data-contract-kind="CONTENT_SUPPORT">
+          <h3>支持这场内容</h3>
+          <p>专家演示分配 ¥4，平台内容与技术服务演示分配 ¥1；不会获得优先提问、私聊或预约权。</p>
+          <p><strong>SANDBOX_SYNTHETIC · fixture_only=true</strong>，只写入本地演示账本，不产生真实资金或外部效果。</p>
+
           {supportState === "idle" || supportState === "error" ? (
-            <button type="button" disabled={!commerceBaseUrl} onClick={() => void supportContent()}>
-              记录内容支持（演示）
+            <button type="button" disabled={!adapterReady} onClick={() => void supportContent()}>
+              支持这场内容（演示）
             </button>
           ) : null}
-          {supportState === "sending" ? <span role="status">正在校验成人权限与账本…</span> : null}
-          {supportState === "sent" ? (
+          {supportState === "sending" ? <span role="status">正在记录演示支持…</span> : null}
+          {supportState === "active" && balance ? (
             <div className="live-offering-receipt" role="status">
-              <strong>内容支持意向已记录；Sandbox未发生真实扣款。</strong>
-              <button type="button" onClick={() => void refundContent()}>撤销并退款（演示）</button>
+              <div>
+                <strong>演示记录已创建，没有真实扣款。</strong>
+                <p>支持记录 ¥{formatCny(balance.cash)} · 分配记录 ¥{formatCny(balance.settlement)} · 状态：有效</p>
+              </div>
+              <button type="button" onClick={() => void reverseContentSupport()}>撤销演示记录</button>
             </div>
           ) : null}
-          {supportState === "refunding" ? <span role="status">正在冲正全部分配…</span> : null}
-          {supportState === "refunded" ? <strong role="status">内容支持已撤销，专家与平台分配均已冲正。</strong> : null}
-          {supportState === "error" ? <span role="alert">支持服务不可用，未产生扣款。</span> : null}
+          {supportState === "reversing" ? <span role="status">正在撤销演示记录…</span> : null}
+          {supportState === "reversed" && balance ? (
+            <strong role="status">演示记录已撤销：支持记录 ¥{formatCny(balance.cash)}，分配记录 ¥{formatCny(balance.settlement)}。</strong>
+          ) : null}
+          {supportState === "error" ? <span role="alert">本地演示服务不可用，没有产生扣款或权益变化。</span> : null}
         </article>
-        <article>
-          <p className="live-kicker">B · ServiceOffering购买</p>
-          <h3>你会获得</h3>
-          <ul>
-            <li>一次30分钟一对一成人咨询</li>
-            <li>围绕一个明确问题形成下一步行动建议</li>
-            <li>咨询后可查看本次服务记录</li>
-          </ul>
+
+        <article data-contract-ref={CONTRACTS.membership}>
+          <h3>会员权益</h3>
+          <p><strong>状态：未开通</strong></p>
+          <p>会员有自己的确认记录，不会因为支持本场内容自动开通。</p>
         </article>
-        <article>
-          <h3>你不会获得</h3>
-          <ul>
-            <li>直播间优先提问或插队权</li>
-            <li>任何治疗、诊断或结果承诺</li>
-            <li>孩子画像营销或自动推荐</li>
-          </ul>
+
+        <article data-contract-ref={CONTRACTS.media}>
+          <h3>付费内容</h3>
+          <p><strong>状态：未开通</strong></p>
+          <p>专题回看或付费媒体使用独立确认记录，不与内容支持共用凭证。</p>
         </article>
-        <article>
-          <p className="live-kicker">C · 平台积分</p>
-          <h3>非现金积分，当前未开放</h3>
-          <p>积分不等同人民币、不可提现。正式开放前必须明确来源、用途、有效期和退回规则，并使用独立积分凭证。</p>
+
+        <article data-contract-ref={CONTRACTS.service}>
+          <h3>预约30分钟真人咨询</h3>
+          <p><strong>状态：尚未预约</strong></p>
+          <p>正式预约需单独确认服务、价格、时间、履约和取消规则。</p>
+          <button type="button" disabled>暂不可预约</button>
         </article>
-        <article>
-          <h3>费用如何分配</h3>
-          <dl>
-            <div><dt>专家服务费</dt><dd>¥79.20</dd></div>
-            <div><dt>平台服务费</dt><dd>¥19.80</dd></div>
-            <div><dt>发票</dt><dd>实际支付后按订单申请</dd></div>
-          </dl>
-        </article>
-        <article>
-          <h3>取消、退款与投诉</h3>
-          <p>服务开始前24小时可全额取消；专家未履约可申请全额退款。争议由人工客服复核，不由AI自动裁决。</p>
+
+        <article id="live-points-info">
+          <h3>了解平台积分</h3>
+          <p><strong>状态：未开放</strong></p>
+          <p>积分不是现金、不可提现；开放前会单独说明来源、用途、有效期和撤销规则。</p>
         </article>
       </section>
 
-      <section className="live-offering-gate" aria-label="服务接口状态">
+      <section className="live-offering-gate" aria-label="演示边界">
         <div>
-          <strong>当前仅供理解验证</strong>
-          <p>预约、Consent、订单、支付与履约接口尚未接入，因此不会创建订单或联系专家。</p>
+          <strong>当前只验证一件事：内容支持能否被安全记录并撤销</strong>
+          <p>会员、付费内容、真人咨询和积分各自保持独立状态；本页不会创建它们的订单或权益。</p>
         </div>
-        <button type="button" disabled>暂不可预约</button>
       </section>
     </main>
   );
 
   async function supportContent() {
     if (!commerceBaseUrl || !isLocalUrl(commerceBaseUrl)) return;
-    const reference = `support.content.${Date.now()}`;
+    const purchaseRef = `content-support.ui.${Date.now()}`;
     setSupportState("sending");
     try {
-      const response = await fetch(
-        `${commerceBaseUrl}/sandbox/live-commerce/sessions/media.synthetic.1/support`,
+      const purchase = await requestSandbox<PurchaseReceipt>(
+        `${commerceBaseUrl}/sandbox/live-commerce/purchases`,
         {
           method: "POST",
           headers: ACTOR_HEADERS,
           body: JSON.stringify({
-            intent_ref: reference,
-            idempotency_key: reference,
-            kind: "TIP",
+            purchase_ref: purchaseRef,
+            track: "CONTENT_SUPPORT",
+            subject_ref: "media.synthetic.1",
             amount: 500,
             currency: "CNY_CENT",
+            idempotency_key: purchaseRef,
           }),
         },
       );
-      if (!response.ok) throw new Error("support rejected");
-      const receipt = (await response.json()) as SupportReceipt;
-      if (receipt.source !== "SANDBOX_SYNTHETIC" || receipt.fixture_only !== true || receipt.external_effect !== false) {
-        throw new Error("support receipt rejected");
+      if (purchase.purchase_ref !== purchaseRef || purchase.track !== "CONTENT_SUPPORT") {
+        throw new Error("content support receipt mismatch");
       }
-      setSupportIntentRef(receipt.intent_ref);
-      setSupportState("sent");
+      const refreshedBalance = await loadBalance(commerceBaseUrl, purchaseRef);
+      if (refreshedBalance.entitlement !== "ACTIVE") throw new Error("content support is not active");
+      setSupportPurchaseRef(purchaseRef);
+      setBalance(refreshedBalance);
+      setSupportState("active");
     } catch {
       setSupportState("error");
     }
   }
 
-  async function refundContent() {
-    if (!commerceBaseUrl || !supportIntentRef || !isLocalUrl(commerceBaseUrl)) return;
-    const reference = `refund.content.${Date.now()}`;
-    setSupportState("refunding");
+  async function reverseContentSupport() {
+    if (!commerceBaseUrl || !supportPurchaseRef || !isLocalUrl(commerceBaseUrl)) return;
+    const reversalRef = `content-support-reversal.ui.${Date.now()}`;
+    setSupportState("reversing");
     try {
-      const response = await fetch(`${commerceBaseUrl}/sandbox/live-commerce/refunds`, {
-        method: "POST",
-        headers: ACTOR_HEADERS,
-        body: JSON.stringify({
-          refund_ref: reference,
-          support_intent_ref: supportIntentRef,
-          idempotency_key: reference,
-          reason: "adult withdrew sandbox content support",
-        }),
-      });
-      if (!response.ok) throw new Error("refund rejected");
-      const receipt = (await response.json()) as { status: string; external_effect: boolean };
-      if (receipt.status !== "SANDBOX_REVERSED" || receipt.external_effect !== false) {
-        throw new Error("refund receipt rejected");
-      }
-      setSupportState("refunded");
+      await requestSandbox(
+        `${commerceBaseUrl}/sandbox/live-commerce/purchases/${encodeURIComponent(supportPurchaseRef)}/reversals`,
+        {
+          method: "POST",
+          headers: ACTOR_HEADERS,
+          body: JSON.stringify({
+            reversal_ref: reversalRef,
+            idempotency_key: reversalRef,
+            reason: "adult withdrew synthetic content support record",
+          }),
+        },
+      );
+      const refreshedBalance = await loadBalance(commerceBaseUrl, supportPurchaseRef);
+      if (refreshedBalance.entitlement !== "REVOKED") throw new Error("content support is not revoked");
+      setBalance(refreshedBalance);
+      setSupportState("reversed");
     } catch {
       setSupportState("error");
     }
   }
+}
+
+async function loadBalance(baseUrl: string, purchaseRef: string): Promise<BalanceReceipt> {
+  return await requestSandbox<BalanceReceipt>(
+    `${baseUrl}/sandbox/live-commerce/purchases/${encodeURIComponent(purchaseRef)}/balances`,
+    { headers: ACTOR_HEADERS },
+  );
+}
+
+async function requestSandbox<T extends SandboxResponse>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init);
+  if (!response.ok) throw new Error(`sandbox request rejected: ${response.status}`);
+  const result = (await response.json()) as T;
+  if (result.source !== "SANDBOX_SYNTHETIC" || result.fixture_only !== true || result.external_effect !== false) {
+    throw new Error("sandbox evidence rejected");
+  }
+  return result;
+}
+
+function formatCny(amountInCents: number): string {
+  return (amountInCents / 100).toFixed(2);
 }
 
 function isLocalUrl(value: string): boolean {

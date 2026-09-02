@@ -35,7 +35,7 @@ def test_five_revenue_tracks_are_separate_and_restart_readable(
     assert result["external_effect"] is False
     assert result["expert_accrual"] + result["platform_accrual"] == 500
     restarted = ThreeLedgerSandbox(path)
-    balances = restarted.balances(command.purchase_ref)
+    balances = restarted.balances(actor=actor(), purchase_ref=command.purchase_ref)
     assert balances["entitlement"] == "ACTIVE"
     assert balances["cash"] == (0 if track is Track.POINTS else 500)
     assert balances["settlement"] == 500
@@ -67,10 +67,12 @@ def test_refund_or_chargeback_reverses_all_three_ledgers_across_restart(tmp_path
         )
         == reversal
     )
-    assert ThreeLedgerSandbox(path).balances(command.purchase_ref) == {
+    assert ThreeLedgerSandbox(path).balances(actor=actor(), purchase_ref=command.purchase_ref) == {
+        "purchase_ref": command.purchase_ref,
         "cash": 0,
         "settlement": 0,
         "entitlement": "REVOKED",
+        "external_effect": False,
     }
 
 
@@ -96,4 +98,9 @@ def test_child_cross_family_currency_and_idempotency_fail_closed(tmp_path: Path)
             reversal_ref="refund:other",
             idempotency_key="key:other",
             reason="cross family",
+        )
+    with pytest.raises(LedgerRejected, match="actor scope"):
+        ledger.balances(
+            actor=replace(actor(), family_id="family.synthetic.other"),
+            purchase_ref=command.purchase_ref,
         )

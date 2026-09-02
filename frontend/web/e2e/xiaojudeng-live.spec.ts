@@ -32,7 +32,10 @@ const browserReplayApiUrl = "http://127.0.0.1:4173/sandbox-replay";
 let commerceApiUrl: string;
 const browserCommerceApiUrl = "http://127.0.0.1:4173/sandbox-commerce";
 let replayProcess: ChildProcess;
+let commerceProcess: ChildProcess;
+let commercePort: number;
 const replayDatabasePath = resolve(tmpdir(), `xiaojudeng-replay-${Date.now()}.sqlite3`);
+const commerceDatabasePath = resolve(tmpdir(), `xiaojudeng-commerce-${Date.now()}.sqlite3`);
 const mediaOutputPath = resolve(tmpdir(), `xiaojudeng-playwright-${Date.now()}.mp4`);
 const processes: ChildProcess[] = [];
 let sandboxDto: SandboxDto;
@@ -47,7 +50,8 @@ test.beforeAll(async () => {
   await startQuestionSandbox(questionPort);
   sandboxDto = await startMediaSandbox();
   replayProcess = await startReplaySandbox(await reserveFreePort());
-  await startCommerceSandbox(await reserveFreePort());
+  commercePort = await reserveFreePort();
+  commerceProcess = await startCommerceSandbox(commercePort);
   browserMediaDto = {
     ...sandboxDto,
     playback_url: toBrowserProxyUrl(sandboxDto.playback_url),
@@ -209,23 +213,39 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
   const revokedOldCapability = await page.request.get(sandboxDto.playback_url);
   expect(revokedOldCapability.status()).toBe(403);
   await page.getByRole("link", { name: "查看服务方案" }).click();
-  await expect(page.getByRole("heading", { name: "家庭沟通 · 30分钟专家咨询" })).toBeVisible();
-  await expect(page.getByText("服务价格")).toBeVisible();
-  await expect(page.getByText("¥99")).toBeVisible();
-  await expect(page.getByText("专家服务费")).toBeVisible();
-  await expect(page.getByText("¥79.20")).toBeVisible();
-  await expect(page.getByText("平台服务费")).toBeVisible();
-  await expect(page.getByText("¥19.80")).toBeVisible();
-  await expect(page.getByText("直播间优先提问或插队权")).toBeVisible();
-  await expect(page.getByText("A · 内容支持")).toBeVisible();
-  await expect(page.getByText("B · ServiceOffering购买")).toBeVisible();
-  await expect(page.getByText("C · 平台积分")).toBeVisible();
-  await page.getByRole("button", { name: "记录内容支持（演示）" }).click();
-  await expect(page.getByText("内容支持意向已记录；Sandbox未发生真实扣款。")).toBeVisible();
-  await page.getByRole("button", { name: "撤销并退款（演示）" }).click();
-  await expect(page.getByText("内容支持已撤销，专家与平台分配均已冲正。")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "支持这场内容" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "会员权益" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "付费内容" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "预约30分钟真人咨询" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "了解平台积分" })).toBeVisible();
+  const purchaseResponsePromise = page.waitForResponse(
+    (response) => response.url().endsWith("/sandbox/live-commerce/purchases")
+      && response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "支持这场内容（演示）" }).click();
+  const purchaseBody = await (await purchaseResponsePromise).json() as { purchase_ref: string };
+  await expect(page.getByText("演示记录已创建，没有真实扣款。")).toBeVisible();
+  await page.getByRole("button", { name: "撤销演示记录" }).click();
+  await expect(page.getByText(/演示记录已撤销/)).toBeVisible();
   await expect(page.getByRole("button", { name: "暂不可预约" })).toBeDisabled();
   await page.screenshot({ path: testInfo.outputPath("desktop-service-offering.png"), fullPage: true });
+
+  commerceProcess.kill();
+  await waitForProcessExit(commerceProcess);
+  commerceProcess = await startCommerceSandbox(commercePort);
+  const persistentBalance = await fetch(
+    `${commerceApiUrl}/sandbox/live-commerce/purchases/${encodeURIComponent(purchaseBody.purchase_ref)}/balances`,
+    { headers: syntheticActorHeaders() },
+  );
+  expect(persistentBalance.status).toBe(200);
+  const persistentBalanceBody = await persistentBalance.json() as {
+    cash: number;
+    settlement: number;
+    entitlement: string;
+  };
+  expect(persistentBalanceBody.cash).toBe(0);
+  expect(persistentBalanceBody.settlement).toBe(0);
+  expect(persistentBalanceBody.entitlement).toBe("REVOKED");
   await page.screenshot({ path: testInfo.outputPath("desktop-revoked.png"), fullPage: true });
   const stateResults = JSON.stringify({
     live: "PASS",
@@ -240,7 +260,8 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
     replay_old_url_after_delete_status: replayAfterDelete.status(),
     replay_after_restart: "DELETED",
     adult_contract_separation: "PASS_SUPPORT_SERVICE_POINTS",
-    adult_support_refund: "PASS_NO_EXTERNAL_EFFECT",
+    adult_support_reversal: "PASS_NO_EXTERNAL_EFFECT",
+    commerce_restart_balance: persistentBalanceBody,
   }, null, 2);
   await writeFile(testInfo.outputPath("state-results.json"), stateResults, "utf8");
   await testInfo.attach("state-results.json", {
@@ -336,7 +357,7 @@ async function startVite(
   await waitForUrl(`http://127.0.0.1:${port}/`);
 }
 
-async function startCommerceSandbox(port: number): Promise<void> {
+async function startCommerceSandbox(port: number): Promise<ChildProcess> {
   commerceApiUrl = `http://127.0.0.1:${port}`;
   const child = spawn(
     pythonExecutable,
@@ -344,6 +365,8 @@ async function startCommerceSandbox(port: number): Promise<void> {
       "-m",
       "poc.standalone_live_commerce_sandbox.commerce_api",
       "--serve",
+      "--database",
+      commerceDatabasePath,
       "--port",
       String(port),
     ],
@@ -353,6 +376,7 @@ async function startCommerceSandbox(port: number): Promise<void> {
   child.stdout?.resume();
   child.stderr?.resume();
   await waitForUrl(`${commerceApiUrl}/health`);
+  return child;
 }
 
 async function startReplaySandbox(port: number): Promise<ChildProcess> {
@@ -441,6 +465,17 @@ async function readFirstJsonLine(child: ChildProcess): Promise<string> {
       settled = true;
       clearTimeout(timeout);
       resolveLine(line);
+    });
+  });
+}
+
+async function waitForProcessExit(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  await new Promise<void>((resolveExit, reject) => {
+    const timeout = setTimeout(() => reject(new Error("sandbox shutdown timed out")), 10_000);
+    child.once("exit", () => {
+      clearTimeout(timeout);
+      resolveExit();
     });
   });
 }
