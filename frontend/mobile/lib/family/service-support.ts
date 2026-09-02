@@ -19,7 +19,7 @@ export interface SupportOfferingPresentation {
   channel: ConsultationChannel | null;
   availability: "AVAILABLE" | "UNAVAILABLE";
   source: "FAMILY_API" | "BASELINE_CONTENT";
-  fixtureOnly: true;
+  fixtureOnly: boolean | null;
   accent: string;
   introduction: string;
   expertise: readonly string[];
@@ -118,24 +118,24 @@ const FALLBACK_OFFERINGS: readonly SupportOfferingPresentation[] = [
 ] as const;
 
 export function serviceOfferingsForDisplay(remote?: readonly FamilyApiServiceOffering[]) {
-  if (!remote?.length) return [...FALLBACK_OFFERINGS];
+  if (remote === undefined) return [...FALLBACK_OFFERINGS];
   return remote.map((item, index): SupportOfferingPresentation => ({
     offeringRef: item.service_offering_ref,
     version: item.version_no,
     title: item.title,
-    providerRef: item.provider_ref,
+    providerRef: item.provider_ref ?? item.provider_id ?? item.service_offering_id,
     providerName: item.provider_display_name,
     serviceType: item.service_type || "家庭成长支持",
-    ageBand: item.age_band || "家庭阶段待了解",
-    theme: inferSupportTheme(item.service_type),
-    nextAvailableAt: item.next_available_at,
-    channel: item.next_available_channel,
-    availability: item.availability_status,
+    ageBand: item.age_band || "适用家庭待确认",
+    theme: inferSupportTheme(item.service_type ?? null),
+    nextAvailableAt: item.next_available_at ?? null,
+    channel: item.next_available_channel ?? item.channel_options?.[0] ?? null,
+    availability: item.availability_status ?? ((item.open_slot_count ?? 0) > 0 ? "AVAILABLE" : "UNAVAILABLE"),
     source: "FAMILY_API",
-    fixtureOnly: item.fixture_only,
+    fixtureOnly: item.fixture_only ?? null,
     accent: index % 2 === 0 ? "#2563EB" : "#7556C8",
     introduction: "从家庭当前情境出发，先了解支持方向、适用场景和服务边界，再决定是否需要继续。",
-    expertise: [item.service_type || "家庭成长", item.age_band || "家庭支持", channelLabel(item.next_available_channel)],
+    expertise: [item.service_type || "家庭成长", item.age_band || "适用家庭待确认", channelLabel(item.next_available_channel ?? item.channel_options?.[0] ?? null)],
   }));
 }
 

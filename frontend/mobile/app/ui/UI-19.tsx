@@ -8,34 +8,54 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { familyApi } from "@/lib/family/family-api-client";
-import type { FamilyApiServiceSupplyProjection } from "@/lib/family/family-api-projections";
+import type { FamilyApiExpertLiveSession, FamilyApiServiceOffering, FamilyApiServiceSupplyProjection } from "@/lib/family/family-api-projections";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
 import { serviceOfferingsForDisplay, SUPPORT_THEMES, type SupportOfferingPresentation, type SupportThemeId } from "@/lib/family/service-support";
 
 export default function TeacherZoneScreen() {
   const colors = useColors();
   const session = useFamilyApiSession();
-  const [projection, setProjection] = useState<FamilyApiServiceSupplyProjection | null>(null);
+  const [remoteOfferings, setRemoteOfferings] = useState<FamilyApiServiceOffering[]>([]);
+  const [liveSession, setLiveSession] = useState<FamilyApiExpertLiveSession | null>(null);
+  const [loadState, setLoadState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [query, setQuery] = useState("");
   const [theme, setTheme] = useState<SupportThemeId>("ALL");
 
   useEffect(() => {
     if (session.status !== "connected" || !session.token || !session.selectedFamily) return;
     let active = true;
-    familyApi.getServiceOfferings<FamilyApiServiceSupplyProjection>(session.token, session.selectedFamily.family_id, {})
-      .then((result) => { if (active) setProjection(result); })
-      .catch((error) => { console.error("UI-19 remote projection failed", error); });
+    setLoadState("loading");
+    familyApi.getServiceOfferings<FamilyApiServiceOffering[] | FamilyApiServiceSupplyProjection>(session.token, session.selectedFamily.family_id, {})
+      .then((result) => {
+        if (!active) return;
+        if (Array.isArray(result)) {
+          setRemoteOfferings(result);
+          setLiveSession(null);
+          setLoadState("ready");
+          return;
+        }
+        setRemoteOfferings(result.offerings);
+        setLiveSession(result.live_session);
+        setLoadState("ready");
+      })
+      .catch((error) => {
+        if (!active) return;
+        setRemoteOfferings([]);
+        setLiveSession(null);
+        setLoadState("error");
+        console.error("UI-19 remote projection failed", error);
+      });
     return () => { active = false; };
   }, [session.selectedFamily, session.status, session.token]);
 
   const offerings = useMemo(() => {
     const value = query.trim().toLowerCase();
-    return serviceOfferingsForDisplay(projection?.offerings).filter((item) => {
+    return serviceOfferingsForDisplay(remoteOfferings).filter((item) => {
       const matchesTheme = theme === "ALL" || item.theme === theme;
       const matchesQuery = !value || `${item.providerName}${item.title}${item.serviceType}${item.ageBand}`.toLowerCase().includes(value);
       return matchesTheme && matchesQuery;
     });
-  }, [projection?.offerings, query, theme]);
+  }, [query, remoteOfferings, theme]);
 
   const openOffering = (item: SupportOfferingPresentation) => {
     router.push(`/ui/UI-20?offeringRef=${encodeURIComponent(item.offeringRef)}` as Href);
@@ -73,23 +93,23 @@ export default function TeacherZoneScreen() {
                 </Pressable>
               </View>
               <View style={styles.expertCluster}>
-                <View style={[styles.expertBubble, styles.expertBubbleBack]}><Text style={styles.expertInitial}>王</Text></View>
-                <View style={[styles.expertBubble, styles.expertBubbleFront]}><Text style={styles.expertInitial}>李</Text></View>
+                <View style={styles.supportBubble}><IconSymbol name="person.2.fill" size={34} color="#2563EB" /></View>
+                <Text style={styles.supportBubbleText}>真人支持</Text>
               </View>
             </View>
 
-
-            {projection?.live_session ? (
+            {liveSession ? (
               <Pressable onPress={() => router.push("/ui/UI-20" as Href)} style={({ pressed }) => [styles.liveCard, { backgroundColor: "#FFF6F1", borderColor: "#F5C9B1" }, pressed && styles.pressed]}>
                 <View style={styles.liveIcon}><IconSymbol name="video.fill" size={23} color="#F28C45" /></View>
                 <View style={styles.liveCopy}>
-                  <Text style={styles.liveLabel}>{projection.live_session.status === "LIVE" ? "正在进行" : projection.live_session.status === "ENDED" ? "本场已结束" : "近期直播"}</Text>
-                  <Text style={[styles.liveTitle, { color: colors.text }]}>{projection.live_session.title}</Text>
-                  <Text style={[styles.liveText, { color: colors.muted }]}>{projection.live_session.host_display_name} · {projection.live_session.topic}</Text>
+                  <Text style={styles.liveLabel}>{liveSession.status === "LIVE" ? "正在进行" : liveSession.status === "ENDED" ? "本场已结束" : "近期直播"}</Text>
+                  <Text style={[styles.liveTitle, { color: colors.text }]}>{liveSession.title}</Text>
+                  <Text style={[styles.liveText, { color: colors.muted }]}>{liveSession.host_display_name} · {liveSession.topic}</Text>
                 </View>
                 <IconSymbol name="chevron.right" size={20} color="#F28C45" />
               </Pressable>
             ) : null}
+
 
             <View style={styles.sectionHeading}>
               <Text style={[styles.sectionTitle, { color: colors.text }]}>热门领域</Text>
@@ -111,7 +131,16 @@ export default function TeacherZoneScreen() {
             </View>
           </View>
         }
-        ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: colors.text }]}>暂时没有匹配的支持主题</Text><Text style={[styles.emptyText, { color: colors.muted }]}>换一个关键词或领域再看看。</Text></View>}
+        ListEmptyComponent={
+          <View style={styles.empty}>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>
+              {loadState === "loading" ? "正在读取可用服务" : loadState === "error" ? "真实服务暂时无法同步" : session.status !== "connected" ? "服务连接尚未建立" : "当前没有可预约的支持"}
+            </Text>
+            <Text style={[styles.emptyText, { color: colors.muted }]}>
+              {loadState === "error" ? "我们不会用静态教师资料替代真实供给，请稍后重试。" : session.status !== "connected" ? "连接家庭账户后才能查看经审核的服务与时段。" : "家庭可以稍后再来查看，系统不会替你选择服务。"}
+            </Text>
+          </View>
+        }
         renderItem={({ item }) => (
           <View style={[styles.teacherCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={[styles.avatar, { backgroundColor: `${item.accent}20` }]}><Text style={[styles.avatarText, { color: item.accent }]}>{item.providerName.slice(0, 1)}</Text></View>
@@ -150,11 +179,9 @@ const styles = StyleSheet.create({
   heroText: { color: "#5B7091", fontSize: 13, lineHeight: 18, fontWeight: "700" },
   heroAction: { alignSelf: "flex-start", minHeight: 36, borderRadius: 18, backgroundColor: "#2563EB", justifyContent: "center", paddingHorizontal: 14, marginTop: 2 },
   heroActionText: { color: "#FFFFFF", fontSize: 12, lineHeight: 17, fontWeight: "900" },
-  expertCluster: { width: 108, height: 120, justifyContent: "center", alignItems: "center" },
-  expertBubble: { position: "absolute", width: 72, height: 72, borderRadius: 36, borderWidth: 3, borderColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
-  expertBubbleBack: { backgroundColor: "#BFD1F8", right: 2, top: 12 },
-  expertBubbleFront: { backgroundColor: "#F6D5C4", left: 3, bottom: 10 },
-  expertInitial: { color: "#09295A", fontSize: 25, fontWeight: "900" },
+  expertCluster: { width: 108, height: 120, justifyContent: "center", alignItems: "center", gap: 8 },
+  supportBubble: { width: 72, height: 72, borderRadius: 36, borderWidth: 3, borderColor: "#FFFFFF", backgroundColor: "#D8E7FF", alignItems: "center", justifyContent: "center" },
+  supportBubbleText: { color: "#315B96", fontSize: 11, lineHeight: 16, fontWeight: "900" },
   liveCard: { minHeight: 88, borderWidth: 1, borderRadius: 19, padding: 13, flexDirection: "row", alignItems: "center", gap: 10 },
   liveIcon: { width: 44, height: 44, borderRadius: 15, backgroundColor: "#F28C4518", alignItems: "center", justifyContent: "center" },
   liveCopy: { flex: 1, gap: 2 }, liveLabel: { color: "#F28C45", fontSize: 11, lineHeight: 16, fontWeight: "900" }, liveTitle: { fontSize: 14, lineHeight: 20, fontWeight: "900" }, liveText: { fontSize: 11, lineHeight: 16 },

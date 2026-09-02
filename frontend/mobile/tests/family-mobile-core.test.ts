@@ -1074,6 +1074,37 @@ describe("expert service and family activity mobile presentation", () => {
     );
   });
 
+  it("maps the canonical Service OfferingView without falling back to static teachers", () => {
+    const display = serviceOfferingsForDisplay([
+      {
+        service_offering_id: "offering-real-1",
+        service_offering_ref: "S01_EVENING_START",
+        version_no: 1,
+        title: "晚间学习平稳启动支持",
+        provider_id: "provider-real-1",
+        provider_display_name: "家庭行动教练",
+        provider_kind: "TEACHER",
+        channel_options: ["VIDEO"],
+        open_slot_count: 1,
+      },
+    ]);
+
+    expect(display).toHaveLength(1);
+    expect(display[0]).toMatchObject({
+      offeringRef: "S01_EVENING_START",
+      providerRef: "provider-real-1",
+      providerName: "家庭行动教练",
+      availability: "AVAILABLE",
+      channel: "VIDEO",
+      source: "FAMILY_API",
+      fixtureOnly: null,
+    });
+  });
+
+  it("does not fabricate static teachers when the canonical Service response is empty", () => {
+    expect(serviceOfferingsForDisplay([])).toEqual([]);
+  });
+
   it("selects the UI-22 activity catalog from the same platform projection and keeps browsing separate from registration", () => {
     const catalog = {
       state: "READY",

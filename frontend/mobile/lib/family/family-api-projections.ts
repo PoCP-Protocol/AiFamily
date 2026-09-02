@@ -91,19 +91,25 @@ export interface FamilyApiServiceOffering {
   service_offering_ref: string;
   version_no: number;
   title: string;
-  provider_ref: string;
+  provider_id?: string;
   provider_display_name: string;
-  provider_kind: "TEACHER";
-  qualification_status: "ACTIVE";
-  admission_status: "ADMITTED";
-  offering_status: "ACTIVE";
-  service_type: string | null;
-  age_band: string | null;
-  next_available_at: string | null;
-  next_available_channel: "VIDEO" | "TEXT" | "OFFLINE" | null;
-  availability_status: "AVAILABLE" | "UNAVAILABLE";
-  fixture_only: true;
-  attributes_schema_version: number;
+  provider_kind: string;
+  channel_options?: ("VIDEO" | "TEXT" | "OFFLINE")[];
+  open_slot_count?: number;
+  // Older platform projections may provide these reviewed metadata fields.
+  // The canonical Service OfferingView does not, so consumers must not invent
+  // them when they are absent.
+  provider_ref?: string;
+  qualification_status?: "ACTIVE";
+  admission_status?: "ADMITTED";
+  offering_status?: "ACTIVE";
+  service_type?: string | null;
+  age_band?: string | null;
+  next_available_at?: string | null;
+  next_available_channel?: "VIDEO" | "TEXT" | "OFFLINE" | null;
+  availability_status?: "AVAILABLE" | "UNAVAILABLE";
+  fixture_only?: boolean;
+  attributes_schema_version?: number;
 }
 
 export interface FamilyApiExpertLiveSession {
