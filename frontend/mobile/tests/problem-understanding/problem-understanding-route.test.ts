@@ -88,13 +88,17 @@ describe("Problem Understanding standalone Expo route", () => {
     expect(components).toContain("请人工帮我看看");
     expect(components).toContain("删除这次内容");
     expect(components).toContain("这份理解从哪里来");
+    expect(components).toContain("回答这个问题 →");
+    expect(route).toContain("handleAnswerQuestion");
+    expect(route).toContain("onAnswerQuestion={handleAnswerQuestion}");
   });
 
   it("uses one clear three-step promise and adapts review density by viewport", () => {
     expect(route).toContain("今天，想先把哪件事说清楚？");
     expect(route).toContain("1 说出困扰");
     expect(route).toContain("2 确认理解");
-    expect(route).toContain("3 获得下一步");
+    expect(route).toContain("3 继续深入理解");
+    expect(route).not.toContain("3 获得下一步");
     expect(route).toContain("useWindowDimensions");
     expect(route).toContain("width < 480");
     expect(route).toContain("width >= 960");

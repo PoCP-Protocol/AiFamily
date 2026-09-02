@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  answerFollowUpQuestion,
   applyConfirmationReceipt,
   beginConfirmation,
   beginCorrection,
@@ -57,6 +58,24 @@ describe("Problem Understanding mobile controller", () => {
     });
     expect(corrected.inputs).toHaveLength(2);
     expect(corrected.activeSignal).toBeNull();
+  });
+
+  it("turns a generated follow-up question into the next parent reply", () => {
+    const ready = receiveUnderstanding(
+      submitConcern(createProblemUnderstandingState(), concernInput),
+      initialUnderstanding,
+    );
+    const answering = answerFollowUpQuestion(
+      ready,
+      initialUnderstanding.followUpQuestions[0],
+    );
+
+    expect(answering.phase).toBe("CORRECTING");
+    expect(answering.correctionDraft).toContain(
+      initialUnderstanding.followUpQuestions[0],
+    );
+    expect(answering.activeSignal).toEqual(ready.activeSignal);
+    expect(answering.drafts).toEqual(ready.drafts);
   });
 
   it("binds confirmation to the exact signal and version the parent reviewed", () => {

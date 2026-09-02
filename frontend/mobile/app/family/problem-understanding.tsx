@@ -20,6 +20,7 @@ import {
   type MultimodalRunReplayResponse,
   RecoveryNotice,
   UnderstandingMap,
+  answerFollowUpQuestion,
   beginCorrection,
   buildMultimodalDraftRequest,
   buildUnderstandingMap,
@@ -206,6 +207,10 @@ export default function ProblemUnderstandingRoute() {
     });
     setState(submitted);
     void requestUnderstanding(submitted, text, 1);
+  };
+
+  const handleAnswerQuestion = (question: string) => {
+    setState(answerFollowUpQuestion(state, question));
   };
 
   const handleReconnect = async () => {
@@ -461,7 +466,7 @@ export default function ProblemUnderstandingRoute() {
             <Text style={styles.stepArrow}>→</Text>
             <Text style={styles.step}>2 确认理解</Text>
             <Text style={styles.stepArrow}>→</Text>
-            <Text style={styles.step}>3 获得下一步</Text>
+            <Text style={styles.step}>3 继续深入理解</Text>
           </View>
         </View>
 
@@ -574,7 +579,10 @@ export default function ProblemUnderstandingRoute() {
             ]}
           >
             <View style={styles.reviewMain}>
-              <UnderstandingMap model={map} />
+              <UnderstandingMap
+                model={map}
+                onAnswerQuestion={handleAnswerQuestion}
+              />
             </View>
             {state.phase !== "CONFIRMED" ? (
               <View

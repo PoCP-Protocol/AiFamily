@@ -96,6 +96,25 @@ export function beginCorrection(
   return { ...state, phase: "CORRECTING", correctionDraft: "" };
 }
 
+export function answerFollowUpQuestion(
+  state: ProblemUnderstandingState,
+  question: string,
+): ProblemUnderstandingState {
+  const normalizedQuestion = question.trim();
+  if (
+    state.phase !== "AWAITING_CONFIRMATION" ||
+    !state.activeSignal ||
+    normalizedQuestion.length === 0
+  ) {
+    return { ...state, phase: "ERROR" };
+  }
+  return {
+    ...state,
+    phase: "CORRECTING",
+    correctionDraft: `关于“${normalizedQuestion}”：`,
+  };
+}
+
 export function updateCorrectionDraft(
   state: ProblemUnderstandingState,
   correctionDraft: string,

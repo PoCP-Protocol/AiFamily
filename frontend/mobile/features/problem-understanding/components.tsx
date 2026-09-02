@@ -59,9 +59,13 @@ export function ConcernComposer({
 
 interface UnderstandingMapProps {
   model: UnderstandingMapViewModel;
+  onAnswerQuestion: (question: string) => void;
 }
 
-export function UnderstandingMap({ model }: UnderstandingMapProps) {
+export function UnderstandingMap({
+  model,
+  onAnswerQuestion,
+}: UnderstandingMapProps) {
   return (
     <View style={styles.stack}>
       <View style={styles.mapHeading}>
@@ -127,7 +131,19 @@ export function UnderstandingMap({ model }: UnderstandingMapProps) {
         {model.followUpQuestions.length > 0 ? (
           <MapSection title="接下来，我想认真问你">
             {model.followUpQuestions.map((item) => (
-              <Bullet key={item}>{item}</Bullet>
+              <Pressable
+                accessibilityLabel={`回答：${item}`}
+                accessibilityRole="button"
+                key={item}
+                onPress={() => onAnswerQuestion(item)}
+                style={({ pressed }) => [
+                  styles.questionButton,
+                  pressed && styles.pressedButton,
+                ]}
+              >
+                <Text style={styles.questionText}>{item}</Text>
+                <Text style={styles.questionAction}>回答这个问题 →</Text>
+              </Pressable>
             ))}
           </MapSection>
         ) : null}
@@ -395,6 +411,16 @@ const styles = StyleSheet.create({
   mapHeading: { gap: 4 },
   privacyNote: { color: "#6E6258", fontSize: 13, lineHeight: 20 },
   pressedButton: { opacity: 0.78 },
+  questionAction: { color: "#9B4728", fontSize: 13, fontWeight: "700" },
+  questionButton: {
+    backgroundColor: "#FFF9F5",
+    borderColor: "#E7D8CC",
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 6,
+    padding: 14,
+  },
+  questionText: { color: "#443A32", fontSize: 16, lineHeight: 24 },
   quietSection: { backgroundColor: "#F3F0EA" },
   quietButton: { backgroundColor: "transparent", paddingVertical: 10 },
   quietButtonText: { color: "#765B4C", fontSize: 14 },
