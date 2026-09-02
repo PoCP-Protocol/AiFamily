@@ -3,6 +3,7 @@ export * from "./controller";
 export * from "./dev-synthetic-fixture";
 export type {
   ConfirmationBinding,
+  AuthorizedMediaAttachment,
   DraftBinding,
   ProblemUnderstandingPhase,
   ProblemUnderstandingState,

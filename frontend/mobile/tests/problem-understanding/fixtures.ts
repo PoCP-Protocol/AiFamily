@@ -11,6 +11,7 @@ export const concernInput: UnderstandingInput = {
 };
 
 export const initialUnderstanding: UnderstandingDraft = {
+  runId: "run-test-001",
   signalRef: "signal-test-001",
   signalVersion: 1,
   scopeRef: "family://tenant-test/family-test/problem-understanding",
@@ -27,5 +28,8 @@ export const initialUnderstanding: UnderstandingDraft = {
     { key: "timing", label: "争吵通常从哪个时刻开始" },
     { key: "child-view", label: "孩子怎样理解这些争吵" },
   ],
+  sourceSummary: "根据你写下的内容整理",
+  generatedAt: "2026-09-01T09:01:00+08:00",
+  mediaCount: 0,
   lifecycle: "PROPOSED",
 };

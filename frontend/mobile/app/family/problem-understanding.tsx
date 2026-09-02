@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useEffect, useMemo, useState } from "react";
+import { useLocalSearchParams } from "expo-router";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -13,13 +14,18 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ConcernComposer,
   CorrectionConfirmation,
-  type GeneratedUnderstandingResponse,
+  type AuthorizedMediaAttachment,
+  type MultimodalDraftResponse,
+  type MultimodalRunInteractionResponse,
+  type MultimodalRunReplayResponse,
   RecoveryNotice,
   UnderstandingMap,
-  beginConfirmation,
   beginCorrection,
+  buildMultimodalDraftRequest,
   buildUnderstandingMap,
   createProblemUnderstandingState,
+  isAuthorizedMediaAttachment,
+  markUnderstandingFeedbackRecorded,
   markUnderstandingUnavailable,
   receiveUnderstanding,
   retryUnderstanding,
@@ -27,6 +33,7 @@ import {
   resumeSavedProblemUnderstanding,
   saveProblemUnderstandingForLater,
   serializeProblemUnderstandingState,
+  selectCurrentDraft,
   skipClarification,
   submitConcern,
   submitCorrection,
@@ -34,26 +41,67 @@ import {
   updateConcernDraft,
   updateCorrectionDraft,
 } from "@/features/problem-understanding";
-import { useColors } from "@/hooks/use-colors";
 import {
   createMobileRequestId,
   familyApi,
+  FamilyApiError,
 } from "@/lib/family/family-api-client";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
 
 const STORAGE_KEY = "aifamily:problem-understanding:generative:v2";
+const SANDBOX_IMAGE_ATTACHMENT: AuthorizedMediaAttachment = {
+  mediaType: "IMAGE",
+  uri: "asset:sandbox/family-homework-transition-v1",
+  mimeType: "image/png",
+  sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+};
 
 export default function ProblemUnderstandingRoute() {
-  const colors = useColors();
   const session = useFamilyApiSession();
+  const mediaParams = useLocalSearchParams<{
+    media_uri?: string;
+    media_mime_type?: string;
+    media_sha256?: string;
+  }>();
   const { width } = useWindowDimensions();
   const [state, setState] = useState(createProblemUnderstandingState);
   const [hydrated, setHydrated] = useState(false);
   const [reviewWidth, setReviewWidth] = useState(0);
+  const [busyAction, setBusyAction] = useState<
+    "human-review" | "delete" | "decision" | null
+  >(null);
+  const [connectionBusy, setConnectionBusy] = useState(false);
+  const [sandboxImageSelected, setSandboxImageSelected] = useState(false);
+  const [operationMessage, setOperationMessage] = useState<string | null>(null);
+  const replayCheckedRef = useRef<string | null>(null);
   const map = useMemo(() => buildUnderstandingMap(state), [state]);
+  const currentDraft = useMemo(() => selectCurrentDraft(state), [state]);
+  const attachments = useMemo<AuthorizedMediaAttachment[]>(() => {
+    const attachment: AuthorizedMediaAttachment = {
+      mediaType: "IMAGE",
+      uri: mediaParams.media_uri ?? "",
+      mimeType: mediaParams.media_mime_type ?? "",
+      sha256: mediaParams.media_sha256 ?? "",
+    };
+    if (isAuthorizedMediaAttachment(attachment)) return [attachment];
+    return sandboxImageSelected ? [SANDBOX_IMAGE_ATTACHMENT] : [];
+  }, [
+    mediaParams.media_mime_type,
+    mediaParams.media_sha256,
+    mediaParams.media_uri,
+    sandboxImageSelected,
+  ]);
+  const hasIncompleteAttachment =
+    Boolean(
+      mediaParams.media_uri ||
+      mediaParams.media_mime_type ||
+      mediaParams.media_sha256,
+    ) && attachments.length === 0;
   const isCompact = width < 480;
   const isDesktop = width >= 960;
   const isWideReview = reviewWidth >= 760;
+  const sessionToken = session.token;
+  const selectedFamilyId = session.selectedFamily?.family_id ?? null;
 
   useEffect(() => {
     let active = true;
@@ -69,12 +117,39 @@ export default function ProblemUnderstandingRoute() {
     };
   }, []);
 
+  useEffect(() => {
+    if (
+      !hydrated ||
+      session.status !== "connected" ||
+      !sessionToken ||
+      !selectedFamilyId ||
+      !currentDraft ||
+      replayCheckedRef.current === currentDraft.runId
+    ) {
+      return;
+    }
+    replayCheckedRef.current = currentDraft.runId;
+    void familyApi
+      .replayMultimodalUnderstandingRun<MultimodalRunReplayResponse>(
+        sessionToken,
+        selectedFamilyId,
+        currentDraft.runId,
+      )
+      .then(async (replay) => {
+        if (replay.deletion_state !== "deleted") return;
+        await AsyncStorage.removeItem(STORAGE_KEY);
+        setState(createProblemUnderstandingState());
+        setOperationMessage("这次内容已删除，刷新后也不会恢复。");
+      })
+      .catch((error: unknown) => {
+        setOperationMessage(userMessageForError(error, "replay"));
+      });
+  }, [currentDraft, hydrated, selectedFamilyId, session.status, sessionToken]);
+
   const requestUnderstanding = async (
     submitted: typeof state,
-    inputRef: string,
     text: string,
     revision: number,
-    priorDraftArtifactHash: string | null,
   ) => {
     if (
       session.status !== "connected" ||
@@ -85,18 +160,19 @@ export default function ProblemUnderstandingRoute() {
       return;
     }
     try {
+      const runId = createMobileRequestId(`family-understanding-v${revision}`);
       const response =
-        await familyApi.generateFamilyUnderstanding<GeneratedUnderstandingResponse>(
+        await familyApi.createMultimodalUnderstandingDraft<MultimodalDraftResponse>(
           session.token,
           session.selectedFamily.family_id,
-          {
-            run_id: `${inputRef}:v${revision}`,
-            tenant_id: session.selectedFamily.tenant_id,
-            guardian_input_ref: inputRef,
-            guardian_text: text,
+          buildMultimodalDraftRequest({
+            runId,
+            sessionId: createMobileRequestId("family-understanding-session"),
+            expression: text,
             revision,
-            prior_draft_artifact_hash: priorDraftArtifactHash,
-          },
+            attachments,
+          }),
+          `create:${runId}`,
         );
       setState(
         receiveUnderstanding(
@@ -105,34 +181,59 @@ export default function ProblemUnderstandingRoute() {
             response,
             session.selectedFamily.tenant_id,
             session.selectedFamily.family_id,
+            revision,
+            attachments.length,
           ),
         ),
       );
-    } catch {
-      setState(markUnderstandingUnavailable(submitted));
+      setOperationMessage(null);
+    } catch (error) {
+      setState({
+        ...markUnderstandingUnavailable(submitted),
+        recoveryMessage: userMessageForError(error, "generate"),
+      });
     }
   };
 
   const handleConcernSubmit = () => {
     const text = state.concernDraft.trim();
     const inputRef = createMobileRequestId("guardian-concern");
-    const submitted = submitConcern(
-      state,
-      {
-        inputRef,
-        kind: "CONCERN",
-        text,
-        createdAt: new Date().toISOString(),
-      },
-    );
+    const submitted = submitConcern(state, {
+      inputRef,
+      kind: "CONCERN",
+      text,
+      createdAt: new Date().toISOString(),
+    });
     setState(submitted);
-    void requestUnderstanding(submitted, inputRef, text, 1, null);
+    void requestUnderstanding(submitted, text, 1);
   };
 
-  const handleCorrectionSubmit = () => {
+  const handleReconnect = async () => {
+    setConnectionBusy(true);
+    setOperationMessage(null);
+    try {
+      await session.connectDevSession();
+      setOperationMessage("已尝试重新连接。连接成功后，可以继续刚才的内容。");
+    } catch {
+      setOperationMessage("现在还连不上。你的内容没有丢失，请稍后再试。");
+    } finally {
+      setConnectionBusy(false);
+    }
+  };
+
+  const handleCorrectionSubmit = async () => {
     const correction = state.correctionDraft.trim();
     const inputRef = createMobileRequestId("guardian-correction");
     const priorDraft = state.drafts.at(-1) ?? null;
+    if (
+      !priorDraft ||
+      session.status !== "connected" ||
+      !session.token ||
+      !session.selectedFamily
+    ) {
+      setOperationMessage("暂时无法提交补充。你的内容还在，可以稍后再试。");
+      return;
+    }
     const submitted = submitCorrection(state, {
       inputRef,
       kind: "CORRECTION",
@@ -140,25 +241,89 @@ export default function ProblemUnderstandingRoute() {
       createdAt: new Date().toISOString(),
     });
     setState(submitted);
-    void requestUnderstanding(
-      submitted,
-      inputRef,
-      [...state.inputs.map((item) => item.text), correction].join("\n\n补充或修正："),
-      (priorDraft?.draftVersion ?? 1) + 1,
-      priorDraft?.reviewedDraftRef ?? null,
-    );
+    try {
+      await familyApi.decideMultimodalUnderstandingRun<MultimodalRunInteractionResponse>(
+        session.token,
+        session.selectedFamily.family_id,
+        priorDraft.runId,
+        {
+          decision: "rewrite",
+          draft_version: String(priorDraft.draftVersion),
+          replacement_text: correction,
+        },
+        `rewrite:${priorDraft.runId}:${priorDraft.draftVersion}`,
+      );
+      await requestUnderstanding(
+        submitted,
+        [...state.inputs.map((item) => item.text), correction].join(
+          "\n\n补充或修正：",
+        ),
+        priorDraft.draftVersion + 1,
+      );
+    } catch (error) {
+      setState({
+        ...markUnderstandingUnavailable(submitted),
+        recoveryMessage: userMessageForError(error, "correct"),
+      });
+    }
   };
 
-  const handleConfirm = () => {
-    const confirming = beginConfirmation(state);
-    setState(
-      confirming.pendingConfirmation
-        ? confirming
-        : {
-            ...state,
-            recoveryMessage: "确认服务正在连接，请先保存这次理解，稍后继续。",
-          },
-    );
+  const handleConfirm = async () => {
+    if (
+      !currentDraft ||
+      session.status !== "connected" ||
+      !session.token ||
+      !session.selectedFamily
+    ) {
+      setOperationMessage("暂时无法记下反馈。你的内容还在，可以稍后再试。");
+      return;
+    }
+    setBusyAction("decision");
+    try {
+      await familyApi.decideMultimodalUnderstandingRun<MultimodalRunInteractionResponse>(
+        session.token,
+        session.selectedFamily.family_id,
+        currentDraft.runId,
+        {
+          decision: "confirm",
+          draft_version: String(currentDraft.draftVersion),
+        },
+        `confirm:${currentDraft.runId}:${currentDraft.draftVersion}`,
+      );
+      setState(markUnderstandingFeedbackRecorded(state));
+      setOperationMessage("已记下：这份理解比较贴近你的情况。");
+    } catch (error) {
+      setOperationMessage(userMessageForError(error, "decision"));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleHumanReview = async () => {
+    if (
+      !currentDraft ||
+      session.status !== "connected" ||
+      !session.token ||
+      !session.selectedFamily
+    ) {
+      setOperationMessage("暂时无法联系人工作者。你的内容还在，可以稍后再试。");
+      return;
+    }
+    setBusyAction("human-review");
+    try {
+      await familyApi.requestMultimodalHumanReview<MultimodalRunInteractionResponse>(
+        session.token,
+        session.selectedFamily.family_id,
+        currentDraft.runId,
+        { reason: "家长希望人工核对这份理解。" },
+        `human-review:${currentDraft.runId}`,
+      );
+      setOperationMessage("已收到，我们会请人工帮你核对这份理解。");
+    } catch (error) {
+      setOperationMessage(userMessageForError(error, "human-review"));
+    } finally {
+      setBusyAction(null);
+    }
   };
 
   const handleSaveAndExit = async () => {
@@ -174,8 +339,39 @@ export default function ProblemUnderstandingRoute() {
   };
 
   const handleDelete = async () => {
-    await AsyncStorage.removeItem(STORAGE_KEY);
-    setState(createProblemUnderstandingState());
+    if (
+      !currentDraft ||
+      session.status !== "connected" ||
+      !session.token ||
+      !session.selectedFamily
+    ) {
+      setOperationMessage("暂时无法删除。内容仍然保留，你可以稍后重试。");
+      return;
+    }
+    setBusyAction("delete");
+    try {
+      await familyApi.deleteMultimodalUnderstandingRun<MultimodalRunInteractionResponse>(
+        session.token,
+        session.selectedFamily.family_id,
+        currentDraft.runId,
+        { reason: "家长删除本次家庭理解草案。" },
+        `delete:${currentDraft.runId}`,
+      );
+      await AsyncStorage.removeItem(STORAGE_KEY);
+      replayCheckedRef.current = currentDraft.runId;
+      setState(createProblemUnderstandingState());
+      setOperationMessage("这次内容已删除，刷新后也不会恢复。");
+    } catch (error) {
+      if (error instanceof FamilyApiError && error.status === 410) {
+        await AsyncStorage.removeItem(STORAGE_KEY);
+        setState(createProblemUnderstandingState());
+        setOperationMessage("这次内容已经删除，不会再次恢复。");
+      } else {
+        setOperationMessage(userMessageForError(error, "delete"));
+      }
+    } finally {
+      setBusyAction(null);
+    }
   };
 
   const handleStartNew = async () => {
@@ -185,9 +381,7 @@ export default function ProblemUnderstandingRoute() {
 
   if (!hydrated) {
     return (
-      <SafeAreaView
-        style={[styles.safeArea, { backgroundColor: colors.background }]}
-      >
+      <SafeAreaView style={styles.safeArea}>
         <View accessibilityRole="progressbar" style={styles.loadingCard}>
           <Text style={styles.confirmedTitle}>正在找回你上次保存的内容…</Text>
         </View>
@@ -197,9 +391,7 @@ export default function ProblemUnderstandingRoute() {
 
   if (state.phase === "SAVED") {
     return (
-      <SafeAreaView
-        style={[styles.safeArea, { backgroundColor: colors.background }]}
-      >
+      <SafeAreaView style={styles.safeArea}>
         <View style={styles.savedScreen}>
           <View style={styles.confirmedCard}>
             <Text accessibilityRole="header" style={styles.confirmedTitle}>
@@ -209,6 +401,11 @@ export default function ProblemUnderstandingRoute() {
               下次打开会回到这份理解。你也可以现在继续，或删除已保存内容。
             </Text>
           </View>
+          {operationMessage ? (
+            <View accessibilityRole="alert" style={styles.operationNotice}>
+              <Text style={styles.confirmedBody}>{operationMessage}</Text>
+            </View>
+          ) : null}
           <Pressable
             accessibilityRole="button"
             onPress={() => setState(resumeSavedProblemUnderstanding(state))}
@@ -218,10 +415,16 @@ export default function ProblemUnderstandingRoute() {
           </Pressable>
           <Pressable
             accessibilityRole="button"
+            disabled={busyAction !== null}
             onPress={handleDelete}
-            style={styles.secondaryButton}
+            style={[
+              styles.secondaryButton,
+              busyAction !== null && styles.disabledButton,
+            ]}
           >
-            <Text style={styles.secondaryButtonText}>删除已保存内容</Text>
+            <Text style={styles.secondaryButtonText}>
+              {busyAction === "delete" ? "正在删除" : "删除已保存内容"}
+            </Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -229,9 +432,7 @@ export default function ProblemUnderstandingRoute() {
   }
 
   return (
-    <SafeAreaView
-      style={[styles.safeArea, { backgroundColor: colors.background }]}
-    >
+    <SafeAreaView style={styles.safeArea}>
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -240,6 +441,7 @@ export default function ProblemUnderstandingRoute() {
         ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
+        style={styles.scroll}
       >
         <View style={styles.hero}>
           <View style={styles.previewPill}>
@@ -263,6 +465,88 @@ export default function ProblemUnderstandingRoute() {
           </View>
         </View>
 
+        {attachments.length > 0 ? (
+          <View accessibilityRole="summary" style={styles.attachmentNotice}>
+            <Text style={styles.attachmentTitle}>
+              {sandboxImageSelected ? "已附加 1 张测试图片" : "已附加 1 张图片"}
+            </Text>
+            <Text style={styles.confirmedBody}>
+              {sandboxImageSelected
+                ? "仅用于本地沙盒验证，不代表任何真实家庭资料。"
+                : "只会把已授权的图片引用交给家庭理解服务，不会上传页面中的原始图片内容。"}
+            </Text>
+            {sandboxImageSelected ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setSandboxImageSelected(false)}
+                style={styles.secondaryButton}
+              >
+                <Text style={styles.secondaryButtonText}>移除测试图片</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+
+        {process.env.NODE_ENV !== "production" && attachments.length === 0 ? (
+          <View style={styles.attachmentNotice}>
+            <Text style={styles.attachmentTitle}>可选：添加一张图片</Text>
+            <Text style={styles.confirmedBody}>
+              当前只提供明确标记的沙盒测试图片。真实图片仍需从已授权的家庭媒体入口选择。
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setSandboxImageSelected(true)}
+              style={styles.secondaryButton}
+            >
+              <Text style={styles.secondaryButtonText}>
+                选择测试图片（仅沙盒）
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {hasIncompleteAttachment ? (
+          <View accessibilityRole="alert" style={styles.warningNotice}>
+            <Text style={styles.attachmentTitle}>这张图片还不能使用</Text>
+            <Text style={styles.confirmedBody}>
+              请从家庭媒体库重新选择。文字内容仍可继续提交。
+            </Text>
+          </View>
+        ) : null}
+
+        {session.status !== "connected" ? (
+          <View accessibilityRole="alert" style={styles.warningNotice}>
+            <Text style={styles.attachmentTitle}>家庭服务暂时没有连接</Text>
+            <Text style={styles.confirmedBody}>
+              你写下的内容不会丢失。重新连接后可以继续整理。
+            </Text>
+            {session.configured ? (
+              <Pressable
+                accessibilityRole="button"
+                disabled={connectionBusy || session.status === "loading"}
+                onPress={handleReconnect}
+                style={[
+                  styles.secondaryButton,
+                  (connectionBusy || session.status === "loading") &&
+                    styles.disabledButton,
+                ]}
+              >
+                <Text style={styles.secondaryButtonText}>
+                  {connectionBusy || session.status === "loading"
+                    ? "正在重新连接"
+                    : "重新连接"}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+
+        {operationMessage ? (
+          <View accessibilityRole="alert" style={styles.operationNotice}>
+            <Text style={styles.confirmedBody}>{operationMessage}</Text>
+          </View>
+        ) : null}
+
         {state.inputs.length === 0 ? (
           <ConcernComposer
             onChangeText={(value) => setState(updateConcernDraft(state, value))}
@@ -270,6 +554,15 @@ export default function ProblemUnderstandingRoute() {
             phase={state.phase}
             value={state.concernDraft}
           />
+        ) : null}
+
+        {state.phase === "UNDERSTANDING" && !map ? (
+          <View accessibilityRole="progressbar" style={styles.loadingCard}>
+            <Text style={styles.confirmedTitle}>正在整理这件事…</Text>
+            <Text style={styles.confirmedBody}>
+              我们会把听到的重点、还不确定的地方和依据分开呈现。
+            </Text>
+          </View>
         ) : null}
 
         {map ? (
@@ -299,10 +592,13 @@ export default function ProblemUnderstandingRoute() {
                     setState(updateCorrectionDraft(state, value))
                   }
                   onConfirm={handleConfirm}
+                  onDelete={handleDelete}
+                  onRequestHumanReview={handleHumanReview}
                   onSaveAndExit={handleSaveAndExit}
                   onSkipClarification={() => setState(skipClarification(state))}
                   onSubmitCorrection={handleCorrectionSubmit}
                   phase={state.phase}
+                  busyAction={busyAction}
                 />
               </View>
             ) : null}
@@ -324,10 +620,10 @@ export default function ProblemUnderstandingRoute() {
               }
               void requestUnderstanding(
                 retrying,
-                lastInput.inputRef,
-                retrying.inputs.map((item) => item.text).join("\n\n补充或修正："),
+                retrying.inputs
+                  .map((item) => item.text)
+                  .join("\n\n补充或修正："),
                 priorDraft ? priorDraft.draftVersion + 1 : 1,
-                priorDraft?.reviewedDraftRef ?? null,
               );
             }}
           />
@@ -337,10 +633,10 @@ export default function ProblemUnderstandingRoute() {
           <View style={styles.confirmedLayout}>
             <View style={styles.confirmedCard}>
               <Text accessibilityRole="header" style={styles.confirmedTitle}>
-                这次理解已经确认
+                已记下你的反馈
               </Text>
               <Text style={styles.confirmedBody}>
-                你确认的是当前想先关注的方向。以后有新情况，还可以回来补充。
+                这表示当前草案比较贴近你的情况，不会自动改变家庭记录。
               </Text>
               <Pressable
                 accessibilityRole="button"
@@ -350,7 +646,7 @@ export default function ProblemUnderstandingRoute() {
                 <Text style={styles.secondaryButtonText}>补充新情况</Text>
               </Pressable>
               <Text style={styles.confirmedBody}>
-                也可以开始一次新的理解，之前确认的内容仍会保留在家庭记录中。
+                也可以开始一次新的理解；之前的草案仍由后端按你的删除选择处理。
               </Text>
               <Pressable
                 accessibilityRole="button"
@@ -367,7 +663,45 @@ export default function ProblemUnderstandingRoute() {
   );
 }
 
+function userMessageForError(
+  error: unknown,
+  action:
+    | "generate"
+    | "correct"
+    | "decision"
+    | "human-review"
+    | "delete"
+    | "replay",
+): string {
+  if (!(error instanceof FamilyApiError)) {
+    return "连接暂时不可用。你的内容还在，可以稍后重试。";
+  }
+  if (error.status === 401)
+    return "登录状态已失效。请重新登录，你写下的内容仍然保留。";
+  if (error.status === 403)
+    return "当前家庭暂时不能完成这一步。你的内容不会丢失。";
+  if (error.status === 409)
+    return "内容刚刚发生了变化，请重新打开最新版本后再试。";
+  if (error.status === 410) return "这次内容已经删除，不会再次恢复。";
+  if (action === "delete") return "删除没有完成，内容仍然保留。请稍后再试。";
+  if (action === "human-review")
+    return "暂时无法联系人工作者。你的内容还在，可以稍后再试。";
+  if (action === "replay")
+    return "暂时无法核对上次状态。已保存内容仍保留在本机。";
+  return "这次理解暂时没有完成。你说过的内容已经保留，可以稍后继续。";
+}
+
 const styles = StyleSheet.create({
+  attachmentNotice: {
+    backgroundColor: "#EEF4E9",
+    borderColor: "#C8D8BE",
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 5,
+    maxWidth: 720,
+    padding: 16,
+  },
+  attachmentTitle: { color: "#30462A", fontSize: 16, fontWeight: "700" },
   confirmedBody: {
     color: "#5F5147",
     fontSize: 16,
@@ -388,6 +722,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     lineHeight: 30,
   },
+  disabledButton: { opacity: 0.45 },
   content: {
     alignSelf: "center",
     gap: 16,
@@ -413,6 +748,12 @@ const styles = StyleSheet.create({
     lineHeight: 39,
   },
   loadingCard: { margin: 24, padding: 20 },
+  operationNotice: {
+    backgroundColor: "#F5F1EC",
+    borderRadius: 16,
+    maxWidth: 720,
+    padding: 14,
+  },
   primaryButton: {
     alignItems: "center",
     backgroundColor: "#D8663A",
@@ -442,7 +783,8 @@ const styles = StyleSheet.create({
   reviewMain: { flex: 1, minWidth: 0 },
   reviewRail: { width: "100%" },
   reviewRailWide: { flexShrink: 0, width: 340 },
-  safeArea: { flex: 1 },
+  safeArea: { backgroundColor: "#FFF9F5", flex: 1 },
+  scroll: { backgroundColor: "#FFF9F5", flex: 1 },
   savedScreen: {
     alignSelf: "center",
     gap: 12,
@@ -467,5 +809,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 7,
+  },
+  warningNotice: {
+    backgroundColor: "#FFF4EC",
+    borderColor: "#EBC3A9",
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 5,
+    maxWidth: 720,
+    padding: 16,
   },
 });
