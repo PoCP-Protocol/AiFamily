@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,6 +19,8 @@ import {
   type MultimodalDraftResponse,
   type MultimodalRunInteractionResponse,
   type MultimodalRunReplayResponse,
+  type MultimodalInputMode,
+  type VoiceCaptureState,
   RecoveryNotice,
   UnderstandingMap,
   answerFollowUpQuestion,
@@ -48,6 +51,7 @@ import {
   FamilyApiError,
 } from "@/lib/family/family-api-client";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
+import { createPlatformCapabilityRegistry } from "@/lib/platform-capabilities";
 
 const STORAGE_KEY = "aifamily:problem-understanding:generative:v2";
 const SANDBOX_IMAGE_ATTACHMENT: AuthorizedMediaAttachment = {
@@ -73,6 +77,10 @@ export default function ProblemUnderstandingRoute() {
   >(null);
   const [connectionBusy, setConnectionBusy] = useState(false);
   const [sandboxImageSelected, setSandboxImageSelected] = useState(false);
+  const [inputMode, setInputMode] = useState<MultimodalInputMode>("TEXT");
+  const [voiceCaptureState, setVoiceCaptureState] =
+    useState<VoiceCaptureState>("IDLE");
+  const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
   const [operationMessage, setOperationMessage] = useState<string | null>(null);
   const replayCheckedRef = useRef<string | null>(null);
   const map = useMemo(() => buildUnderstandingMap(state), [state]);
@@ -103,6 +111,19 @@ export default function ProblemUnderstandingRoute() {
   const isWideReview = reviewWidth >= 760;
   const sessionToken = session.token;
   const selectedFamilyId = session.selectedFamily?.family_id ?? null;
+  const mediaCapabilities = useMemo(
+    () =>
+      createPlatformCapabilityRegistry(
+        {
+          platform: Platform.OS === "ios" ? "IOS" : "ANDROID",
+          environment: process.env.NODE_ENV === "production" ? "PROD" : "DEV",
+          locale: "zh-CN",
+          tenantScope: session.selectedFamily?.tenant_id,
+        },
+        { synthetic: process.env.NODE_ENV !== "production" },
+      ),
+    [session.selectedFamily?.tenant_id],
+  );
 
   useEffect(() => {
     let active = true;
@@ -215,6 +236,53 @@ export default function ProblemUnderstandingRoute() {
     });
     setState(submitted);
     void requestUnderstanding(submitted, text, 1);
+  };
+
+  const handleVoiceCapture = async () => {
+    setVoiceCaptureState("CAPTURING");
+    setVoiceMessage(null);
+    try {
+      const consentRef =
+        process.env.NODE_ENV === "production"
+          ? null
+          : "sandbox-consent:family-understanding-voice";
+      const permission = await mediaCapabilities
+        .get("MEDIA_CAPTURE")
+        .requestPermission("VOICE", consentRef);
+      if (permission.state !== "AVAILABLE" || !consentRef) {
+        setVoiceCaptureState("UNAVAILABLE");
+        setVoiceMessage(
+          permission.fallback ?? "语音暂时不可用，可以继续用文字表达。",
+        );
+        return;
+      }
+      const capture = await mediaCapabilities.get("MEDIA_CAPTURE").capture({
+        kind: "VOICE",
+        consentRef,
+        contentLocale: "zh-CN",
+        maxDurationMs: 60_000,
+      });
+      if (capture.state !== "AVAILABLE" || !capture.value?.synthetic) {
+        setVoiceCaptureState("UNAVAILABLE");
+        setVoiceMessage(
+          capture.fallback ?? "语音没有准备好，可以继续用文字表达。",
+        );
+        return;
+      }
+      setState((current) =>
+        updateConcernDraft(
+          current,
+          "最近一到晚上写作业，我们说着说着就会着急。我希望先弄清楚，是任务太难，还是我们催得太紧。",
+        ),
+      );
+      setVoiceCaptureState("READY");
+      setVoiceMessage(
+        "这是合成语音的沙盒转写，没有上传真实录音。请先修改文字，再决定是否继续。",
+      );
+    } catch {
+      setVoiceCaptureState("UNAVAILABLE");
+      setVoiceMessage("语音没有准备好，可以继续用文字表达。");
+    }
   };
 
   const handleAnswerQuestion = (question: string) => {
@@ -567,10 +635,23 @@ export default function ProblemUnderstandingRoute() {
 
         {state.inputs.length === 0 ? (
           <ConcernComposer
+            canRemoveImage={sandboxImageSelected}
+            canUseSandboxImage={
+              process.env.NODE_ENV !== "production" && attachments.length === 0
+            }
+            imageAttached={attachments.length > 0}
+            inputMode={inputMode}
             onChangeText={(value) => setState(updateConcernDraft(state, value))}
+            onChangeInputMode={setInputMode}
             onSubmit={handleConcernSubmit}
+            onToggleSandboxImage={() =>
+              setSandboxImageSelected((selected) => !selected)
+            }
+            onVoiceCapture={() => void handleVoiceCapture()}
             phase={state.phase}
             value={state.concernDraft}
+            voiceCaptureState={voiceCaptureState}
+            voiceMessage={voiceMessage}
           />
         ) : null}
 

@@ -17,14 +17,45 @@ import type {
 interface ConcernComposerProps {
   value: string;
   phase: ProblemUnderstandingPhase;
+  inputMode: MultimodalInputMode;
+  voiceCaptureState: VoiceCaptureState;
+  voiceMessage: string | null;
+  imageAttached: boolean;
+  canUseSandboxImage: boolean;
+  canRemoveImage: boolean;
   onChangeText: TextInputProps["onChangeText"];
+  onChangeInputMode: (mode: MultimodalInputMode) => void;
+  onVoiceCapture: () => void;
+  onToggleSandboxImage: () => void;
   onSubmit: () => void;
 }
+
+export type MultimodalInputMode = "TEXT" | "VOICE" | "IMAGE";
+export type VoiceCaptureState = "IDLE" | "CAPTURING" | "READY" | "UNAVAILABLE";
+
+const INPUT_MODES: readonly {
+  mode: MultimodalInputMode;
+  label: string;
+  cue: string;
+}[] = [
+  { mode: "TEXT", label: "写下来", cue: "文字" },
+  { mode: "VOICE", label: "说一说", cue: "语音" },
+  { mode: "IMAGE", label: "加图片", cue: "图片" },
+];
 
 export function ConcernComposer({
   value,
   phase,
+  inputMode,
+  voiceCaptureState,
+  voiceMessage,
+  imageAttached,
+  canUseSandboxImage,
+  canRemoveImage,
   onChangeText,
+  onChangeInputMode,
+  onVoiceCapture,
+  onToggleSandboxImage,
   onSubmit,
 }: ConcernComposerProps) {
   const busy = phase === "UNDERSTANDING";
@@ -36,6 +67,116 @@ export function ConcernComposer({
         {PROBLEM_UNDERSTANDING_COPY.heading}
       </Text>
       <Text style={styles.supporting}>{PROBLEM_UNDERSTANDING_COPY.prompt}</Text>
+      <View accessibilityRole="radiogroup" style={styles.inputModeRow}>
+        {INPUT_MODES.map((item) => {
+          const selected = inputMode === item.mode;
+          return (
+            <Pressable
+              accessibilityLabel={`${item.label}，${item.cue}输入`}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: selected }}
+              key={item.mode}
+              onPress={() => onChangeInputMode(item.mode)}
+              style={({ pressed }) => [
+                styles.inputModeButton,
+                selected && styles.inputModeButtonSelected,
+                pressed && styles.pressedButton,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.inputModeCue,
+                  selected && styles.inputModeCueSelected,
+                ]}
+              >
+                {item.cue}
+              </Text>
+              <Text
+                style={[
+                  styles.inputModeLabel,
+                  selected && styles.inputModeLabelSelected,
+                ]}
+              >
+                {item.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {inputMode === "VOICE" ? (
+        <View style={styles.voicePanel}>
+          <View style={styles.waveform}>
+            {[12, 22, 34, 18, 40, 26, 15, 31, 20].map((height, index) => (
+              <View
+                key={`${height}-${index}`}
+                style={[
+                  styles.waveBar,
+                  { height },
+                  voiceCaptureState === "CAPTURING" && styles.waveBarActive,
+                ]}
+              />
+            ))}
+          </View>
+          <Text style={styles.voiceTitle}>
+            {voiceCaptureState === "CAPTURING"
+              ? "正在听你说"
+              : voiceCaptureState === "READY"
+                ? "已转成可编辑文字"
+                : "用语音说，比打字更自然"}
+          </Text>
+          <Text style={styles.voiceBody}>
+            {voiceMessage ??
+              "录音会先经过授权和转写；你确认文字后，才会交给 AI 整理。"}
+          </Text>
+          <ActionButton
+            disabled={voiceCaptureState === "CAPTURING"}
+            label={
+              voiceCaptureState === "CAPTURING"
+                ? "正在准备转写"
+                : voiceCaptureState === "READY"
+                  ? "重新说一次"
+                  : "开始语音表达"
+            }
+            onPress={onVoiceCapture}
+            secondary
+          />
+        </View>
+      ) : null}
+      {inputMode === "IMAGE" ? (
+        <View style={styles.imagePanel}>
+          <View style={styles.imagePreview}>
+            <View style={styles.imageSun} />
+            <View style={styles.imageMountainLeft} />
+            <View style={styles.imageMountainRight} />
+          </View>
+          <View style={styles.imageCopy}>
+            <Text style={styles.voiceTitle}>
+              {imageAttached ? "图片已加入这次表达" : "图片可以补充当时的情境"}
+            </Text>
+            <Text style={styles.voiceBody}>
+              {imageAttached
+                ? "AI 只能引用已授权的图片标识；结论仍需你核对。"
+                : canUseSandboxImage
+                  ? "当前可用一张明确标记的沙盒图片验证完整交互。"
+                  : "请从家庭媒体库选择已授权图片；当前页面不会自行读取相册。"}
+            </Text>
+            {canUseSandboxImage || canRemoveImage ? (
+              <ActionButton
+                label={canRemoveImage ? "移除图片" : "加入沙盒图片"}
+                onPress={onToggleSandboxImage}
+                secondary
+              />
+            ) : null}
+          </View>
+        </View>
+      ) : null}
+      <Text style={styles.inputLabel}>
+        {inputMode === "VOICE"
+          ? "检查并修改转写"
+          : inputMode === "IMAGE"
+            ? "再补一句你希望我们注意什么"
+            : "最近发生的事"}
+      </Text>
       <TextInput
         accessibilityLabel="最近发生的事"
         multiline
@@ -136,7 +277,9 @@ export function UnderstandingMap({
                 </View>
                 <Text style={styles.emphasis}>{item.statement}</Text>
                 <Text style={styles.body}>{item.rationale}</Text>
-                <Text style={styles.evidenceHeading}>我这样理解，是因为你提到</Text>
+                <Text style={styles.evidenceHeading}>
+                  我这样理解，是因为你提到
+                </Text>
                 {item.evidenceObservations.map((observation) => (
                   <Bullet key={observation}>{observation}</Bullet>
                 ))}
@@ -145,8 +288,12 @@ export function UnderstandingMap({
                     同时参考了家庭成长知识库中的相关方法。
                   </Text>
                 ) : null}
-                <Text style={styles.evidenceHeading}>什么信息会改变这个判断</Text>
-                <Text style={styles.body}>{item.disconfirmingEvidenceNeeded}</Text>
+                <Text style={styles.evidenceHeading}>
+                  什么信息会改变这个判断
+                </Text>
+                <Text style={styles.body}>
+                  {item.disconfirmingEvidenceNeeded}
+                </Text>
               </View>
             ))}
           </MapSection>
@@ -446,6 +593,76 @@ const styles = StyleSheet.create({
     padding: 16,
     textAlignVertical: "top",
   },
+  inputLabel: { color: "#4A3D34", fontSize: 13, fontWeight: "800" },
+  inputModeButton: {
+    alignItems: "center",
+    backgroundColor: "#FFFDFC",
+    borderColor: "#E7D8CC",
+    borderRadius: 16,
+    borderWidth: 1,
+    flex: 1,
+    gap: 2,
+    minHeight: 64,
+    justifyContent: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 9,
+  },
+  inputModeButtonSelected: {
+    backgroundColor: "#FFF0E5",
+    borderColor: "#D8663A",
+  },
+  inputModeCue: { color: "#8A796C", fontSize: 11, fontWeight: "700" },
+  inputModeCueSelected: { color: "#A74624" },
+  inputModeLabel: { color: "#4A3D34", fontSize: 14, fontWeight: "800" },
+  inputModeLabelSelected: { color: "#8B3E22" },
+  inputModeRow: { flexDirection: "row", gap: 9 },
+  imageCopy: { flex: 1, gap: 6, minWidth: 180 },
+  imageMountainLeft: {
+    backgroundColor: "#A9BE9D",
+    bottom: -18,
+    height: 62,
+    left: -8,
+    position: "absolute",
+    transform: [{ rotate: "38deg" }],
+    width: 62,
+  },
+  imageMountainRight: {
+    backgroundColor: "#78936E",
+    bottom: -26,
+    height: 78,
+    position: "absolute",
+    right: -4,
+    transform: [{ rotate: "45deg" }],
+    width: 78,
+  },
+  imagePanel: {
+    alignItems: "center",
+    backgroundColor: "#F1F5EC",
+    borderColor: "#C8D8BE",
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 14,
+    padding: 14,
+  },
+  imagePreview: {
+    backgroundColor: "#DCEAD4",
+    borderRadius: 16,
+    height: 112,
+    overflow: "hidden",
+    position: "relative",
+    width: 112,
+  },
+  imageSun: {
+    backgroundColor: "#F0B35E",
+    borderRadius: 14,
+    height: 28,
+    position: "absolute",
+    right: 16,
+    top: 15,
+    width: 28,
+  },
   highlightSection: { backgroundColor: "#FFF4EC", borderColor: "#EBC3A9" },
   hypothesisCard: {
     backgroundColor: "#FFFDFC",
@@ -527,4 +744,28 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   title: { color: "#2D261F", fontSize: 25, fontWeight: "800", lineHeight: 34 },
+  voiceBody: {
+    color: "#6E6258",
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: "center",
+  },
+  voicePanel: {
+    alignItems: "center",
+    backgroundColor: "#F7F0FF",
+    borderColor: "#DCCBEA",
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 9,
+    padding: 16,
+  },
+  voiceTitle: {
+    color: "#44344F",
+    fontSize: 16,
+    fontWeight: "800",
+    lineHeight: 23,
+  },
+  waveBar: { backgroundColor: "#B8A4C7", borderRadius: 999, width: 5 },
+  waveBarActive: { backgroundColor: "#8D55B0" },
+  waveform: { alignItems: "center", flexDirection: "row", gap: 5, height: 44 },
 });

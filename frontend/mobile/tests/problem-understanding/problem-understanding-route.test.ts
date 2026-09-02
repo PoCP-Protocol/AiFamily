@@ -118,6 +118,25 @@ describe("Problem Understanding standalone Expo route", () => {
     expect(components).toContain("不会自动改变家庭记录");
   });
 
+  it("offers an interactive multimodal composer without pretending production media support", () => {
+    expect(components).toContain('"TEXT" | "VOICE" | "IMAGE"');
+    expect(components).toContain("写下来");
+    expect(components).toContain("说一说");
+    expect(components).toContain("加图片");
+    expect(components).toContain("已转成可编辑文字");
+    expect(components).toContain("你确认文字后，才会交给 AI 整理");
+    expect(components).toContain("当前页面不会自行读取相册");
+    expect(route).toContain("createPlatformCapabilityRegistry");
+    expect(route).toContain('.requestPermission("VOICE", consentRef)');
+    expect(route).toContain('kind: "VOICE"');
+    expect(route).toContain("maxDurationMs: 60_000");
+    expect(route).toContain('process.env.NODE_ENV === "production"');
+    expect(route).toContain("这是合成语音的沙盒转写");
+    expect(route).toContain("没有上传真实录音");
+    expect(route).not.toContain("SpeechRecognition");
+    expect(route).not.toContain("voiceTranscription");
+  });
+
   it("lets the adult add context or start a new understanding after confirmation", () => {
     expect(route).toContain('state.phase === "CONFIRMED"');
     expect(route).toContain("已记下你的反馈");
