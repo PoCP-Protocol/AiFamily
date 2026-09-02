@@ -47,6 +47,7 @@ describe("LiveSessionControlConsole", () => {
       });
     vi.stubGlobal("fetch", fetchMock);
     installMediaDevices();
+    installAutoWebRtc();
     render(<LiveSessionControlConsole controlBaseUrl="http://127.0.0.1:55300" />);
     const user = userEvent.setup();
 
@@ -58,11 +59,13 @@ describe("LiveSessionControlConsole", () => {
     expect(startButton).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "检查摄像头和麦克风" }));
     expect(await screen.findByText("摄像头和麦克风已就绪，可以开播。")).toBeInTheDocument();
+    expect(await screen.findByText("WebRTC 低延迟通道已建立。")).toBeInTheDocument();
     expect(startButton).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "开始直播" }));
     expect(await screen.findByText("直播已开始，符合范围的家庭可以发现。")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "人工停止直播" }));
     expect(await screen.findByText("直播已人工停止，家庭入口已撤回。")).toBeInTheDocument();
+    expect(screen.getByText("WebRTC 通道已停止。")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
@@ -103,4 +106,53 @@ function fakeTrack(kind: "audio" | "video", label: string) {
     readyState: "live",
     stop: vi.fn(),
   };
+}
+
+function installAutoWebRtc() {
+  class AutoPeerConnection {
+    static instances: AutoPeerConnection[] = [];
+    connectionState: RTCPeerConnectionState = "new";
+    localDescription: RTCSessionDescription | null = null;
+    remoteDescription: RTCSessionDescription | null = null;
+    onconnectionstatechange: ((event: Event) => void) | null = null;
+    onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
+    ontrack: ((event: RTCTrackEvent) => void) | null = null;
+    tracks: MediaStreamTrack[] = [];
+    stream: MediaStream | null = null;
+    addIceCandidate = vi.fn().mockResolvedValue(undefined);
+    close = vi.fn(() => {
+      this.connectionState = "closed";
+    });
+    createAnswer = vi.fn().mockResolvedValue({ type: "answer", sdp: "answer" });
+    createOffer = vi.fn().mockResolvedValue({ type: "offer", sdp: "offer" });
+    setLocalDescription = vi.fn(async (description: RTCSessionDescriptionInit) => {
+      this.localDescription = description as RTCSessionDescription;
+    });
+    setRemoteDescription = vi.fn(async (description: RTCSessionDescriptionInit) => {
+      this.remoteDescription = description as RTCSessionDescription;
+      if (description.type !== "answer") return;
+      const [sender, receiver] = AutoPeerConnection.instances;
+      if (!sender?.stream || !receiver) return;
+      sender.connectionState = "connected";
+      receiver.connectionState = "connected";
+      receiver.onconnectionstatechange?.(new Event("connectionstatechange"));
+      sender.stream.getTracks().forEach((track) => {
+        receiver.ontrack?.(
+          { streams: [sender.stream as MediaStream], track } as unknown as RTCTrackEvent,
+        );
+      });
+    });
+
+    constructor() {
+      AutoPeerConnection.instances.push(this);
+    }
+
+    addTrack(track: MediaStreamTrack, stream: MediaStream) {
+      this.tracks.push(track);
+      this.stream = stream;
+      return {} as RTCRtpSender;
+    }
+  }
+
+  vi.stubGlobal("RTCPeerConnection", AutoPeerConnection);
 }

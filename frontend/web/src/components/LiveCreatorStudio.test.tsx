@@ -66,6 +66,7 @@ describe("LiveCreatorStudio", () => {
     act(() => videoTrack.dispatchEnded());
 
     expect(await screen.findByText("设备轨道已结束，开播已锁定。")).toBeInTheDocument();
+    expect(screen.getByText("WebRTC 通道已停止。")).toBeInTheDocument();
     expect(videoTrack.stop).toHaveBeenCalledOnce();
     expect(audioTrack.stop).toHaveBeenCalledOnce();
     expect(onReady).toHaveBeenLastCalledWith(false);
@@ -79,6 +80,7 @@ describe("LiveCreatorStudio", () => {
     await user.click(screen.getByRole("button", { name: "启动合成 DEV 预览" }));
     expect(screen.getByText("SANDBOX_SYNTHETIC · fixture_only=true")).toBeInTheDocument();
     expect(screen.getByText("当前是合成 DEV 预览，不是真实设备或真实推流。")).toBeInTheDocument();
+    expect(screen.getByText("WebRTC 通道已停止。")).toBeInTheDocument();
     expect(onReady).not.toHaveBeenCalledWith(true);
   });
 });

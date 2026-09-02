@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
+import { LiveWebRtcStage } from "./LiveWebRtcStage";
+
 type PreviewState =
   | "idle"
   | "requesting"
@@ -13,6 +15,7 @@ type PreviewState =
 
 type Props = {
   onDeviceReadyChange?: (ready: boolean) => void;
+  onWebRtcReadyChange?: (ready: boolean) => void;
 };
 
 type DeviceSummary = {
@@ -25,12 +28,14 @@ const EMPTY_DEVICES: DeviceSummary = {
   microphone: "尚未授权麦克风",
 };
 
-export function LiveCreatorStudio({ onDeviceReadyChange }: Props) {
+export function LiveCreatorStudio({ onDeviceReadyChange, onWebRtcReadyChange }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const intentionalStopRef = useRef(false);
+  const requestGenerationRef = useRef(0);
   const [previewState, setPreviewState] = useState<PreviewState>("idle");
   const [devices, setDevices] = useState<DeviceSummary>(EMPTY_DEVICES);
+  const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
 
   useEffect(() => {
     onDeviceReadyChange?.(previewState === "ready");
@@ -41,7 +46,10 @@ export function LiveCreatorStudio({ onDeviceReadyChange }: Props) {
     videoRef.current.srcObject = previewState === "ready" ? streamRef.current : null;
   }, [previewState]);
 
-  useEffect(() => () => closeStream(streamRef, intentionalStopRef), []);
+  useEffect(() => () => {
+    requestGenerationRef.current += 1;
+    closeStream(streamRef, intentionalStopRef);
+  }, []);
 
   return (
     <section className="live-ops-card live-creator-studio" aria-labelledby="creator-studio-heading">
@@ -99,11 +107,14 @@ export function LiveCreatorStudio({ onDeviceReadyChange }: Props) {
           <button type="button" onClick={startSyntheticPreview}>启动合成 DEV 预览</button>
         ) : null}
       </div>
+      <LiveWebRtcStage sourceStream={activeStream} onReadyChange={onWebRtcReadyChange} />
     </section>
   );
 
   async function startDevicePreview() {
+    const requestGeneration = ++requestGenerationRef.current;
     closeStream(streamRef, intentionalStopRef);
+    setActiveStream(null);
     setDevices(EMPTY_DEVICES);
     setPreviewState("requesting");
 
@@ -117,6 +128,10 @@ export function LiveCreatorStudio({ onDeviceReadyChange }: Props) {
         audio: true,
         video: true,
       });
+      if (requestGenerationRef.current !== requestGeneration) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       const videoTrack = stream.getVideoTracks()[0];
       const audioTrack = stream.getAudioTracks()[0];
       if (!videoTrack || !audioTrack || videoTrack.readyState === "ended" || audioTrack.readyState === "ended") {
@@ -130,10 +145,12 @@ export function LiveCreatorStudio({ onDeviceReadyChange }: Props) {
       const handleTrackEnded = () => {
         if (intentionalStopRef.current) return;
         closeStream(streamRef, intentionalStopRef);
+        setActiveStream(null);
         setPreviewState("ended");
       };
       stream.getTracks().forEach((track) => track.addEventListener("ended", handleTrackEnded));
       setDevices(await describeDevices(videoTrack, audioTrack));
+      setActiveStream(stream);
       setPreviewState("ready");
     } catch (error) {
       setPreviewState(classifyMediaError(error));
@@ -141,14 +158,18 @@ export function LiveCreatorStudio({ onDeviceReadyChange }: Props) {
   }
 
   function stopPreview() {
+    requestGenerationRef.current += 1;
     closeStream(streamRef, intentionalStopRef);
+    setActiveStream(null);
     if (videoRef.current) videoRef.current.srcObject = null;
     setDevices(EMPTY_DEVICES);
     setPreviewState("idle");
   }
 
   function startSyntheticPreview() {
+    requestGenerationRef.current += 1;
     closeStream(streamRef, intentionalStopRef);
+    setActiveStream(null);
     setDevices({
       camera: "合成画面（非设备）",
       microphone: "合成音轨（非设备）",

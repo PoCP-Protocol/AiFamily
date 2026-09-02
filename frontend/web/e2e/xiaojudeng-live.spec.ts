@@ -600,10 +600,21 @@ test("creator and human operators can run a complete session lifecycle in the UI
   await expect(sessionCard.getByRole("button", { name: "开始直播" })).toBeDisabled();
   await page.getByRole("button", { name: "检查摄像头和麦克风" }).click();
   await expect(page.getByText("摄像头和麦克风已就绪，可以开播。")).toBeVisible();
+  await expect(page.getByText("WebRTC 低延迟通道已建立。")).toBeVisible();
+  const viewerVideo = page.getByLabel("本地 WebRTC 观众画面");
+  await expect(viewerVideo).toBeVisible();
+  await expect.poll(async () => viewerVideo.evaluate((video: HTMLVideoElement) => ({
+    audioTracks: (video.srcObject as MediaStream | null)?.getAudioTracks().length ?? 0,
+    hasVideoFrame: video.videoWidth > 0,
+    videoTracks: (video.srcObject as MediaStream | null)?.getVideoTracks().length ?? 0,
+  }))).toEqual({ audioTracks: 1, hasVideoFrame: true, videoTracks: 1 });
+  await expect(sessionCard.getByRole("button", { name: "开始直播" })).toBeEnabled();
   await sessionCard.getByRole("button", { name: "开始直播" }).click();
   await expect(page.getByText("直播已开始，符合范围的家庭可以发现。")).toBeVisible();
   await sessionCard.getByRole("button", { name: "人工停止直播" }).click();
   await expect(page.getByText("直播已人工停止，家庭入口已撤回。")).toBeVisible();
+  await expect(page.getByText("WebRTC 通道已停止。")).toBeVisible();
+  await expect(page.getByLabel("本地 WebRTC 观众画面")).toHaveCount(0);
   await expect(sessionCard.getByText("APPROVED · WITHDRAWN")).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("desktop-creator-lifecycle.png"), fullPage: true });
 });

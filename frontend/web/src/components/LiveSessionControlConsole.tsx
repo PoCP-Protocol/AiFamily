@@ -23,6 +23,8 @@ export function LiveSessionControlConsole({ controlBaseUrl }: Props) {
   );
   const [message, setMessage] = useState("");
   const [deviceReady, setDeviceReady] = useState(false);
+  const [webRtcReady, setWebRtcReady] = useState(false);
+  const [mediaGeneration, setMediaGeneration] = useState(0);
 
   useEffect(() => {
     if (!controlBaseUrl) return;
@@ -54,7 +56,11 @@ export function LiveSessionControlConsole({ controlBaseUrl }: Props) {
       {state === "error" ? <p className="live-ops-state">场次控制面不可用，所有操作已停止。</p> : null}
       {state === "ready" ? (
         <>
-          <LiveCreatorStudio onDeviceReadyChange={setDeviceReady} />
+          <LiveCreatorStudio
+            key={mediaGeneration}
+            onDeviceReadyChange={setDeviceReady}
+            onWebRtcReadyChange={setWebRtcReady}
+          />
           <div className="live-ops-list" aria-label="直播场次列表">
             {sessions.map((session) => (
               <article
@@ -75,8 +81,12 @@ export function LiveSessionControlConsole({ controlBaseUrl }: Props) {
                   ) : null}
                   {session.approval_status === "APPROVED" && session.status === "SCHEDULED" ? (
                     <button
-                      disabled={!deviceReady}
-                      title={deviceReady ? undefined : "请先完成摄像头和麦克风检查"}
+                      disabled={!deviceReady || !webRtcReady}
+                      title={
+                        deviceReady && webRtcReady
+                          ? undefined
+                          : "请先完成设备检查并建立 WebRTC 观众通道"
+                      }
                       type="button"
                       onClick={() => void goLive(session)}
                     >
@@ -164,7 +174,7 @@ export function LiveSessionControlConsole({ controlBaseUrl }: Props) {
   }
 
   async function withdraw(session: Session) {
-    await mutate(
+    const changed = await mutate(
       session,
       "LIVE_OPERATOR",
       "lifecycle",
@@ -175,6 +185,11 @@ export function LiveSessionControlConsole({ controlBaseUrl }: Props) {
       },
       "直播已人工停止，家庭入口已撤回。",
     );
+    if (changed) {
+      setDeviceReady(false);
+      setWebRtcReady(false);
+      setMediaGeneration((current) => current + 1);
+    }
   }
 
   async function mutate(
@@ -183,8 +198,8 @@ export function LiveSessionControlConsole({ controlBaseUrl }: Props) {
     action: string,
     payload: Record<string, unknown>,
     successMessage: string,
-  ) {
-    if (!controlBaseUrl) return;
+  ): Promise<boolean> {
+    if (!controlBaseUrl) return false;
     setMessage("正在执行人工操作…");
     try {
       const updated = await requestSession(
@@ -196,8 +211,10 @@ export function LiveSessionControlConsole({ controlBaseUrl }: Props) {
         item.session_ref === updated.session_ref ? updated : item
       )));
       setMessage(successMessage);
+      return true;
     } catch {
       setMessage("操作失败，场次状态没有改变。");
+      return false;
     }
   }
 }
