@@ -14,6 +14,7 @@ export type ProductStudioErrorCode =
   | "CONFLICT"
   | "UNAVAILABLE"
   | "TIMEOUT"
+  | "UNKNOWN_OUTCOME"
   | "INVALID_INPUT"
   | "INVALID_RESPONSE";
 

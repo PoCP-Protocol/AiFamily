@@ -210,6 +210,9 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .course-contract-preview { border-top: 1px solid #dce5dc; margin-top: 24px; padding-top: 16px; }
 .course-contract-preview summary { color: #126b50; cursor: pointer; font-weight: 800; }
 .course-contract-preview pre { background: #17231f; border-radius: 14px; color: #d9eee3; max-height: 420px; overflow: auto; padding: 16px; white-space: pre-wrap; }
+.course-draft-receipt { background: #eaf3ec; border: 1px solid #9bd8bc; border-radius: 14px; margin-top: 20px; padding: 14px 16px; }
+.course-draft-receipt p { margin: 6px 0; overflow-wrap: anywhere; }
+.course-draft-receipt small { color: #557168; }
 .course-governance-panel > button { margin-top: 18px; }
 .course-governance-layout { border-top: 1px solid #dce5dc; display: grid; gap: 20px; grid-template-columns: 270px minmax(0, 1fr); margin-top: 24px; padding-top: 20px; }
 .course-directory-counts { color: #668077; display: flex; flex-wrap: wrap; font-size: 0.72rem; gap: 8px 12px; }

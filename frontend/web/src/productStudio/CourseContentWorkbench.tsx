@@ -1,4 +1,11 @@
 import { useMemo, useState } from "react";
+import { ProductStudioApiError } from "./api";
+import {
+  assertCourseDraftReadBack,
+  HttpCourseContentAuthoringApiClient,
+  type CourseContentAuthoringApiClient,
+  type CourseContentDraftResponse,
+} from "./courseContentAuthoringApi";
 import {
   compileCourseContentDraft,
   createCourseContentTemplate,
@@ -8,12 +15,24 @@ import {
 
 const splitRefs = (value: string) => value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
 
-export function CourseContentWorkbench({ contractPreview = false }: { contractPreview?: boolean }) {
-  const [course, setCourse] = useState(createCourseContentTemplate);
+export function CourseContentWorkbench({
+  client = new HttpCourseContentAuthoringApiClient(),
+  contractPreview = false,
+  initialState,
+}: {
+  client?: CourseContentAuthoringApiClient;
+  contractPreview?: boolean;
+  initialState?: ReturnType<typeof createCourseContentTemplate>;
+}) {
+  const [course, setCourse] = useState(() => initialState ?? createCourseContentTemplate());
   const [activeLesson, setActiveLesson] = useState(0);
   const [confirmed, setConfirmed] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [apiError, setApiError] = useState<ProductStudioApiError | null>(null);
+  const [saved, setSaved] = useState<CourseContentDraftResponse | null>(null);
+  const [pendingCreated, setPendingCreated] = useState<CourseContentDraftResponse | null>(null);
+  const [busy, setBusy] = useState(false);
   const completedLessons = useMemo(() => course.lessons.filter(isLessonComplete).length, [course.lessons]);
   const lesson = course.lessons[activeLesson];
 
@@ -24,12 +43,18 @@ export function CourseContentWorkbench({ contractPreview = false }: { contractPr
     }));
     setPreview(null);
     setError(null);
+    setApiError(null);
+    setSaved(null);
+    setPendingCreated(null);
   };
 
   const updateCourse = (field: keyof typeof course, value: string) => {
     setCourse((current) => ({ ...current, [field]: value }));
     setPreview(null);
     setError(null);
+    setApiError(null);
+    setSaved(null);
+    setPendingCreated(null);
   };
 
   const compilePreview = () => {
@@ -45,8 +70,29 @@ export function CourseContentWorkbench({ contractPreview = false }: { contractPr
     }
   };
 
+  const saveDraft = async () => {
+    if (!preview || contractPreview) return;
+    setBusy(true);
+    setApiError(null);
+    setSaved(null);
+    try {
+      const input = compileCourseContentDraft(course);
+      const created = pendingCreated ?? await client.createDraft(input);
+      setPendingCreated(created);
+      const readBack = await client.getDraft(created.id);
+      setSaved(assertCourseDraftReadBack(input, created, readBack));
+      setPendingCreated(null);
+    } catch (cause) {
+      setApiError(cause instanceof ProductStudioApiError
+        ? cause
+        : new ProductStudioApiError("INVALID_RESPONSE", "CourseContent DRAFT 创建或回读异常。"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <section aria-label="24 lesson CourseContent workbench" className="panel course-content-workbench">
+    <section aria-busy={busy} aria-label="24 lesson CourseContent workbench" className="panel course-content-workbench">
       <p className="section-kicker">ProductPackage → CourseContent DRAFT → Courseware BOM → Human Gate</p>
       <h2>24 课时课程与课件编排</h2>
       <p className="muted">
@@ -105,10 +151,12 @@ export function CourseContentWorkbench({ contractPreview = false }: { contractPr
 
       <div className="course-compile-actions">
         <label className="consent-row"><input checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} type="checkbox" />我确认这只是课程设计 DRAFT，仍需证据准入、课件 QA 和人工发布决策。</label>
-        <button className="secondary-button" disabled={!confirmed} onClick={compilePreview} type="button">编译 24 课时合同预览</button>
-        <button className="primary-button" disabled={contractPreview || !confirmed || !preview} type="button">保存 CourseContent DRAFT</button>
+        <button className="secondary-button" disabled={!confirmed || busy} onClick={compilePreview} type="button">编译 24 课时合同预览</button>
+        <button className="primary-button" disabled={contractPreview || !confirmed || !preview || busy || apiError?.code === "UNKNOWN_OUTCOME"} onClick={() => void saveDraft()} type="button">{busy ? "创建并回读中…" : pendingCreated ? "重试持久化回读" : "保存 CourseContent DRAFT"}</button>
       </div>
       {error ? <div className="callout" role="alert"><strong>课程合同未通过</strong><p>{error}</p></div> : null}
+      {apiError ? <div className="callout" role="alert"><strong>{apiError.code}</strong><p>{apiError.message}</p>{apiError.code === "UNKNOWN_OUTCOME" ? <p>此处不提供重试按钮，避免重复创建。</p> : null}</div> : null}
+      {saved ? <div className="course-draft-receipt" role="status"><strong>CourseContent DRAFT 已创建并完成持久化回读</strong><p>{saved.id} · v{saved.version} · {saved.status}</p><small>这不是评审通过或发布结果。</small></div> : null}
       {preview ? <details className="course-contract-preview"><summary>查看浏览器将提交的白名单合同</summary><pre>{preview}</pre></details> : null}
     </section>
   );
