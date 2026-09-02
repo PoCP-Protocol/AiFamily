@@ -15,7 +15,7 @@ GROWTH_ONBOARDING_PATH = "/families/{family_id}/growth/onboardings"
 FAMILY_ID = "00000000-0000-4000-8000-000000000011"
 
 
-def test_clean_snapshot_imports_and_reports_missing_optional_dependencies() -> None:
+def test_composed_snapshot_imports_and_reports_dependency_status() -> None:
     app = main.create_app()
 
     assert app.state.composition_dependencies["commerce"] == {
@@ -23,12 +23,21 @@ def test_clean_snapshot_imports_and_reports_missing_optional_dependencies() -> N
         "failure_mode": "fail_closed",
         "reason": "missing dependency: backend.domains.commerce",
     }
-    assert app.state.composition_dependencies["experience"]["available"] is False
-    assert app.state.composition_dependencies["fgcn"]["available"] is False
+    assert app.state.composition_dependencies["experience"] == {
+        "available": True,
+        "failure_mode": "fail_closed",
+        "reason": None,
+    }
+    assert app.state.composition_dependencies["fgcn"] == {
+        "available": True,
+        "failure_mode": "fail_closed",
+        "reason": None,
+    }
     assert app.state.composition_dependencies["journey_legacy"]["available"] is False
 
     paths = app.openapi()["paths"]
     assert GROWTH_ONBOARDING_PATH in paths
+    assert "/families/{family_id}/experience/multimodal/drafts" in paths
     assert not any("commerce" in path for path in paths)
     readiness_operation = paths["/capabilities/{capability_name}/ready"]["get"]
     assert "503" in readiness_operation["responses"]
@@ -57,14 +66,18 @@ def test_production_growth_onboarding_remains_advertised_but_fails_closed(
     assert response.json() == {"detail": "growth_onboarding_identity_not_configured"}
 
 
-def test_missing_capability_dependencies_are_explicit_503s_not_fake_routes() -> None:
+def test_capability_readiness_distinguishes_available_and_missing_dependencies() -> None:
     app = main.create_app()
 
     with TestClient(app) as client:
-        for capability in ("commerce", "experience", "fgcn", "journey_legacy"):
+        for capability in ("commerce", "journey_legacy"):
             response = client.get(f"/capabilities/{capability}/ready")
             assert response.status_code == 503
             assert response.json() == {"detail": "capability_unavailable"}
+        for capability in ("experience", "fgcn"):
+            response = client.get(f"/capabilities/{capability}/ready")
+            assert response.status_code == 200
+            assert response.json() == {"status": "ready"}
 
 
 def test_growth_onboarding_keeps_401_for_missing_bearer(monkeypatch) -> None:

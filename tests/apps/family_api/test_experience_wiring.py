@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import sys
+
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from backend.apps.family_api.experience_wiring import (
@@ -18,12 +20,20 @@ class _ExplicitResolver:
         raise AssertionError(f"resolver should not be called in wiring test: {family_id}")
 
 
+class _ModuleHoldingResolver:
+    def __init__(self) -> None:
+        self.module = sys
+
+    async def resolve(self, family_id: str):
+        raise HTTPException(status_code=503, detail=f"resolver_called:{family_id}")
+
+
 def _payload(run_id: str) -> dict[str, object]:
     return {
         "run_id": run_id,
         "prompt_version": "prompt.v1",
         "schema_version": "schema.v1",
-        "payload": {"media_ref": "fixture:image-001"},
+        "payload": {"expression": "今天我们一起看这张图片。"},
         "output_schema": {
             "type": "object",
             "required": ["headline"],
@@ -31,6 +41,14 @@ def _payload(run_id: str) -> dict[str, object]:
         },
         "modalities": ["TEXT", "IMAGE"],
         "estimated_input_tokens": 128,
+        "media_inputs": [
+            {
+                "media_type": "IMAGE",
+                "uri": "fixture:image-001",
+                "mime_type": "image/jpeg",
+                "sha256": "a" * 64,
+            }
+        ],
     }
 
 
@@ -73,6 +91,21 @@ def test_install_helper_accepts_only_explicit_non_synthetic_resolver() -> None:
     install_experience_runtime_resolver(app, resolver)
 
     assert app.dependency_overrides[get_multimodal_draft_runtime_resolver]() is resolver
+
+
+def test_install_helper_does_not_expose_resolver_as_dependency_default() -> None:
+    app = FastAPI()
+    mount_experience_router(app)
+    install_experience_runtime_resolver(app, _ModuleHoldingResolver())
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/families/family-wiring/experience/multimodal/drafts",
+            json=_payload("run-wiring-uncopyable"),
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "resolver_called:family-wiring"}
 
 
 def test_install_helper_rejects_synthetic_resolver() -> None:

@@ -42,9 +42,11 @@ def install_experience_runtime_resolver(
         )
     if not callable(getattr(resolver, "resolve", None)):
         raise TypeError("experience runtime resolver must implement resolve(family_id)")
-    application.dependency_overrides[get_multimodal_draft_runtime_resolver] = (
-        lambda resolver=resolver: resolver
-    )
+
+    def provide_resolver() -> MultimodalDraftRuntimeResolver:
+        return resolver
+
+    application.dependency_overrides[get_multimodal_draft_runtime_resolver] = provide_resolver
 
 
 def install_synthetic_experience_runtime(
@@ -68,9 +70,11 @@ def install_synthetic_experience_runtime(
         subject_ids=subject_ids,
         environment=environment,
     )
-    application.dependency_overrides[get_multimodal_draft_runtime_resolver] = (
-        lambda resolver=resolver: resolver
-    )
+
+    def provide_resolver() -> MultimodalDraftRuntimeResolver:
+        return resolver
+
+    application.dependency_overrides[get_multimodal_draft_runtime_resolver] = provide_resolver
 
 
 __all__ = [

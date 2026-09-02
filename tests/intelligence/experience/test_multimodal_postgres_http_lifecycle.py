@@ -16,17 +16,14 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, make_url, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from backend.apps.family_api.main import create_app
 from backend.intelligence.context_engine.contracts import (
     ContextScope,
     DataClass,
     StateObservation,
 )
 from backend.intelligence.context_engine.sql_store import AsyncSqlContextBroker
-from backend.intelligence.experience.api import (
-    MultimodalDraftRuntime,
-    get_multimodal_draft_runtime,
-    router,
-)
+from backend.intelligence.experience.api import MultimodalDraftRuntime
 from backend.intelligence.experience.multimodal_application import (
     RoutedMultimodalExperienceService,
 )
@@ -82,9 +79,7 @@ async def migrated_database_url() -> str:
         async with admin.connect() as connection:
             await connection.execute(text(f'CREATE DATABASE "{database_name}"'))
         database_url = (
-            make_url(admin_url)
-            .set(database=database_name)
-            .render_as_string(hide_password=False)
+            make_url(admin_url).set(database=database_name).render_as_string(hide_password=False)
         )
         migration = subprocess.run(
             [sys.executable, "-m", "alembic", "upgrade", "head"],
@@ -225,11 +220,18 @@ def _request_body() -> dict[str, object]:
     }
 
 
+class _RuntimeResolver:
+    def __init__(self, runtime: MultimodalDraftRuntime) -> None:
+        self._runtime = runtime
+
+    async def resolve(self, family_id: str) -> MultimodalDraftRuntime:
+        if family_id != self._runtime.scope.family_id:
+            raise PermissionError("family_access_denied")
+        return self._runtime
+
+
 def _app(runtime: MultimodalDraftRuntime) -> FastAPI:
-    app = FastAPI()
-    app.include_router(router)
-    app.dependency_overrides[get_multimodal_draft_runtime] = lambda: runtime
-    return app
+    return create_app(experience_runtime_resolver=_RuntimeResolver(runtime))
 
 
 class _NeverCalledApplication:
@@ -260,9 +262,7 @@ async def test_multimodal_http_delete_survives_new_engine_and_session(
         scope=_scope(),
         application=application,
         environment="test",
-        run_ledger=CommittedExperienceRunLedger(
-            SqlAlchemyExperienceRunLedger(session), session
-        ),
+        run_ledger=CommittedExperienceRunLedger(SqlAlchemyExperienceRunLedger(session), session),
     )
     async with AsyncClient(
         transport=ASGITransport(app=_app(runtime)),
@@ -276,12 +276,17 @@ async def test_multimodal_http_delete_survives_new_engine_and_session(
         assert created.status_code == 200
         draft_id = created.json()["draft_id"]
         assert len(provider.invocations) == 1
-        assert await session.scalar(
-            select(func.count()).select_from(ModelDraftRow).where(
-                ModelDraftRow.tenant_id == TENANT_ID,
-                ModelDraftRow.draft_id == draft_id,
+        assert (
+            await session.scalar(
+                select(func.count())
+                .select_from(ModelDraftRow)
+                .where(
+                    ModelDraftRow.tenant_id == TENANT_ID,
+                    ModelDraftRow.draft_id == draft_id,
+                )
             )
-        ) == 1
+            == 1
+        )
         await session.rollback()
 
         deleted = await client.request(
@@ -298,18 +303,28 @@ async def test_multimodal_http_delete_survives_new_engine_and_session(
         assert replay.json()["deletion_state"] == "deleted"
         assert replay.json()["draft_payload"] is None
         assert replay.json()["artifact_refs"] == []
-        assert await session.scalar(
-            select(func.count()).select_from(ModelDraftRow).where(
-                ModelDraftRow.tenant_id == TENANT_ID,
-                ModelDraftRow.draft_id == draft_id,
+        assert (
+            await session.scalar(
+                select(func.count())
+                .select_from(ModelDraftRow)
+                .where(
+                    ModelDraftRow.tenant_id == TENANT_ID,
+                    ModelDraftRow.draft_id == draft_id,
+                )
             )
-        ) == 0
-        assert await session.scalar(
-            select(func.count()).select_from(ExperienceRunInteractionRow).where(
-                ExperienceRunInteractionRow.tenant_id == TENANT_ID,
-                ExperienceRunInteractionRow.run_id == RUN_ID,
+            == 0
+        )
+        assert (
+            await session.scalar(
+                select(func.count())
+                .select_from(ExperienceRunInteractionRow)
+                .where(
+                    ExperienceRunInteractionRow.tenant_id == TENANT_ID,
+                    ExperienceRunInteractionRow.run_id == RUN_ID,
+                )
             )
-        ) == 1
+            == 1
+        )
     await session.close()
     await engine.dispose()
 
@@ -340,10 +355,13 @@ async def test_multimodal_http_delete_survives_new_engine_and_session(
     assert replay.json()["deletion_state"] == "deleted"
     assert recreate.status_code == 410
     assert recreate.json() == {"detail": "RUN_DELETED"}
-    assert await restarted_session.scalar(
-        select(func.count()).select_from(ModelDraftRow).where(
-            ModelDraftRow.tenant_id == TENANT_ID
+    assert (
+        await restarted_session.scalar(
+            select(func.count())
+            .select_from(ModelDraftRow)
+            .where(ModelDraftRow.tenant_id == TENANT_ID)
         )
-    ) == 0
+        == 0
+    )
     await restarted_session.close()
     await restarted_engine.dispose()
