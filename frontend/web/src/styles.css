@@ -157,8 +157,8 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 
 .live-ops-shell {
   background: #fffaf5;
-  min-height: calc(100vh - 72px);
-  padding: 48px clamp(20px, 6vw, 84px);
+  border-bottom: 1px solid #ffedd5;
+  padding: 38px clamp(20px, 6vw, 84px);
 }
 .live-ops-heading {
   align-items: end;
@@ -207,6 +207,18 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
   white-space: nowrap;
 }
 .live-ops-actions .live-ops-reject { background: #fff; color: #9a3412; }
+.live-ops-shell > button, .live-ops-state > button {
+  background: #c2410c;
+  border: 1px solid #c2410c;
+  border-radius: 999px;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 800;
+  margin-top: 16px;
+  padding: 11px 17px;
+}
 .live-ops-state, .live-ops-empty {
   background: #fff;
   border: 1px solid #fed7aa;

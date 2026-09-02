@@ -513,6 +513,25 @@ test("content safety withdrawal removes the live session from family discovery",
   await page.screenshot({ path: testInfo.outputPath("desktop-control-withdrawn.png"), fullPage: true });
 });
 
+test("creator and human operators can run a complete session lifecycle in the UI", async ({ page }, testInfo) => {
+  await installOriginProxy(page, mediaUrl, mediaBrowserOrigin, new URL(sandboxDto.control_url).origin);
+  await page.goto(`${mediaUrl}#live-ops`);
+  await expect(page.getByRole("heading", { name: "直播场次控制台" })).toBeVisible();
+  await page.getByRole("button", { name: "创建新的演示场次" }).click();
+  await expect(page.getByText("场次草稿已创建，等待人工内容审核。")).toBeVisible();
+  const sessionCard = page.getByRole("article", {
+    name: "直播场次 小橘灯：把冲突变成一次共同练习",
+  });
+  await sessionCard.getByRole("button", { name: "人工审核通过" }).click();
+  await expect(page.getByText("人工审核完成，可以由运营开播。")).toBeVisible();
+  await sessionCard.getByRole("button", { name: "开始直播" }).click();
+  await expect(page.getByText("直播已开始，符合范围的家庭可以发现。")).toBeVisible();
+  await sessionCard.getByRole("button", { name: "人工停止直播" }).click();
+  await expect(page.getByText("直播已人工停止，家庭入口已撤回。")).toBeVisible();
+  await expect(sessionCard.getByText("APPROVED · WITHDRAWN")).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("desktop-creator-lifecycle.png"), fullPage: true });
+});
+
 async function startMediaSandbox(): Promise<SandboxDto> {
   const child = spawn(
     pythonExecutable,

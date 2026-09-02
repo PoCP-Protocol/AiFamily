@@ -13,10 +13,12 @@ import { ReplayTimeline } from "./components/ReplayTimeline";
 import { LiveExperience } from "./components/LiveExperience";
 import { LiveModeratorConsole } from "./components/LiveModeratorConsole";
 import { LiveRuntimeConsole } from "./components/LiveRuntimeConsole";
+import { LiveSessionControlConsole } from "./components/LiveSessionControlConsole";
 import { LiveSettlementConsole } from "./components/LiveSettlementConsole";
 import { LiveServiceOfferingPage } from "./components/LiveServiceOfferingPage";
 import {
   resolveLiveCommerceBaseUrl,
+  resolveLiveControlBaseUrl,
   resolveLiveInteractionBaseUrl,
   resolveLiveObservabilityBaseUrl,
 } from "./live/liveCatalog";
@@ -189,6 +191,9 @@ export default function App({ client = defaultClient }: Props) {
       </header>
       {liveSurface === "ops" ? (
         <>
+          <LiveSessionControlConsole
+            controlBaseUrl={resolveLiveControlBaseUrl(import.meta.env)}
+          />
           <LiveModeratorConsole interactionBaseUrl={resolveLiveInteractionBaseUrl(import.meta.env)} />
           <LiveSettlementConsole commerceBaseUrl={resolveLiveCommerceBaseUrl(import.meta.env)} />
           <LiveRuntimeConsole

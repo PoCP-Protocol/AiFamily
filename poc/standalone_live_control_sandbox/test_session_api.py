@@ -361,3 +361,30 @@ def test_health_and_response_shape_are_explicit(client: TestClient) -> None:
         "fixture_only": True,
         "external_effect": False,
     }
+
+
+def test_operator_listing_is_scoped_role_gated_and_restart_readable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(session_api, "now_utc", lambda: NOW)
+    database = tmp_path / "operator-list.sqlite3"
+    first = TestClient(create_app(database))
+    create_and_approve(first)
+    second = TestClient(create_app(database))
+    listing = second.get(
+        "/sandbox/live-control/operator/sessions",
+        headers=headers(role="CREATOR"),
+    )
+    assert listing.status_code == 200
+    assert listing.headers["cache-control"] == "no-store"
+    assert listing.json()[0]["session_ref"] == "live.synthetic.control.1"
+    assert second.get(
+        "/sandbox/live-control/operator/sessions",
+        headers=headers(role="ADULT_VIEWER"),
+    ).status_code == 403
+    other_family = second.get(
+        "/sandbox/live-control/operator/sessions",
+        headers=headers(role="CREATOR", family="family.synthetic.other"),
+    )
+    assert other_family.status_code == 200
+    assert other_family.json() == []

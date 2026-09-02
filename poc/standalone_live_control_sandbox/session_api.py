@@ -359,6 +359,28 @@ def create_app(database_path: Path) -> FastAPI:
         return [session_view(row, now) for row in rows]
 
     @app.get(
+        "/sandbox/live-control/operator/sessions",
+        response_model=list[SessionView],
+    )
+    def operator_sessions(
+        response: Response,
+        actor: Annotated[SyntheticActor, Depends(actor_headers())],
+    ) -> list[SessionView]:
+        response.headers["Cache-Control"] = "no-store"
+        require_role(actor, {"CREATOR", "CONTENT_REVIEWER", "LIVE_OPERATOR"})
+        now = now_utc()
+        with connect(database_path) as database:
+            rows = database.execute(
+                """
+                SELECT * FROM live_sessions
+                WHERE tenant_id = ? AND family_id = ?
+                ORDER BY updated_at DESC, session_ref ASC
+                """,
+                (actor.tenant_id, actor.family_id),
+            ).fetchall()
+        return [session_view(row, now) for row in rows]
+
+    @app.get(
         "/sandbox/live-control/families/{family_id}/sessions/{session_ref}",
         response_model=SessionView,
     )
