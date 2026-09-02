@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { LiveCreatorStudio } from "./LiveCreatorStudio";
+
 type Props = { controlBaseUrl?: string };
 type Session = {
   session_ref: string;
@@ -20,6 +22,7 @@ export function LiveSessionControlConsole({ controlBaseUrl }: Props) {
     controlBaseUrl ? "loading" : "missing",
   );
   const [message, setMessage] = useState("");
+  const [deviceReady, setDeviceReady] = useState(false);
 
   useEffect(() => {
     if (!controlBaseUrl) return;
@@ -51,6 +54,7 @@ export function LiveSessionControlConsole({ controlBaseUrl }: Props) {
       {state === "error" ? <p className="live-ops-state">场次控制面不可用，所有操作已停止。</p> : null}
       {state === "ready" ? (
         <>
+          <LiveCreatorStudio onDeviceReadyChange={setDeviceReady} />
           <div className="live-ops-list" aria-label="直播场次列表">
             {sessions.map((session) => (
               <article
@@ -70,7 +74,12 @@ export function LiveSessionControlConsole({ controlBaseUrl }: Props) {
                     </button>
                   ) : null}
                   {session.approval_status === "APPROVED" && session.status === "SCHEDULED" ? (
-                    <button type="button" onClick={() => void goLive(session)}>
+                    <button
+                      disabled={!deviceReady}
+                      title={deviceReady ? undefined : "请先完成摄像头和麦克风检查"}
+                      type="button"
+                      onClick={() => void goLive(session)}
+                    >
                       开始直播
                     </button>
                   ) : null}

@@ -61,7 +61,11 @@ let browserMediaDto: SandboxDto;
 test.describe.configure({ mode: "serial" });
 test.use({
   launchOptions: {
-    args: ["--disable-features=LocalNetworkAccessChecks"],
+    args: [
+      "--disable-features=LocalNetworkAccessChecks",
+      "--use-fake-device-for-media-stream",
+      "--use-fake-ui-for-media-stream",
+    ],
   },
 });
 
@@ -593,6 +597,9 @@ test("creator and human operators can run a complete session lifecycle in the UI
   });
   await sessionCard.getByRole("button", { name: "人工审核通过" }).click();
   await expect(page.getByText("人工审核完成，可以由运营开播。")).toBeVisible();
+  await expect(sessionCard.getByRole("button", { name: "开始直播" })).toBeDisabled();
+  await page.getByRole("button", { name: "检查摄像头和麦克风" }).click();
+  await expect(page.getByText("摄像头和麦克风已就绪，可以开播。")).toBeVisible();
   await sessionCard.getByRole("button", { name: "开始直播" }).click();
   await expect(page.getByText("直播已开始，符合范围的家庭可以发现。")).toBeVisible();
   await sessionCard.getByRole("button", { name: "人工停止直播" }).click();

@@ -46,6 +46,7 @@ describe("LiveSessionControlConsole", () => {
         }),
       });
     vi.stubGlobal("fetch", fetchMock);
+    installMediaDevices();
     render(<LiveSessionControlConsole controlBaseUrl="http://127.0.0.1:55300" />);
     const user = userEvent.setup();
 
@@ -53,6 +54,11 @@ describe("LiveSessionControlConsole", () => {
     expect(await screen.findByText("场次草稿已创建，等待人工内容审核。")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "人工审核通过" }));
     expect(await screen.findByText("人工审核完成，可以由运营开播。")).toBeInTheDocument();
+    const startButton = screen.getByRole("button", { name: "开始直播" });
+    expect(startButton).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "检查摄像头和麦克风" }));
+    expect(await screen.findByText("摄像头和麦克风已就绪，可以开播。")).toBeInTheDocument();
+    expect(startButton).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "开始直播" }));
     expect(await screen.findByText("直播已开始，符合范围的家庭可以发现。")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "人工停止直播" }));
@@ -72,3 +78,29 @@ describe("LiveSessionControlConsole", () => {
     expect(await screen.findByText("场次控制面不可用，所有操作已停止。")).toBeInTheDocument();
   });
 });
+
+function installMediaDevices() {
+  const videoTrack = fakeTrack("video", "Camera");
+  const audioTrack = fakeTrack("audio", "Microphone");
+  Object.defineProperty(navigator, "mediaDevices", {
+    configurable: true,
+    value: {
+      enumerateDevices: vi.fn().mockResolvedValue([]),
+      getUserMedia: vi.fn().mockResolvedValue({
+        getAudioTracks: () => [audioTrack],
+        getTracks: () => [videoTrack, audioTrack],
+        getVideoTracks: () => [videoTrack],
+      }),
+    },
+  });
+}
+
+function fakeTrack(kind: "audio" | "video", label: string) {
+  return {
+    addEventListener: vi.fn(),
+    kind,
+    label,
+    readyState: "live",
+    stop: vi.fn(),
+  };
+}

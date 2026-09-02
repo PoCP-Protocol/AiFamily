@@ -899,6 +899,60 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .live-ops-dashboard .live-ops-heading > strong { font-size: 0.65rem; padding: 7px 9px; }
 .live-ops-dashboard .live-ops-list { max-width: none; }
 .live-ops-dashboard .live-ops-card { border-radius: 14px; box-shadow: none; padding: 14px; }
+.live-ops-dashboard .live-creator-studio {
+  align-items: stretch;
+  background: #fffaf5;
+  display: grid;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.live-creator-studio > div:first-child { gap: 3px; }
+.live-creator-studio > div:first-child span {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.live-creator-studio > div:first-child strong { font-size: 1.08rem; }
+.live-creator-preview {
+  align-items: center;
+  aspect-ratio: 16 / 8;
+  background: #1c0d08;
+  border-radius: 12px;
+  color: #fff7ed;
+  display: grid;
+  justify-items: center;
+  min-height: 170px;
+  overflow: hidden;
+  padding: 18px;
+  text-align: center;
+}
+.live-creator-preview video { height: 100%; object-fit: cover; width: 100%; }
+.live-creator-preview p { color: #fed7aa; line-height: 1.45; margin: 6px 0 0; }
+.live-creator-synthetic { display: grid; gap: 4px; justify-items: center; }
+.live-creator-synthetic strong { color: #fff; font-size: 1.15rem; }
+.live-creator-devices {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+.live-creator-devices > div {
+  background: #fff;
+  border: 1px solid #fed7aa;
+  border-radius: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+}
+.live-creator-devices dt { color: #9a3412; font-size: 0.68rem; font-weight: 850; }
+.live-creator-devices dd {
+  color: #431407;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+.live-creator-studio .live-ops-actions { flex-wrap: wrap; }
+.live-creator-studio .live-ops-actions button { flex: 1 1 170px; }
 .live-ops-dashboard .live-ops-state,
 .live-ops-dashboard .live-ops-empty { border-radius: 14px; max-width: none; padding: 16px; }
 .live-ops-dashboard .live-ai-console { background: linear-gradient(135deg, #fff7ed, #ffedd5); grid-column: 1 / -1; }
@@ -909,4 +963,5 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
   .live-ops-dashboard { grid-template-columns: 1fr; padding: 20px 14px 36px; }
   .live-ops-dashboard-title { align-items: start; flex-direction: column; gap: 8px; }
   .live-ops-dashboard > .live-ai-console { grid-column: auto; }
+  .live-creator-devices { grid-template-columns: 1fr; }
 }
