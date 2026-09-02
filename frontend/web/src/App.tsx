@@ -12,9 +12,14 @@ import { RunStatus } from "./components/RunStatus";
 import { ReplayTimeline } from "./components/ReplayTimeline";
 import { LiveExperience } from "./components/LiveExperience";
 import { LiveModeratorConsole } from "./components/LiveModeratorConsole";
+import { LiveRuntimeConsole } from "./components/LiveRuntimeConsole";
 import { LiveSettlementConsole } from "./components/LiveSettlementConsole";
 import { LiveServiceOfferingPage } from "./components/LiveServiceOfferingPage";
-import { resolveLiveCommerceBaseUrl, resolveLiveInteractionBaseUrl } from "./live/liveCatalog";
+import {
+  resolveLiveCommerceBaseUrl,
+  resolveLiveInteractionBaseUrl,
+  resolveLiveObservabilityBaseUrl,
+} from "./live/liveCatalog";
 import { initialStudioState, studioReducer } from "./state/experienceStudio";
 
 type Props = { client?: ExperienceApiClient };
@@ -186,6 +191,9 @@ export default function App({ client = defaultClient }: Props) {
         <>
           <LiveModeratorConsole interactionBaseUrl={resolveLiveInteractionBaseUrl(import.meta.env)} />
           <LiveSettlementConsole commerceBaseUrl={resolveLiveCommerceBaseUrl(import.meta.env)} />
+          <LiveRuntimeConsole
+            observabilityBaseUrl={resolveLiveObservabilityBaseUrl(import.meta.env)}
+          />
         </>
       ) : liveSurface === "service" ? (
         <LiveServiceOfferingPage commerceBaseUrl={resolveLiveCommerceBaseUrl(import.meta.env)} />

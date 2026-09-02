@@ -31,6 +31,8 @@ let replayApiUrl: string;
 const browserReplayApiUrl = "http://127.0.0.1:4173/sandbox-replay";
 let commerceApiUrl: string;
 const browserCommerceApiUrl = "http://127.0.0.1:4173/sandbox-commerce";
+let observabilityApiUrl: string;
+const browserObservabilityApiUrl = "http://127.0.0.1:4173/sandbox-observability";
 let replayProcess: ChildProcess;
 let replayPort: number;
 let commerceProcess: ChildProcess;
@@ -54,6 +56,7 @@ test.beforeAll(async () => {
   commerceProcess = await startCommerceSandbox(commercePort);
   replayPort = await reserveFreePort();
   replayProcess = await startReplaySandbox(replayPort);
+  await startObservabilitySandbox(await reserveFreePort());
   browserMediaDto = {
     ...sandboxDto,
     playback_url: toBrowserProxyUrl(sandboxDto.playback_url),
@@ -69,6 +72,7 @@ test.beforeAll(async () => {
       browserQuestionApiUrl,
       browserReplayApiUrl,
       browserCommerceApiUrl,
+      browserObservabilityApiUrl,
     ),
   ]);
 });
@@ -457,6 +461,31 @@ test("expert settlement requires a human finance decision and survives restart",
   await page.screenshot({ path: testInfo.outputPath("desktop-settlement-restart.png"), fullPage: true });
 });
 
+test("runtime observability degrades visibly and recovers after provider restart", async ({ page }, testInfo) => {
+  await installOriginProxy(page, mediaUrl, mediaBrowserOrigin, new URL(sandboxDto.control_url).origin);
+  await page.goto(`${mediaUrl}#live-ops`);
+  await expect(page.getByRole("heading", { name: "直播运行状态" })).toBeVisible();
+  await expect(page.getByText("READY", { exact: true })).toBeVisible();
+  await expect(page.getByText("视频媒体")).toBeVisible();
+  await expect(page.getByText("成人互动与审核")).toBeVisible();
+  await expect(page.getByText("录制回放")).toBeVisible();
+  await expect(page.getByText("交易与权益")).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("desktop-runtime-ready.png"), fullPage: true });
+
+  commerceProcess.kill();
+  await waitForProcessExit(commerceProcess);
+  await page.getByRole("button", { name: "重新检查运行状态" }).click();
+  await expect(page.getByText("DEGRADED", { exact: true })).toBeVisible();
+  const commerceCard = page.getByText("交易与权益").locator("..");
+  await expect(commerceCard.getByText(/provider unreachable or timed out/)).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("desktop-runtime-degraded.png"), fullPage: true });
+
+  commerceProcess = await startCommerceSandbox(commercePort);
+  await page.getByRole("button", { name: "重新检查运行状态" }).click();
+  await expect(page.getByText("READY", { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("desktop-runtime-recovered.png"), fullPage: true });
+});
+
 async function startMediaSandbox(): Promise<SandboxDto> {
   const child = spawn(
     pythonExecutable,
@@ -496,6 +525,7 @@ async function installOriginProxy(
     const isQuestionRequest = incoming.pathname.startsWith("/sandbox-question/");
     const isReplayRequest = incoming.pathname.startsWith("/sandbox-replay/");
     const isCommerceRequest = incoming.pathname.startsWith("/sandbox-commerce/");
+    const isObservabilityRequest = incoming.pathname.startsWith("/sandbox-observability/");
     const path = isMediaRequest
       ? incoming.pathname.replace("/sandbox-media", "")
       : isQuestionRequest
@@ -504,6 +534,8 @@ async function installOriginProxy(
           ? incoming.pathname.replace("/sandbox-replay", "")
         : isCommerceRequest
           ? incoming.pathname.replace("/sandbox-commerce", "")
+        : isObservabilityRequest
+          ? incoming.pathname.replace("/sandbox-observability", "")
         : incoming.pathname;
     const source = new URL(
       `${path}${incoming.search}`,
@@ -515,6 +547,8 @@ async function installOriginProxy(
             ? replayApiUrl
             : isCommerceRequest
               ? commerceApiUrl
+            : isObservabilityRequest
+              ? observabilityApiUrl
             : sourceBaseUrl,
     );
     const response = await route.fetch({ url: source.toString() });
@@ -528,6 +562,7 @@ async function startVite(
   interactionBaseUrl?: string,
   replayBaseUrl?: string,
   commerceBaseUrl?: string,
+  observabilityBaseUrl?: string,
 ): Promise<void> {
   const env = { ...process.env };
   delete env.VITE_MEDIA_PLAYBACK_DTO;
@@ -535,6 +570,7 @@ async function startVite(
   if (interactionBaseUrl) env.VITE_LIVE_INTERACTION_BASE_URL = interactionBaseUrl;
   if (replayBaseUrl) env.VITE_LIVE_REPLAY_BASE_URL = replayBaseUrl;
   if (commerceBaseUrl) env.VITE_LIVE_COMMERCE_BASE_URL = commerceBaseUrl;
+  if (observabilityBaseUrl) env.VITE_LIVE_OBSERVABILITY_BASE_URL = observabilityBaseUrl;
   const child = spawn(
     process.execPath,
     [viteEntrypoint, "--host", "127.0.0.1", "--port", String(port), "--strictPort"],
@@ -589,6 +625,33 @@ async function startReplaySandbox(port: number): Promise<ChildProcess> {
   child.stdout?.resume();
   child.stderr?.resume();
   await waitForUrl(`${replayApiUrl}/health`);
+  return child;
+}
+
+async function startObservabilitySandbox(port: number): Promise<ChildProcess> {
+  observabilityApiUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(
+    pythonExecutable,
+    [
+      "-m",
+      "poc.standalone_live_observability_sandbox.health_api",
+      "--media-url",
+      new URL(sandboxDto.control_url).origin,
+      "--interaction-url",
+      questionApiUrl,
+      "--replay-url",
+      replayApiUrl,
+      "--commerce-url",
+      commerceApiUrl,
+      "--port",
+      String(port),
+    ],
+    { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  processes.push(child);
+  child.stdout?.resume();
+  child.stderr?.resume();
+  await waitForUrl(`${observabilityApiUrl}/health`);
   return child;
 }
 

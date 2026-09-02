@@ -4,11 +4,13 @@ import { describe, expect, it, vi } from "vitest";
 import { LiveExperience } from "./LiveExperience";
 import { LiveDetailPage } from "./LiveDetailPage";
 import { LiveServiceOfferingPage } from "./LiveServiceOfferingPage";
+import { LiveRuntimeConsole } from "./LiveRuntimeConsole";
 import { LiveSettlementConsole } from "./LiveSettlementConsole";
 import {
   LIVE_STATE_COPY,
   XIAO_JU_DENG_FIXTURE,
   resolveLiveCommerceBaseUrl,
+  resolveLiveObservabilityBaseUrl,
   resolveLiveReplayBaseUrl,
   resolveLiveView,
   type LiveViewState,
@@ -572,6 +574,85 @@ describe("Xiao Ju Deng live product surface", () => {
     expect(await screen.findByText("结算审核失败，没有产生付款。")).toBeInTheDocument();
     localStorage.clear();
     vi.unstubAllGlobals();
+  });
+
+  it("renders a verified runtime snapshot and exposes every live dependency", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        overall: "READY",
+        checked_at: "2026-09-03T03:00:00+08:00",
+        components: [
+          { component: "media", state: "UP", latency_ms: 4, detail: "verified synthetic health", external_effect: false },
+          { component: "interaction", state: "UP", latency_ms: 3, detail: "verified synthetic health", external_effect: false },
+          { component: "replay", state: "UP", latency_ms: 5, detail: "verified synthetic health", external_effect: false },
+          { component: "commerce", state: "UP", latency_ms: 2, detail: "verified synthetic health", external_effect: false },
+        ],
+        external_effect: false,
+        source: "SANDBOX_SYNTHETIC",
+        fixture_only: true,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LiveRuntimeConsole observabilityBaseUrl="http://127.0.0.1:55500" />);
+
+    expect(await screen.findByText("READY")).toBeInTheDocument();
+    expect(screen.getByText("视频媒体")).toBeInTheDocument();
+    expect(screen.getByText("成人互动与审核")).toBeInTheDocument();
+    expect(screen.getByText("录制回放")).toBeInTheDocument();
+    expect(screen.getByText("交易与权益")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:55500/sandbox/live-ops/runtime-snapshot",
+      expect.objectContaining({ cache: "no-store", headers: expect.any(Object) }),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it("treats an unsafe runtime snapshot as degraded evidence", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        overall: "READY",
+        components: [],
+        external_effect: true,
+        source: "PRODUCTION",
+        fixture_only: false,
+      }),
+    }));
+    render(<LiveRuntimeConsole observabilityBaseUrl="http://127.0.0.1:55500" />);
+    expect(await screen.findByText("无法取得可信运行快照，按降级处理。")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects incomplete or duplicated runtime component evidence", async () => {
+    const component = {
+      component: "media",
+      state: "UP",
+      latency_ms: 1,
+      detail: "verified synthetic health",
+      external_effect: false,
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        overall: "READY",
+        checked_at: "2026-09-03T03:00:00+08:00",
+        components: [component, component, component, component],
+        external_effect: false,
+        source: "SANDBOX_SYNTHETIC",
+        fixture_only: true,
+      }),
+    }));
+    render(<LiveRuntimeConsole observabilityBaseUrl="http://127.0.0.1:55500" />);
+    expect(await screen.findByText("无法取得可信运行快照，按降级处理。")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects non-local observability adapters", () => {
+    expect(resolveLiveObservabilityBaseUrl({
+      DEV: true,
+      VITE_LIVE_OBSERVABILITY_BASE_URL: "https://unverified.example",
+    })).toBeUndefined();
   });
 
   it.each([
