@@ -33,6 +33,8 @@ let commerceApiUrl: string;
 const browserCommerceApiUrl = "http://127.0.0.1:4173/sandbox-commerce";
 let observabilityApiUrl: string;
 const browserObservabilityApiUrl = "http://127.0.0.1:4173/sandbox-observability";
+let controlApiUrl: string;
+const browserControlApiUrl = "http://127.0.0.1:4173/sandbox-control";
 let replayProcess: ChildProcess;
 let replayPort: number;
 let commerceProcess: ChildProcess;
@@ -40,6 +42,7 @@ let commercePort: number;
 const replayDatabasePath = resolve(tmpdir(), `xiaojudeng-replay-${Date.now()}.sqlite3`);
 const commerceDatabasePath = resolve(tmpdir(), `xiaojudeng-commerce-${Date.now()}.sqlite3`);
 const mediaOutputPath = resolve(tmpdir(), `xiaojudeng-playwright-${Date.now()}.mp4`);
+const controlDatabasePath = resolve(tmpdir(), `xiaojudeng-control-${Date.now()}.sqlite3`);
 const processes: ChildProcess[] = [];
 let sandboxDto: SandboxDto;
 let browserMediaDto: SandboxDto;
@@ -52,6 +55,7 @@ test.beforeAll(async () => {
   browserQuestionApiUrl = "http://127.0.0.1:4173/sandbox-question";
   await startQuestionSandbox(questionPort);
   sandboxDto = await startMediaSandbox();
+  await startControlSandbox(await reserveFreePort());
   commercePort = await reserveFreePort();
   commerceProcess = await startCommerceSandbox(commercePort);
   replayPort = await reserveFreePort();
@@ -73,6 +77,7 @@ test.beforeAll(async () => {
       browserReplayApiUrl,
       browserCommerceApiUrl,
       browserObservabilityApiUrl,
+      browserControlApiUrl,
     ),
   ]);
 });
@@ -486,6 +491,28 @@ test("runtime observability degrades visibly and recovers after provider restart
   await page.screenshot({ path: testInfo.outputPath("desktop-runtime-recovered.png"), fullPage: true });
 });
 
+test("content safety withdrawal removes the live session from family discovery", async ({ page }, testInfo) => {
+  await installOriginProxy(page, mediaUrl, mediaBrowserOrigin, new URL(sandboxDto.control_url).origin);
+  await requireOk(fetch(
+    `${controlApiUrl}/sandbox/live-control/sessions/${sandboxDto.media_session_ref}/review`,
+    {
+      method: "POST",
+      headers: { ...syntheticHeaders("CONTENT_REVIEWER"), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        decision_key: "e2e-withdraw-live-session",
+        action: "WITHDRAW",
+        reason: "人工撤回合成直播演练",
+        review_ref: "review.synthetic.withdrawn",
+      }),
+    },
+  ));
+  await page.goto(`${mediaUrl}#live-home`);
+  await expect(page.getByText("暂无直播")).toBeVisible();
+  await expect(page.getByText("当前没有可展示的专家直播。")).toBeVisible();
+  await expect(page.getByRole("button", { name: "进入直播间" })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("desktop-control-withdrawn.png"), fullPage: true });
+});
+
 async function startMediaSandbox(): Promise<SandboxDto> {
   const child = spawn(
     pythonExecutable,
@@ -526,6 +553,7 @@ async function installOriginProxy(
     const isReplayRequest = incoming.pathname.startsWith("/sandbox-replay/");
     const isCommerceRequest = incoming.pathname.startsWith("/sandbox-commerce/");
     const isObservabilityRequest = incoming.pathname.startsWith("/sandbox-observability/");
+    const isControlRequest = incoming.pathname.startsWith("/sandbox-control/");
     const path = isMediaRequest
       ? incoming.pathname.replace("/sandbox-media", "")
       : isQuestionRequest
@@ -536,6 +564,8 @@ async function installOriginProxy(
           ? incoming.pathname.replace("/sandbox-commerce", "")
         : isObservabilityRequest
           ? incoming.pathname.replace("/sandbox-observability", "")
+        : isControlRequest
+          ? incoming.pathname.replace("/sandbox-control", "")
         : incoming.pathname;
     const source = new URL(
       `${path}${incoming.search}`,
@@ -549,6 +579,8 @@ async function installOriginProxy(
               ? commerceApiUrl
             : isObservabilityRequest
               ? observabilityApiUrl
+            : isControlRequest
+              ? controlApiUrl
             : sourceBaseUrl,
     );
     const response = await route.fetch({ url: source.toString() });
@@ -563,6 +595,7 @@ async function startVite(
   replayBaseUrl?: string,
   commerceBaseUrl?: string,
   observabilityBaseUrl?: string,
+  controlBaseUrl?: string,
 ): Promise<void> {
   const env = { ...process.env };
   delete env.VITE_MEDIA_PLAYBACK_DTO;
@@ -571,6 +604,7 @@ async function startVite(
   if (replayBaseUrl) env.VITE_LIVE_REPLAY_BASE_URL = replayBaseUrl;
   if (commerceBaseUrl) env.VITE_LIVE_COMMERCE_BASE_URL = commerceBaseUrl;
   if (observabilityBaseUrl) env.VITE_LIVE_OBSERVABILITY_BASE_URL = observabilityBaseUrl;
+  if (controlBaseUrl) env.VITE_LIVE_CONTROL_BASE_URL = controlBaseUrl;
   const child = spawn(
     process.execPath,
     [viteEntrypoint, "--host", "127.0.0.1", "--port", String(port), "--strictPort"],
@@ -653,6 +687,85 @@ async function startObservabilitySandbox(port: number): Promise<ChildProcess> {
   child.stderr?.resume();
   await waitForUrl(`${observabilityApiUrl}/health`);
   return child;
+}
+
+async function startControlSandbox(port: number): Promise<void> {
+  controlApiUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(
+    pythonExecutable,
+    [
+      "-m",
+      "poc.standalone_live_control_sandbox.session_api",
+      "--serve",
+      "--database",
+      controlDatabasePath,
+      "--port",
+      String(port),
+    ],
+    { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  processes.push(child);
+  child.stdout?.resume();
+  child.stderr?.resume();
+  await waitForUrl(`${controlApiUrl}/health`);
+  const now = Date.now();
+  await requireOk(fetch(`${controlApiUrl}/sandbox/live-control/sessions`, {
+    method: "POST",
+    headers: { ...syntheticHeaders("CREATOR"), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      session_ref: sandboxDto.media_session_ref,
+      idempotency_key: "e2e-create-live-session",
+      title: "小橘灯：家庭沟通中的温柔练习",
+      speaker: "小橘灯老师",
+      expert_summary: "围绕家庭沟通中的具体场景，练习可核对、可暂停的表达方式。",
+      applicable_scope: "家长与照护者",
+      problem_tags: ["家庭沟通", "照护者"],
+      starts_at: new Date(now - 60_000).toISOString(),
+      ends_at: new Date(now + 3_600_000).toISOString(),
+      audience_scope: "FAMILY",
+    }),
+  }));
+  await requireOk(fetch(
+    `${controlApiUrl}/sandbox/live-control/sessions/${sandboxDto.media_session_ref}/review`,
+    {
+      method: "POST",
+      headers: { ...syntheticHeaders("CONTENT_REVIEWER"), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        decision_key: "e2e-approve-live-session",
+        action: "APPROVE",
+        reason: "人工确认合成直播内容适合成年家庭成员",
+        review_ref: "review.synthetic.e2e",
+      }),
+    },
+  ));
+  await requireOk(fetch(
+    `${controlApiUrl}/sandbox/live-control/sessions/${sandboxDto.media_session_ref}/lifecycle`,
+    {
+      method: "POST",
+      headers: { ...syntheticHeaders("LIVE_OPERATOR"), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action_key: "e2e-start-live-session",
+        action: "GO_LIVE",
+        reason: "人工确认合成媒体已准备",
+      }),
+    },
+  ));
+}
+
+function syntheticHeaders(role: string): Record<string, string> {
+  return {
+    "X-Sandbox-Source": "SANDBOX_SYNTHETIC",
+    "X-Fixture-Only": "true",
+    "X-Tenant-Id": "tenant.synthetic.alpha",
+    "X-Family-Id": "family.synthetic.alpha",
+    "X-Actor-Id": `actor.synthetic.${role.toLowerCase()}`,
+    "X-Actor-Role": role,
+  };
+}
+
+async function requireOk(request: Promise<Response>): Promise<void> {
+  const response = await request;
+  if (!response.ok) throw new Error(`sandbox setup failed: ${response.status} ${await response.text()}`);
 }
 
 function syntheticActorHeaders(): Record<string, string> {

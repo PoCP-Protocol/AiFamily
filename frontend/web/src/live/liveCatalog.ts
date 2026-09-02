@@ -20,6 +20,7 @@ export type LiveEnvironment = {
   VITE_LIVE_REPLAY_BASE_URL?: string;
   VITE_LIVE_COMMERCE_BASE_URL?: string;
   VITE_LIVE_OBSERVABILITY_BASE_URL?: string;
+  VITE_LIVE_CONTROL_BASE_URL?: string;
 };
 
 export const resolveLiveInteractionBaseUrl = (environment: LiveEnvironment): string | undefined => {
@@ -66,6 +67,17 @@ export const resolveLiveObservabilityBaseUrl = (environment: LiveEnvironment): s
   }
 };
 
+export const resolveLiveControlBaseUrl = (environment: LiveEnvironment): string | undefined => {
+  if (environment.DEV !== true || !environment.VITE_LIVE_CONTROL_BASE_URL) return undefined;
+  try {
+    const url = new URL(environment.VITE_LIVE_CONTROL_BASE_URL);
+    if (!["localhost", "127.0.0.1"].includes(url.hostname)) return undefined;
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return undefined;
+  }
+};
+
 export type LiveSectionKey = "live-now" | "upcoming" | "ended";
 
 export type MediaPlaybackState = "LIVE" | "DISCONNECTED" | "RESTARTED" | "ENDED" | "STOPPED" | "REVOKED" | "FAILED";
@@ -81,6 +93,7 @@ export type MediaPlaybackDto = {
 };
 
 export type LiveRecord = {
+  session_ref: string;
   title: string;
   speaker: string;
   problem_tags: string[];
@@ -116,6 +129,7 @@ export type LiveViewModel = {
 };
 
 export const XIAO_JU_DENG_FIXTURE: LiveRecord = {
+  session_ref: "live.synthetic.upcoming.1",
   title: "小橘灯：家庭沟通中的温柔练习",
   speaker: "小橘灯老师",
   problem_tags: ["家庭沟通", "照护者"],
@@ -142,6 +156,7 @@ export const XIAO_JU_DENG_FIXTURE: LiveRecord = {
 };
 
 export const XIAO_JU_DENG_ENDED_FIXTURE: LiveRecord = {
+  session_ref: "live.synthetic.ended.1",
   title: "小橘灯：冲突后的家庭复盘",
   speaker: "小橘灯老师",
   problem_tags: ["冲突复盘", "家庭沟通"],
@@ -207,6 +222,115 @@ const parseMediaPlaybackDto = (environment: LiveEnvironment): MediaPlaybackDto |
     return null;
   }
 };
+
+const CONTROL_HEADERS = {
+  "X-Sandbox-Source": "SANDBOX_SYNTHETIC",
+  "X-Fixture-Only": "true",
+  "X-Tenant-Id": "tenant.synthetic.alpha",
+  "X-Family-Id": "family.synthetic.alpha",
+  "X-Actor-Id": "actor.synthetic.adult",
+  "X-Actor-Role": "ADULT_VIEWER",
+};
+
+export async function loadLiveControlView(
+  environment: LiveEnvironment,
+  signal?: AbortSignal,
+): Promise<LiveViewModel> {
+  const baseUrl = resolveLiveControlBaseUrl(environment);
+  if (!baseUrl) return { state: "backend-missing", record: null };
+  const response = await fetch(
+    `${baseUrl}/sandbox/live-control/families/family.synthetic.alpha/sessions`,
+    { cache: "no-store", headers: CONTROL_HEADERS, signal },
+  );
+  if (!response.ok) return { state: responseState(response.status), record: null };
+  const payload = await response.json() as unknown;
+  if (!Array.isArray(payload)) return { state: "error", record: null };
+  const playback = parseMediaPlaybackDto(environment);
+  const records = payload.map((item) => parseControlRecord(item, playback));
+  if (records.some((record) => record === null)) return { state: "error", record: null };
+  const safeRecords = records as LiveRecord[];
+  const sections: LiveSections = { "live-now": [], upcoming: [], ended: [] };
+  for (const record of safeRecords) sections[record.section].push(record);
+  const record = sections["live-now"][0] ?? sections.upcoming[0] ?? null;
+  return record ? { state: "success", record, sections } : { state: "empty", record: null, sections };
+}
+
+function parseControlRecord(value: unknown, playback: MediaPlaybackDto | null): LiveRecord | null {
+  if (!isObject(value) || containsForbiddenLiveField(value)) return null;
+  if (
+    typeof value.session_ref !== "string" ||
+    typeof value.title !== "string" ||
+    typeof value.speaker !== "string" ||
+    !Array.isArray(value.problem_tags) ||
+    value.problem_tags.some((tag) => typeof tag !== "string") ||
+    typeof value.expert_summary !== "string" ||
+    typeof value.applicable_scope !== "string" ||
+    typeof value.starts_at !== "string" ||
+    typeof value.ends_at !== "string" ||
+    typeof value.review_ref !== "string" ||
+    typeof value.version !== "string" ||
+    typeof value.as_of !== "string" ||
+    value.source !== "SANDBOX_SYNTHETIC" ||
+    value.fixture_only !== true ||
+    value.external_effect !== false ||
+    value.audit_mode !== "SANDBOX_RECEIPT_ONLY" ||
+    value.approval_status !== "APPROVED" ||
+    value.expiry_state !== "UNEXPIRED" ||
+    value.audience_scope !== "FAMILY" ||
+    value.family_visibility !== "family-private" ||
+    !["SCHEDULED", "LIVE"].includes(String(value.status)) ||
+    !["live-now", "upcoming"].includes(String(value.section))
+  ) return null;
+  const attachedPlayback = playback?.media_session_ref === value.session_ref ? playback : undefined;
+  return {
+    session_ref: value.session_ref,
+    title: value.title,
+    speaker: value.speaker,
+    problem_tags: value.problem_tags as string[],
+    expert_summary: value.expert_summary,
+    applicable_scope: value.applicable_scope,
+    starts_at: value.starts_at,
+    ends_at: value.ends_at,
+    review_ref: value.review_ref,
+    version: value.version,
+    status: value.status as "SCHEDULED" | "LIVE",
+    approval_status: "APPROVED",
+    expiry_state: "UNEXPIRED",
+    audience_scope: "FAMILY",
+    family_visibility: "family-private",
+    capabilities: { favorite: "LOCKED", replay: "LOCKED" },
+    playback_state: attachedPlayback?.state ?? "WAITING_AUTHORIZATION",
+    ...(attachedPlayback ? { playback: attachedPlayback } : {}),
+    section: value.section as "live-now" | "upcoming",
+    as_of: value.as_of,
+    source: "SANDBOX_SYNTHETIC",
+    fixture_only: true,
+  };
+}
+
+function containsForbiddenLiveField(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsForbiddenLiveField);
+  if (!isObject(value)) return false;
+  return Object.entries(value).some(
+    ([key, nested]) =>
+      /room|token|child|score|ranking|purchase_cta/i.test(key) ||
+      containsForbiddenLiveField(nested),
+  );
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function responseState(status: number): LiveViewState {
+  return {
+    401: "unauthorized",
+    403: "forbidden",
+    404: "not-found",
+    409: "conflict",
+    503: "provider-missing",
+  }[status] as LiveViewState | undefined ?? "error";
+}
 
 export const resolveLiveView = (environment: LiveEnvironment): LiveViewModel => {
   if (environment.DEV !== true) return { state: "backend-missing", record: null };

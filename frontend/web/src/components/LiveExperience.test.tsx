@@ -9,7 +9,9 @@ import { LiveSettlementConsole } from "./LiveSettlementConsole";
 import {
   LIVE_STATE_COPY,
   XIAO_JU_DENG_FIXTURE,
+  loadLiveControlView,
   resolveLiveCommerceBaseUrl,
+  resolveLiveControlBaseUrl,
   resolveLiveObservabilityBaseUrl,
   resolveLiveReplayBaseUrl,
   resolveLiveView,
@@ -24,6 +26,33 @@ const SYNTHETIC_PLAYBACK_DTO = JSON.stringify({
   playback_url: "http://127.0.0.1:43123/media/media.synthetic.1.mp4?token=test-only",
   control_url: "http://127.0.0.1:43123/control/media.synthetic.1",
   sha256: "synthetic-test-digest",
+});
+
+const controlRecord = (overrides: Record<string, unknown> = {}) => ({
+  session_ref: "live.synthetic.remote.1",
+  title: "远程控制面的家庭沟通直播",
+  speaker: "合成专家",
+  problem_tags: ["家庭沟通"],
+  expert_summary: "来自 Control Plane 的已审核摘要",
+  applicable_scope: "成年家长与照护者",
+  starts_at: "2026-09-03T11:55:00+00:00",
+  ends_at: "2026-09-03T13:00:00+00:00",
+  review_ref: "review.synthetic.remote.1",
+  version: "live-session.v2",
+  status: "SCHEDULED",
+  approval_status: "APPROVED",
+  expiry_state: "UNEXPIRED",
+  audience_scope: "FAMILY",
+  family_visibility: "family-private",
+  capabilities: { favorite: "LOCKED", replay: "LOCKED" },
+  playback_state: "WAITING_AUTHORIZATION",
+  section: "upcoming",
+  as_of: "2026-09-03T12:00:00+00:00",
+  source: "SANDBOX_SYNTHETIC",
+  fixture_only: true,
+  external_effect: false,
+  audit_mode: "SANDBOX_RECEIPT_ONLY",
+  ...overrides,
 });
 
 describe("Xiao Ju Deng live product surface", () => {
@@ -62,6 +91,61 @@ describe("Xiao Ju Deng live product surface", () => {
     render(<LiveExperience environment={{ DEV: false }} />);
     expect(screen.getByText("后端未接入")).toBeInTheDocument();
     expect(screen.queryByText(XIAO_JU_DENG_FIXTURE.title)).not.toBeInTheDocument();
+  });
+
+  it("loads approved sessions from the local control plane without fixture fallback", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [controlRecord({
+        session_ref: "live.synthetic.remote.1",
+        title: "远程控制面的家庭沟通直播",
+      })],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LiveExperience environment={{
+      DEV: true,
+      VITE_LIVE_CONTROL_BASE_URL: "http://127.0.0.1:55300",
+    }} />);
+
+    expect(screen.getByText("正在读取")).toBeInTheDocument();
+    expect(await screen.findByText("远程控制面的家庭沟通直播")).toBeInTheDocument();
+    expect(screen.queryByText(XIAO_JU_DENG_FIXTURE.title)).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "查看直播详情" }));
+    expect(screen.getByText("来自 Control Plane 的已审核摘要")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:55300/sandbox/live-control/families/family.synthetic.alpha/sessions",
+      expect.objectContaining({ cache: "no-store", headers: expect.any(Object) }),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it("renders a real empty state and rejects unsafe control-plane shapes", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce({ ok: true, json: async () => [] }));
+    render(<LiveExperience environment={{
+      DEV: true,
+      VITE_LIVE_CONTROL_BASE_URL: "http://127.0.0.1:55300",
+    }} />);
+    expect(await screen.findByText("暂无直播")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [controlRecord({
+        capabilities: { favorite: "LOCKED", nested: { room_token: "unsafe" } },
+      })],
+    }));
+    expect(await loadLiveControlView({
+      DEV: true,
+      VITE_LIVE_CONTROL_BASE_URL: "http://127.0.0.1:55300",
+    })).toEqual({ state: "error", record: null });
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects non-local control-plane adapters", () => {
+    expect(resolveLiveControlBaseUrl({
+      DEV: true,
+      VITE_LIVE_CONTROL_BASE_URL: "https://unverified.example",
+    })).toBeUndefined();
   });
 
   it("renders a non-autoplay video only for a local synthetic playback DTO", async () => {

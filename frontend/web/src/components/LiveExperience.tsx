@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LiveDiscoveryCard } from "./LiveDiscoveryCard";
 import { LiveDetailPage } from "./LiveDetailPage";
 import {
   LIVE_STATE_COPY,
+  loadLiveControlView,
   resolveLiveCommerceBaseUrl,
+  resolveLiveControlBaseUrl,
   resolveLiveInteractionBaseUrl,
   resolveLiveReplayBaseUrl,
   resolveLiveView,
@@ -33,9 +35,29 @@ const sectionFallback = (record: LiveViewModel["record"]): LiveSections => ({
 });
 
 export function LiveExperience({ environment = import.meta.env, viewModel }: Props) {
-  const [showDetail, setShowDetail] = useState(false);
+  const controlBaseUrl = resolveLiveControlBaseUrl(environment);
+  const remoteEnabled = viewModel === undefined && controlBaseUrl !== undefined;
+  const [remoteModel, setRemoteModel] = useState<LiveViewModel | null>(null);
+  const [selectedRecord, setSelectedRecord] = useState<LiveViewModel["record"]>(null);
   const [query, setQuery] = useState("");
-  const model = viewModel ?? resolveLiveView(environment);
+  useEffect(() => {
+    if (!remoteEnabled) return;
+    const controller = new AbortController();
+    setRemoteModel(null);
+    void loadLiveControlView(environment, controller.signal)
+      .then(setRemoteModel)
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setRemoteModel({ state: "error", record: null });
+        }
+      });
+    return () => controller.abort();
+  }, [controlBaseUrl, environment, remoteEnabled]);
+  const model = viewModel ?? (
+    remoteEnabled
+      ? remoteModel ?? { state: "loading", record: null }
+      : resolveLiveView(environment)
+  );
   const copy = LIVE_STATE_COPY[model.state];
   const sections = useMemo(
     () => model.sections ?? sectionFallback(model.record),
@@ -83,13 +105,13 @@ export function LiveExperience({ environment = import.meta.env, viewModel }: Pro
       </div>
 
       {model.state === "success" && model.record ? (
-        showDetail ? (
+        selectedRecord ? (
           <LiveDetailPage
-            record={model.record}
+            record={selectedRecord}
             interactionBaseUrl={resolveLiveInteractionBaseUrl(environment)}
             replayBaseUrl={resolveLiveReplayBaseUrl(environment)}
             commerceBaseUrl={resolveLiveCommerceBaseUrl(environment)}
-            onBack={() => setShowDetail(false)}
+            onBack={() => setSelectedRecord(null)}
           />
         ) : (
           <div id="live-status" className="live-sections">
@@ -115,14 +137,13 @@ export function LiveExperience({ environment = import.meta.env, viewModel }: Pro
                     <div className="live-section-grid">
                       {section.map((record) => {
                         const canOpenDetail =
-                          record === model.record &&
                           record.approval_status === "APPROVED" &&
                           record.expiry_state === "UNEXPIRED";
                         return (
                           <LiveDiscoveryCard
                             key={`${record.title}-${record.starts_at}`}
                             record={record}
-                            onOpenDetail={canOpenDetail ? () => setShowDetail(true) : undefined}
+                            onOpenDetail={canOpenDetail ? () => setSelectedRecord(record) : undefined}
                           />
                         );
                       })}
