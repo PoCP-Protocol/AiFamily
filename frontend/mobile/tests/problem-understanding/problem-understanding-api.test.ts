@@ -87,8 +87,7 @@ describe("S3 multimodal family-understanding mobile contract", () => {
       generatedResponse(),
       "tenant-1",
       "family-1",
-      2,
-      1,
+      { revision: 2, mediaCount: 1, sourceRefs: ["input:run-1"] },
     );
 
     expect(draft.runId).toBe("run-1");
@@ -115,6 +114,22 @@ describe("S3 multimodal family-understanding mobile contract", () => {
           {
             ...generatedResponse().output.hypotheses[0],
             evidence: [],
+          },
+        ],
+      },
+    },
+    {
+      output: {
+        ...generatedResponse().output,
+        hypotheses: [
+          {
+            ...generatedResponse().output.hypotheses[0],
+            evidence: [
+              {
+                ...generatedResponse().output.hypotheses[0].evidence[0],
+                source_ref: "input:not-in-this-request",
+              },
+            ],
           },
         ],
       },
@@ -158,8 +173,7 @@ describe("S3 multimodal family-understanding mobile contract", () => {
         { ...generatedResponse(), ...change },
         "tenant-1",
         "family-1",
-        1,
-        0,
+        { revision: 1, mediaCount: 0, sourceRefs: ["input:run-1"] },
       ),
     ).toThrow("UNDERSTANDING_RESPONSE_INVALID");
   });
@@ -170,6 +184,15 @@ describe("S3 multimodal family-understanding mobile contract", () => {
       sessionId: "session-1",
       expression: "最近一写作业就会吵起来。",
       revision: 1,
+      conversationTurns: [
+        {
+          inputRef: "input:run-1",
+          kind: "CONCERN",
+          text: "最近一写作业就会吵起来。",
+          createdAt: "2026-09-03T10:00:00Z",
+        },
+      ],
+      priorRunId: null,
       attachments: [
         {
           mediaType: "IMAGE",
@@ -181,7 +204,16 @@ describe("S3 multimodal family-understanding mobile contract", () => {
     });
 
     expect(request.modalities).toEqual(["TEXT", "IMAGE"]);
-    expect(request.input_refs).toEqual(["media:family/photo-1"]);
+    expect(request.input_refs).toEqual(["input:run-1", "media:family/photo-1"]);
+    expect(request.payload.conversation_turns).toEqual([
+      {
+        input_ref: "input:run-1",
+        kind: "CONCERN",
+        text: "最近一写作业就会吵起来。",
+        created_at: "2026-09-03T10:00:00Z",
+      },
+    ]);
+    expect(request.payload.prior_run_id).toBeNull();
     expect(request.media_inputs[0]).toEqual({
       media_type: "IMAGE",
       uri: "media:family/photo-1",
@@ -207,6 +239,15 @@ describe("S3 multimodal family-understanding mobile contract", () => {
       sessionId: "session-1",
       expression: "最近很晚还不愿意睡。",
       revision: 1,
+      conversationTurns: [
+        {
+          inputRef: "input:run-1",
+          kind: "CONCERN",
+          text: "最近很晚还不愿意睡。",
+          createdAt: "2026-09-03T10:00:00Z",
+        },
+      ],
+      priorRunId: null,
       attachments: [],
     });
 

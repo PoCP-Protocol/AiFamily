@@ -1,10 +1,24 @@
-import type { AuthorizedMediaAttachment, UnderstandingDraft } from "./model";
+import type {
+  AuthorizedMediaAttachment,
+  UnderstandingDraft,
+  UnderstandingInput,
+} from "./model";
 
 export interface MultimodalDraftRequest {
   run_id: string;
   prompt_version: string;
   schema_version: string;
-  payload: { expression: string; revision: number };
+  payload: {
+    expression: string;
+    revision: number;
+    conversation_turns: {
+      input_ref: string;
+      kind: UnderstandingInput["kind"];
+      text: string;
+      created_at: string;
+    }[];
+    prior_run_id: string | null;
+  };
   modalities: ("TEXT" | "IMAGE")[];
   estimated_input_tokens: number;
   strategy: "balanced";
@@ -101,6 +115,8 @@ export function buildMultimodalDraftRequest(input: {
   expression: string;
   revision: number;
   attachments: readonly AuthorizedMediaAttachment[];
+  conversationTurns: readonly UnderstandingInput[];
+  priorRunId: string | null;
 }): MultimodalDraftRequest {
   const mediaInputs = input.attachments.map((attachment) => ({
     media_type: attachment.mediaType,
@@ -112,14 +128,27 @@ export function buildMultimodalDraftRequest(input: {
     run_id: input.runId,
     prompt_version: "family-understanding-multimodal.v1",
     schema_version: "family-understanding-draft.v1",
-    payload: { expression: input.expression, revision: input.revision },
+    payload: {
+      expression: input.expression,
+      revision: input.revision,
+      conversation_turns: input.conversationTurns.map((turn) => ({
+        input_ref: turn.inputRef,
+        kind: turn.kind,
+        text: turn.text,
+        created_at: turn.createdAt,
+      })),
+      prior_run_id: input.priorRunId,
+    },
     modalities: mediaInputs.length > 0 ? ["TEXT", "IMAGE"] : ["TEXT"],
     estimated_input_tokens: Math.max(
       64,
       Math.ceil(input.expression.length * 1.5),
     ),
     strategy: "balanced",
-    input_refs: mediaInputs.map((item) => item.uri),
+    input_refs: [
+      ...input.conversationTurns.map((turn) => turn.inputRef),
+      ...mediaInputs.map((item) => item.uri),
+    ],
     media_inputs: mediaInputs,
     session_id: input.sessionId,
   };
@@ -129,9 +158,13 @@ export function toUnderstandingDraft(
   response: MultimodalDraftResponse,
   tenantId: string,
   familyId: string,
-  revision: number,
-  mediaCount: number,
+  context: {
+    revision: number;
+    mediaCount: number;
+    sourceRefs: readonly string[];
+  },
 ): UnderstandingDraft {
+  const { mediaCount, revision, sourceRefs } = context;
   if (
     response.status !== "DRAFT" ||
     !response.requires_human_confirmation ||
@@ -179,7 +212,7 @@ export function toUnderstandingDraft(
     throw new Error("UNDERSTANDING_RESPONSE_INVALID");
   }
 
-  assertFamilyUnderstandingOutput(response.output);
+  assertFamilyUnderstandingOutput(response.output, new Set(sourceRefs));
 
   const hypothesisStatements = hypotheses
     .map((item) => {
@@ -255,6 +288,7 @@ export function toUnderstandingDraft(
 
 function assertFamilyUnderstandingOutput(
   output: FamilyUnderstandingOutput,
+  allowedSourceRefs: ReadonlySet<string>,
 ): void {
   const hypothesisIds = new Set<string>();
   for (const hypothesis of output.hypotheses) {
@@ -284,6 +318,7 @@ function assertFamilyUnderstandingOutput(
             item?.source_type,
           ) ||
           !readText(item?.source_ref) ||
+          !allowedSourceRefs.has(item.source_ref) ||
           !readText(item?.observation),
       )
     ) {
@@ -328,6 +363,9 @@ function assertFamilyUnderstandingOutput(
       (strength) =>
         !readText(strength?.statement) ||
         readTextList(strength?.evidence_refs).length === 0 ||
+        readTextList(strength?.evidence_refs).some(
+          (evidenceRef) => !allowedSourceRefs.has(evidenceRef),
+        ) ||
         !readText(strength?.why_it_matters),
     ) ||
     !["EXPLICIT", "INFERRED"].includes(output.desired_change?.basis) ||

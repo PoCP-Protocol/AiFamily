@@ -172,6 +172,8 @@ export default function ProblemUnderstandingRoute() {
             expression: text,
             revision,
             attachments,
+            conversationTurns: submitted.inputs,
+            priorRunId: submitted.drafts.at(-1)?.runId ?? null,
           }),
           `create:${runId}`,
         );
@@ -182,8 +184,14 @@ export default function ProblemUnderstandingRoute() {
             response,
             session.selectedFamily.tenant_id,
             session.selectedFamily.family_id,
-            revision,
-            attachments.length,
+            {
+              revision,
+              mediaCount: attachments.length,
+              sourceRefs: [
+                ...submitted.inputs.map((input) => input.inputRef),
+                ...attachments.map((attachment) => attachment.uri),
+              ],
+            },
           ),
         ),
       );

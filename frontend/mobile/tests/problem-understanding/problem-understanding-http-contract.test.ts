@@ -34,6 +34,15 @@ describe("S3 family_api HTTP contract", () => {
             sessionId: `session-${runId}`,
             expression: "每天一到写作业，我们就容易因为催促吵起来。",
             revision: 1,
+            conversationTurns: [
+              {
+                inputRef: `input:${runId}`,
+                kind: "CONCERN",
+                text: "每天一到写作业，我们就容易因为催促吵起来。",
+                createdAt: new Date().toISOString(),
+              },
+            ],
+            priorRunId: null,
             attachments: [
               {
                 mediaType: "IMAGE",
@@ -50,8 +59,14 @@ describe("S3 family_api HTTP contract", () => {
         response,
         family.tenant_id,
         family.family_id,
-        1,
-        1,
+        {
+          revision: 1,
+          mediaCount: 1,
+          sourceRefs: [
+            `input:${runId}`,
+            "asset:sandbox/family-homework-transition-v1",
+          ],
+        },
       );
       expect(draft.runId).toBe(runId);
       expect(draft.reviewedDraftRef).toBe(`draft:${runId}`);
