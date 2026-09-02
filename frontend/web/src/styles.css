@@ -835,7 +835,68 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .live-offering-gate strong { color: #431407; }
 .live-offering-gate p { color: #7c2d12; margin-bottom: 0; }
 .live-offering-gate button { border: 0; border-radius: 999px; padding: 11px 18px; }
+.live-ai-console { background: linear-gradient(135deg, #fff7ed, #ffedd5); }
+.live-ai-workbench { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) auto; }
+.live-ai-workbench label { display: grid; gap: 7px; }
+.live-ai-workbench label span { color: #9a3412; font-size: 0.74rem; font-weight: 850; }
+.live-ai-workbench textarea { border: 1px solid #fdba74; border-radius: 16px; padding: 14px; resize: vertical; }
+.live-ai-workbench button, .live-ai-actions button { background: #f97316; border: 0; border-radius: 999px; color: #fff; font-weight: 850; padding: 10px 16px; }
+.live-ai-workbench > button { align-self: end; margin-bottom: 4px; }
+.live-ai-draft { background: #fff; border: 1px solid #fed7aa; border-radius: 20px; margin-top: 18px; padding: 20px; }
+.live-ai-draft header { align-items: start; display: flex; gap: 18px; justify-content: space-between; }
+.live-ai-draft header span { color: #c2410c; font-size: 0.7rem; font-weight: 900; }
+.live-ai-draft h3 { color: #431407; margin: 4px 0 0; }
+.live-ai-draft small { color: #9a3412; overflow-wrap: anywhere; }
+.live-ai-summary { color: #431407; font-size: 1rem; line-height: 1.7; }
+.live-ai-columns { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.live-ai-columns > div { background: #fff7ed; border-radius: 14px; padding: 14px; }
+.live-ai-columns li { color: #7c2d12; line-height: 1.65; }
+.live-ai-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+.live-ai-actions .live-ops-reject { background: #7f1d1d; }
+.live-ops-dashboard {
+  background: #fffaf5;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-height: calc(100vh - 72px);
+  padding: 28px clamp(20px, 4vw, 64px) 48px;
+}
+.live-ops-dashboard-title {
+  align-items: end;
+  display: flex;
+  gap: 24px;
+  grid-column: 1 / -1;
+  justify-content: space-between;
+  padding: 4px 4px 10px;
+}
+.live-ops-dashboard-title span { color: #c2410c; font-size: 0.68rem; font-weight: 900; letter-spacing: 0.14em; }
+.live-ops-dashboard-title h1 { color: #431407; font-size: clamp(1.8rem, 4vw, 3rem); margin: 5px 0 0; }
+.live-ops-dashboard-title p { color: #7c2d12; margin: 0 0 5px; }
+.live-ops-dashboard > .live-ops-shell,
+.live-ops-dashboard > .live-ai-console {
+  background: #fff;
+  border: 1px solid #fed7aa;
+  border-radius: 22px;
+  box-shadow: 0 15px 44px rgb(124 45 18 / 7%);
+  min-width: 0;
+  padding: 22px;
+}
+.live-ops-dashboard > .live-ops-shell { border-bottom: 1px solid #fed7aa; }
+.live-ops-dashboard .live-ops-heading { align-items: start; margin: 0 0 18px; max-width: none; }
+.live-ops-dashboard .live-ops-heading h2 { font-size: 1.35rem; margin: 4px 0; }
+.live-ops-dashboard .live-ops-heading p { font-size: 0.78rem; line-height: 1.5; }
+.live-ops-dashboard .live-ops-heading > span,
+.live-ops-dashboard .live-ops-heading > strong { font-size: 0.65rem; padding: 7px 9px; }
+.live-ops-dashboard .live-ops-list { max-width: none; }
+.live-ops-dashboard .live-ops-card { border-radius: 14px; box-shadow: none; padding: 14px; }
+.live-ops-dashboard .live-ops-state,
+.live-ops-dashboard .live-ops-empty { border-radius: 14px; max-width: none; padding: 16px; }
+.live-ops-dashboard .live-ai-console { background: linear-gradient(135deg, #fff7ed, #ffedd5); grid-column: 1 / -1; }
 @media (max-width: 700px) {
   .live-offering-hero, .live-offering-gate { align-items: stretch; flex-direction: column; }
   .live-offering-grid { grid-template-columns: 1fr; }
+  .live-ai-workbench, .live-ai-columns { grid-template-columns: 1fr; }
+  .live-ops-dashboard { grid-template-columns: 1fr; padding: 20px 14px 36px; }
+  .live-ops-dashboard-title { align-items: start; flex-direction: column; gap: 8px; }
+  .live-ops-dashboard > .live-ai-console { grid-column: auto; }
 }

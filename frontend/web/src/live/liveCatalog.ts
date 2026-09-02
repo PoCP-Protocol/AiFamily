@@ -21,6 +21,7 @@ export type LiveEnvironment = {
   VITE_LIVE_COMMERCE_BASE_URL?: string;
   VITE_LIVE_OBSERVABILITY_BASE_URL?: string;
   VITE_LIVE_CONTROL_BASE_URL?: string;
+  VITE_LIVE_AI_BASE_URL?: string;
 };
 
 export const resolveLiveInteractionBaseUrl = (environment: LiveEnvironment): string | undefined => {
@@ -71,6 +72,17 @@ export const resolveLiveControlBaseUrl = (environment: LiveEnvironment): string 
   if (environment.DEV !== true || !environment.VITE_LIVE_CONTROL_BASE_URL) return undefined;
   try {
     const url = new URL(environment.VITE_LIVE_CONTROL_BASE_URL);
+    if (!["localhost", "127.0.0.1"].includes(url.hostname)) return undefined;
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return undefined;
+  }
+};
+
+export const resolveLiveAIBaseUrl = (environment: LiveEnvironment): string | undefined => {
+  if (environment.DEV !== true || !environment.VITE_LIVE_AI_BASE_URL) return undefined;
+  try {
+    const url = new URL(environment.VITE_LIVE_AI_BASE_URL);
     if (!["localhost", "127.0.0.1"].includes(url.hostname)) return undefined;
     return url.toString().replace(/\/$/, "");
   } catch {

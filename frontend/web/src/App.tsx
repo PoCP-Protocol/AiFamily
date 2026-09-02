@@ -16,7 +16,9 @@ import { LiveRuntimeConsole } from "./components/LiveRuntimeConsole";
 import { LiveSessionControlConsole } from "./components/LiveSessionControlConsole";
 import { LiveSettlementConsole } from "./components/LiveSettlementConsole";
 import { LiveServiceOfferingPage } from "./components/LiveServiceOfferingPage";
+import { LiveAIAssistantConsole } from "./components/LiveAIAssistantConsole";
 import {
+  resolveLiveAIBaseUrl,
   resolveLiveCommerceBaseUrl,
   resolveLiveControlBaseUrl,
   resolveLiveInteractionBaseUrl,
@@ -190,7 +192,14 @@ export default function App({ client = defaultClient }: Props) {
         <span className="environment-tag">SANDBOX · DEV_ONLY</span>
       </header>
       {liveSurface === "ops" ? (
-        <>
+        <div className="live-ops-dashboard">
+          <div className="live-ops-dashboard-title">
+            <div>
+              <span>LIVE COMMAND CENTER</span>
+              <h1>小橘灯直播指挥中心</h1>
+            </div>
+            <p>场次、审核、运行、结算与 AI 内容生产同屏协作。</p>
+          </div>
           <LiveSessionControlConsole
             controlBaseUrl={resolveLiveControlBaseUrl(import.meta.env)}
           />
@@ -202,7 +211,8 @@ export default function App({ client = defaultClient }: Props) {
           <LiveRuntimeConsole
             observabilityBaseUrl={resolveLiveObservabilityBaseUrl(import.meta.env)}
           />
-        </>
+          <LiveAIAssistantConsole aiBaseUrl={resolveLiveAIBaseUrl(import.meta.env)} />
+        </div>
       ) : liveSurface === "service" ? (
         <LiveServiceOfferingPage commerceBaseUrl={resolveLiveCommerceBaseUrl(import.meta.env)} />
       ) : (

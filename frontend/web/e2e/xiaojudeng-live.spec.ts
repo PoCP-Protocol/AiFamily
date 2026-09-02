@@ -35,6 +35,8 @@ let observabilityApiUrl: string;
 const browserObservabilityApiUrl = "http://127.0.0.1:4173/sandbox-observability";
 let controlApiUrl: string;
 const browserControlApiUrl = "http://127.0.0.1:4173/sandbox-control";
+let aiApiUrl: string;
+const browserAiApiUrl = "http://127.0.0.1:4173/sandbox-ai";
 let replayProcess: ChildProcess;
 let replayPort: number;
 let commerceProcess: ChildProcess;
@@ -43,6 +45,7 @@ const replayDatabasePath = resolve(tmpdir(), `xiaojudeng-replay-${Date.now()}.sq
 const commerceDatabasePath = resolve(tmpdir(), `xiaojudeng-commerce-${Date.now()}.sqlite3`);
 const mediaOutputPath = resolve(tmpdir(), `xiaojudeng-playwright-${Date.now()}.mp4`);
 const controlDatabasePath = resolve(tmpdir(), `xiaojudeng-control-${Date.now()}.sqlite3`);
+const aiDatabasePath = resolve(tmpdir(), `xiaojudeng-ai-${Date.now()}.sqlite3`);
 const processes: ChildProcess[] = [];
 let sandboxDto: SandboxDto;
 let browserMediaDto: SandboxDto;
@@ -56,6 +59,7 @@ test.beforeAll(async () => {
   await startQuestionSandbox(questionPort);
   sandboxDto = await startMediaSandbox();
   await startControlSandbox(await reserveFreePort());
+  await startAiSandbox(await reserveFreePort());
   commercePort = await reserveFreePort();
   commerceProcess = await startCommerceSandbox(commercePort);
   replayPort = await reserveFreePort();
@@ -78,6 +82,7 @@ test.beforeAll(async () => {
       browserCommerceApiUrl,
       browserObservabilityApiUrl,
       browserControlApiUrl,
+      browserAiApiUrl,
     ),
   ]);
 });
@@ -532,6 +537,21 @@ test("creator and human operators can run a complete session lifecycle in the UI
   await page.screenshot({ path: testInfo.outputPath("desktop-creator-lifecycle.png"), fullPage: true });
 });
 
+test("synthetic transcript becomes an AI draft only after human review", async ({ page }, testInfo) => {
+  await installOriginProxy(page, mediaUrl, mediaBrowserOrigin, new URL(sandboxDto.control_url).origin);
+  await page.goto(`${mediaUrl}#live-ops`);
+  await expect(page.getByRole("heading", { name: "直播内容助手" })).toBeVisible();
+  await page.getByRole("button", { name: "生成 AI 草案" }).click();
+  await expect(page.getByLabel("AI 直播草案")).toBeVisible();
+  await expect(page.getByText("DRAFT", { exact: true })).toBeVisible();
+  await expect(page.getByText("问题场景", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "人工编辑后保留" }).click();
+  await expect(page.getByText("EDITED_DRAFT", { exact: true })).toBeVisible();
+  await expect(page.getByText("人工复核已记录，结果仍不是家庭事实。")).toBeVisible();
+  await expect(page.getByText(/不写家庭事实/)).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("desktop-ai-human-gate.png"), fullPage: true });
+});
+
 async function startMediaSandbox(): Promise<SandboxDto> {
   const child = spawn(
     pythonExecutable,
@@ -573,6 +593,7 @@ async function installOriginProxy(
     const isCommerceRequest = incoming.pathname.startsWith("/sandbox-commerce/");
     const isObservabilityRequest = incoming.pathname.startsWith("/sandbox-observability/");
     const isControlRequest = incoming.pathname.startsWith("/sandbox-control/");
+    const isAiRequest = incoming.pathname.startsWith("/sandbox-ai/");
     const path = isMediaRequest
       ? incoming.pathname.replace("/sandbox-media", "")
       : isQuestionRequest
@@ -585,6 +606,8 @@ async function installOriginProxy(
           ? incoming.pathname.replace("/sandbox-observability", "")
         : isControlRequest
           ? incoming.pathname.replace("/sandbox-control", "")
+        : isAiRequest
+          ? incoming.pathname.replace("/sandbox-ai", "")
         : incoming.pathname;
     const source = new URL(
       `${path}${incoming.search}`,
@@ -600,6 +623,8 @@ async function installOriginProxy(
               ? observabilityApiUrl
             : isControlRequest
               ? controlApiUrl
+            : isAiRequest
+              ? aiApiUrl
             : sourceBaseUrl,
     );
     const response = await route.fetch({ url: source.toString() });
@@ -615,6 +640,7 @@ async function startVite(
   commerceBaseUrl?: string,
   observabilityBaseUrl?: string,
   controlBaseUrl?: string,
+  aiBaseUrl?: string,
 ): Promise<void> {
   const env = { ...process.env };
   delete env.VITE_MEDIA_PLAYBACK_DTO;
@@ -624,6 +650,7 @@ async function startVite(
   if (commerceBaseUrl) env.VITE_LIVE_COMMERCE_BASE_URL = commerceBaseUrl;
   if (observabilityBaseUrl) env.VITE_LIVE_OBSERVABILITY_BASE_URL = observabilityBaseUrl;
   if (controlBaseUrl) env.VITE_LIVE_CONTROL_BASE_URL = controlBaseUrl;
+  if (aiBaseUrl) env.VITE_LIVE_AI_BASE_URL = aiBaseUrl;
   const child = spawn(
     process.execPath,
     [viteEntrypoint, "--host", "127.0.0.1", "--port", String(port), "--strictPort"],
@@ -769,6 +796,27 @@ async function startControlSandbox(port: number): Promise<void> {
       }),
     },
   ));
+}
+
+async function startAiSandbox(port: number): Promise<void> {
+  aiApiUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(
+    pythonExecutable,
+    [
+      "-m",
+      "poc.standalone_live_ai_sandbox.ai_api",
+      "--serve",
+      "--database",
+      aiDatabasePath,
+      "--port",
+      String(port),
+    ],
+    { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  processes.push(child);
+  child.stdout?.resume();
+  child.stderr?.resume();
+  await waitForUrl(`${aiApiUrl}/health`);
 }
 
 function syntheticHeaders(role: string): Record<string, string> {

@@ -74,6 +74,8 @@ class SyntheticTranscript:
 @dataclass(frozen=True, slots=True)
 class GatewayResult:
     text: str
+    chapters: tuple[str, ...]
+    risk_flags: tuple[str, ...]
     provider: str
     model: str
     model_version: str
@@ -128,6 +130,8 @@ class DraftSummary:
     text: str
     provenance_ref: str
     draft_hash: str
+    chapters: tuple[str, ...] = ()
+    risk_flags: tuple[str, ...] = ()
     status: DraftStatus = DraftStatus.DRAFT
     model: str = ""
     model_version: str = ""
@@ -183,6 +187,8 @@ class InMemoryProvenanceFixture:
             tenant_id=transcript.tenant_id,
             family_id=transcript.family_id,
             text=result.text,
+            chapters=result.chapters,
+            risk_flags=result.risk_flags,
             provenance_ref=f"provenance.synthetic.{draft_hash[:12]}",
             draft_hash=draft_hash,
             provider=result.provider,
@@ -305,6 +311,8 @@ class FakeModelGateway:
             raise ValueError("prompt injection detected")
         return GatewayResult(
             text=f"摘要草案：{transcript.text[:80]}",
+            chapters=("问题场景", "专家方法", "家庭练习"),
+            risk_flags=("需人工核对具体建议",),
             provider="fake-gateway",
             model="fake-gateway",
             model_version="synthetic-1",
@@ -337,7 +345,10 @@ class AISandboxFlow:
             )
             raise AISandboxStopped("AI generation stopped closed") from exc
         draft_hash = sha256(
-            f"{transcript.transcript_ref}:{result.text}:{result.prompt_version}".encode()
+            (
+                f"{transcript.transcript_ref}:{result.text}:{result.chapters}:"
+                f"{result.risk_flags}:{result.prompt_version}"
+            ).encode()
         ).hexdigest()
         draft_ref = self.provenance.record_draft(
             transcript=transcript,
@@ -350,6 +361,8 @@ class AISandboxFlow:
             tenant_id=transcript.tenant_id,
             family_id=transcript.family_id,
             text=result.text,
+            chapters=result.chapters,
+            risk_flags=result.risk_flags,
             provenance_ref=f"provenance.synthetic.{draft_hash[:12]}",
             draft_hash=draft_hash,
             provider=result.provider,
