@@ -10,6 +10,11 @@ from backend.intelligence.experience.multimodal_generation import (
 from backend.intelligence.experience.runs import DurableExperienceRun, RunState
 from backend.intelligence.model_gateway.contracts import MediaInput
 from backend.intelligence.model_gateway.errors import ModelGatewayError
+from backend.intelligence.model_gateway.provenance import (
+    InMemoryModelDraftRegistry,
+    ModelDraftRegistryError,
+    ModelDraftScope,
+)
 from backend.intelligence.model_gateway.providers.fake import FakeProvider
 from tests.intelligence.model_gateway.test_fail_closed import VALID_OUTPUT, build
 
@@ -116,3 +121,62 @@ async def test_service_preserves_gateway_fail_closed_policy() -> None:
         )
     assert provider.invocations == []
     assert run.state is RunState.FAILED
+
+
+def _draft_scope() -> ModelDraftScope:
+    return ModelDraftScope(
+        tenant_id="tenant-image-001",
+        family_id="family-image-001",
+        subject_person_id="child-image-001",
+        purpose="family-image-summary",
+        correlation_id="correlation-image-001",
+    )
+
+
+@pytest.mark.asyncio
+async def test_registry_persists_and_replays_draft_without_second_provider_call() -> None:
+    provider = FakeProvider(
+        {"family-image-summary": {"summary": "可由家长确认的多模态理解"}}
+    )
+    service = MultimodalExperienceService(
+        build(provider), registry=InMemoryModelDraftRegistry()
+    )
+    command = _command(model_draft_scope=_draft_scope())
+
+    first = await service.generate_draft(command)
+    replay = await service.generate_draft(command)
+
+    assert first.draft_id == replay.draft_id == "draft:run-image-001"
+    assert first.provenance_ref == replay.provenance_ref == "model-draft:run-image-001"
+    assert first.draft == replay.draft
+    assert len(provider.invocations) == 1
+
+
+@pytest.mark.asyncio
+async def test_registry_rejects_changed_contract_before_provider_retry() -> None:
+    provider = FakeProvider({"family-image-summary": {"summary": "原始草案"}})
+    service = MultimodalExperienceService(
+        build(provider), registry=InMemoryModelDraftRegistry()
+    )
+    command = _command(model_draft_scope=_draft_scope())
+    await service.generate_draft(command)
+
+    with pytest.raises(ModelDraftRegistryError, match="REPLAY_MISMATCH"):
+        await service.generate_draft(
+            _command(model_draft_scope=_draft_scope(), prompt_version="v2")
+        )
+
+    assert len(provider.invocations) == 1
+
+
+@pytest.mark.asyncio
+async def test_registry_requires_explicit_family_subject_scope() -> None:
+    provider = FakeProvider({"family-image-summary": {"summary": "不会调用"}})
+    service = MultimodalExperienceService(
+        build(provider), registry=InMemoryModelDraftRegistry()
+    )
+
+    with pytest.raises(ValueError, match="model_draft_scope"):
+        await service.generate_draft(_command())
+
+    assert provider.invocations == []
