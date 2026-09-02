@@ -1,9 +1,15 @@
+import sqlite3
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from poc.standalone_live_replay_sandbox.knowledge_api import ReplayProjection, create_app
+from poc.standalone_live_replay_sandbox.knowledge_api import (
+    ReplayProjection,
+    SyntheticReplayDatabaseProjection,
+    create_app,
+    seed_approved_fixture,
+)
 
 
 class ReplayCatalogFixture:
@@ -396,3 +402,96 @@ def test_blank_generated_content_is_rejected(tmp_path: Path, field: str) -> None
         json=payload,
     )
     assert result.status_code == 422
+
+
+def test_cli_projection_seed_is_visible_then_fails_closed_after_replay_deletion(
+    tmp_path: Path,
+) -> None:
+    replay_database = tmp_path / "replay.sqlite3"
+    with sqlite3.connect(replay_database) as database:
+        database.execute(
+            """
+            CREATE TABLE replay_assets (
+                session_ref TEXT PRIMARY KEY,
+                tenant_id TEXT NOT NULL,
+                family_id TEXT NOT NULL,
+                state TEXT NOT NULL
+            )
+            """
+        )
+        database.execute(
+            "INSERT INTO replay_assets VALUES (?, ?, ?, 'AVAILABLE')",
+            ("media.synthetic.1", "tenant.synthetic.alpha", "family.synthetic.alpha"),
+        )
+        database.commit()
+
+    knowledge_database = tmp_path / "knowledge.sqlite3"
+    seed_approved_fixture(knowledge_database, "media.synthetic.1")
+    projection = SyntheticReplayDatabaseProjection(replay_database)
+    client = TestClient(
+        create_app(
+            knowledge_database,
+            replay_catalog=projection,
+            deletion_projection=projection,
+        )
+    )
+    visible = client.get(
+        "/sandbox/replay-knowledge/replays/media.synthetic.1/knowledge",
+        headers=headers("ADULT_VIEWER"),
+    )
+    assert visible.status_code == 200
+    assert visible.json()[0]["state"] == "APPROVED"
+    assert visible.json()[0]["reviewed_by"] == "actor.synthetic.reviewer"
+    assert visible.json()[0]["source"] == "SANDBOX_SYNTHETIC"
+    assert visible.json()[0]["fixture_only"] is True
+
+    with sqlite3.connect(replay_database) as database:
+        database.execute(
+            "UPDATE replay_assets SET state = 'DELETED' WHERE session_ref = ?",
+            ("media.synthetic.1",),
+        )
+        database.commit()
+    assert (
+        client.get(
+            "/sandbox/replay-knowledge/replays/media.synthetic.1/knowledge",
+            headers=headers("ADULT_VIEWER"),
+        ).status_code
+        == 410
+    )
+
+    with sqlite3.connect(replay_database) as database:
+        database.execute(
+            "UPDATE replay_assets SET state = 'AVAILABLE' WHERE session_ref = ?",
+            ("media.synthetic.1",),
+        )
+        database.commit()
+    restarted = TestClient(
+        create_app(
+            knowledge_database,
+            replay_catalog=projection,
+            deletion_projection=projection,
+        )
+    )
+    assert (
+        restarted.get(
+            "/sandbox/replay-knowledge/replays/media.synthetic.1/knowledge",
+            headers=headers("ADULT_VIEWER"),
+        ).status_code
+        == 410
+    )
+
+
+def test_cli_projection_missing_database_is_provider_missing(tmp_path: Path) -> None:
+    projection = SyntheticReplayDatabaseProjection(tmp_path / "missing.sqlite3")
+    client = TestClient(
+        create_app(
+            tmp_path / "knowledge.sqlite3",
+            replay_catalog=projection,
+            deletion_projection=projection,
+        )
+    )
+    response = client.get(
+        "/sandbox/replay-knowledge/replays/media.synthetic.1/knowledge",
+        headers=headers("ADULT_VIEWER"),
+    )
+    assert response.status_code == 503

@@ -29,6 +29,8 @@ let questionApiUrl: string;
 let browserQuestionApiUrl: string;
 let replayApiUrl: string;
 const browserReplayApiUrl = "http://127.0.0.1:4173/sandbox-replay";
+let replayKnowledgeApiUrl: string;
+const browserReplayKnowledgeApiUrl = "http://127.0.0.1:4173/sandbox-replay-knowledge";
 let commerceApiUrl: string;
 const browserCommerceApiUrl = "http://127.0.0.1:4173/sandbox-commerce";
 let observabilityApiUrl: string;
@@ -41,9 +43,12 @@ let incidentApiUrl: string;
 const browserIncidentApiUrl = "http://127.0.0.1:4173/sandbox-incident";
 let replayProcess: ChildProcess;
 let replayPort: number;
+let replayKnowledgeProcess: ChildProcess;
+let replayKnowledgePort: number;
 let commerceProcess: ChildProcess;
 let commercePort: number;
 const replayDatabasePath = resolve(tmpdir(), `xiaojudeng-replay-${Date.now()}.sqlite3`);
+const replayKnowledgeDatabasePath = resolve(tmpdir(), `xiaojudeng-replay-knowledge-${Date.now()}.sqlite3`);
 const commerceDatabasePath = resolve(tmpdir(), `xiaojudeng-commerce-${Date.now()}.sqlite3`);
 const mediaOutputPath = resolve(tmpdir(), `xiaojudeng-playwright-${Date.now()}.mp4`);
 const controlDatabasePath = resolve(tmpdir(), `xiaojudeng-control-${Date.now()}.sqlite3`);
@@ -73,6 +78,8 @@ test.beforeAll(async () => {
   commerceProcess = await startCommerceSandbox(commercePort);
   replayPort = await reserveFreePort();
   replayProcess = await startReplaySandbox(replayPort);
+  replayKnowledgePort = await reserveFreePort();
+  replayKnowledgeProcess = await startReplayKnowledgeSandbox(replayKnowledgePort, true);
   await startObservabilitySandbox(await reserveFreePort());
   browserMediaDto = {
     ...sandboxDto,
@@ -89,6 +96,7 @@ test.beforeAll(async () => {
       browserQuestionApiUrl,
       questionApiUrl.replace("http://", "ws://"),
       browserReplayApiUrl,
+      browserReplayKnowledgeApiUrl,
       browserCommerceApiUrl,
       browserObservabilityApiUrl,
       browserControlApiUrl,
@@ -205,6 +213,12 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
   await expect(page.locator("video")).toHaveCount(0);
   await expect(page.getByText("仅限成人")).toBeVisible();
   await expect(page.getByRole("heading", { name: "需要继续支持？先了解专家服务方式" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "把一场直播，留下能反复用的方法" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "把冲突变成一次共同练习" })).toBeVisible();
+  await expect(page.getByText("先听懂情绪")).toBeVisible();
+  await expect(page.getByText("最后约定一步")).toBeVisible();
+  await page.getByRole("button", { name: "收藏这张知识卡" }).click();
+  await expect(page.getByRole("button", { name: "已收藏到家庭笔记" })).toBeDisabled();
   const stoppedOldCapability = await page.request.get(sandboxDto.playback_url);
   expect(stoppedOldCapability.status()).toBe(403);
   await page.screenshot({ path: testInfo.outputPath("desktop-stopped.png"), fullPage: true });
@@ -260,6 +274,20 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
   expect(replayDeletion.status).toBe(200);
   const replayAfterDelete = await page.request.get(replayCapability!);
   expect(replayAfterDelete.status()).toBe(410);
+  replayKnowledgeProcess.kill();
+  await waitForProcessExit(replayKnowledgeProcess);
+  replayKnowledgeProcess = await startReplayKnowledgeSandbox(replayKnowledgePort, false);
+  const knowledgeAfterRestart = await fetch(
+    `${replayKnowledgeApiUrl}/sandbox/replay-knowledge/replays/media.synthetic.1/knowledge`,
+    { headers: syntheticActorHeaders() },
+  );
+  expect(knowledgeAfterRestart.status).toBe(410);
+  await page.reload();
+  await page.getByRole("button", { name: "进入直播间" }).click();
+  await page.getByText("连接演练工具").click();
+  await page.getByRole("button", { name: "结束本场" }).click();
+  await expect(page.getByText("回放与衍生章节已删除，刷新或重启后不会恢复。")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "把冲突变成一次共同练习" })).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("desktop-replay-deleted.png"), fullPage: true });
 
   await page.getByRole("button", { name: "撤回观看权限" }).click();
@@ -626,6 +654,7 @@ async function installOriginProxy(
     const isMediaRequest = incoming.pathname.startsWith("/sandbox-media/");
     const isQuestionRequest = incoming.pathname.startsWith("/sandbox-question/");
     const isReplayRequest = incoming.pathname.startsWith("/sandbox-replay/");
+    const isReplayKnowledgeRequest = incoming.pathname.startsWith("/sandbox-replay-knowledge/");
     const isCommerceRequest = incoming.pathname.startsWith("/sandbox-commerce/");
     const isObservabilityRequest = incoming.pathname.startsWith("/sandbox-observability/");
     const isControlRequest = incoming.pathname.startsWith("/sandbox-control/");
@@ -635,8 +664,10 @@ async function installOriginProxy(
       ? incoming.pathname.replace("/sandbox-media", "")
       : isQuestionRequest
         ? incoming.pathname.replace("/sandbox-question", "")
-        : isReplayRequest
-          ? incoming.pathname.replace("/sandbox-replay", "")
+      : isReplayRequest
+        ? incoming.pathname.replace("/sandbox-replay", "")
+      : isReplayKnowledgeRequest
+        ? incoming.pathname.replace("/sandbox-replay-knowledge", "")
         : isCommerceRequest
           ? incoming.pathname.replace("/sandbox-commerce", "")
         : isObservabilityRequest
@@ -654,8 +685,10 @@ async function installOriginProxy(
         ? mediaProviderOrigin
         : isQuestionRequest
           ? questionApiUrl
-          : isReplayRequest
-            ? replayApiUrl
+        : isReplayRequest
+          ? replayApiUrl
+        : isReplayKnowledgeRequest
+          ? replayKnowledgeApiUrl
             : isCommerceRequest
               ? commerceApiUrl
             : isObservabilityRequest
@@ -679,6 +712,7 @@ async function startVite(
   interactionBaseUrl?: string,
   interactionWsUrl?: string,
   replayBaseUrl?: string,
+  replayKnowledgeBaseUrl?: string,
   commerceBaseUrl?: string,
   observabilityBaseUrl?: string,
   controlBaseUrl?: string,
@@ -691,6 +725,7 @@ async function startVite(
   if (interactionBaseUrl) env.VITE_LIVE_INTERACTION_BASE_URL = interactionBaseUrl;
   if (interactionWsUrl) env.VITE_LIVE_INTERACTION_WS_URL = interactionWsUrl;
   if (replayBaseUrl) env.VITE_LIVE_REPLAY_BASE_URL = replayBaseUrl;
+  if (replayKnowledgeBaseUrl) env.VITE_LIVE_REPLAY_KNOWLEDGE_BASE_URL = replayKnowledgeBaseUrl;
   if (commerceBaseUrl) env.VITE_LIVE_COMMERCE_BASE_URL = commerceBaseUrl;
   if (observabilityBaseUrl) env.VITE_LIVE_OBSERVABILITY_BASE_URL = observabilityBaseUrl;
   if (controlBaseUrl) env.VITE_LIVE_CONTROL_BASE_URL = controlBaseUrl;
@@ -750,6 +785,33 @@ async function startReplaySandbox(port: number): Promise<ChildProcess> {
   child.stdout?.resume();
   child.stderr?.resume();
   await waitForUrl(`${replayApiUrl}/health`);
+  return child;
+}
+
+async function startReplayKnowledgeSandbox(port: number, seed: boolean): Promise<ChildProcess> {
+  replayKnowledgeApiUrl = `http://127.0.0.1:${port}`;
+  const args = [
+    "-m",
+    "poc.standalone_live_replay_sandbox.knowledge_api",
+    "--serve",
+    "--database",
+    replayKnowledgeDatabasePath,
+    "--replay-database",
+    replayDatabasePath,
+    "--replay-ref",
+    "media.synthetic.1",
+    "--port",
+    String(port),
+  ];
+  if (seed) args.push("--seed-approved-fixture");
+  const child = spawn(pythonExecutable, args, {
+    cwd: repoRoot,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  processes.push(child);
+  child.stdout?.resume();
+  child.stderr?.resume();
+  await waitForUrl(`${replayKnowledgeApiUrl}/health`);
   return child;
 }
 

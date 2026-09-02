@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import type { LiveRecord, MediaPlaybackState } from "../live/liveCatalog";
+import { LiveReplayKnowledge } from "./LiveReplayKnowledge";
 
 type Props = {
   record: LiveRecord;
@@ -7,6 +8,7 @@ type Props = {
   interactionWsUrl?: string;
   incidentBaseUrl?: string;
   replayBaseUrl?: string;
+  replayKnowledgeBaseUrl?: string;
   commerceBaseUrl?: string;
   onBack: () => void;
 };
@@ -92,6 +94,7 @@ export function LiveDetailPage({
   interactionWsUrl,
   incidentBaseUrl,
   replayBaseUrl,
+  replayKnowledgeBaseUrl,
   commerceBaseUrl,
   onBack,
 }: Props) {
@@ -423,6 +426,13 @@ export function LiveDetailPage({
           {replayState === "revoking" ? <p role="status">正在撤销回看权益…</p> : null}
           {replayState === "deleting" ? <p role="status">正在删除全部回看副本…</p> : null}
         </section>
+      ) : null}
+      {showAdultNextStep ? (
+        <LiveReplayKnowledge
+          baseUrl={replayKnowledgeBaseUrl}
+          replayRef={record.session_ref}
+          replayDeleted={replayState === "deleted"}
+        />
       ) : null}
       {playback?.control_url && record.fixture_only ? (
         <details className="live-sandbox-controls">

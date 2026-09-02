@@ -9,6 +9,7 @@ that prevents derived knowledge from reappearing after restart.
 
 from __future__ import annotations
 
+import argparse
 import json
 import sqlite3
 from dataclasses import dataclass
@@ -16,7 +17,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Literal, Protocol
 
+import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Response
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from poc.standalone_live_moderation_sandbox.question_api import (
@@ -45,6 +48,45 @@ class ReplayCatalogProjection(Protocol):
 
 class CanonicalDeletionProjection(Protocol):
     def is_deleted(self, replay_ref: str, tenant_id: str, family_id: str) -> bool: ...
+
+
+class SyntheticReplayDatabaseProjection:
+    """Read the sandbox replay database as an external, read-only projection."""
+
+    def __init__(self, replay_database_path: Path) -> None:
+        self.replay_database_path = replay_database_path
+
+    def get(self, replay_ref: str) -> ReplayProjection | None:
+        row = self._read(replay_ref)
+        if row is None:
+            return None
+        return ReplayProjection(
+            replay_ref=row["session_ref"],
+            tenant_id=row["tenant_id"],
+            family_id=row["family_id"],
+            review_state="APPROVED",
+        )
+
+    def is_deleted(self, replay_ref: str, tenant_id: str, family_id: str) -> bool:
+        row = self._read(replay_ref)
+        if row is None:
+            return True
+        if row["tenant_id"] != tenant_id or row["family_id"] != family_id:
+            return True
+        return row["state"] != "AVAILABLE"
+
+    def _read(self, replay_ref: str) -> sqlite3.Row | None:
+        if not self.replay_database_path.is_file():
+            raise RuntimeError("synthetic replay projection unavailable")
+        with sqlite3.connect(self.replay_database_path) as database:
+            database.row_factory = sqlite3.Row
+            return database.execute(
+                """
+                SELECT session_ref, tenant_id, family_id, state
+                FROM replay_assets WHERE session_ref = ?
+                """,
+                (replay_ref,),
+            ).fetchone()
 
 
 class ChapterInput(BaseModel):
@@ -110,6 +152,12 @@ def create_app(
 ) -> FastAPI:
     initialise(database_path)
     app = FastAPI(title="Xiao Ju Deng replay knowledge sandbox")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"https?://(?:localhost|127\.0\.0\.1)(?::\d+)?",
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
+    )
 
     @app.get("/health")
     def health() -> dict[str, object]:
@@ -657,3 +705,83 @@ def initialise(database_path: Path) -> None:
 
 def now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def seed_approved_fixture(database_path: Path, replay_ref: str) -> None:
+    """Seed a replay note that carries explicit synthetic human-review evidence."""
+
+    initialise(database_path)
+    timestamp = now_iso()
+    chapters = [
+        ChapterInput(title="先听懂情绪", body="先复述听到的感受，不急着给答案。"),
+        ChapterInput(title="再确认需要", body="用一个开放问题确认对方真正需要什么。"),
+        ChapterInput(title="最后约定一步", body="只约定一个今天能完成的小行动。"),
+    ]
+    with connect(database_path) as database:
+        database.execute(
+            """
+            INSERT OR IGNORE INTO replay_knowledge (
+                knowledge_ref, replay_ref, tenant_id, family_id, generated_by,
+                card_title, card_body, chapters_json, state, idempotency_key,
+                reviewed_by, review_reason, created_at, updated_at
+            ) VALUES (?, ?, 'tenant.synthetic.alpha', 'family.synthetic.alpha',
+                      'actor.synthetic.ai', ?, ?, ?, 'APPROVED', ?,
+                      'actor.synthetic.reviewer', ?, ?, ?)
+            """,
+            (
+                "knowledge.synthetic.replay.summary",
+                replay_ref,
+                "把冲突变成一次共同练习",
+                "人工复核后的回放要点：先听懂，再确认，最后只约定一个小行动。",
+                encode_chapters(chapters),
+                "seed.synthetic.replay.summary",
+                "人工编辑并确认合成章节适合成年家庭成员阅读",
+                timestamp,
+                timestamp,
+            ),
+        )
+        database.execute(
+            """
+            INSERT OR IGNORE INTO knowledge_reviews (
+                decision_key, knowledge_ref, request_fingerprint, action,
+                reviewer_id, reason, created_at
+            ) VALUES (?, ?, ?, 'EDIT', 'actor.synthetic.reviewer', ?, ?)
+            """,
+            (
+                "seed-review.synthetic.replay.summary",
+                "knowledge.synthetic.replay.summary",
+                "SANDBOX_SYNTHETIC:human-edited-fixture",
+                "人工编辑并确认合成章节适合成年家庭成员阅读",
+                timestamp,
+            ),
+        )
+        database.commit()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--serve", action="store_true")
+    parser.add_argument("--database", type=Path, required=True)
+    parser.add_argument("--replay-database", type=Path, required=True)
+    parser.add_argument("--replay-ref", default="media.synthetic.1")
+    parser.add_argument("--seed-approved-fixture", action="store_true")
+    parser.add_argument("--port", type=int, required=True)
+    args = parser.parse_args()
+    if not args.serve:
+        raise SystemExit("use --serve")
+    if args.seed_approved_fixture:
+        seed_approved_fixture(args.database, args.replay_ref)
+    projection = SyntheticReplayDatabaseProjection(args.replay_database)
+    uvicorn.run(
+        create_app(
+            args.database,
+            replay_catalog=projection,
+            deletion_projection=projection,
+        ),
+        host="127.0.0.1",
+        port=args.port,
+    )
+
+
+if __name__ == "__main__":
+    main()

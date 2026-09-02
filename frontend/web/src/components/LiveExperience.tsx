@@ -10,6 +10,7 @@ import {
   resolveLiveInteractionWsUrl,
   resolveLiveIncidentBaseUrl,
   resolveLiveReplayBaseUrl,
+  resolveLiveReplayKnowledgeBaseUrl,
   resolveLiveView,
   type LiveEnvironment,
   type LiveSectionKey,
@@ -114,6 +115,7 @@ export function LiveExperience({ environment = import.meta.env, viewModel }: Pro
             interactionWsUrl={resolveLiveInteractionWsUrl(environment)}
             incidentBaseUrl={resolveLiveIncidentBaseUrl(environment)}
             replayBaseUrl={resolveLiveReplayBaseUrl(environment)}
+            replayKnowledgeBaseUrl={resolveLiveReplayKnowledgeBaseUrl(environment)}
             commerceBaseUrl={resolveLiveCommerceBaseUrl(environment)}
             onBack={() => setSelectedRecord(null)}
           />

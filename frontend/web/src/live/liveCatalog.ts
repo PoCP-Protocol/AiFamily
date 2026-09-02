@@ -19,6 +19,7 @@ export type LiveEnvironment = {
   VITE_LIVE_INTERACTION_BASE_URL?: string;
   VITE_LIVE_INTERACTION_WS_URL?: string;
   VITE_LIVE_REPLAY_BASE_URL?: string;
+  VITE_LIVE_REPLAY_KNOWLEDGE_BASE_URL?: string;
   VITE_LIVE_COMMERCE_BASE_URL?: string;
   VITE_LIVE_OBSERVABILITY_BASE_URL?: string;
   VITE_LIVE_CONTROL_BASE_URL?: string;
@@ -53,6 +54,21 @@ export const resolveLiveReplayBaseUrl = (environment: LiveEnvironment): string |
   if (environment.DEV !== true || !environment.VITE_LIVE_REPLAY_BASE_URL) return undefined;
   try {
     const url = new URL(environment.VITE_LIVE_REPLAY_BASE_URL);
+    if (!["localhost", "127.0.0.1"].includes(url.hostname)) return undefined;
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return undefined;
+  }
+};
+
+export const resolveLiveReplayKnowledgeBaseUrl = (
+  environment: LiveEnvironment,
+): string | undefined => {
+  if (environment.DEV !== true || !environment.VITE_LIVE_REPLAY_KNOWLEDGE_BASE_URL) {
+    return undefined;
+  }
+  try {
+    const url = new URL(environment.VITE_LIVE_REPLAY_KNOWLEDGE_BASE_URL);
     if (!["localhost", "127.0.0.1"].includes(url.hostname)) return undefined;
     return url.toString().replace(/\/$/, "");
   } catch {
