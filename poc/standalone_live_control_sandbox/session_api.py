@@ -12,6 +12,7 @@ import argparse
 import json
 import sqlite3
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -20,6 +21,11 @@ from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from poc.standalone_live_control_sandbox.control_plane import (
+    LIVE_ATTENDANCE_PURPOSE,
+    CanonicalConsentDecision,
+    CanonicalConsentPort,
+)
 from poc.standalone_live_moderation_sandbox.question_api import (
     SANDBOX_SOURCE,
     SyntheticActor,
@@ -74,6 +80,30 @@ class LifecycleRequest(BaseModel):
     reason: str = Field(min_length=2, max_length=240)
 
 
+class RegistrationRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    idempotency_key: str = Field(min_length=3, max_length=120)
+    correlation_id: str = Field(min_length=3, max_length=120)
+
+
+class RegistrationView(BaseModel):
+    registration_ref: str
+    session_ref: str
+    tenant_id: str
+    family_id: str
+    guardian_id: str
+    consent_ref: str
+    status: Literal["CONFIRMED", "CANCELLED"]
+    replayed: bool
+    receipt_ref: str
+    purpose: Literal["live_attendance"] = LIVE_ATTENDANCE_PURPOSE
+    source: Literal["SANDBOX_SYNTHETIC"] = SANDBOX_SOURCE
+    fixture_only: Literal[True] = True
+    audit_mode: Literal["SANDBOX_RECEIPT_ONLY"] = "SANDBOX_RECEIPT_ONLY"
+    external_effect: Literal[False] = False
+
+
 class SessionView(BaseModel):
     session_ref: str
     title: str
@@ -100,7 +130,7 @@ class SessionView(BaseModel):
     audit_mode: Literal["SANDBOX_RECEIPT_ONLY"] = "SANDBOX_RECEIPT_ONLY"
 
 
-def create_app(database_path: Path) -> FastAPI:
+def create_app(database_path: Path, *, consent: CanonicalConsentPort | None = None) -> FastAPI:
     initialise(database_path)
     app = FastAPI(title="Xiao Ju Deng Live Control Plane sandbox")
     app.add_middleware(
@@ -408,6 +438,138 @@ def create_app(database_path: Path) -> FastAPI:
             raise HTTPException(status_code=404, detail="live session unavailable")
         return session_view(row, now)
 
+    @app.post(
+        "/sandbox/live-control/sessions/{session_ref}/registrations",
+        response_model=RegistrationView,
+        status_code=201,
+    )
+    def register_session(
+        session_ref: str,
+        request: RegistrationRequest,
+        actor: Annotated[SyntheticActor, Depends(actor_headers())],
+    ) -> RegistrationView:
+        require_role(actor, {"ADULT_VIEWER"})
+        fingerprint = registration_fingerprint("register", session_ref, request, actor)
+        with connect(database_path) as database:
+            replay = registration_command_replay(database, request.idempotency_key, fingerprint)
+            if replay is not None:
+                registration, receipt_ref = replay
+                return registration_view(registration, replayed=True, receipt_ref=receipt_ref)
+
+            session = require_session(database, session_ref)
+            require_scope(actor, session["tenant_id"], session["family_id"])
+            require_registrable_session(session, now_utc())
+            decision = require_canonical_consent(
+                consent,
+                actor=actor,
+                session_ref=session_ref,
+                now=now_utc(),
+            )
+            duplicate = database.execute(
+                "SELECT * FROM live_registrations "
+                "WHERE session_ref = ? AND tenant_id = ? AND family_id = ? "
+                "AND guardian_id = ?",
+                (session_ref, actor.tenant_id, actor.family_id, actor.actor_id),
+            ).fetchone()
+            if duplicate is not None:
+                raise HTTPException(status_code=409, detail="registration already exists")
+
+            registration_ref = (
+                "registration.synthetic." + sha256(fingerprint.encode()).hexdigest()[:24]
+            )
+            receipt_ref = f"registration:{request.idempotency_key}"
+            timestamp = now_iso()
+            database.execute(
+                """
+                INSERT INTO live_registrations (
+                    registration_ref, session_ref, tenant_id, family_id, guardian_id,
+                    consent_ref, status, created_at, updated_at, source, fixture_only
+                ) VALUES (?, ?, ?, ?, ?, ?, 'CONFIRMED', ?, ?, ?, 1)
+                """,
+                (
+                    registration_ref,
+                    session_ref,
+                    actor.tenant_id,
+                    actor.family_id,
+                    actor.actor_id,
+                    decision.consent_ref,
+                    timestamp,
+                    timestamp,
+                    SANDBOX_SOURCE,
+                ),
+            )
+            append_registration_command(
+                database,
+                request=request,
+                command_type="REGISTER",
+                fingerprint=fingerprint,
+                registration_ref=registration_ref,
+                receipt_ref=receipt_ref,
+            )
+            append_receipt(
+                database,
+                receipt_key=receipt_ref,
+                session_ref=session_ref,
+                actor=actor,
+                action="REGISTRATION_CONFIRMED",
+                reason="canonical Consent projection granted",
+            )
+            database.commit()
+            registration = require_registration(database, registration_ref)
+        return registration_view(registration, replayed=False, receipt_ref=receipt_ref)
+
+    @app.post(
+        "/sandbox/live-control/registrations/{registration_ref}/cancel",
+        response_model=RegistrationView,
+    )
+    def cancel_registration(
+        registration_ref: str,
+        request: RegistrationRequest,
+        actor: Annotated[SyntheticActor, Depends(actor_headers())],
+    ) -> RegistrationView:
+        require_role(actor, {"ADULT_VIEWER"})
+        fingerprint = registration_fingerprint("cancel", registration_ref, request, actor)
+        with connect(database_path) as database:
+            replay = registration_command_replay(database, request.idempotency_key, fingerprint)
+            if replay is not None:
+                registration, receipt_ref = replay
+                return registration_view(registration, replayed=True, receipt_ref=receipt_ref)
+
+            registration = require_registration(database, registration_ref)
+            require_scope(actor, registration["tenant_id"], registration["family_id"])
+            if registration["guardian_id"] != actor.actor_id:
+                raise HTTPException(
+                    status_code=403, detail="registration belongs to another guardian"
+                )
+            if registration["status"] != "CONFIRMED":
+                raise HTTPException(status_code=409, detail="registration cannot be cancelled")
+
+            receipt_ref = f"registration:{request.idempotency_key}"
+            database.execute(
+                "UPDATE live_registrations SET status = 'CANCELLED', updated_at = ? "
+                "WHERE registration_ref = ?",
+                (now_iso(), registration_ref),
+            )
+            append_registration_command(
+                database,
+                request=request,
+                command_type="CANCEL",
+                fingerprint=fingerprint,
+                registration_ref=registration_ref,
+                receipt_ref=receipt_ref,
+            )
+            append_receipt(
+                database,
+                receipt_key=receipt_ref,
+                session_ref=registration["session_ref"],
+                actor=actor,
+                action="REGISTRATION_CANCELLED",
+                reason="adult cancelled synthetic registration",
+            )
+            database.commit()
+            cancelled = require_registration(database, registration_ref)
+        return registration_view(cancelled, replayed=False, receipt_ref=receipt_ref)
+
     @app.get("/sandbox/live-control/sessions/{session_ref}/receipts")
     def receipts(
         session_ref: str,
@@ -497,6 +659,146 @@ def create_fingerprint(request: CreateSessionRequest, actor: SyntheticActor) -> 
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
+    )
+
+
+def registration_fingerprint(
+    command: str,
+    resource_ref: str,
+    request: RegistrationRequest,
+    actor: SyntheticActor,
+) -> str:
+    payload = json.dumps(
+        {
+            "command": command,
+            "resource_ref": resource_ref,
+            "tenant_id": actor.tenant_id,
+            "family_id": actor.family_id,
+            "guardian_id": actor.actor_id,
+            "correlation_id": request.correlation_id,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return sha256(payload.encode()).hexdigest()
+
+
+def require_registrable_session(row: sqlite3.Row, now: datetime) -> None:
+    if row["review_status"] != "APPROVED":
+        raise HTTPException(status_code=409, detail="session is not approved")
+    if row["lifecycle_status"] != "SCHEDULED":
+        raise HTTPException(status_code=409, detail="session is not scheduled")
+    if row["audience_scope"] != "FAMILY":
+        raise HTTPException(status_code=409, detail="session audience is unavailable")
+    if datetime.fromisoformat(row["ends_at"]) <= now:
+        raise HTTPException(status_code=409, detail="session is expired")
+
+
+def require_canonical_consent(
+    consent: CanonicalConsentPort | None,
+    *,
+    actor: SyntheticActor,
+    session_ref: str,
+    now: datetime,
+) -> CanonicalConsentDecision:
+    if consent is None:
+        raise HTTPException(status_code=503, detail="canonical Consent projection unavailable")
+    try:
+        decision = consent.require_grant(
+            tenant_id=actor.tenant_id,
+            family_id=actor.family_id,
+            guardian_id=actor.actor_id,
+            purpose=LIVE_ATTENDANCE_PURPOSE,
+            session_ref=session_ref,
+            now=now,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503, detail="canonical Consent projection unavailable"
+        ) from exc
+    expires_at = decision.expires_at
+    valid = (
+        bool(decision.consent_ref)
+        and decision.granted
+        and decision.purpose == LIVE_ATTENDANCE_PURPOSE
+        and decision.tenant_id == actor.tenant_id
+        and decision.family_id == actor.family_id
+        and decision.guardian_id == actor.actor_id
+        and (expires_at is None or (expires_at.tzinfo is not None and expires_at > now))
+    )
+    if not valid:
+        raise HTTPException(status_code=403, detail="active canonical Consent required")
+    return decision
+
+
+def registration_command_replay(
+    database: sqlite3.Connection, idempotency_key: str, fingerprint: str
+) -> tuple[sqlite3.Row, str] | None:
+    command = database.execute(
+        "SELECT fingerprint, registration_ref, receipt_ref "
+        "FROM live_registration_commands "
+        "WHERE idempotency_key = ?",
+        (idempotency_key,),
+    ).fetchone()
+    if command is None:
+        return None
+    if command["fingerprint"] != fingerprint:
+        raise HTTPException(status_code=409, detail="idempotency key conflict")
+    return (
+        require_registration(database, command["registration_ref"]),
+        command["receipt_ref"],
+    )
+
+
+def append_registration_command(
+    database: sqlite3.Connection,
+    *,
+    request: RegistrationRequest,
+    command_type: str,
+    fingerprint: str,
+    registration_ref: str,
+    receipt_ref: str,
+) -> None:
+    database.execute(
+        """
+        INSERT INTO live_registration_commands (
+            idempotency_key, command_type, fingerprint, correlation_id,
+            registration_ref, receipt_ref, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            request.idempotency_key,
+            command_type,
+            fingerprint,
+            request.correlation_id,
+            registration_ref,
+            receipt_ref,
+            now_iso(),
+        ),
+    )
+
+
+def require_registration(database: sqlite3.Connection, registration_ref: str) -> sqlite3.Row:
+    row = database.execute(
+        "SELECT * FROM live_registrations WHERE registration_ref = ?",
+        (registration_ref,),
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="registration not found")
+    return row
+
+
+def registration_view(row: sqlite3.Row, *, replayed: bool, receipt_ref: str) -> RegistrationView:
+    return RegistrationView(
+        registration_ref=row["registration_ref"],
+        session_ref=row["session_ref"],
+        tenant_id=row["tenant_id"],
+        family_id=row["family_id"],
+        guardian_id=row["guardian_id"],
+        consent_ref=row["consent_ref"],
+        status=row["status"],
+        replayed=replayed,
+        receipt_ref=receipt_ref,
     )
 
 
@@ -603,6 +905,29 @@ def initialise(database_path: Path) -> None:
                 actor_id TEXT NOT NULL,
                 action TEXT NOT NULL,
                 reason TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS live_registrations (
+                registration_ref TEXT PRIMARY KEY,
+                session_ref TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                family_id TEXT NOT NULL,
+                guardian_id TEXT NOT NULL,
+                consent_ref TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('CONFIRMED', 'CANCELLED')),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                source TEXT NOT NULL CHECK (source = 'SANDBOX_SYNTHETIC'),
+                fixture_only INTEGER NOT NULL CHECK (fixture_only = 1),
+                UNIQUE (session_ref, tenant_id, family_id, guardian_id)
+            );
+            CREATE TABLE IF NOT EXISTS live_registration_commands (
+                idempotency_key TEXT PRIMARY KEY,
+                command_type TEXT NOT NULL CHECK (command_type IN ('REGISTER', 'CANCEL')),
+                fingerprint TEXT NOT NULL,
+                correlation_id TEXT NOT NULL,
+                registration_ref TEXT NOT NULL,
+                receipt_ref TEXT NOT NULL UNIQUE,
                 created_at TEXT NOT NULL
             );
             """

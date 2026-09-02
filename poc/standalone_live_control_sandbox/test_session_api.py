@@ -7,9 +7,40 @@ import pytest
 from fastapi.testclient import TestClient
 
 from poc.standalone_live_control_sandbox import session_api
+from poc.standalone_live_control_sandbox.control_plane import CanonicalConsentDecision
 from poc.standalone_live_control_sandbox.session_api import create_app
 
 NOW = datetime(2026, 9, 3, 12, tzinfo=UTC)
+
+
+class ConsentProjection:
+    def __init__(self, decision: CanonicalConsentDecision | None = None) -> None:
+        self.decision = decision
+        self.calls: list[dict[str, object]] = []
+
+    def require_grant(self, **query: object) -> CanonicalConsentDecision:
+        self.calls.append(query)
+        if self.decision is not None:
+            return self.decision
+        return consent_decision(
+            tenant_id=str(query["tenant_id"]),
+            family_id=str(query["family_id"]),
+            guardian_id=str(query["guardian_id"]),
+        )
+
+
+def consent_decision(**overrides: object) -> CanonicalConsentDecision:
+    values: dict[str, object] = {
+        "consent_ref": "consent.canonical.synthetic.1",
+        "tenant_id": "tenant.synthetic.alpha",
+        "family_id": "family.synthetic.alpha",
+        "guardian_id": "actor.synthetic.adult_viewer",
+        "purpose": "live_attendance",
+        "granted": True,
+        "expires_at": NOW + timedelta(hours=2),
+    }
+    values.update(overrides)
+    return CanonicalConsentDecision(**values)  # type: ignore[arg-type]
 
 
 def headers(
@@ -71,6 +102,24 @@ def create_and_approve(client: TestClient) -> dict[str, object]:
     )
     assert approved.status_code == 200
     return approved.json()
+
+
+def registration_payload(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "idempotency_key": "register-live-1",
+        "correlation_id": "correlation-register-1",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def registration_client(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    consent: ConsentProjection | None,
+) -> TestClient:
+    monkeypatch.setattr(session_api, "now_utc", lambda: NOW)
+    return TestClient(create_app(tmp_path / "registration.sqlite3", consent=consent))
 
 
 def test_creator_review_discovery_and_detail_happy_path(client: TestClient) -> None:
@@ -363,6 +412,354 @@ def test_health_and_response_shape_are_explicit(client: TestClient) -> None:
     }
 
 
+def test_adult_registers_and_cancels_with_canonical_consent_projection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    consent = ConsentProjection()
+    client = registration_client(tmp_path, monkeypatch, consent)
+    create_and_approve(client)
+
+    registered = client.post(
+        "/sandbox/live-control/sessions/live.synthetic.control.1/registrations",
+        headers=headers(role="ADULT_VIEWER"),
+        json=registration_payload(),
+    )
+
+    assert registered.status_code == 201
+    body = registered.json()
+    assert body["status"] == "CONFIRMED"
+    assert body["replayed"] is False
+    assert body["consent_ref"] == "consent.canonical.synthetic.1"
+    assert body["purpose"] == "live_attendance"
+    assert body["fixture_only"] is True
+    assert body["external_effect"] is False
+    assert consent.calls == [
+        {
+            "tenant_id": "tenant.synthetic.alpha",
+            "family_id": "family.synthetic.alpha",
+            "guardian_id": "actor.synthetic.adult_viewer",
+            "purpose": "live_attendance",
+            "session_ref": "live.synthetic.control.1",
+            "now": NOW,
+        }
+    ]
+
+    cancelled = client.post(
+        f"/sandbox/live-control/registrations/{body['registration_ref']}/cancel",
+        headers=headers(role="ADULT_VIEWER"),
+        json=registration_payload(
+            idempotency_key="cancel-live-1",
+            correlation_id="correlation-cancel-1",
+        ),
+    )
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "CANCELLED"
+    assert cancelled.json()["external_effect"] is False
+    receipts = client.get(
+        "/sandbox/live-control/sessions/live.synthetic.control.1/receipts",
+        headers=headers(role="LIVE_OPERATOR"),
+    ).json()["receipts"]
+    assert [receipt["action"] for receipt in receipts[-2:]] == [
+        "REGISTRATION_CONFIRMED",
+        "REGISTRATION_CANCELLED",
+    ]
+
+
+def test_registration_and_cancel_are_persistent_and_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    consent = ConsentProjection()
+    database = tmp_path / "persistent-registration.sqlite3"
+    monkeypatch.setattr(session_api, "now_utc", lambda: NOW)
+    first = TestClient(create_app(database, consent=consent))
+    create_and_approve(first)
+    initial = first.post(
+        "/sandbox/live-control/sessions/live.synthetic.control.1/registrations",
+        headers=headers(role="ADULT_VIEWER"),
+        json=registration_payload(),
+    )
+    registration_ref = initial.json()["registration_ref"]
+
+    second = TestClient(create_app(database, consent=consent))
+    replay = second.post(
+        "/sandbox/live-control/sessions/live.synthetic.control.1/registrations",
+        headers=headers(role="ADULT_VIEWER"),
+        json=registration_payload(),
+    )
+    assert replay.status_code == 201
+    assert replay.json()["registration_ref"] == registration_ref
+    assert replay.json()["replayed"] is True
+    assert len(consent.calls) == 1
+
+    cancel_payload = registration_payload(
+        idempotency_key="cancel-live-1",
+        correlation_id="correlation-cancel-1",
+    )
+    cancelled = second.post(
+        f"/sandbox/live-control/registrations/{registration_ref}/cancel",
+        headers=headers(role="ADULT_VIEWER"),
+        json=cancel_payload,
+    )
+    third = TestClient(create_app(database, consent=consent))
+    cancel_replay = third.post(
+        f"/sandbox/live-control/registrations/{registration_ref}/cancel",
+        headers=headers(role="ADULT_VIEWER"),
+        json=cancel_payload,
+    )
+    assert cancelled.json()["status"] == "CANCELLED"
+    assert cancel_replay.status_code == 200
+    assert cancel_replay.json()["status"] == "CANCELLED"
+    assert cancel_replay.json()["replayed"] is True
+
+
+def test_missing_consent_provider_returns_503_without_registration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = registration_client(tmp_path, monkeypatch, None)
+    create_and_approve(client)
+
+    response = client.post(
+        "/sandbox/live-control/sessions/live.synthetic.control.1/registrations",
+        headers=headers(role="ADULT_VIEWER"),
+        json=registration_payload(),
+    )
+
+    assert response.status_code == 503
+    with session_api.connect(tmp_path / "registration.sqlite3") as database:
+        count = database.execute("SELECT COUNT(*) FROM live_registrations").fetchone()[0]
+        tables = {
+            row[0]
+            for row in database.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+    assert count == 0
+    assert not any("consent" in table.lower() for table in tables)
+
+
+def test_consent_projection_failure_returns_503(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FailingConsentProjection:
+        def require_grant(self, **query: object) -> CanonicalConsentDecision:
+            del query
+            raise RuntimeError("synthetic canonical adapter failure")
+
+    monkeypatch.setattr(session_api, "now_utc", lambda: NOW)
+    client = TestClient(
+        create_app(tmp_path / "failed-consent.sqlite3", consent=FailingConsentProjection())
+    )
+    create_and_approve(client)
+
+    response = client.post(
+        "/sandbox/live-control/sessions/live.synthetic.control.1/registrations",
+        headers=headers(role="ADULT_VIEWER"),
+        json=registration_payload(),
+    )
+
+    assert response.status_code == 503
+    assert "adapter failure" not in response.text
+
+
+@pytest.mark.parametrize(
+    "decision",
+    [
+        consent_decision(granted=False),
+        consent_decision(expires_at=NOW - timedelta(seconds=1)),
+        consent_decision(purpose="other"),
+        consent_decision(tenant_id="tenant.synthetic.other"),
+        consent_decision(family_id="family.synthetic.other"),
+        consent_decision(guardian_id="actor.synthetic.other"),
+    ],
+)
+def test_withdrawn_expired_or_cross_scope_consent_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    decision: CanonicalConsentDecision,
+) -> None:
+    client = registration_client(tmp_path, monkeypatch, ConsentProjection(decision))
+    create_and_approve(client)
+
+    response = client.post(
+        "/sandbox/live-control/sessions/live.synthetic.control.1/registrations",
+        headers=headers(role="ADULT_VIEWER"),
+        json=registration_payload(),
+    )
+
+    assert response.status_code == 403
+
+
+def test_registration_requires_approved_unexpired_scheduled_family_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    consent = ConsentProjection()
+    client = registration_client(tmp_path, monkeypatch, consent)
+    endpoint = "/sandbox/live-control/sessions/live.synthetic.control.1/registrations"
+
+    client.post(
+        "/sandbox/live-control/sessions",
+        headers=headers(role="CREATOR"),
+        json=create_payload(),
+    )
+    assert (
+        client.post(
+            endpoint,
+            headers=headers(role="ADULT_VIEWER"),
+            json=registration_payload(),
+        ).status_code
+        == 409
+    )
+    client.post(
+        "/sandbox/live-control/sessions/live.synthetic.control.1/review",
+        headers=headers(role="CONTENT_REVIEWER"),
+        json={
+            "decision_key": "review-live-before-registration",
+            "action": "APPROVE",
+            "reason": "人工审核通过",
+            "review_ref": "review.synthetic.before-registration",
+        },
+    )
+    client.post(
+        "/sandbox/live-control/sessions/live.synthetic.control.1/lifecycle",
+        headers=headers(role="LIVE_OPERATOR"),
+        json={
+            "action_key": "go-live-before-registration",
+            "action": "GO_LIVE",
+            "reason": "合成开播反例",
+        },
+    )
+    assert (
+        client.post(
+            endpoint,
+            headers=headers(role="ADULT_VIEWER"),
+            json=registration_payload(
+                idempotency_key="register-live-session",
+                correlation_id="correlation-live-session",
+            ),
+        ).status_code
+        == 409
+    )
+
+    expired = create_payload(
+        session_ref="live.synthetic.expired",
+        idempotency_key="create-expired",
+        starts_at=(NOW - timedelta(hours=2)).isoformat(),
+        ends_at=(NOW - timedelta(hours=1)).isoformat(),
+    )
+    client.post(
+        "/sandbox/live-control/sessions",
+        headers=headers(role="CREATOR"),
+        json=expired,
+    )
+    client.post(
+        "/sandbox/live-control/sessions/live.synthetic.expired/review",
+        headers=headers(role="CONTENT_REVIEWER"),
+        json={
+            "decision_key": "review-expired-registration",
+            "action": "APPROVE",
+            "reason": "合成过期反例",
+            "review_ref": "review.synthetic.expired-registration",
+        },
+    )
+    assert (
+        client.post(
+            "/sandbox/live-control/sessions/live.synthetic.expired/registrations",
+            headers=headers(role="ADULT_VIEWER"),
+            json=registration_payload(
+                idempotency_key="register-expired",
+                correlation_id="correlation-expired",
+            ),
+        ).status_code
+        == 409
+    )
+
+
+def test_registration_scope_role_and_idempotency_conflicts_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    consent = ConsentProjection()
+    client = registration_client(tmp_path, monkeypatch, consent)
+    create_and_approve(client)
+    endpoint = "/sandbox/live-control/sessions/live.synthetic.control.1/registrations"
+
+    assert client.post(endpoint, json=registration_payload()).status_code == 401
+    assert (
+        client.post(
+            endpoint,
+            headers=headers(role="CHILD"),
+            json=registration_payload(),
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            endpoint,
+            headers=headers(role="ADULT_VIEWER", family="family.synthetic.other"),
+            json=registration_payload(),
+        ).status_code
+        == 403
+    )
+
+    created = client.post(
+        endpoint,
+        headers=headers(role="ADULT_VIEWER"),
+        json=registration_payload(),
+    )
+    assert created.status_code == 201
+    assert (
+        client.post(
+            endpoint,
+            headers=headers(role="ADULT_VIEWER"),
+            json=registration_payload(correlation_id="different-correlation"),
+        ).status_code
+        == 409
+    )
+    assert (
+        client.post(
+            endpoint,
+            headers=headers(role="ADULT_VIEWER"),
+            json=registration_payload(
+                idempotency_key="different-register-key",
+                correlation_id="different-register-correlation",
+            ),
+        ).status_code
+        == 409
+    )
+
+    registration_ref = created.json()["registration_ref"]
+    cancel_payload = registration_payload(
+        idempotency_key="cancel-live-1",
+        correlation_id="correlation-cancel-1",
+    )
+    assert (
+        client.post(
+            f"/sandbox/live-control/registrations/{registration_ref}/cancel",
+            headers=headers(role="ADULT_VIEWER", actor="actor.synthetic.other-adult"),
+            json=cancel_payload,
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            f"/sandbox/live-control/registrations/{registration_ref}/cancel",
+            headers=headers(role="ADULT_VIEWER"),
+            json=cancel_payload,
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"/sandbox/live-control/registrations/{registration_ref}/cancel",
+            headers=headers(role="ADULT_VIEWER"),
+            json=registration_payload(
+                idempotency_key="cancel-live-2",
+                correlation_id="correlation-cancel-2",
+            ),
+        ).status_code
+        == 409
+    )
+
+
 def test_operator_listing_is_scoped_role_gated_and_restart_readable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -378,10 +775,13 @@ def test_operator_listing_is_scoped_role_gated_and_restart_readable(
     assert listing.status_code == 200
     assert listing.headers["cache-control"] == "no-store"
     assert listing.json()[0]["session_ref"] == "live.synthetic.control.1"
-    assert second.get(
-        "/sandbox/live-control/operator/sessions",
-        headers=headers(role="ADULT_VIEWER"),
-    ).status_code == 403
+    assert (
+        second.get(
+            "/sandbox/live-control/operator/sessions",
+            headers=headers(role="ADULT_VIEWER"),
+        ).status_code
+        == 403
+    )
     other_family = second.get(
         "/sandbox/live-control/operator/sessions",
         headers=headers(role="CREATOR", family="family.synthetic.other"),
