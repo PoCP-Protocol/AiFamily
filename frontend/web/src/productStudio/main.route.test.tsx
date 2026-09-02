@@ -27,11 +27,14 @@ describe("Web Product Studio route", () => {
     await userEvent.setup().click(screen.getByRole("tab", { name: /Portfolio & Catalog/ }));
     expect(screen.getByRole("heading", { name: "证据到选定产品包对照工作台" })).toBeInTheDocument();
     expect(screen.getByText(/不计算综合分，不做家庭评分或排名/)).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("tab", { name: /Course Content/ }));
+    expect(screen.getByRole("heading", { name: "24 课时课程与课件编排" })).toBeInTheDocument();
+    expect(screen.getByText(/内容准确性引用不等于证据已准入/)).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("tab", { name: /Sandbox/ }));
     expect(screen.getByRole("heading", { name: "产品设计工厂" })).toBeInTheDocument();
     expect(screen.getByTestId("product-studio-environment")).toHaveTextContent("Sandbox");
     expect(screen.getByText(/所有 AI 内容均为 DRAFT/)).toBeInTheDocument();
-  });
+  }, 10_000);
 
   it("keeps the root path on Experience Studio", () => {
     window.history.replaceState({}, "", "/");

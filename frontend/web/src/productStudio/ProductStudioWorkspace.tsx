@@ -1,6 +1,7 @@
 import { useRef, useState, type KeyboardEvent } from "react";
 import { MarketEvidenceWorkbench } from "./MarketEvidenceWorkbench";
 import { ProductConceptDecisionWorkbench } from "./ProductConceptDecisionWorkbench";
+import { CourseContentWorkbench } from "./CourseContentWorkbench";
 import { ProductDefinitionOperatorReviewWorkbench } from "./ProductDefinitionOperatorReviewWorkbench";
 import { ProductFactoryComposer } from "./ProductFactoryComposer";
 import { ProductPackageReviewWorkbench } from "./ProductPackageReviewWorkbench";
@@ -15,6 +16,7 @@ const WORKSPACE_TABS = [
   { id: "package-review", label: "Package Review" },
   { id: "portfolio-catalog", label: "Portfolio & Catalog" },
   { id: "pdm-review", label: "PDM Review" },
+  { id: "course-content", label: "Course Content" },
   { id: "sandbox", label: "Sandbox" },
 ] as const;
 
@@ -101,6 +103,9 @@ export function ProductStudioWorkspace() {
       </div>
       <div aria-labelledby="workspace-tab-pdm-review" hidden={activeTab !== "pdm-review"} id="workspace-panel-pdm-review" role="tabpanel" tabIndex={0}>
         <ProductDefinitionOperatorReviewWorkbench />
+      </div>
+      <div aria-labelledby="workspace-tab-course-content" hidden={activeTab !== "course-content"} id="workspace-panel-course-content" role="tabpanel" tabIndex={0}>
+        <CourseContentWorkbench contractPreview />
       </div>
       <div aria-labelledby="workspace-tab-sandbox" hidden={activeTab !== "sandbox"} id="workspace-panel-sandbox" role="tabpanel" tabIndex={0}>
         <ProductStudio initialState={sandboxProductStudioState} environmentLabel="Sandbox · Product Studio · API seam" />
