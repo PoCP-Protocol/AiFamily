@@ -29,6 +29,13 @@ from poc.standalone_live_commerce_sandbox.ledger_sandbox import (
     ThreeLedgerSandbox,
     Track,
 )
+from poc.standalone_live_commerce_sandbox.settlement_gate import (
+    SettlementActor,
+    SettlementGate,
+    SettlementGateConflict,
+    SettlementGateNotFound,
+    SettlementGateRejected,
+)
 from poc.standalone_live_moderation_sandbox.question_api import (
     SyntheticActor,
     actor_headers,
@@ -66,12 +73,26 @@ class ReversalRequest(BaseModel):
     reason: str = Field(min_length=2, max_length=240)
 
 
+class SettlementRequest(BaseModel):
+    request_ref: str = Field(min_length=3, max_length=120)
+    purchase_ref: str = Field(min_length=3, max_length=120)
+    beneficiary_ref: str = Field(min_length=3, max_length=120)
+    idempotency_key: str = Field(min_length=3, max_length=120)
+
+
+class SettlementDecisionRequest(BaseModel):
+    decision_key: str = Field(min_length=3, max_length=120)
+    decision: str = Field(pattern="^(APPROVE|REJECT)$")
+    reason: str = Field(min_length=1, max_length=240)
+
+
 def create_app(database_path: Path | None = None) -> FastAPI:
     port = InMemoryCanonicalCommerceFixture()
     service = LiveCommerceService(port)
     if database_path is None:
         database_path = Path(tempfile.mkdtemp(prefix="xiaojudeng-commerce-")) / "ledger.sqlite3"
     ledger = ThreeLedgerSandbox(database_path)
+    settlement_gate = SettlementGate(database_path, ledger)
     app = FastAPI(title="Xiao Ju Deng adult commerce sandbox")
     app.add_middleware(
         CORSMiddleware,
@@ -234,6 +255,62 @@ def create_app(database_path: Path | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return sandbox_result(result)
 
+    @app.post("/sandbox/live-commerce/settlement-requests")
+    def create_settlement_request(
+        request: SettlementRequest,
+        actor: Annotated[SyntheticActor, Depends(actor_headers())],
+    ) -> dict[str, object]:
+        require_role(actor, {"CREATOR_OPERATOR"})
+        try:
+            result = settlement_gate.request(
+                actor=settlement_actor(actor),
+                request_ref=request.request_ref,
+                purchase_ref=request.purchase_ref,
+                beneficiary_ref=request.beneficiary_ref,
+                idempotency_key=request.idempotency_key,
+            )
+        except SettlementGateNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except SettlementGateConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except SettlementGateRejected as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        return sandbox_result(result)
+
+    @app.get("/sandbox/live-commerce/settlement-requests")
+    def list_settlement_requests(
+        actor: Annotated[SyntheticActor, Depends(actor_headers())],
+    ) -> dict[str, object]:
+        require_role(actor, {"CREATOR_OPERATOR", "HUMAN_FINANCE_REVIEWER"})
+        try:
+            requests = settlement_gate.list_requests(actor=settlement_actor(actor))
+        except SettlementGateRejected as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        return sandbox_result({"requests": requests, "external_effect": False})
+
+    @app.post("/sandbox/live-commerce/settlement-requests/{request_ref}/decisions")
+    def decide_settlement_request(
+        request_ref: str,
+        request: SettlementDecisionRequest,
+        actor: Annotated[SyntheticActor, Depends(actor_headers())],
+    ) -> dict[str, object]:
+        require_role(actor, {"HUMAN_FINANCE_REVIEWER"})
+        try:
+            result = settlement_gate.decide(
+                actor=settlement_actor(actor),
+                request_ref=request_ref,
+                decision_key=request.decision_key,
+                decision=request.decision,
+                reason=request.reason,
+            )
+        except SettlementGateNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except SettlementGateConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except SettlementGateRejected as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return sandbox_result(result)
+
     return app
 
 
@@ -251,6 +328,15 @@ def ledger_actor(actor: SyntheticActor) -> LedgerActor:
         tenant_id=actor.tenant_id,
         family_id=actor.family_id,
         actor_id=actor.actor_id,
+    )
+
+
+def settlement_actor(actor: SyntheticActor) -> SettlementActor:
+    return SettlementActor(
+        tenant_id=actor.tenant_id,
+        family_id=actor.family_id,
+        actor_id=actor.actor_id,
+        role=actor.role,
     )
 
 

@@ -50,6 +50,7 @@ const CONTRACTS = {
 
 const MEMBERSHIP_PURCHASE_REF_KEY = "xiaojudeng.sandbox.membership.purchase_ref";
 const POINTS_PURCHASE_REF_KEY = "xiaojudeng.sandbox.points.purchase_ref";
+const CONTENT_SUPPORT_PURCHASE_REF_KEY = "xiaojudeng.sandbox.content_support.purchase_ref";
 
 export function LiveServiceOfferingPage({ commerceBaseUrl }: Props) {
   const [supportState, setSupportState] = useState<SupportState>("idle");
@@ -254,6 +255,7 @@ export function LiveServiceOfferingPage({ commerceBaseUrl }: Props) {
       }
       const refreshedBalance = await loadBalance(commerceBaseUrl, purchaseRef);
       if (refreshedBalance.entitlement !== "ACTIVE") throw new Error("content support is not active");
+      localStorage.setItem(CONTENT_SUPPORT_PURCHASE_REF_KEY, purchaseRef);
       setSupportPurchaseRef(purchaseRef);
       setBalance(refreshedBalance);
       setSupportState("active");

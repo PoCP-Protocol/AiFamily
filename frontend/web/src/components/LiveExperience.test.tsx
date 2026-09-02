@@ -1,9 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { LiveExperience } from "./LiveExperience";
 import { LiveDetailPage } from "./LiveDetailPage";
 import { LiveServiceOfferingPage } from "./LiveServiceOfferingPage";
+import { LiveSettlementConsole } from "./LiveSettlementConsole";
 import {
   LIVE_STATE_COPY,
   XIAO_JU_DENG_FIXTURE,
@@ -473,6 +474,102 @@ describe("Xiao Ju Deng live product surface", () => {
       await screen.findByText("积分支持已撤销：现金 ¥0.00，专家与平台待结算均为 0。"),
     ).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(6);
+    localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it("requires expert request and human approval before marking settlement approved", async () => {
+    localStorage.setItem(
+      "xiaojudeng.sandbox.content_support.purchase_ref",
+      "content-support.ui.settlement",
+    );
+    const pending = {
+      request_ref: "settlement-request.ui.test",
+      purchase_ref: "content-support.ui.settlement",
+      beneficiary_ref: "expert.synthetic.1",
+      amount: 400,
+      currency: "CNY_CENT",
+      state: "PENDING",
+      requester_id: "actor.synthetic.creator.1",
+      reviewer_id: null,
+      decision_reason: null,
+      payment_state: "NOT_EXECUTED",
+      external_effect: false,
+      source: "SANDBOX_SYNTHETIC",
+      fixture_only: true,
+    } as const;
+    const approved = {
+      ...pending,
+      state: "APPROVED",
+      reviewer_id: "actor.synthetic.finance",
+      decision_reason: "人工核对合成结算与原始支持记录一致",
+    } as const;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          requests: [],
+          external_effect: false,
+          source: "SANDBOX_SYNTHETIC",
+          fixture_only: true,
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => pending })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          requests: [pending],
+          external_effect: false,
+          source: "SANDBOX_SYNTHETIC",
+          fixture_only: true,
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => approved })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          requests: [approved],
+          external_effect: false,
+          source: "SANDBOX_SYNTHETIC",
+          fixture_only: true,
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LiveSettlementConsole commerceBaseUrl="http://127.0.0.1:55400" />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "申请最近一笔专家结算（演示）" }));
+    expect(await screen.findByText("专家待结算 ¥4.00")).toBeInTheDocument();
+    expect(screen.getByText("付款状态：未执行")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "批准结算" }));
+    expect(await screen.findByText("已批准，等待外部付款系统（未执行）")).toBeInTheDocument();
+    expect(screen.getByText("审核理由：人工核对合成结算与原始支持记录一致")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it("fails closed when the settlement queue evidence is unsafe", async () => {
+    localStorage.clear();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        requests: [{
+          request_ref: "unsafe",
+          payment_state: "PAID",
+          source: "PRODUCTION",
+          fixture_only: false,
+          external_effect: true,
+        }],
+        source: "PRODUCTION",
+        fixture_only: false,
+        external_effect: true,
+      }),
+    }));
+    render(<LiveSettlementConsole commerceBaseUrl="http://127.0.0.1:55400" />);
+    expect(await screen.findByText("结算审核失败，没有产生付款。")).toBeInTheDocument();
     localStorage.clear();
     vi.unstubAllGlobals();
   });

@@ -7,14 +7,17 @@ from poc.standalone_live_commerce_sandbox.commerce_api import create_app
 
 
 def headers(
-    *, role: str = "ADULT_VIEWER", family: str = "family.synthetic.alpha"
+    *,
+    role: str = "ADULT_VIEWER",
+    family: str = "family.synthetic.alpha",
+    actor: str = "actor.synthetic.adult",
 ) -> dict[str, str]:
     return {
         "X-Sandbox-Source": "SANDBOX_SYNTHETIC",
         "X-Fixture-Only": "true",
         "X-Tenant-Id": "tenant.synthetic.alpha",
         "X-Family-Id": family,
-        "X-Actor-Id": "actor.synthetic.adult",
+        "X-Actor-Id": actor,
         "X-Actor-Role": role,
     }
 
@@ -291,4 +294,231 @@ def test_http_settlements_fail_closed_for_scope_child_and_unsafe_actor(tmp_path:
             headers=headers(),
         ).status_code
         == 404
+    )
+
+
+def test_http_settlement_gate_persists_human_approval_without_payment(tmp_path: Path) -> None:
+    database = tmp_path / "commerce.sqlite3"
+    client = TestClient(create_app(database))
+    purchase = {
+        "purchase_ref": "purchase:support:gate:http",
+        "track": "CONTENT_SUPPORT",
+        "subject_ref": "session.synthetic.1",
+        "amount": 500,
+        "currency": "CNY_CENT",
+        "idempotency_key": "purchase-key:support:gate:http",
+    }
+    assert (
+        client.post(
+            "/sandbox/live-commerce/purchases", headers=headers(), json=purchase
+        ).status_code
+        == 200
+    )
+    creator_headers = headers(role="CREATOR_OPERATOR", actor="actor.synthetic.creator.1")
+    request_payload = {
+        "request_ref": "settlement-request:http:1",
+        "purchase_ref": purchase["purchase_ref"],
+        "beneficiary_ref": "expert.synthetic.1",
+        "idempotency_key": "settlement-request-key:http:1",
+    }
+    created = client.post(
+        "/sandbox/live-commerce/settlement-requests",
+        headers=creator_headers,
+        json=request_payload,
+    )
+    assert created.status_code == 200
+    assert created.json()["amount"] == 400
+    assert created.json()["state"] == "PENDING"
+    assert created.json()["requester_id"] == "actor.synthetic.creator.1"
+    assert created.json()["created_at"] == created.json()["updated_at"]
+    assert (
+        client.post(
+            "/sandbox/live-commerce/settlement-requests",
+            headers=creator_headers,
+            json=request_payload,
+        ).json()
+        == created.json()
+    )
+
+    restarted = TestClient(create_app(database))
+    reviewer_headers = headers(role="HUMAN_FINANCE_REVIEWER", actor="actor.synthetic.finance.1")
+    creator_list = restarted.get(
+        "/sandbox/live-commerce/settlement-requests", headers=creator_headers
+    )
+    reviewer_list = restarted.get(
+        "/sandbox/live-commerce/settlement-requests", headers=reviewer_headers
+    )
+    assert creator_list.json()["requests"] == reviewer_list.json()["requests"]
+    assert len(reviewer_list.json()["requests"]) == 1
+    other_family_reviewer = headers(
+        role="HUMAN_FINANCE_REVIEWER",
+        actor="actor.synthetic.finance.1",
+        family="family.synthetic.other",
+    )
+    assert (
+        restarted.get(
+            "/sandbox/live-commerce/settlement-requests", headers=other_family_reviewer
+        ).json()["requests"]
+        == []
+    )
+    decision_payload = {
+        "decision_key": "settlement-decision-key:http:1",
+        "decision": "APPROVE",
+        "reason": "synthetic finance review approved",
+    }
+    approved = restarted.post(
+        "/sandbox/live-commerce/settlement-requests/settlement-request:http:1/decisions",
+        headers=reviewer_headers,
+        json=decision_payload,
+    )
+    assert approved.status_code == 200
+    assert approved.json()["state"] == "APPROVED"
+    assert approved.json()["payment_state"] == "NOT_EXECUTED"
+    assert approved.json()["external_effect"] is False
+    assert (
+        restarted.post(
+            "/sandbox/live-commerce/settlement-requests/settlement-request:http:1/decisions",
+            headers=other_family_reviewer,
+            json={
+                "decision_key": "settlement-decision-key:http:cross-family",
+                "decision": "REJECT",
+                "reason": "cross-family review denied",
+            },
+        ).status_code
+        == 404
+    )
+    assert (
+        TestClient(create_app(database))
+        .post(
+            "/sandbox/live-commerce/settlement-requests/settlement-request:http:1/decisions",
+            headers=reviewer_headers,
+            json=decision_payload,
+        )
+        .json()
+        == approved.json()
+    )
+
+
+def test_http_settlement_gate_revalidates_reversal_and_rejects_conflicts(tmp_path: Path) -> None:
+    database = tmp_path / "commerce.sqlite3"
+    client = TestClient(create_app(database))
+    purchase_ref = "purchase:support:gate:withdrawn"
+    assert (
+        client.post(
+            "/sandbox/live-commerce/purchases",
+            headers=headers(),
+            json={
+                "purchase_ref": purchase_ref,
+                "track": "CONTENT_SUPPORT",
+                "subject_ref": "session.synthetic.1",
+                "amount": 500,
+                "currency": "CNY_CENT",
+                "idempotency_key": "purchase-key:support:gate:withdrawn",
+            },
+        ).status_code
+        == 200
+    )
+    creator_headers = headers(role="CREATOR_OPERATOR", actor="actor.synthetic.creator.1")
+    request_payload = {
+        "request_ref": "settlement-request:http:withdrawn",
+        "purchase_ref": purchase_ref,
+        "beneficiary_ref": "expert.synthetic.1",
+        "idempotency_key": "settlement-request-key:http:withdrawn",
+    }
+    assert (
+        client.post(
+            "/sandbox/live-commerce/settlement-requests",
+            headers=creator_headers,
+            json=request_payload,
+        ).status_code
+        == 200
+    )
+    conflict = client.post(
+        "/sandbox/live-commerce/settlement-requests",
+        headers=creator_headers,
+        json={**request_payload, "request_ref": "settlement-request:http:changed"},
+    )
+    assert conflict.status_code == 409
+    assert (
+        client.post(
+            f"/sandbox/live-commerce/purchases/{purchase_ref}/reversals",
+            headers=headers(),
+            json={
+                "reversal_ref": "reversal:support:gate:withdrawn",
+                "idempotency_key": "reversal-key:support:gate:withdrawn",
+                "reason": "synthetic support withdrawn",
+            },
+        ).status_code
+        == 200
+    )
+    reviewer_headers = headers(role="HUMAN_FINANCE_REVIEWER", actor="actor.synthetic.finance.1")
+    decision_url = (
+        "/sandbox/live-commerce/settlement-requests/settlement-request:http:withdrawn/decisions"
+    )
+    decision = client.post(
+        decision_url,
+        headers=reviewer_headers,
+        json={
+            "decision_key": "settlement-decision-key:http:withdrawn",
+            "decision": "APPROVE",
+            "reason": "must revalidate purchase",
+        },
+    )
+    assert decision.status_code == 409
+
+
+def test_http_settlement_gate_permissions_scope_and_missing_fail_closed(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "commerce.sqlite3"))
+    list_url = "/sandbox/live-commerce/settlement-requests"
+    assert client.get(list_url).status_code == 401
+    assert client.get(list_url, headers=headers(role="CHILD")).status_code == 403
+    assert client.get(list_url, headers=headers(role="ADULT_VIEWER")).status_code == 403
+    assert (
+        client.post(
+            "/sandbox/live-commerce/settlement-requests",
+            headers=headers(role="ADULT_VIEWER"),
+            json={
+                "request_ref": "settlement-request:viewer-denied",
+                "purchase_ref": "purchase:missing",
+                "beneficiary_ref": "expert.synthetic.1",
+                "idempotency_key": "settlement-request-key:viewer-denied",
+            },
+        ).status_code
+        == 403
+    )
+    assert (
+        client.get(
+            list_url,
+            headers=headers(
+                role="CREATOR_OPERATOR",
+                actor="actor.synthetic.creator.1",
+                family="family.synthetic.other",
+            ),
+        ).json()["requests"]
+        == []
+    )
+    reviewer_headers = headers(role="HUMAN_FINANCE_REVIEWER", actor="actor.synthetic.finance.1")
+    assert (
+        client.post(
+            "/sandbox/live-commerce/settlement-requests/missing/decisions",
+            headers=reviewer_headers,
+            json={
+                "decision_key": "settlement-decision-key:missing",
+                "decision": "REJECT",
+                "reason": "missing request",
+            },
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            "/sandbox/live-commerce/settlement-requests/missing/decisions",
+            headers=reviewer_headers,
+            json={
+                "decision_key": "settlement-decision-key:blank-reason",
+                "decision": "REJECT",
+                "reason": " ",
+            },
+        ).status_code
+        == 422
     )

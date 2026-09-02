@@ -12,6 +12,7 @@ import { RunStatus } from "./components/RunStatus";
 import { ReplayTimeline } from "./components/ReplayTimeline";
 import { LiveExperience } from "./components/LiveExperience";
 import { LiveModeratorConsole } from "./components/LiveModeratorConsole";
+import { LiveSettlementConsole } from "./components/LiveSettlementConsole";
 import { LiveServiceOfferingPage } from "./components/LiveServiceOfferingPage";
 import { resolveLiveCommerceBaseUrl, resolveLiveInteractionBaseUrl } from "./live/liveCatalog";
 import { initialStudioState, studioReducer } from "./state/experienceStudio";
@@ -182,7 +183,10 @@ export default function App({ client = defaultClient }: Props) {
         <span className="environment-tag">SANDBOX · DEV_ONLY</span>
       </header>
       {liveSurface === "ops" ? (
-        <LiveModeratorConsole interactionBaseUrl={resolveLiveInteractionBaseUrl(import.meta.env)} />
+        <>
+          <LiveModeratorConsole interactionBaseUrl={resolveLiveInteractionBaseUrl(import.meta.env)} />
+          <LiveSettlementConsole commerceBaseUrl={resolveLiveCommerceBaseUrl(import.meta.env)} />
+        </>
       ) : liveSurface === "service" ? (
         <LiveServiceOfferingPage commerceBaseUrl={resolveLiveCommerceBaseUrl(import.meta.env)} />
       ) : (

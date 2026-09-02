@@ -428,6 +428,35 @@ test("adult points support preserves expert settlement across restart and revers
   await page.screenshot({ path: testInfo.outputPath("desktop-points-revoked.png"), fullPage: true });
 });
 
+test("expert settlement requires a human finance decision and survives restart", async ({ page }, testInfo) => {
+  await installOriginProxy(page, mediaUrl, mediaBrowserOrigin, new URL(sandboxDto.control_url).origin);
+  await page.goto(`${mediaUrl}#live-service`);
+  await page.evaluate(() => localStorage.removeItem("xiaojudeng.sandbox.content_support.purchase_ref"));
+  await page.reload();
+  await page.getByRole("button", { name: "支持这场内容（演示）" }).click();
+  await expect(page.getByText("演示记录已创建，没有真实扣款。")).toBeVisible();
+
+  await page.getByRole("link", { name: "专家工作台" }).click();
+  await expect(page.getByRole("heading", { name: "专家结算审核" })).toBeVisible();
+  await page.getByRole("button", { name: "申请最近一笔专家结算（演示）" }).click();
+  await expect(page.getByText("等待人工审批")).toBeVisible();
+  await expect(page.getByText("专家待结算 ¥4.00")).toBeVisible();
+  await expect(page.getByText("付款状态：未执行")).toBeVisible();
+
+  await page.getByRole("button", { name: "批准结算" }).click();
+  await expect(page.getByText("已批准，等待外部付款系统（未执行）")).toBeVisible();
+  await expect(page.getByText("审核理由：人工核对合成结算与原始支持记录一致")).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("desktop-settlement-approved.png"), fullPage: true });
+
+  commerceProcess.kill();
+  await waitForProcessExit(commerceProcess);
+  commerceProcess = await startCommerceSandbox(commercePort);
+  await page.reload();
+  await expect(page.getByText("已批准，等待外部付款系统（未执行）")).toBeVisible();
+  await expect(page.getByText("付款状态：未执行")).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("desktop-settlement-restart.png"), fullPage: true });
+});
+
 async function startMediaSandbox(): Promise<SandboxDto> {
   const child = spawn(
     pythonExecutable,
