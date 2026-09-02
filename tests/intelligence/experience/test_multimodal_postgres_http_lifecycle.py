@@ -48,6 +48,7 @@ from backend.intelligence.experience.sql_run_ledger import (
     ExperienceRunInteractionRow,
     SqlAlchemyExperienceRunLedger,
 )
+from backend.intelligence.model_gateway.contracts import StructuredRequest
 from backend.intelligence.model_gateway.gateway import ModelGateway
 from backend.intelligence.model_gateway.provenance import (
     ModelDraftRow,
@@ -57,7 +58,10 @@ from backend.intelligence.model_gateway.provider_registry import (
     ProviderRecord,
     ProviderRegistry,
 )
-from backend.intelligence.model_gateway.providers.fake import FakeProvider
+from backend.intelligence.model_gateway.providers.fake import (
+    FakeProvider,
+    deterministic_provider,
+)
 from backend.platform.persistence.session import DATABASE_URL_ENV_VAR
 from tests.support.postgres import SKIP_REASON, postgres_test_url
 
@@ -194,10 +198,17 @@ def _observation() -> StateObservation:
     )
 
 
-def _provider_stack() -> tuple[FakeProvider, ModelGateway, object]:
-    provider = FakeProvider(
-        {PURPOSE: _family_understanding_output()},
-        provider_id=PROVIDER_ID,
+def _provider_stack(*, dynamic: bool = False) -> tuple[FakeProvider, ModelGateway, object]:
+    provider = (
+        deterministic_provider(
+            _dynamic_family_understanding_output,
+            provider_id=PROVIDER_ID,
+        )
+        if dynamic
+        else FakeProvider(
+            {PURPOSE: _family_understanding_output()},
+            provider_id=PROVIDER_ID,
+        )
     )
     record = ProviderRecord(
         provider_id=PROVIDER_ID,
@@ -234,11 +245,14 @@ def _provider_stack() -> tuple[FakeProvider, ModelGateway, object]:
     return provider, gateway, profile
 
 
-def _family_understanding_output() -> dict[str, object]:
-    text_ref = f"input:{RUN_ID}:concern"
+def _family_understanding_output(
+    *,
+    text_ref: str = f"input:{RUN_ID}:concern",
+    expression: str = "每天一到写作业就开始争吵",
+) -> dict[str, object]:
     return {
         "understanding": {
-            "lived_experience": "每天一到写作业，家长和孩子都像被推入反复催促的拉扯。",
+            "lived_experience": f"你提到“{expression}”，家长和孩子都像被推入反复催促的拉扯。",
             "central_tension": "尽快开始作业的现实压力，与孩子进入任务所需的节奏发生冲突。",
             "care_intent": "家长既在意学习责任，也希望关系不被每天的催促消耗。",
         },
@@ -251,7 +265,7 @@ def _family_understanding_output() -> dict[str, object]:
                     {
                         "source_type": "PARENT_TEXT",
                         "source_ref": text_ref,
-                        "observation": "每天一到写作业就开始争吵",
+                        "observation": expression,
                     },
                     {
                         "source_type": "AUTHORIZED_IMAGE",
@@ -297,6 +311,20 @@ def _family_understanding_output() -> dict[str, object]:
     }
 
 
+def _dynamic_family_understanding_output(request: StructuredRequest) -> dict[str, object]:
+    turns = request.payload.get("conversation_turns")
+    if not isinstance(turns, (tuple, list)) or not turns:
+        return _family_understanding_output()
+    last_turn = turns[-1]
+    if not isinstance(last_turn, dict):
+        return _family_understanding_output()
+    text_ref = last_turn.get("input_ref")
+    expression = last_turn.get("text")
+    if not isinstance(text_ref, str) or not isinstance(expression, str):
+        return _family_understanding_output()
+    return _family_understanding_output(text_ref=text_ref, expression=expression)
+
+
 def _family_understanding_schema() -> dict[str, object]:
     return {
         "type": "object",
@@ -321,29 +349,35 @@ def _family_understanding_schema() -> dict[str, object]:
     }
 
 
-def _request_body() -> dict[str, object]:
-    text_input_ref = f"input:{RUN_ID}:concern"
+def _request_body(
+    *,
+    run_id: str = RUN_ID,
+    prior_run_id: str | None = None,
+    conversation_turns: list[dict[str, str]] | None = None,
+) -> dict[str, object]:
+    text_input_ref = f"input:{run_id}:concern"
     media_ref = "media:authorized:family-scene"
+    turns = conversation_turns or [
+        {
+            "input_ref": text_input_ref,
+            "kind": "CONCERN",
+            "text": "每天一到写作业就开始争吵",
+            "created_at": "2026-09-03T09:00:00+08:00",
+        }
+    ]
     return {
-        "run_id": RUN_ID,
+        "run_id": run_id,
         "prompt_version": "family-understanding.v1",
         "schema_version": "family-understanding-output.v1",
         "payload": {
             "guardian_text": "每天一到写作业就开始争吵",
-            "conversation_turns": [
-                {
-                    "input_ref": text_input_ref,
-                    "kind": "CONCERN",
-                    "text": "每天一到写作业就开始争吵",
-                    "created_at": "2026-09-03T09:00:00+08:00",
-                }
-            ],
-            "prior_run_id": None,
+            "conversation_turns": turns,
+            "prior_run_id": prior_run_id,
         },
         "output_schema": _family_understanding_schema(),
         "modalities": ["TEXT", "IMAGE"],
         "estimated_input_tokens": 256,
-        "input_refs": [text_input_ref, media_ref],
+        "input_refs": [*(turn["input_ref"] for turn in turns), media_ref],
         "media_inputs": [
             {
                 "media_type": "IMAGE",
@@ -531,5 +565,119 @@ async def test_multimodal_http_delete_survives_new_engine_and_session(
         )
         == 0
     )
+    await restarted_session.close()
+    await restarted_engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_follow_up_regenerates_and_replays_after_postgres_restart(
+    migrated_database_url: str,
+) -> None:
+    first_run_id = "run-s3-http-concern"
+    follow_up_run_id = "run-s3-http-follow-up"
+    concern_ref = f"input:{first_run_id}:concern"
+    follow_up_ref = f"input:{follow_up_run_id}:follow-up"
+    concern_text = "每天一到写作业就开始争吵"
+    follow_up_text = "上周有一次我先陪他把第一道题读完，后面就没有再催。"
+    turns = [
+        {
+            "input_ref": concern_ref,
+            "kind": "CONCERN",
+            "text": concern_text,
+            "created_at": "2026-09-03T09:00:00+08:00",
+        },
+        {
+            "input_ref": follow_up_ref,
+            "kind": "FOLLOW_UP",
+            "text": follow_up_text,
+            "created_at": "2026-09-03T09:08:00+08:00",
+        },
+    ]
+
+    engine = create_async_engine(migrated_database_url)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    context = AsyncSqlContextBroker(factory)
+    await context.append(_observation())
+    session = factory()
+    registry = SqlAlchemyModelDraftRegistry(session)
+    provider, gateway, profile = _provider_stack(dynamic=True)
+    application = ContextBoundMultimodalExperienceService(
+        context=context,
+        routed=RoutedMultimodalExperienceService(
+            router=MultimodalRouter((profile,)),
+            generation=MultimodalExperienceService(gateway, registry=registry),
+        ),
+        registry=registry,
+    )
+    runtime = MultimodalDraftRuntime(
+        scope=_scope(),
+        application=application,
+        environment="test",
+        run_ledger=CommittedExperienceRunLedger(SqlAlchemyExperienceRunLedger(session), session),
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=_app(runtime)),
+        base_url="http://aifamily.test",
+    ) as client:
+        first = await client.post(
+            f"/families/{FAMILY_ID}/experience/multimodal/drafts",
+            headers={"Idempotency-Key": f"create:{first_run_id}"},
+            json=_request_body(
+                run_id=first_run_id,
+                conversation_turns=[turns[0]],
+            ),
+        )
+        assert first.status_code == 200, first.text
+        assert concern_text in first.json()["output"]["understanding"]["lived_experience"]
+
+        follow_up = await client.post(
+            f"/families/{FAMILY_ID}/experience/multimodal/drafts",
+            headers={"Idempotency-Key": f"create:{follow_up_run_id}"},
+            json=_request_body(
+                run_id=follow_up_run_id,
+                prior_run_id=first_run_id,
+                conversation_turns=turns,
+            ),
+        )
+        assert follow_up.status_code == 200, follow_up.text
+        follow_up_payload = follow_up.json()["output"]
+        assert follow_up_text in follow_up_payload["understanding"]["lived_experience"]
+        assert follow_up_payload["hypotheses"][0]["evidence"][0]["source_ref"] == follow_up_ref
+        assert len(provider.invocations) == 2
+        assert provider.invocations[1].payload["prior_run_id"] == first_run_id
+        assert provider.invocations[1].payload["conversation_turns"] == tuple(turns)
+
+        replay = await client.get(
+            f"/families/{FAMILY_ID}/experience/multimodal/runs/{follow_up_run_id}/replay"
+        )
+        assert replay.status_code == 200
+        assert replay.json()["draft_payload"] == follow_up_payload
+
+    await session.close()
+    await engine.dispose()
+    _restart_postgres_if_requested(migrated_database_url)
+
+    restarted_engine = create_async_engine(migrated_database_url)
+    restarted_factory = async_sessionmaker(restarted_engine, expire_on_commit=False)
+    restarted_session: AsyncSession = restarted_factory()
+    restarted_runtime = MultimodalDraftRuntime(
+        scope=_scope(),
+        application=_NeverCalledApplication(),  # type: ignore[arg-type]
+        environment="test",
+        run_ledger=CommittedExperienceRunLedger(
+            SqlAlchemyExperienceRunLedger(restarted_session), restarted_session
+        ),
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=_app(restarted_runtime)),
+        base_url="http://aifamily.test",
+    ) as client:
+        replay = await client.get(
+            f"/families/{FAMILY_ID}/experience/multimodal/runs/{follow_up_run_id}/replay"
+        )
+    assert replay.status_code == 200
+    assert replay.json()["deletion_state"] == "active"
+    assert replay.json()["draft_payload"] == follow_up_payload
     await restarted_session.close()
     await restarted_engine.dispose()
