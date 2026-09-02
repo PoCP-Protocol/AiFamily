@@ -17,8 +17,10 @@ import { LiveSessionControlConsole } from "./components/LiveSessionControlConsol
 import { LiveSettlementConsole } from "./components/LiveSettlementConsole";
 import { LiveServiceOfferingPage } from "./components/LiveServiceOfferingPage";
 import { LiveAIAssistantConsole } from "./components/LiveAIAssistantConsole";
+import { LiveIncidentConsole } from "./components/LiveIncidentConsole";
 import {
   resolveLiveAIBaseUrl,
+  resolveLiveIncidentBaseUrl,
   resolveLiveCommerceBaseUrl,
   resolveLiveControlBaseUrl,
   resolveLiveInteractionBaseUrl,
@@ -207,6 +209,7 @@ export default function App({ client = defaultClient }: Props) {
             interactionBaseUrl={resolveLiveInteractionBaseUrl(import.meta.env)}
             controlBaseUrl={resolveLiveControlBaseUrl(import.meta.env)}
           />
+          <LiveIncidentConsole incidentBaseUrl={resolveLiveIncidentBaseUrl(import.meta.env)} />
           <LiveSettlementConsole commerceBaseUrl={resolveLiveCommerceBaseUrl(import.meta.env)} />
           <LiveRuntimeConsole
             observabilityBaseUrl={resolveLiveObservabilityBaseUrl(import.meta.env)}

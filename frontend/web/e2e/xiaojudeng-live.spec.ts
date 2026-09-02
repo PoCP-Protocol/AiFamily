@@ -37,6 +37,8 @@ let controlApiUrl: string;
 const browserControlApiUrl = "http://127.0.0.1:4173/sandbox-control";
 let aiApiUrl: string;
 const browserAiApiUrl = "http://127.0.0.1:4173/sandbox-ai";
+let incidentApiUrl: string;
+const browserIncidentApiUrl = "http://127.0.0.1:4173/sandbox-incident";
 let replayProcess: ChildProcess;
 let replayPort: number;
 let commerceProcess: ChildProcess;
@@ -46,6 +48,7 @@ const commerceDatabasePath = resolve(tmpdir(), `xiaojudeng-commerce-${Date.now()
 const mediaOutputPath = resolve(tmpdir(), `xiaojudeng-playwright-${Date.now()}.mp4`);
 const controlDatabasePath = resolve(tmpdir(), `xiaojudeng-control-${Date.now()}.sqlite3`);
 const aiDatabasePath = resolve(tmpdir(), `xiaojudeng-ai-${Date.now()}.sqlite3`);
+const incidentDatabasePath = resolve(tmpdir(), `xiaojudeng-incident-${Date.now()}.sqlite3`);
 const processes: ChildProcess[] = [];
 let sandboxDto: SandboxDto;
 let browserMediaDto: SandboxDto;
@@ -60,6 +63,7 @@ test.beforeAll(async () => {
   sandboxDto = await startMediaSandbox();
   await startControlSandbox(await reserveFreePort());
   await startAiSandbox(await reserveFreePort());
+  await startIncidentSandbox(await reserveFreePort());
   commercePort = await reserveFreePort();
   commerceProcess = await startCommerceSandbox(commercePort);
   replayPort = await reserveFreePort();
@@ -83,6 +87,7 @@ test.beforeAll(async () => {
       browserObservabilityApiUrl,
       browserControlApiUrl,
       browserAiApiUrl,
+      browserIncidentApiUrl,
     ),
   ]);
 });
@@ -496,6 +501,23 @@ test("runtime observability degrades visibly and recovers after provider restart
   await page.screenshot({ path: testInfo.outputPath("desktop-runtime-recovered.png"), fullPage: true });
 });
 
+test("adult report waits for a human moderator stop decision", async ({ page }, testInfo) => {
+  await installOriginProxy(page, mediaUrl, mediaBrowserOrigin, new URL(sandboxDto.control_url).origin);
+  await page.goto(`${mediaUrl}#live-home`);
+  await page.getByRole("button", { name: "进入直播间" }).click();
+  await page.getByRole("button", { name: "举报本场直播" }).click();
+  await expect(page.getByRole("button", { name: "已提交人工安全审核" })).toBeVisible();
+  await page.getByRole("link", { name: "专家工作台" }).click();
+  await expect(page.getByRole("heading", { name: "直播安全事件" })).toBeVisible();
+  await expect(page.getByText("成人请求人工核对本场直播内容")).toBeVisible();
+  await page.getByRole("button", { name: "人工停播" }).click();
+  await expect(page.getByText("当前没有待处理举报")).toBeVisible();
+  await page.getByRole("link", { name: "直播首页" }).click();
+  await expect(page.getByText("暂无直播")).toBeVisible();
+  await expect(page.getByRole("button", { name: "进入直播间" })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("desktop-human-incident-stop.png"), fullPage: true });
+});
+
 test("content safety withdrawal removes the live session from family discovery", async ({ page }, testInfo) => {
   await installOriginProxy(page, mediaUrl, mediaBrowserOrigin, new URL(sandboxDto.control_url).origin);
   await requireOk(fetch(
@@ -594,6 +616,7 @@ async function installOriginProxy(
     const isObservabilityRequest = incoming.pathname.startsWith("/sandbox-observability/");
     const isControlRequest = incoming.pathname.startsWith("/sandbox-control/");
     const isAiRequest = incoming.pathname.startsWith("/sandbox-ai/");
+    const isIncidentRequest = incoming.pathname.startsWith("/sandbox-incident/");
     const path = isMediaRequest
       ? incoming.pathname.replace("/sandbox-media", "")
       : isQuestionRequest
@@ -608,6 +631,8 @@ async function installOriginProxy(
           ? incoming.pathname.replace("/sandbox-control", "")
         : isAiRequest
           ? incoming.pathname.replace("/sandbox-ai", "")
+        : isIncidentRequest
+          ? incoming.pathname.replace("/sandbox-incident", "")
         : incoming.pathname;
     const source = new URL(
       `${path}${incoming.search}`,
@@ -625,6 +650,8 @@ async function installOriginProxy(
               ? controlApiUrl
             : isAiRequest
               ? aiApiUrl
+            : isIncidentRequest
+              ? incidentApiUrl
             : sourceBaseUrl,
     );
     const response = await route.fetch({ url: source.toString() });
@@ -641,6 +668,7 @@ async function startVite(
   observabilityBaseUrl?: string,
   controlBaseUrl?: string,
   aiBaseUrl?: string,
+  incidentBaseUrl?: string,
 ): Promise<void> {
   const env = { ...process.env };
   delete env.VITE_MEDIA_PLAYBACK_DTO;
@@ -651,6 +679,7 @@ async function startVite(
   if (observabilityBaseUrl) env.VITE_LIVE_OBSERVABILITY_BASE_URL = observabilityBaseUrl;
   if (controlBaseUrl) env.VITE_LIVE_CONTROL_BASE_URL = controlBaseUrl;
   if (aiBaseUrl) env.VITE_LIVE_AI_BASE_URL = aiBaseUrl;
+  if (incidentBaseUrl) env.VITE_LIVE_INCIDENT_BASE_URL = incidentBaseUrl;
   const child = spawn(
     process.execPath,
     [viteEntrypoint, "--host", "127.0.0.1", "--port", String(port), "--strictPort"],
@@ -817,6 +846,31 @@ async function startAiSandbox(port: number): Promise<void> {
   child.stdout?.resume();
   child.stderr?.resume();
   await waitForUrl(`${aiApiUrl}/health`);
+}
+
+async function startIncidentSandbox(port: number): Promise<void> {
+  incidentApiUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(
+    pythonExecutable,
+    [
+      "-m",
+      "poc.standalone_live_moderation_sandbox.incident_api",
+      "--serve",
+      "--database",
+      incidentDatabasePath,
+      "--port",
+      String(port),
+      "--control-base-url",
+      controlApiUrl,
+      "--media-base-url",
+      new URL(sandboxDto.control_url).origin,
+    ],
+    { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  processes.push(child);
+  child.stdout?.resume();
+  child.stderr?.resume();
+  await waitForUrl(`${incidentApiUrl}/health`);
 }
 
 function syntheticHeaders(role: string): Record<string, string> {

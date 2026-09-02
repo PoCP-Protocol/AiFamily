@@ -4,6 +4,7 @@ import type { LiveRecord, MediaPlaybackState } from "../live/liveCatalog";
 type Props = {
   record: LiveRecord;
   interactionBaseUrl?: string;
+  incidentBaseUrl?: string;
   replayBaseUrl?: string;
   commerceBaseUrl?: string;
   onBack: () => void;
@@ -87,6 +88,7 @@ const MEDIA_ENTITLEMENT_REF_KEY = "xiaojudeng.sandbox.media_entitlement.purchase
 export function LiveDetailPage({
   record,
   interactionBaseUrl,
+  incidentBaseUrl,
   replayBaseUrl,
   commerceBaseUrl,
   onBack,
@@ -99,6 +101,7 @@ export function LiveDetailPage({
   const [questions, setQuestions] = useState<LiveQuestion[]>([]);
   const [questionText, setQuestionText] = useState("");
   const [questionState, setQuestionState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [incidentState, setIncidentState] = useState<"idle" | "sending" | "reported" | "error">("idle");
   const [replayState, setReplayState] = useState<ReplayState>("idle");
   const [replayUrl, setReplayUrl] = useState("");
   const [mediaEntitlementRef, setMediaEntitlementRef] = useState("");
@@ -270,6 +273,17 @@ export function LiveDetailPage({
             <strong>支持专家与后续服务</strong>
             <span>成人主动进入 · 不影响观看和提问</span>
           </a>
+          {incidentBaseUrl ? (
+            <button
+              className="live-report-entry"
+              type="button"
+              disabled={incidentState === "sending" || incidentState === "reported"}
+              onClick={() => void reportIncident()}
+            >
+              {incidentState === "reported" ? "已提交人工安全审核" : "举报本场直播"}
+            </button>
+          ) : null}
+          {incidentState === "error" ? <p className="live-question-feedback" role="alert">举报未送达，请稍后重试</p> : null}
         </aside>
       </div>
 
@@ -431,6 +445,37 @@ export function LiveDetailPage({
       setQuestionState("sent");
     } catch {
       setQuestionState("error");
+    }
+  }
+
+  async function reportIncident() {
+    if (!incidentBaseUrl || !isLocalPlaybackUrl(incidentBaseUrl)) return;
+    const reference = `incident.synthetic.ui.${Date.now()}`;
+    setIncidentState("sending");
+    try {
+      const response = await fetch(
+        `${incidentBaseUrl}/sandbox/live-incidents/sessions/${record.session_ref}/reports`,
+        {
+          method: "POST",
+          headers: SYNTHETIC_ACTOR_HEADERS,
+          body: JSON.stringify({
+            report_ref: reference,
+            idempotency_key: reference,
+            reason: "成人请求人工核对本场直播内容",
+          }),
+        },
+      );
+      if (!response.ok) throw new Error("incident report failed");
+      const result = await response.json() as Record<string, unknown>;
+      if (
+        result.state !== "PENDING" ||
+        result.source !== "SANDBOX_SYNTHETIC" ||
+        result.fixture_only !== true ||
+        result.external_effect !== false
+      ) throw new Error("unsafe incident receipt");
+      setIncidentState("reported");
+    } catch {
+      setIncidentState("error");
     }
   }
 

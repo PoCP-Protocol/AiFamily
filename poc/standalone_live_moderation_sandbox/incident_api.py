@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+import urllib.request
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -100,6 +101,73 @@ class NoOpSandboxPort:
         return None
 
     def rollback(self, prepared: object) -> None:
+        return None
+
+
+class HttpControlIncidentPort:
+    """Call the local Control sandbox; compensation remains fail-safe hiding."""
+
+    def __init__(self, base_url: str) -> None:
+        self.base_url = base_url.rstrip("/")
+
+    def prepare(self, context: IncidentContext) -> object:
+        return context
+
+    def commit(self, prepared: object) -> None:
+        context = require_context(prepared)
+        if context.action == "HIDE":
+            endpoint = "review"
+            role = "CONTENT_REVIEWER"
+            payload = {
+                "decision_key": f"incident-hide:{context.report_ref}",
+                "action": "WITHDRAW",
+                "reason": "human moderator hid reported live content",
+                "review_ref": f"incident-review:{context.report_ref}",
+            }
+        elif context.action == "STOP":
+            endpoint = "lifecycle"
+            role = "LIVE_OPERATOR"
+            payload = {
+                "action_key": f"incident-stop:{context.report_ref}",
+                "action": "WITHDRAW",
+                "reason": "human moderator stopped reported live session",
+            }
+        else:
+            return
+        post_json(
+            f"{self.base_url}/sandbox/live-control/sessions/{context.session_ref}/{endpoint}",
+            payload,
+            synthetic_headers(context, role),
+        )
+
+    def rollback(self, prepared: object) -> None:
+        # Re-exposing withdrawn content is never an automatic compensation.
+        return None
+
+
+class HttpMediaIncidentPort:
+    """Revoke local MediaAdapter capability on a human STOP decision."""
+
+    def __init__(self, base_url: str) -> None:
+        self.base_url = base_url.rstrip("/")
+
+    def prepare(self, context: IncidentContext) -> object:
+        return context
+
+    def commit(self, prepared: object) -> None:
+        context = require_context(prepared)
+        if context.action != "STOP":
+            return
+        request = urllib.request.Request(
+            f"{self.base_url}/control/{context.session_ref}/revoke",
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=3) as response:
+            if response.status != 200:
+                raise RuntimeError("media revoke rejected")
+
+    def rollback(self, prepared: object) -> None:
+        # Revoked playback credentials must never be automatically restored.
         return None
 
 
@@ -307,6 +375,36 @@ def create_app(
     return app
 
 
+def require_context(value: object) -> IncidentContext:
+    if not isinstance(value, IncidentContext):
+        raise TypeError("incident port context is invalid")
+    return value
+
+
+def synthetic_headers(context: IncidentContext, role: str) -> dict[str, str]:
+    return {
+        "Content-Type": "application/json",
+        "X-Sandbox-Source": SANDBOX_SOURCE,
+        "X-Fixture-Only": "true",
+        "X-Tenant-Id": context.tenant_id,
+        "X-Family-Id": context.family_id,
+        "X-Actor-Id": f"actor.synthetic.incident-{role.lower()}",
+        "X-Actor-Role": role,
+    }
+
+
+def post_json(url: str, payload: dict[str, str], headers: dict[str, str]) -> None:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers=headers,
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=3) as response:
+        if response.status != 200:
+            raise RuntimeError(f"sandbox port rejected: {response.status}")
+
+
 def select_ports(
     action: DecisionAction, ports: dict[str, ReversibleIncidentPort]
 ) -> list[NamedPort]:
@@ -438,10 +536,24 @@ def main() -> None:
     parser.add_argument("--serve", action="store_true")
     parser.add_argument("--database", type=Path, required=True)
     parser.add_argument("--port", type=int, default=55306)
+    parser.add_argument("--control-base-url")
+    parser.add_argument("--media-base-url")
     args = parser.parse_args()
     if not args.serve:
         raise SystemExit("use --serve")
-    uvicorn.run(create_app(args.database), host="127.0.0.1", port=args.port)
+    uvicorn.run(
+        create_app(
+            args.database,
+            control_port=(
+                HttpControlIncidentPort(args.control_base_url) if args.control_base_url else None
+            ),
+            media_port=(
+                HttpMediaIncidentPort(args.media_base_url) if args.media_base_url else None
+            ),
+        ),
+        host="127.0.0.1",
+        port=args.port,
+    )
 
 
 if __name__ == "__main__":
