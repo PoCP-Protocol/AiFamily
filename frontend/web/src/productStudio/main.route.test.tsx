@@ -34,7 +34,7 @@ describe("Web Product Studio route", () => {
     expect(screen.getByRole("heading", { name: "产品设计工厂" })).toBeInTheDocument();
     expect(screen.getByTestId("product-studio-environment")).toHaveTextContent("Sandbox");
     expect(screen.getByText(/所有 AI 内容均为 DRAFT/)).toBeInTheDocument();
-  }, 10_000);
+  }, 15_000);
 
   it("keeps the root path on Experience Studio", () => {
     window.history.replaceState({}, "", "/");

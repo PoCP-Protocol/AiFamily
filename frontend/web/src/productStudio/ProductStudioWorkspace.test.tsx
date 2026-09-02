@@ -68,6 +68,8 @@ describe("ProductStudioWorkspace", () => {
     await user.click(screen.getByRole("tab", { name: /Course Content/ }));
     expect(screen.getByRole("heading", { name: "24 课时课程与课件编排" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "保存 CourseContent DRAFT" })).toBeDisabled();
+    expect(screen.getByRole("heading", { name: "已发布课程治理观察台" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "读取已发布课程" })).toBeDisabled();
     await user.click(screen.getByRole("tab", { name: /Sandbox/ }));
     expect(screen.getByRole("heading", { name: "产品设计工厂" })).toBeInTheDocument();
   });

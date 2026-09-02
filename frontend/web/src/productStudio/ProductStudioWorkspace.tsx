@@ -2,6 +2,7 @@ import { useRef, useState, type KeyboardEvent } from "react";
 import { MarketEvidenceWorkbench } from "./MarketEvidenceWorkbench";
 import { ProductConceptDecisionWorkbench } from "./ProductConceptDecisionWorkbench";
 import { CourseContentWorkbench } from "./CourseContentWorkbench";
+import { CourseContentGovernancePanel } from "./CourseContentGovernancePanel";
 import { ProductDefinitionOperatorReviewWorkbench } from "./ProductDefinitionOperatorReviewWorkbench";
 import { ProductFactoryComposer } from "./ProductFactoryComposer";
 import { ProductPackageReviewWorkbench } from "./ProductPackageReviewWorkbench";
@@ -105,7 +106,10 @@ export function ProductStudioWorkspace() {
         <ProductDefinitionOperatorReviewWorkbench />
       </div>
       <div aria-labelledby="workspace-tab-course-content" hidden={activeTab !== "course-content"} id="workspace-panel-course-content" role="tabpanel" tabIndex={0}>
-        <CourseContentWorkbench contractPreview />
+        <div className="course-content-stage">
+          <CourseContentWorkbench contractPreview />
+          <CourseContentGovernancePanel contractPreview />
+        </div>
       </div>
       <div aria-labelledby="workspace-tab-sandbox" hidden={activeTab !== "sandbox"} id="workspace-panel-sandbox" role="tabpanel" tabIndex={0}>
         <ProductStudio initialState={sandboxProductStudioState} environmentLabel="Sandbox · Product Studio · API seam" />
