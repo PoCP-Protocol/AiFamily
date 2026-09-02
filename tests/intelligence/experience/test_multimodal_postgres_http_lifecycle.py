@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
 import uuid
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -67,6 +68,7 @@ SUBJECT_ID = "child-s3-http"
 RUN_ID = "run-s3-http-delete"
 PURPOSE = "family-understanding-multimodal"
 PROVIDER_ID = "synthetic-http-provider"
+POSTGRES_CONTAINER_ENV_VAR = "AIFAMILY_TEST_POSTGRES_CONTAINER"
 
 
 @pytest.fixture
@@ -83,6 +85,7 @@ async def migrated_database_url() -> str:
     try:
         async with admin.connect() as connection:
             await connection.execute(text(f'CREATE DATABASE "{database_name}"'))
+        await admin.dispose()
         database_url = (
             make_url(admin_url).set(database=database_name).render_as_string(hide_password=False)
         )
@@ -96,16 +99,56 @@ async def migrated_database_url() -> str:
         assert migration.returncode == 0, migration.stdout + migration.stderr
         yield database_url
     finally:
-        async with admin.connect() as connection:
-            await connection.execute(
-                text(
-                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                    "WHERE datname = :database_name AND pid <> pg_backend_pid()"
-                ),
-                {"database_name": database_name},
-            )
-            await connection.execute(text(f'DROP DATABASE IF EXISTS "{database_name}"'))
         await admin.dispose()
+        cleanup_admin = create_async_engine(
+            admin_url,
+            isolation_level="AUTOCOMMIT",
+            connect_args={"statement_cache_size": 0},
+        )
+        try:
+            async with cleanup_admin.connect() as connection:
+                await connection.execute(
+                    text(
+                        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                        "WHERE datname = :database_name AND pid <> pg_backend_pid()"
+                    ),
+                    {"database_name": database_name},
+                )
+                await connection.execute(text(f'DROP DATABASE IF EXISTS "{database_name}"'))
+        finally:
+            await cleanup_admin.dispose()
+
+
+def _restart_postgres_if_requested(database_url: str) -> None:
+    container_name = os.environ.get(POSTGRES_CONTAINER_ENV_VAR, "").strip()
+    if not container_name:
+        return
+    restarted = subprocess.run(
+        ["docker", "restart", container_name],
+        capture_output=True,
+        text=True,
+    )
+    assert restarted.returncode == 0, restarted.stdout + restarted.stderr
+    url = make_url(database_url)
+    for _ in range(60):
+        ready = subprocess.run(
+            [
+                "docker",
+                "exec",
+                container_name,
+                "pg_isready",
+                "-U",
+                url.username or "",
+                "-d",
+                url.database or "",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if ready.returncode == 0:
+            return
+        time.sleep(0.25)
+    raise AssertionError(f"PostgreSQL container did not become ready: {container_name}")
 
 
 def _scope() -> ContextScope:
@@ -350,6 +393,7 @@ async def test_multimodal_http_delete_survives_new_engine_and_session(
         )
     await session.close()
     await engine.dispose()
+    _restart_postgres_if_requested(migrated_database_url)
 
     restarted_engine = create_async_engine(migrated_database_url)
     restarted_factory = async_sessionmaker(restarted_engine, expire_on_commit=False)
