@@ -135,6 +135,23 @@ describe("S3 multimodal family-understanding mobile contract", () => {
             ...generatedResponse().output.hypotheses[0],
             evidence: [
               {
+                source_type: "FAMILY_CONTEXT" as never,
+                source_ref: "input:run-1",
+                observation: "把历史家庭资料冒充为本次输入。",
+              },
+            ],
+          },
+        ],
+      },
+    },
+    {
+      output: {
+        ...generatedResponse().output,
+        hypotheses: [
+          {
+            ...generatedResponse().output.hypotheses[0],
+            evidence: [
+              {
                 ...generatedResponse().output.hypotheses[0].evidence[0],
                 source_ref: "input:not-in-this-request",
               },

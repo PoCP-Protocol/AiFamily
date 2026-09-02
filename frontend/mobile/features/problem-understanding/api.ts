@@ -43,7 +43,7 @@ export interface FamilyUnderstandingOutput {
     statement: string;
     rationale: string;
     evidence: {
-      source_type: "PARENT_TEXT" | "AUTHORIZED_IMAGE" | "FAMILY_CONTEXT";
+      source_type: "PARENT_TEXT" | "AUTHORIZED_IMAGE";
       source_ref: string;
       observation: string;
     }[];
@@ -313,7 +313,7 @@ function assertFamilyUnderstandingOutput(
       knowledgeRefs.length === 0 ||
       evidence.some(
         (item) =>
-          !["PARENT_TEXT", "AUTHORIZED_IMAGE", "FAMILY_CONTEXT"].includes(
+          !["PARENT_TEXT", "AUTHORIZED_IMAGE"].includes(
             item?.source_type,
           ) ||
           !readText(item?.source_ref) ||
