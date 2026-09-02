@@ -60,6 +60,7 @@ from backend.intelligence.experience.run_store import (
     RunScope as StoreRunScope,
 )
 from backend.intelligence.experience.runs import RunContractError
+from backend.intelligence.model_gateway.provenance import ModelDraftRow
 
 
 class AsyncExperienceRunLedger(Protocol):
@@ -646,22 +647,57 @@ class SqlAlchemyExperienceRunLedger:
     ) -> None:
         """Erase derived model material while retaining an audit interaction."""
 
-        checkpoints = await self._session.execute(
+        checkpoint_result = await self._session.execute(
             select(ExperienceRunCheckpointRow).where(
                 ExperienceRunCheckpointRow.tenant_id == tenant_id,
                 ExperienceRunCheckpointRow.run_id == run_id,
             )
         )
-        for checkpoint in checkpoints.scalars():
+        checkpoints = list(checkpoint_result.scalars())
+        draft_ids = self._referenced_draft_ids(row, checkpoints)
+        for checkpoint in checkpoints:
             # This is the narrow privacy-erasure exception to append-only
             # history.  Keeping an empty marker makes the scrub observable
             # without retaining model text or media references.
             checkpoint.payload = {"scrubbed": True}
             checkpoint.draft_payload = None
             checkpoint.artifact_refs = []
+        if draft_ids:
+            model_draft_result = await self._session.execute(
+                select(ModelDraftRow).where(
+                    ModelDraftRow.tenant_id == tenant_id,
+                    ModelDraftRow.draft_id.in_(draft_ids),
+                )
+            )
+            for model_draft in model_draft_result.scalars():
+                if (
+                    model_draft.family_id != row.family_id
+                    or model_draft.subject_person_id not in row.subject_ids
+                ):
+                    raise RunHttpError("MODEL_DRAFT_SCOPE_MISMATCH")
+                await self._session.delete(model_draft)
         row.deletion_state = "deleted"
         row.create_response_payload = None
         await self._session.flush()
+
+    @staticmethod
+    def _referenced_draft_ids(
+        row: ExperienceRunRow,
+        checkpoints: list[ExperienceRunCheckpointRow],
+    ) -> tuple[str, ...]:
+        """Return durable ModelDraft identities explicitly linked to this run."""
+
+        values: list[object] = []
+        if isinstance(row.create_response_payload, Mapping):
+            values.append(row.create_response_payload.get("draft_id"))
+        for checkpoint in checkpoints:
+            if isinstance(checkpoint.payload, Mapping):
+                values.append(checkpoint.payload.get("draft_id"))
+        return tuple(
+            dict.fromkeys(
+                value.strip() for value in values if isinstance(value, str) and value.strip()
+            )
+        )
 
     async def _interaction_rows(
         self, tenant_id: str, run_id: str

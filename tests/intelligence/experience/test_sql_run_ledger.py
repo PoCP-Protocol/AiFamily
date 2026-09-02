@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -30,6 +32,10 @@ from backend.intelligence.experience.sql_run_ledger import (
     SessionPerCallExperienceRunLedger,
     SqlAlchemyExperienceRunLedger,
 )
+from backend.intelligence.model_gateway.provenance import (
+    ModelDraftRegistryBase,
+    ModelDraftRow,
+)
 
 
 @pytest.fixture
@@ -41,6 +47,23 @@ async def session_factory():
     )
     async with engine.begin() as connection:
         await connection.run_sync(ExperienceRunPersistenceBase.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        yield factory
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture
+async def session_factory_with_model_drafts():
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
+    async with engine.begin() as connection:
+        await connection.run_sync(ExperienceRunPersistenceBase.metadata.create_all)
+        await connection.run_sync(ModelDraftRegistryBase.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         yield factory
@@ -68,6 +91,53 @@ async def _create(session, *, scope: RunScope | None = None):
             artifact_refs=("media:sha256:" + "a" * 64,),
             idempotency_key="create-sql-1",
         )
+
+
+def _model_draft_row(*, draft_id: str, run_id: str) -> ModelDraftRow:
+    now = datetime.now(UTC)
+    return ModelDraftRow(
+        tenant_id="tenant-sql",
+        draft_id=draft_id,
+        provenance_ref=f"model-draft:{run_id}",
+        family_id="family-sql",
+        subject_person_id="child-sql",
+        purpose="family_understanding",
+        correlation_id=run_id,
+        provider_id="provider-test",
+        model="model-test",
+        model_version="2026-09",
+        prompt_version="prompt.v1",
+        schema_version="schema.v1",
+        context_snapshot_ref=f"context:{run_id}",
+        use_case="family_understanding",
+        latency_ms=10,
+        data_class="SYNTHETIC",
+        confidence=0.8,
+        generated_at=now,
+        output_payload={"headline": "可调整草稿"},
+        provenance_payload={"run_id": run_id},
+        status="DRAFT",
+        may_mutate_business_state=False,
+        created_at=now,
+    )
+
+
+async def _create_with_model_draft(session, *, run_id: str, draft_id: str) -> None:
+    ledger = SqlAlchemyExperienceRunLedger(session)
+    reservation = await ledger.preflight_create(
+        scope=_scope(),
+        run_id=run_id,
+        request_ref=f"request:{run_id}",
+        request_fingerprint=f"fingerprint:{run_id}",
+        idempotency_key=f"create:{run_id}",
+    )
+    await ledger.finalize_create(
+        reservation,
+        draft_payload={"status": "DRAFT", "headline": "可调整草稿"},
+        response_payload={"run_id": run_id, "draft_id": draft_id, "status": "DRAFT"},
+    )
+    session.add(_model_draft_row(draft_id=draft_id, run_id=run_id))
+    await session.flush()
 
 
 @pytest.mark.asyncio
@@ -297,6 +367,116 @@ async def test_sql_delete_scrubs_derived_material_but_retains_event(session_fact
                     payload={"signal": "helpful"},
                     idempotency_key="after-delete",
                 )
+
+
+@pytest.mark.asyncio
+async def test_sql_delete_removes_linked_model_draft_in_same_transaction(
+    session_factory_with_model_drafts,
+) -> None:
+    run_id = "run-delete-model-draft"
+    draft_id = f"draft:{run_id}"
+    async with session_factory_with_model_drafts() as session:
+        async with session.begin():
+            await _create_with_model_draft(session, run_id=run_id, draft_id=draft_id)
+
+        async with session.begin():
+            receipt = await SqlAlchemyExperienceRunLedger(session).append_interaction(
+                scope=_scope(),
+                run_id=run_id,
+                interaction_type=InteractionType.DELETE,
+                payload={"deletion_ref": "delete-model-draft", "status": "deleted"},
+                idempotency_key="delete-model-draft",
+            )
+
+        assert receipt.status == "deleted"
+        assert (
+            await session.get(
+                ModelDraftRow,
+                {"tenant_id": "tenant-sql", "draft_id": draft_id},
+            )
+            is None
+        )
+        snapshot = await SqlAlchemyExperienceRunLedger(session).replay(
+            scope=_scope(), run_id=run_id
+        )
+        assert snapshot.deletion_state == "deleted"
+        assert snapshot.draft_payload is None
+        assert snapshot.entries[-1].interaction_type is InteractionType.DELETE
+
+
+@pytest.mark.asyncio
+async def test_sql_delete_rolls_back_model_draft_and_run_scrub_together(
+    session_factory_with_model_drafts,
+) -> None:
+    run_id = "run-delete-rollback"
+    draft_id = f"draft:{run_id}"
+    async with session_factory_with_model_drafts() as writer:
+        async with writer.begin():
+            await _create_with_model_draft(writer, run_id=run_id, draft_id=draft_id)
+
+        with pytest.raises(RuntimeError, match="abort-delete"):
+            async with writer.begin():
+                await SqlAlchemyExperienceRunLedger(writer).append_interaction(
+                    scope=_scope(),
+                    run_id=run_id,
+                    interaction_type=InteractionType.DELETE,
+                    payload={"deletion_ref": "delete-rollback", "status": "deleted"},
+                    idempotency_key="delete-rollback",
+                )
+                raise RuntimeError("abort-delete")
+
+    async with session_factory_with_model_drafts() as reader:
+        assert (
+            await reader.get(
+                ModelDraftRow,
+                {"tenant_id": "tenant-sql", "draft_id": draft_id},
+            )
+            is not None
+        )
+        snapshot = await SqlAlchemyExperienceRunLedger(reader).replay(
+            scope=_scope(), run_id=run_id
+        )
+        assert snapshot.deletion_state == "active"
+        assert snapshot.draft_payload == {"status": "DRAFT", "headline": "可调整草稿"}
+        assert snapshot.entries == ()
+
+
+@pytest.mark.asyncio
+async def test_sql_delete_fails_closed_for_cross_family_model_draft(
+    session_factory_with_model_drafts,
+) -> None:
+    run_id = "run-delete-scope-mismatch"
+    draft_id = f"draft:{run_id}"
+    async with session_factory_with_model_drafts() as writer:
+        async with writer.begin():
+            await _create_with_model_draft(writer, run_id=run_id, draft_id=draft_id)
+            model_draft = await writer.get(
+                ModelDraftRow,
+                {"tenant_id": "tenant-sql", "draft_id": draft_id},
+            )
+            assert model_draft is not None
+            model_draft.family_id = "family-other"
+
+        with pytest.raises(RunHttpError, match="MODEL_DRAFT_SCOPE_MISMATCH"):
+            async with writer.begin():
+                await SqlAlchemyExperienceRunLedger(writer).append_interaction(
+                    scope=_scope(),
+                    run_id=run_id,
+                    interaction_type=InteractionType.DELETE,
+                    payload={"deletion_ref": "delete-scope-mismatch", "status": "deleted"},
+                    idempotency_key="delete-scope-mismatch",
+                )
+
+    async with session_factory_with_model_drafts() as reader:
+        assert await reader.get(
+            ModelDraftRow,
+            {"tenant_id": "tenant-sql", "draft_id": draft_id},
+        ) is not None
+        snapshot = await SqlAlchemyExperienceRunLedger(reader).replay(
+            scope=_scope(), run_id=run_id
+        )
+        assert snapshot.deletion_state == "active"
+        assert snapshot.entries == ()
 
 
 @pytest.mark.asyncio
