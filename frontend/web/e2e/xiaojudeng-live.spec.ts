@@ -32,6 +32,7 @@ const browserReplayApiUrl = "http://127.0.0.1:4173/sandbox-replay";
 let commerceApiUrl: string;
 const browserCommerceApiUrl = "http://127.0.0.1:4173/sandbox-commerce";
 let replayProcess: ChildProcess;
+let replayPort: number;
 let commerceProcess: ChildProcess;
 let commercePort: number;
 const replayDatabasePath = resolve(tmpdir(), `xiaojudeng-replay-${Date.now()}.sqlite3`);
@@ -49,9 +50,10 @@ test.beforeAll(async () => {
   browserQuestionApiUrl = "http://127.0.0.1:4173/sandbox-question";
   await startQuestionSandbox(questionPort);
   sandboxDto = await startMediaSandbox();
-  replayProcess = await startReplaySandbox(await reserveFreePort());
   commercePort = await reserveFreePort();
   commerceProcess = await startCommerceSandbox(commercePort);
+  replayPort = await reserveFreePort();
+  replayProcess = await startReplaySandbox(replayPort);
   browserMediaDto = {
     ...sandboxDto,
     playback_url: toBrowserProxyUrl(sandboxDto.playback_url),
@@ -174,16 +176,16 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
   expect(stoppedOldCapability.status()).toBe(403);
   await page.screenshot({ path: testInfo.outputPath("desktop-stopped.png"), fullPage: true });
 
-  const browserReplayProbe = await page.evaluate(async ({ baseUrl, headers }) => {
-    try {
-      const response = await fetch(`${baseUrl}/sandbox/replays/media.synthetic.1`, { headers });
-      return { status: response.status, body: await response.text() };
-    } catch (error) {
-      return { status: 0, body: String(error) };
-    }
-  }, { baseUrl: browserReplayApiUrl, headers: syntheticActorHeaders() });
-  expect(browserReplayProbe.status, browserReplayProbe.body).toBe(200);
-  await page.getByRole("button", { name: "播放回看" }).click();
+  const replayPurchaseResponse = page.waitForResponse(
+    (response) => response.url().endsWith("/sandbox/live-commerce/purchases")
+      && response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "解锁并播放回看（演示）" }).click();
+  const replayPurchase = await (await replayPurchaseResponse).json() as {
+    purchase_ref: string;
+    track: string;
+  };
+  expect(replayPurchase.track).toBe("MEDIA_ENTITLEMENT");
   const replayVideo = page.getByLabel("小橘灯合成直播回看");
   await expect(replayVideo).toBeVisible();
   const replayCapability = await replayVideo.getAttribute("src");
@@ -192,20 +194,40 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
   expect(replayBeforeDelete.status()).toBe(200);
   await page.screenshot({ path: testInfo.outputPath("desktop-replay.png"), fullPage: true });
 
-  await page.getByRole("button", { name: "删除回看" }).click();
-  await expect(page.getByText("回看已删除")).toBeVisible();
+  await page.getByRole("button", { name: "撤销回看权益" }).click();
+  await expect(page.getByText("回看权益已撤销")).toBeVisible();
   await expect(replayVideo).toHaveCount(0);
+  const replayAfterEntitlementRevoke = await page.request.get(replayCapability!);
+  expect(replayAfterEntitlementRevoke.status()).toBe(403);
+  await page.screenshot({ path: testInfo.outputPath("desktop-replay-revoked.png"), fullPage: true });
+
+  commerceProcess.kill();
+  replayProcess.kill();
+  await Promise.all([waitForProcessExit(commerceProcess), waitForProcessExit(replayProcess)]);
+  commerceProcess = await startCommerceSandbox(commercePort);
+  replayProcess = await startReplaySandbox(replayPort);
+  const replayBalanceAfterRestart = await fetch(
+    `${commerceApiUrl}/sandbox/live-commerce/purchases/${encodeURIComponent(replayPurchase.purchase_ref)}/balances`,
+    { headers: syntheticActorHeaders() },
+  );
+  expect(replayBalanceAfterRestart.status).toBe(200);
+  expect((await replayBalanceAfterRestart.json()).entitlement).toBe("REVOKED");
+  const replayOldUrlAfterRestart = await page.request.get(replayCapability!);
+  expect(replayOldUrlAfterRestart.status()).toBe(403);
+
+  const replayDeletion = await fetch(`${replayApiUrl}/sandbox/replays/media.synthetic.1/delete`, {
+    method: "POST",
+    headers: { ...syntheticActorHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      deletion_ref: "replay-deletion.e2e",
+      idempotency_key: "replay-deletion.e2e",
+      reason: "adult requested sandbox replay deletion",
+    }),
+  });
+  expect(replayDeletion.status).toBe(200);
   const replayAfterDelete = await page.request.get(replayCapability!);
   expect(replayAfterDelete.status()).toBe(410);
   await page.screenshot({ path: testInfo.outputPath("desktop-replay-deleted.png"), fullPage: true });
-
-  replayProcess.kill();
-  replayProcess = await startReplaySandbox(await reserveFreePort());
-  const replayAfterRestart = await fetch(`${replayApiUrl}/sandbox/replays/media.synthetic.1`, {
-    headers: syntheticActorHeaders(),
-  });
-  expect(replayAfterRestart.status).toBe(200);
-  expect((await replayAfterRestart.json()).state).toBe("DELETED");
 
   await page.getByRole("button", { name: "撤回观看权限" }).click();
   await expect(page.getByText("观看权限已经撤回。")).toBeVisible();
@@ -257,8 +279,11 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
     revoked_old_url_status: revokedOldCapability.status(),
     adult_only_service_next_step: "PASS",
     replay: "PASS",
+    replay_entitlement: "REVOKED",
+    replay_old_url_after_entitlement_revoke_status: replayAfterEntitlementRevoke.status(),
+    replay_old_url_after_restart_status: replayOldUrlAfterRestart.status(),
     replay_old_url_after_delete_status: replayAfterDelete.status(),
-    replay_after_restart: "DELETED",
+    replay_after_restart: "REVOKED_THEN_DELETED",
     adult_contract_separation: "PASS_SUPPORT_SERVICE_POINTS",
     adult_support_reversal: "PASS_NO_EXTERNAL_EFFECT",
     commerce_restart_balance: persistentBalanceBody,
@@ -451,6 +476,8 @@ async function startReplaySandbox(port: number): Promise<ChildProcess> {
       replayDatabasePath,
       "--media",
       mediaOutputPath,
+      "--commerce-base-url",
+      commerceApiUrl,
       "--port",
       String(port),
     ],

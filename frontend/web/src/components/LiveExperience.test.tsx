@@ -400,14 +400,42 @@ describe("Xiao Ju Deng live product surface", () => {
     vi.unstubAllGlobals();
   });
 
-  it("plays an authorized replay and removes it with a lineage receipt", async () => {
+  it("purchases an adult replay entitlement, plays it, and removes it with a lineage receipt", async () => {
+    localStorage.removeItem("xiaojudeng.sandbox.media_entitlement.purchase_ref");
     const record = {
       ...XIAO_JU_DENG_FIXTURE,
       playback_state: "STOPPED",
       playback: { ...JSON.parse(SYNTHETIC_PLAYBACK_DTO), state: "STOPPED" },
     } as typeof XIAO_JU_DENG_FIXTURE;
+    let mediaPurchaseRef = "";
     const fetchMock = vi
       .fn()
+      .mockImplementationOnce(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const payload = JSON.parse(String(init?.body)) as { purchase_ref: string };
+        mediaPurchaseRef = payload.purchase_ref;
+        return {
+        ok: true,
+        json: async () => ({
+          purchase_ref: mediaPurchaseRef,
+          track: "MEDIA_ENTITLEMENT",
+          source: "SANDBOX_SYNTHETIC",
+          fixture_only: true,
+          external_effect: false,
+        }),
+        };
+      })
+      .mockImplementationOnce(async () => ({
+        ok: true,
+        json: async () => ({
+          purchase_ref: mediaPurchaseRef,
+          cash: 1200,
+          settlement: 0,
+          entitlement: "ACTIVE",
+          source: "SANDBOX_SYNTHETIC",
+          fixture_only: true,
+          external_effect: false,
+        }),
+      }))
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -434,11 +462,15 @@ describe("Xiao Ju Deng live product surface", () => {
       <LiveDetailPage
         record={record}
         replayBaseUrl="http://127.0.0.1:55300"
+        commerceBaseUrl="http://127.0.0.1:55400"
         onBack={() => undefined}
       />,
     );
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "播放回看" }));
+    expect(screen.getAllByText("已结束")).toHaveLength(2);
+    expect(screen.getByText("本场主题")).toBeInTheDocument();
+    expect(screen.queryByText("正在讲")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "解锁并播放回看（演示）" }));
     expect(await screen.findByLabelText("小橘灯合成直播回看")).toBeInTheDocument();
     const oldUrl = container.querySelector("video")?.getAttribute("src");
     expect(oldUrl).toContain("capability=test");
@@ -446,7 +478,91 @@ describe("Xiao Ju Deng live product surface", () => {
     expect(await screen.findByText("回看已删除")).toBeInTheDocument();
     expect(screen.getByText("6 项血缘已确认；刷新或重启后也不会恢复。")).toBeInTheDocument();
     expect(container.querySelector("video")).toBeNull();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const purchaseBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      purchase_ref: string;
+      track: string;
+    };
+    expect(purchaseBody.track).toBe("MEDIA_ENTITLEMENT");
+    expect(localStorage.getItem("xiaojudeng.sandbox.media_entitlement.purchase_ref")).toBe(
+      purchaseBody.purchase_ref,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    localStorage.removeItem("xiaojudeng.sandbox.media_entitlement.purchase_ref");
+    vi.unstubAllGlobals();
+  });
+
+  it("restores a revoked replay entitlement from Commerce and refuses to render playback", async () => {
+    localStorage.setItem(
+      "xiaojudeng.sandbox.media_entitlement.purchase_ref",
+      "media-entitlement.ui.revoked",
+    );
+    const record = {
+      ...XIAO_JU_DENG_FIXTURE,
+      playback_state: "STOPPED",
+      playback: { ...JSON.parse(SYNTHETIC_PLAYBACK_DTO), state: "STOPPED" },
+    } as typeof XIAO_JU_DENG_FIXTURE;
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        purchase_ref: "media-entitlement.ui.revoked",
+        cash: 0,
+        settlement: 0,
+        entitlement: "REVOKED",
+        source: "SANDBOX_SYNTHETIC",
+        fixture_only: true,
+        external_effect: false,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container } = render(
+      <LiveDetailPage
+        record={record}
+        replayBaseUrl="http://127.0.0.1:55300"
+        commerceBaseUrl="http://127.0.0.1:55400"
+        onBack={() => undefined}
+      />,
+    );
+
+    expect(await screen.findByText("回看权益已撤销")).toBeInTheDocument();
+    expect(container.querySelector("video")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+    localStorage.removeItem("xiaojudeng.sandbox.media_entitlement.purchase_ref");
+  });
+
+  it("fails closed when Commerce returns unsafe replay entitlement evidence", async () => {
+    localStorage.removeItem("xiaojudeng.sandbox.media_entitlement.purchase_ref");
+    const record = {
+      ...XIAO_JU_DENG_FIXTURE,
+      playback_state: "STOPPED",
+      playback: { ...JSON.parse(SYNTHETIC_PLAYBACK_DTO), state: "STOPPED" },
+    } as typeof XIAO_JU_DENG_FIXTURE;
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        purchase_ref: "media-entitlement.ui.unsafe",
+        track: "MEDIA_ENTITLEMENT",
+        source: "PRODUCTION",
+        fixture_only: false,
+        external_effect: true,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <LiveDetailPage
+        record={record}
+        replayBaseUrl="http://127.0.0.1:55300"
+        commerceBaseUrl="http://127.0.0.1:55400"
+        onBack={() => undefined}
+      />,
+    );
+    await userEvent.setup().click(screen.getByRole("button", { name: "解锁并播放回看（演示）" }));
+
+    expect(await screen.findByRole("button", { name: "重新解锁回看" })).toBeInTheDocument();
+    expect(localStorage.getItem("xiaojudeng.sandbox.media_entitlement.purchase_ref")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     vi.unstubAllGlobals();
   });
 

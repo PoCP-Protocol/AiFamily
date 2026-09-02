@@ -3,6 +3,7 @@ import { LiveDiscoveryCard } from "./LiveDiscoveryCard";
 import { LiveDetailPage } from "./LiveDetailPage";
 import {
   LIVE_STATE_COPY,
+  resolveLiveCommerceBaseUrl,
   resolveLiveInteractionBaseUrl,
   resolveLiveReplayBaseUrl,
   resolveLiveView,
@@ -87,6 +88,7 @@ export function LiveExperience({ environment = import.meta.env, viewModel }: Pro
             record={model.record}
             interactionBaseUrl={resolveLiveInteractionBaseUrl(environment)}
             replayBaseUrl={resolveLiveReplayBaseUrl(environment)}
+            commerceBaseUrl={resolveLiveCommerceBaseUrl(environment)}
             onBack={() => setShowDetail(false)}
           />
         ) : (

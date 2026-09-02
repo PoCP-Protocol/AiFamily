@@ -14,8 +14,10 @@ import secrets
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Protocol
+from urllib.parse import quote
 
+import httpx
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -64,7 +66,28 @@ class DeletionView(BaseModel):
     fixture_only: bool = True
 
 
-def create_app(database_path: Path, media_path: Path) -> FastAPI:
+class EntitlementDenied(Exception):
+    """The supplied purchase does not grant replay access for this actor."""
+
+
+class EntitlementProviderUnavailable(Exception):
+    """The configured Commerce sandbox cannot currently answer."""
+
+
+class EntitlementChecker(Protocol):
+    def __call__(self, purchase_ref: str, actor: SyntheticActor) -> None: ...
+
+
+def create_app(
+    database_path: Path,
+    media_path: Path,
+    commerce_base_url: str | None = None,
+    *,
+    entitlement_checker: EntitlementChecker | None = None,
+) -> FastAPI:
+    checker = entitlement_checker
+    if checker is None and commerce_base_url is not None:
+        checker = http_entitlement_checker(commerce_base_url)
     app = FastAPI(title="Xiao Ju Deng replay deletion sandbox")
     app.add_middleware(
         CORSMiddleware,
@@ -95,8 +118,24 @@ def create_app(database_path: Path, media_path: Path) -> FastAPI:
         if row is None:
             raise HTTPException(status_code=404, detail="replay not found")
         require_scope(actor, row["tenant_id"], row["family_id"])
+        entitlement_ref = request.headers.get("X-Media-Entitlement-Ref")
+        if checker is not None:
+            if not entitlement_ref:
+                raise HTTPException(status_code=403, detail="active media entitlement required")
+            check_entitlement(checker, entitlement_ref, actor)
         if row["state"] != "AVAILABLE":
             return ReplayView(session_ref=session_ref, state="DELETED", playback_url=None)
+        if checker is not None:
+            with connect(database_path) as database:
+                database.execute(
+                    """
+                    UPDATE replay_assets
+                    SET entitlement_purchase_ref = ?, actor_id = ?
+                    WHERE session_ref = ?
+                    """,
+                    (entitlement_ref, actor.actor_id, session_ref),
+                )
+                database.commit()
         media_url = str(request.url_for("play_replay", session_ref=session_ref)).replace(
             "http://testserver", str(request.base_url).rstrip("/")
         )
@@ -117,6 +156,21 @@ def create_app(database_path: Path, media_path: Path) -> FastAPI:
             raise HTTPException(status_code=403, detail="replay capability denied")
         if row["state"] != "AVAILABLE":
             raise HTTPException(status_code=410, detail="replay deleted")
+        if checker is not None:
+            entitlement_ref = row["entitlement_purchase_ref"]
+            actor_id = row["actor_id"]
+            if not entitlement_ref or not actor_id:
+                raise HTTPException(status_code=403, detail="replay entitlement not bound")
+            check_entitlement(
+                checker,
+                entitlement_ref,
+                SyntheticActor(
+                    tenant_id=row["tenant_id"],
+                    family_id=row["family_id"],
+                    actor_id=actor_id,
+                    role="ADULT_VIEWER",
+                ),
+            )
         path = Path(row["media_path"])
         if not path.is_file():
             raise HTTPException(status_code=503, detail="replay media unavailable")
@@ -191,6 +245,60 @@ def connect(database_path: Path) -> sqlite3.Connection:
     return database
 
 
+def http_entitlement_checker(commerce_base_url: str) -> EntitlementChecker:
+    base_url = commerce_base_url.rstrip("/")
+
+    def check(purchase_ref: str, actor: SyntheticActor) -> None:
+        encoded_ref = quote(purchase_ref, safe="")
+        url = f"{base_url}/sandbox/live-commerce/purchases/{encoded_ref}/balances"
+        try:
+            response = httpx.get(
+                url,
+                headers={
+                    "X-Sandbox-Source": SANDBOX_SOURCE,
+                    "X-Fixture-Only": "true",
+                    "X-Tenant-Id": actor.tenant_id,
+                    "X-Family-Id": actor.family_id,
+                    "X-Actor-Id": actor.actor_id,
+                    "X-Actor-Role": actor.role,
+                },
+                timeout=2.0,
+            )
+        except httpx.RequestError as exc:
+            raise EntitlementProviderUnavailable from exc
+        if response.status_code >= 500:
+            raise EntitlementProviderUnavailable
+        if response.status_code != 200:
+            raise EntitlementDenied
+        try:
+            evidence = response.json()
+        except ValueError as exc:
+            raise EntitlementDenied from exc
+        if (
+            evidence.get("purchase_ref") != purchase_ref
+            or evidence.get("entitlement") != "ACTIVE"
+            or evidence.get("source") != SANDBOX_SOURCE
+            or evidence.get("fixture_only") is not True
+            or evidence.get("external_effect") is not False
+        ):
+            raise EntitlementDenied
+
+    return check
+
+
+def check_entitlement(
+    checker: EntitlementChecker,
+    purchase_ref: str,
+    actor: SyntheticActor,
+) -> None:
+    try:
+        checker(purchase_ref, actor)
+    except EntitlementProviderUnavailable as exc:
+        raise HTTPException(status_code=503, detail="commerce provider unavailable") from exc
+    except EntitlementDenied as exc:
+        raise HTTPException(status_code=403, detail="active media entitlement required") from exc
+
+
 def initialise(database_path: Path, media_path: Path) -> None:
     database_path.parent.mkdir(parents=True, exist_ok=True)
     with connect(database_path) as database:
@@ -202,7 +310,9 @@ def initialise(database_path: Path, media_path: Path) -> None:
                 family_id TEXT NOT NULL,
                 media_path TEXT NOT NULL,
                 capability TEXT NOT NULL UNIQUE,
-                state TEXT NOT NULL
+                state TEXT NOT NULL,
+                entitlement_purchase_ref TEXT,
+                actor_id TEXT
             );
             CREATE TABLE IF NOT EXISTS replay_deletions (
                 deletion_ref TEXT PRIMARY KEY,
@@ -216,6 +326,13 @@ def initialise(database_path: Path, media_path: Path) -> None:
             );
             """
         )
+        existing_columns = {
+            row["name"] for row in database.execute("PRAGMA table_info(replay_assets)")
+        }
+        if "entitlement_purchase_ref" not in existing_columns:
+            database.execute("ALTER TABLE replay_assets ADD COLUMN entitlement_purchase_ref TEXT")
+        if "actor_id" not in existing_columns:
+            database.execute("ALTER TABLE replay_assets ADD COLUMN actor_id TEXT")
         database.execute(
             """
             INSERT OR IGNORE INTO replay_assets (
@@ -233,10 +350,15 @@ def main() -> None:
     parser.add_argument("--database", type=Path, required=True)
     parser.add_argument("--media", type=Path, required=True)
     parser.add_argument("--port", type=int, required=True)
+    parser.add_argument("--commerce-base-url")
     args = parser.parse_args()
     if not args.serve:
         raise SystemExit("use --serve")
-    uvicorn.run(create_app(args.database, args.media), host="127.0.0.1", port=args.port)
+    uvicorn.run(
+        create_app(args.database, args.media, args.commerce_base_url),
+        host="127.0.0.1",
+        port=args.port,
+    )
 
 
 if __name__ == "__main__":

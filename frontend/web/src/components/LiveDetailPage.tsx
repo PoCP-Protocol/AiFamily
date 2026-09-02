@@ -5,6 +5,7 @@ type Props = {
   record: LiveRecord;
   interactionBaseUrl?: string;
   replayBaseUrl?: string;
+  commerceBaseUrl?: string;
   onBack: () => void;
 };
 
@@ -18,7 +19,18 @@ type LiveQuestion = {
 };
 
 type SurfaceState = "WAITING_AUTHORIZATION" | "LOADING" | MediaPlaybackState | "FAILED";
-type ReplayState = "idle" | "loading" | "available" | "deleting" | "deleted" | "error";
+type ReplayState =
+  | "idle"
+  | "restoring"
+  | "unlocking"
+  | "unlocked"
+  | "loading"
+  | "available"
+  | "revoking"
+  | "revoked"
+  | "deleting"
+  | "deleted"
+  | "error";
 
 type ReplayView = {
   session_ref: string;
@@ -37,6 +49,24 @@ type DeletionView = {
   fixture_only: true;
 };
 
+type CommerceEvidence = {
+  source: "SANDBOX_SYNTHETIC";
+  fixture_only: true;
+  external_effect: false;
+};
+
+type MediaPurchase = CommerceEvidence & {
+  purchase_ref: string;
+  track: "MEDIA_ENTITLEMENT";
+};
+
+type MediaBalance = CommerceEvidence & {
+  purchase_ref: string;
+  cash: number;
+  settlement: number;
+  entitlement: "ACTIVE" | "REVOKED";
+};
+
 const SANDBOX_DIAGNOSTIC_MARKERS =
   "SANDBOX_SYNTHETIC fixture_only DEV_ONLY LOCKED WAITING_AUTHORIZATION 问题搜索 直播中 已结束 / 回看受限 NO_MEDIA MEDIA_READY PLAYBACK_AUTHORIZED SCHEDULED ENDED";
 const SYNTHETIC_VIDEO_POSTER = `data:image/svg+xml,${encodeURIComponent(
@@ -52,11 +82,13 @@ const SYNTHETIC_ACTOR_HEADERS = {
   "X-Actor-Id": "actor.synthetic.adult",
   "X-Actor-Role": "ADULT_VIEWER",
 };
+const MEDIA_ENTITLEMENT_REF_KEY = "xiaojudeng.sandbox.media_entitlement.purchase_ref";
 
 export function LiveDetailPage({
   record,
   interactionBaseUrl,
   replayBaseUrl,
+  commerceBaseUrl,
   onBack,
 }: Props) {
   const playback = record.playback;
@@ -69,6 +101,7 @@ export function LiveDetailPage({
   const [questionState, setQuestionState] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [replayState, setReplayState] = useState<ReplayState>("idle");
   const [replayUrl, setReplayUrl] = useState("");
+  const [mediaEntitlementRef, setMediaEntitlementRef] = useState("");
   const [deletedRefs, setDeletedRefs] = useState<string[]>([]);
   const hasStartedPlayback = useRef(false);
   const canRenderVideo =
@@ -78,6 +111,8 @@ export function LiveDetailPage({
     isLocalPlaybackUrl(mediaUrl);
   const playbackMessage = getPlaybackMessage(surfaceState);
   const showAdultNextStep = ["ENDED", "STOPPED", "REVOKED"].includes(surfaceState);
+  const sessionLabel = getEffectiveSessionLabel(record.status, surfaceState);
+  const isLiveSession = sessionLabel === "直播中";
 
   useEffect(() => {
     if (!interactionBaseUrl) return;
@@ -98,6 +133,23 @@ export function LiveDetailPage({
     return () => controller.abort();
   }, [interactionBaseUrl]);
 
+  useEffect(() => {
+    if (!commerceBaseUrl || !isLocalPlaybackUrl(commerceBaseUrl)) return;
+    const storedRef = localStorage.getItem(MEDIA_ENTITLEMENT_REF_KEY);
+    if (!storedRef) return;
+    const controller = new AbortController();
+    setReplayState("restoring");
+    void loadMediaBalance(commerceBaseUrl, storedRef, controller.signal)
+      .then((balance) => {
+        setMediaEntitlementRef(storedRef);
+        setReplayState(balance.entitlement === "ACTIVE" ? "unlocked" : "revoked");
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) setReplayState("error");
+      });
+    return () => controller.abort();
+  }, [commerceBaseUrl]);
+
   return (
     <article className="live-detail-page" aria-labelledby="live-detail-heading">
       <div className="live-detail-header">
@@ -106,7 +158,7 @@ export function LiveDetailPage({
           <h3 id="live-detail-heading">{record.title}</h3>
           <p className="live-detail-expert">{record.speaker} · 适合{record.applicable_scope}</p>
         </div>
-        <span className="live-status-badge">{getSessionLabel(record.status)}</span>
+        <span className="live-status-badge">{sessionLabel}</span>
       </div>
 
       <div className="live-watch-layout">
@@ -172,10 +224,10 @@ export function LiveDetailPage({
               <strong>{record.speaker}</strong>
               <span>家庭沟通专家</span>
             </div>
-            <span className="live-room-on-air">直播中</span>
+            <span className="live-room-on-air">{sessionLabel}</span>
           </div>
           <div className="live-room-topic">
-            <span>正在讲</span>
+            <span>{isLiveSession ? "正在讲" : "本场主题"}</span>
             <strong>先听懂，再回应</strong>
             <p>把冲突拆成一个今天就能练习的小动作。</p>
           </div>
@@ -255,7 +307,7 @@ export function LiveDetailPage({
           <div>
             <p className="live-kicker">直播回看</p>
             <h4 id="live-replay-heading">错过的部分，现在接着看</h4>
-            <p>回看仅对当前合成家庭开放；删除后旧播放链接立即失效。</p>
+            <p>回看使用独立成人权益；不解锁也不会影响直播观看、提问或安全求助。</p>
           </div>
           {replayState === "available" && replayUrl ? (
             <div className="live-replay-player">
@@ -269,6 +321,9 @@ export function LiveDetailPage({
               <button type="button" className="live-replay-delete" onClick={() => void deleteReplay()}>
                 删除回看
               </button>
+              <button type="button" className="live-replay-delete" onClick={() => void revokeReplayEntitlement()}>
+                撤销回看权益
+              </button>
             </div>
           ) : null}
           {replayState === "deleted" ? (
@@ -278,12 +333,31 @@ export function LiveDetailPage({
               <small>{deletedRefs.length} 项血缘已确认；刷新或重启后也不会恢复。</small>
             </div>
           ) : null}
-          {["idle", "error"].includes(replayState) ? (
-            <button type="button" className="live-replay-open" onClick={() => void loadReplay()}>
-              {replayState === "error" ? "重新获取回看" : "播放回看"}
+          {replayState === "idle" || replayState === "error" ? (
+            <button
+              type="button"
+              className="live-replay-open"
+              disabled={!commerceBaseUrl}
+              onClick={() => void unlockReplay()}
+            >
+              {replayState === "error" ? "重新解锁回看" : "解锁并播放回看（演示）"}
             </button>
           ) : null}
+          {replayState === "unlocked" ? (
+            <button type="button" className="live-replay-open" onClick={() => void loadReplay(mediaEntitlementRef)}>
+              播放已解锁回看
+            </button>
+          ) : null}
+          {replayState === "revoked" ? (
+            <div className="live-replay-receipt" role="status">
+              <strong>回看权益已撤销</strong>
+              <p>旧播放地址已经失效；服务重启后也不会恢复。</p>
+            </div>
+          ) : null}
+          {replayState === "restoring" ? <p role="status">正在恢复回看权益状态…</p> : null}
+          {replayState === "unlocking" ? <p role="status">正在解锁回看…</p> : null}
           {replayState === "loading" ? <p role="status">正在获取回看…</p> : null}
+          {replayState === "revoking" ? <p role="status">正在撤销回看权益…</p> : null}
           {replayState === "deleting" ? <p role="status">正在删除全部回看副本…</p> : null}
         </section>
       ) : null}
@@ -360,8 +434,50 @@ export function LiveDetailPage({
     }
   }
 
-  async function loadReplay() {
-    if (!replayBaseUrl || !isLocalPlaybackUrl(replayBaseUrl)) {
+  async function unlockReplay() {
+    if (
+      !commerceBaseUrl ||
+      !replayBaseUrl ||
+      !isLocalPlaybackUrl(commerceBaseUrl) ||
+      !isLocalPlaybackUrl(replayBaseUrl)
+    ) {
+      setReplayState("error");
+      return;
+    }
+    const purchaseRef = `media-entitlement.ui.${Date.now()}`;
+    const idempotencyKey = `media-entitlement-idempotency.ui.${Date.now()}`;
+    setReplayState("unlocking");
+    try {
+      const purchase = await requestCommerce<MediaPurchase>(
+        `${commerceBaseUrl}/sandbox/live-commerce/purchases`,
+        {
+          method: "POST",
+          headers: SYNTHETIC_ACTOR_HEADERS,
+          body: JSON.stringify({
+            purchase_ref: purchaseRef,
+            track: "MEDIA_ENTITLEMENT",
+            subject_ref: "replay:media.synthetic.1",
+            amount: 1200,
+            currency: "CNY_CENT",
+            idempotency_key: idempotencyKey,
+          }),
+        },
+      );
+      if (purchase.purchase_ref !== purchaseRef || purchase.track !== "MEDIA_ENTITLEMENT") {
+        throw new Error("media entitlement receipt mismatch");
+      }
+      const balance = await loadMediaBalance(commerceBaseUrl, purchaseRef);
+      if (balance.entitlement !== "ACTIVE") throw new Error("media entitlement inactive");
+      localStorage.setItem(MEDIA_ENTITLEMENT_REF_KEY, purchaseRef);
+      setMediaEntitlementRef(purchaseRef);
+      await loadReplay(purchaseRef);
+    } catch {
+      setReplayState("error");
+    }
+  }
+
+  async function loadReplay(entitlementRef: string) {
+    if (!replayBaseUrl || !entitlementRef || !isLocalPlaybackUrl(replayBaseUrl)) {
       setReplayState("error");
       return;
     }
@@ -369,7 +485,7 @@ export function LiveDetailPage({
     try {
       const response = await fetch(`${replayBaseUrl}/sandbox/replays/media.synthetic.1`, {
         cache: "no-store",
-        headers: SYNTHETIC_ACTOR_HEADERS,
+        headers: { ...SYNTHETIC_ACTOR_HEADERS, "X-Media-Entitlement-Ref": entitlementRef },
       });
       if (!response.ok) throw new Error("replay read failed");
       const replay = (await response.json()) as ReplayView;
@@ -386,6 +502,35 @@ export function LiveDetailPage({
       }
       setReplayUrl(replay.playback_url);
       setReplayState("available");
+    } catch {
+      setReplayState("error");
+    }
+  }
+
+  async function revokeReplayEntitlement() {
+    if (!commerceBaseUrl || !mediaEntitlementRef || !isLocalPlaybackUrl(commerceBaseUrl)) {
+      setReplayState("error");
+      return;
+    }
+    const reversalRef = `media-entitlement-reversal.ui.${Date.now()}`;
+    setReplayState("revoking");
+    try {
+      await requestCommerce(
+        `${commerceBaseUrl}/sandbox/live-commerce/purchases/${encodeURIComponent(mediaEntitlementRef)}/reversals`,
+        {
+          method: "POST",
+          headers: SYNTHETIC_ACTOR_HEADERS,
+          body: JSON.stringify({
+            reversal_ref: reversalRef,
+            idempotency_key: reversalRef,
+            reason: "adult withdrew synthetic replay entitlement",
+          }),
+        },
+      );
+      const balance = await loadMediaBalance(commerceBaseUrl, mediaEntitlementRef);
+      if (balance.entitlement !== "REVOKED") throw new Error("media entitlement still active");
+      setReplayUrl("");
+      setReplayState("revoked");
     } catch {
       setReplayState("error");
     }
@@ -421,6 +566,27 @@ export function LiveDetailPage({
     }
   }
 
+}
+
+async function loadMediaBalance(
+  commerceBaseUrl: string,
+  purchaseRef: string,
+  signal?: AbortSignal,
+): Promise<MediaBalance> {
+  return await requestCommerce<MediaBalance>(
+    `${commerceBaseUrl}/sandbox/live-commerce/purchases/${encodeURIComponent(purchaseRef)}/balances`,
+    { headers: SYNTHETIC_ACTOR_HEADERS, signal },
+  );
+}
+
+async function requestCommerce<T extends CommerceEvidence>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init);
+  if (!response.ok) throw new Error(`commerce request failed: ${response.status}`);
+  const result = (await response.json()) as T;
+  if (result.source !== "SANDBOX_SYNTHETIC" || result.fixture_only !== true || result.external_effect !== false) {
+    throw new Error("commerce evidence rejected");
+  }
+  return result;
 }
 
 function isLocalPlaybackUrl(value: string): boolean {
@@ -473,4 +639,13 @@ function getSessionLabel(status: LiveRecord["status"]): string {
   if (status === "SCHEDULED") return "即将开始";
   if (status === "WITHDRAWN") return "已撤下";
   return "已结束";
+}
+
+function getEffectiveSessionLabel(
+  status: LiveRecord["status"],
+  playbackState: SurfaceState,
+): string {
+  if (playbackState === "STOPPED" || playbackState === "ENDED") return "已结束";
+  if (playbackState === "REVOKED") return "已停止";
+  return getSessionLabel(status);
 }
