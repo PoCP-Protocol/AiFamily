@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import NoReturn, Protocol
+from typing import Literal, NoReturn, Protocol
 
 from ..domain.entities import Evidence
 from ..domain.errors import (
@@ -42,31 +42,55 @@ class ProductPackageEvidenceReader(Protocol):
     async def load_evidence(self, entity_id: str, tenant_scope: str) -> Evidence: ...
 
 
+@dataclass(frozen=True, slots=True)
+class ProductPackageReceiptPreflight:
+    """Current-policy intrinsic receipt/source checks without an admission fact."""
+
+    receipt: EvidenceVerificationReceipt
+    evidence: Evidence
+    receipt_lifecycle: Literal["ACTIVE", "EXPIRED", "NOT_YET_EFFECTIVE"]
+
+
 def _reject(code: str) -> NoReturn:
     raise ProductPackageSourceResolutionError(code)
 
 
-async def _admit_requirement(
+def product_package_receipt_lifecycle(
+    receipt: EvidenceVerificationReceipt,
+    now: datetime,
+) -> Literal["ACTIVE", "EXPIRED", "NOT_YET_EFFECTIVE"]:
+    if now.tzinfo is None or now.utcoffset() is None:
+        _reject("PRODUCT_PACKAGE_EVIDENCE_ADMISSION_NOW_MUST_BE_AWARE")
+    if receipt.verified_at > now or receipt.recorded_at > now:
+        return "NOT_YET_EFFECTIVE"
+    return receipt.lifecycle_at(now)
+
+
+async def preflight_loaded_product_package_receipt(
     reader: ProductPackageEvidenceReader,
     *,
+    receipt: EvidenceVerificationReceipt,
     tenant_scope: str,
-    requirement: ProductPackageEvidenceRequirement,
+    receipt_locator: str,
     now: datetime,
-    admitted_at: datetime | None = None,
-) -> EvidenceAdmissionSnapshot:
-    try:
-        receipt = await reader.load_receipt(requirement.receipt_locator, tenant_scope)
-    except (ProductIntelligenceConflictError, ProductIntelligenceValidationError) as exc:
-        raise ProductPackageSourceResolutionError(
-            "PRODUCT_PACKAGE_RECEIPT_INVALID"
-        ) from exc
-    if receipt.receipt_id != requirement.receipt_locator:
+    requirement: ProductPackageEvidenceRequirement | None = None,
+) -> ProductPackageReceiptPreflight:
+    """Apply the same receipt policy used by admission, without creating a snapshot.
+
+    ``requirement`` is server-owned application input. Generic health callers omit it,
+    so claim/applicability coverage remains explicitly unevaluated.
+    """
+
+    if now.tzinfo is None or now.utcoffset() is None:
+        _reject("PRODUCT_PACKAGE_EVIDENCE_ADMISSION_NOW_MUST_BE_AWARE")
+    if receipt.receipt_id != receipt_locator:
         _reject("PRODUCT_PACKAGE_RECEIPT_LOCATOR_MISMATCH")
     if receipt.tenant_scope != tenant_scope:
         _reject("PRODUCT_PACKAGE_RECEIPT_TENANT_MISMATCH")
-    if receipt.verified_at > now or receipt.recorded_at > now:
+    lifecycle = product_package_receipt_lifecycle(receipt, now)
+    if lifecycle == "NOT_YET_EFFECTIVE":
         _reject("PRODUCT_PACKAGE_RECEIPT_NOT_YET_EFFECTIVE")
-    if receipt.lifecycle_at(now) != "ACTIVE":
+    if lifecycle != "ACTIVE":
         _reject("PRODUCT_PACKAGE_RECEIPT_EXPIRED")
     if receipt.verification_policy_version != EVIDENCE_VERIFICATION_POLICY_VERSION:
         _reject("PRODUCT_PACKAGE_RECEIPT_POLICY_UNSUPPORTED")
@@ -74,12 +98,13 @@ async def _admit_requirement(
         _reject("PRODUCT_PACKAGE_RECEIPT_SUPERSESSION_UNSUPPORTED")
     if not _REQUIRED_METHODS.issubset(receipt.verification_methods):
         _reject("PRODUCT_PACKAGE_RECEIPT_METHODS_INSUFFICIENT")
-    if not set(requirement.required_claim_refs).issubset(receipt.claim_scope):
-        _reject("PRODUCT_PACKAGE_CLAIM_SCOPE_NOT_COVERED")
-    if not set(requirement.required_applicability_refs).issubset(
-        receipt.applicability_scope
-    ):
-        _reject("PRODUCT_PACKAGE_APPLICABILITY_SCOPE_NOT_COVERED")
+    if requirement is not None:
+        if not set(requirement.required_claim_refs).issubset(receipt.claim_scope):
+            _reject("PRODUCT_PACKAGE_CLAIM_SCOPE_NOT_COVERED")
+        if not set(requirement.required_applicability_refs).issubset(
+            receipt.applicability_scope
+        ):
+            _reject("PRODUCT_PACKAGE_APPLICABILITY_SCOPE_NOT_COVERED")
 
     try:
         evidence = await reader.load_evidence(receipt.evidence_id, tenant_scope)
@@ -95,6 +120,55 @@ async def _admit_requirement(
         _reject("PRODUCT_PACKAGE_EVIDENCE_REF_DRIFT")
     if evidence_record_hash(evidence) != receipt.evidence_record_hash:
         _reject("PRODUCT_PACKAGE_EVIDENCE_RECORD_HASH_DRIFT")
+    return ProductPackageReceiptPreflight(
+        receipt=receipt,
+        evidence=evidence,
+        receipt_lifecycle=lifecycle,
+    )
+
+
+async def preflight_product_package_receipt(
+    reader: ProductPackageEvidenceReader,
+    *,
+    tenant_scope: str,
+    receipt_locator: str,
+    now: datetime,
+    requirement: ProductPackageEvidenceRequirement | None = None,
+) -> ProductPackageReceiptPreflight:
+    """Load once, validate persisted receipt integrity, then apply policy checks."""
+
+    try:
+        receipt = await reader.load_receipt(receipt_locator, tenant_scope)
+    except (ProductIntelligenceConflictError, ProductIntelligenceValidationError) as exc:
+        raise ProductPackageSourceResolutionError(
+            "PRODUCT_PACKAGE_RECEIPT_INVALID"
+        ) from exc
+    return await preflight_loaded_product_package_receipt(
+        reader,
+        receipt=receipt,
+        tenant_scope=tenant_scope,
+        receipt_locator=receipt_locator,
+        now=now,
+        requirement=requirement,
+    )
+
+
+async def _admit_requirement(
+    reader: ProductPackageEvidenceReader,
+    *,
+    tenant_scope: str,
+    requirement: ProductPackageEvidenceRequirement,
+    now: datetime,
+    admitted_at: datetime | None = None,
+) -> EvidenceAdmissionSnapshot:
+    preflight = await preflight_product_package_receipt(
+        reader,
+        tenant_scope=tenant_scope,
+        receipt_locator=requirement.receipt_locator,
+        now=now,
+        requirement=requirement,
+    )
+    receipt = preflight.receipt
 
     return EvidenceAdmissionSnapshot(
         claim_type=requirement.claim_type,
@@ -239,7 +313,11 @@ class ReceiptBackedProductPackageSourceResolver:
 __all__ = [
     "EVIDENCE_ADMISSION_POLICY_VERSION",
     "ProductPackageEvidenceReader",
+    "ProductPackageReceiptPreflight",
     "ReceiptBackedProductPackageSourceResolver",
     "admit_product_package_evidence",
+    "preflight_loaded_product_package_receipt",
+    "preflight_product_package_receipt",
+    "product_package_receipt_lifecycle",
     "revalidate_product_package_evidence",
 ]
