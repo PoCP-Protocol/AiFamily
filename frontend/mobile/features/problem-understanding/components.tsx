@@ -83,8 +83,22 @@ export function UnderstandingMap({ model }: UnderstandingMapProps) {
         <MapSection title="我们的理解" tone="highlight">
           <Text style={styles.body}>{model.currentUnderstanding}</Text>
         </MapSection>
+        <MapSection title="真正拉扯你们的">
+          <Text style={styles.body}>{model.centralTension}</Text>
+        </MapSection>
+        <MapSection title="你真正想守护的">
+          <Text style={styles.body}>{model.careIntent}</Text>
+        </MapSection>
         <MapSection title="你希望先发生的变化">
           <Text style={styles.emphasis}>{model.desiredChange}</Text>
+          <Text style={styles.supporting}>
+            {model.desiredChangeBasis === "EXPLICIT"
+              ? "这是根据你明确表达的期待整理的。"
+              : "这是 AI 的暂定理解，需要你确认。"}
+          </Text>
+          {model.observableSigns.map((item) => (
+            <Bullet key={item}>{item}</Bullet>
+          ))}
         </MapSection>
         <MapSection
           title={PROBLEM_UNDERSTANDING_COPY.unknownHeading}
@@ -110,6 +124,13 @@ export function UnderstandingMap({ model }: UnderstandingMapProps) {
             ))}
           </MapSection>
         ) : null}
+        {model.followUpQuestions.length > 0 ? (
+          <MapSection title="接下来，我想认真问你">
+            {model.followUpQuestions.map((item) => (
+              <Bullet key={item}>{item}</Bullet>
+            ))}
+          </MapSection>
+        ) : null}
         <MapSection title="可以从这里开始">
           {model.familyStrengths.map((item) => (
             <Bullet key={item}>{item}</Bullet>
@@ -120,6 +141,11 @@ export function UnderstandingMap({ model }: UnderstandingMapProps) {
           <Text style={styles.supporting}>
             第 {model.draftVersion} 版 · {formatGeneratedAt(model.generatedAt)}
           </Text>
+        </MapSection>
+        <MapSection title="这份理解的边界" tone="quiet">
+          {model.limitations.map((item) => (
+            <Bullet key={item}>{item}</Bullet>
+          ))}
         </MapSection>
       </View>
     </View>

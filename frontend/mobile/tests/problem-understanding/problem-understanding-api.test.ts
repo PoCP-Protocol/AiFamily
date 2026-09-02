@@ -14,12 +14,62 @@ function generatedResponse(): MultimodalDraftResponse {
     provenance_ref: "provenance-1",
     status: "DRAFT",
     output: {
-      summary: "现在更像是睡前节奏难以衔接，而不是谁不愿意配合。",
-      hypotheses: ["白天结束得较晚，可能让睡前转换更困难。"],
-      unknowns: ["周末和工作日是否一样？"],
-      follow_up_questions: ["最近一次顺利入睡是什么时候？"],
-      strengths: ["家长已经开始观察每天节奏的差异。"],
-      desired_change: "希望晚上能更从容地进入休息。",
+      understanding: {
+        lived_experience:
+          "每天到了睡前，你既担心孩子休息不够，又不想把晚上变成反复催促。",
+        central_tension:
+          "尽快入睡的现实压力，与孩子从活动切换到休息所需的节奏发生了冲突。",
+        care_intent:
+          "你真正想守护的是孩子的睡眠，也希望晚上的关系是平静而亲近的。",
+      },
+      hypotheses: [
+        {
+          hypothesis_id: "H1",
+          statement: "白天结束得较晚，可能让睡前转换更困难。",
+          rationale: "从高唤醒活动直接进入睡眠，往往需要更清晰的过渡信号。",
+          evidence: [
+            {
+              source_type: "PARENT_TEXT",
+              source_ref: "input:run-1",
+              observation: "家长描述最近很晚仍不愿意睡。",
+            },
+          ],
+          knowledge_refs: ["knowledge:sleep-transition-v1"],
+          confidence: "MEDIUM",
+          disconfirming_evidence_needed:
+            "需要了解白天结束较早时是否仍然同样困难。",
+        },
+      ],
+      unknowns: [
+        {
+          unknown_id: "U1",
+          description: "周末和工作日的睡前情况是否一样",
+          why_it_matters: "这有助于判断主要影响来自固定节奏还是当天活动强度",
+          related_hypothesis_ids: ["H1"],
+        },
+      ],
+      follow_up_questions: [
+        {
+          question_id: "Q1",
+          question: "最近一次顺利入睡是什么时候？",
+          purpose: "寻找已经有效的家庭条件，而不是只盯着困难",
+          answers_unknown_ids: ["U1"],
+        },
+      ],
+      strengths: [
+        {
+          statement: "你已经开始观察每天节奏的差异。",
+          evidence_refs: ["input:run-1"],
+          why_it_matters: "这种观察能帮助家庭找到真正可调整的环节。",
+        },
+      ],
+      desired_change: {
+        statement: "希望晚上能更从容地进入休息。",
+        basis: "EXPLICIT",
+        observable_signs: ["提醒次数减少", "睡前能够完成一次平静的协商"],
+        confirmation_question: "这是不是你最希望先看到的变化？",
+      },
+      limitations: ["目前只有家长的描述，还不知道孩子如何体验睡前时刻。"],
     },
     requires_human_confirmation: true,
     context_snapshot_ref: "context-1",
@@ -45,8 +95,11 @@ describe("S3 multimodal family-understanding mobile contract", () => {
     expect(draft.reviewedDraftRef).toBe("draft-1");
     expect(draft.provenanceRef).toBe("provenance-1");
     expect(draft.draftVersion).toBe(2);
-    expect(draft.summary).toContain("睡前节奏");
-    expect(draft.unknowns[0].label).toBe("周末和工作日是否一样？");
+    expect(draft.summary).toContain("反复催促");
+    expect(draft.centralTension).toContain("现实压力");
+    expect(draft.unknowns[0].label).toContain("周末和工作日");
+    expect(draft.followUpQuestions[0]).toContain("顺利入睡");
+    expect(draft.limitations).toHaveLength(1);
     expect(draft.sourceSummary).toContain("1 张已授权图片");
     expect(draft.humanGateReceiptRef).toBeNull();
   });
@@ -91,6 +144,7 @@ describe("S3 multimodal family-understanding mobile contract", () => {
       mime_type: "image/jpeg",
       sha256: "a".repeat(64),
     });
+    expect(request).not.toHaveProperty("output_schema");
     expect(JSON.stringify(request)).not.toContain("base64");
   });
 

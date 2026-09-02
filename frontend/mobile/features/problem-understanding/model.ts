@@ -33,11 +33,17 @@ export interface UnderstandingDraft {
   provenanceRef: string;
   humanGateReceiptRef: string | null;
   summary: string;
+  centralTension: string;
+  careIntent: string;
   explicitClaims: readonly string[];
   alternativeExplanations: readonly string[];
   familyStrengths: readonly string[];
   desiredChange: string;
+  desiredChangeBasis: "EXPLICIT" | "INFERRED";
+  observableSigns: readonly string[];
   unknowns: readonly UnderstandingUnknown[];
+  followUpQuestions: readonly string[];
+  limitations: readonly string[];
   sourceSummary: string;
   generatedAt: string;
   mediaCount: number;
@@ -93,10 +99,16 @@ export interface ProblemUnderstandingState {
 export interface UnderstandingMapViewModel {
   originalWords: readonly string[];
   currentUnderstanding: string;
+  centralTension: string;
+  careIntent: string;
   alternativeExplanations: readonly string[];
   familyStrengths: readonly string[];
   desiredChange: string;
+  desiredChangeBasis: "EXPLICIT" | "INFERRED";
+  observableSigns: readonly string[];
   unknowns: readonly UnderstandingUnknown[];
+  followUpQuestions: readonly string[];
+  limitations: readonly string[];
   sourceSummary: string;
   generatedAt: string;
   mediaCount: number;
