@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 
 type Question = {
   question_ref: string;
+  session_ref: string;
   text: string;
   status: "PENDING" | "APPROVED" | "REJECTED";
   source: "SANDBOX_SYNTHETIC";
   fixture_only: true;
 };
 
-type Props = { interactionBaseUrl?: string };
+type Props = { interactionBaseUrl?: string; controlBaseUrl?: string };
 
 const MODERATOR_HEADERS = {
   "Content-Type": "application/json",
@@ -19,8 +20,13 @@ const MODERATOR_HEADERS = {
   "X-Actor-Id": "actor.synthetic.moderator",
   "X-Actor-Role": "HUMAN_MODERATOR",
 };
+const CONTENT_REVIEWER_HEADERS = {
+  ...MODERATOR_HEADERS,
+  "X-Actor-Id": "actor.synthetic.content-reviewer",
+  "X-Actor-Role": "CONTENT_REVIEWER",
+};
 
-export function LiveModeratorConsole({ interactionBaseUrl }: Props) {
+export function LiveModeratorConsole({ interactionBaseUrl, controlBaseUrl }: Props) {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [state, setState] = useState<"loading" | "ready" | "missing" | "error">(
     interactionBaseUrl ? "loading" : "missing",
@@ -29,7 +35,7 @@ export function LiveModeratorConsole({ interactionBaseUrl }: Props) {
   useEffect(() => {
     if (!interactionBaseUrl) return;
     void loadQuestions();
-  }, [interactionBaseUrl]);
+  }, [controlBaseUrl, interactionBaseUrl]);
 
   const pending = questions.filter((question) => question.status === "PENDING");
 
@@ -57,7 +63,7 @@ export function LiveModeratorConsole({ interactionBaseUrl }: Props) {
             <div>
               <span>家长提问</span>
               <strong>{question.text}</strong>
-              <small>等待人工判断 · 不会自动展示</small>
+              <small>{question.session_ref} · 等待人工判断 · 不会自动展示</small>
             </div>
             <div className="live-ops-actions">
               <button type="button" onClick={() => void decide(question, "APPROVE")}>批准展示</button>
@@ -72,13 +78,21 @@ export function LiveModeratorConsole({ interactionBaseUrl }: Props) {
   async function loadQuestions() {
     if (!interactionBaseUrl) return;
     try {
-      const response = await fetch(
-        `${interactionBaseUrl}/sandbox/live/sessions/media.synthetic.1/questions`,
+      const sessionRefs = controlBaseUrl
+        ? await loadActiveSessionRefs(controlBaseUrl)
+        : ["media.synthetic.1"];
+      const responses = await Promise.all(sessionRefs.map((sessionRef) => fetch(
+        `${interactionBaseUrl}/sandbox/live/sessions/${sessionRef}/questions`,
         { cache: "no-store", headers: MODERATOR_HEADERS },
-      );
-      if (!response.ok) throw new Error("queue failed");
-      const result = (await response.json()) as Question[];
-      setQuestions(result.filter((question) => question.fixture_only === true));
+      )));
+      if (responses.some((response) => !response.ok)) throw new Error("queue failed");
+      const result = (await Promise.all(responses.map(
+        (response) => response.json() as Promise<Question[]>,
+      ))).flat();
+      setQuestions(result.filter(
+        (question) =>
+          question.fixture_only === true && question.source === "SANDBOX_SYNTHETIC",
+      ));
       setState("ready");
     } catch {
       setState("error");
@@ -107,4 +121,24 @@ export function LiveModeratorConsole({ interactionBaseUrl }: Props) {
       setState("error");
     }
   }
+}
+
+async function loadActiveSessionRefs(controlBaseUrl: string): Promise<string[]> {
+  const response = await fetch(`${controlBaseUrl}/sandbox/live-control/operator/sessions`, {
+    cache: "no-store",
+    headers: CONTENT_REVIEWER_HEADERS,
+  });
+  if (!response.ok) throw new Error("session listing failed");
+  const sessions = await response.json() as Array<Record<string, unknown>>;
+  if (!Array.isArray(sessions)) throw new Error("invalid session listing");
+  return sessions
+    .filter(
+      (session) =>
+        session.source === "SANDBOX_SYNTHETIC" &&
+        session.fixture_only === true &&
+        session.approval_status === "APPROVED" &&
+        ["SCHEDULED", "LIVE"].includes(String(session.status)) &&
+        typeof session.session_ref === "string",
+    )
+    .map((session) => String(session.session_ref));
 }

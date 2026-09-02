@@ -194,7 +194,10 @@ export default function App({ client = defaultClient }: Props) {
           <LiveSessionControlConsole
             controlBaseUrl={resolveLiveControlBaseUrl(import.meta.env)}
           />
-          <LiveModeratorConsole interactionBaseUrl={resolveLiveInteractionBaseUrl(import.meta.env)} />
+          <LiveModeratorConsole
+            interactionBaseUrl={resolveLiveInteractionBaseUrl(import.meta.env)}
+            controlBaseUrl={resolveLiveControlBaseUrl(import.meta.env)}
+          />
           <LiveSettlementConsole commerceBaseUrl={resolveLiveCommerceBaseUrl(import.meta.env)} />
           <LiveRuntimeConsole
             observabilityBaseUrl={resolveLiveObservabilityBaseUrl(import.meta.env)}

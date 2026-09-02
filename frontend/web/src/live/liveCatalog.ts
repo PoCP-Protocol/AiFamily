@@ -338,6 +338,7 @@ export const resolveLiveView = (environment: LiveEnvironment): LiveViewModel => 
   if (!playback) return { state: "success", record: XIAO_JU_DENG_FIXTURE, sections: LIVE_SANDBOX_SECTIONS };
   const liveRecord: LiveRecord = {
     ...XIAO_JU_DENG_FIXTURE,
+    session_ref: playback.media_session_ref,
     status: playback.state === "ENDED" ? "EXPIRED" : "LIVE",
     expiry_state: playback.state === "ENDED" ? "EXPIRED" : "UNEXPIRED",
     playback_state: playback.state,

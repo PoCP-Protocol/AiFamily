@@ -117,7 +117,7 @@ export function LiveDetailPage({
   useEffect(() => {
     if (!interactionBaseUrl) return;
     const controller = new AbortController();
-    void fetch(`${interactionBaseUrl}/sandbox/live/sessions/media.synthetic.1/questions`, {
+    void fetch(`${interactionBaseUrl}/sandbox/live/sessions/${record.session_ref}/questions`, {
       cache: "no-store",
       headers: SYNTHETIC_ACTOR_HEADERS,
       signal: controller.signal,
@@ -131,7 +131,7 @@ export function LiveDetailPage({
         if (!(error instanceof DOMException && error.name === "AbortError")) setQuestionState("error");
       });
     return () => controller.abort();
-  }, [interactionBaseUrl]);
+  }, [interactionBaseUrl, record.session_ref]);
 
   useEffect(() => {
     if (!commerceBaseUrl || !isLocalPlaybackUrl(commerceBaseUrl)) return;
@@ -414,7 +414,7 @@ export function LiveDetailPage({
     setQuestionState("sending");
     try {
       const response = await fetch(
-        `${interactionBaseUrl}/sandbox/live/sessions/media.synthetic.1/questions`,
+        `${interactionBaseUrl}/sandbox/live/sessions/${record.session_ref}/questions`,
         {
           method: "POST",
           headers: SYNTHETIC_ACTOR_HEADERS,
