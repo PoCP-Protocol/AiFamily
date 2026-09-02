@@ -76,6 +76,70 @@ def test_refund_or_chargeback_reverses_all_three_ledgers_across_restart(tmp_path
     }
 
 
+@pytest.mark.parametrize(
+    ("track", "amount", "currency", "expert_net", "platform_net"),
+    [
+        (Track.CONTENT_SUPPORT, 500, "CNY_CENT", 400, 100),
+        (Track.POINTS, 100, "POINT", 80, 20),
+    ],
+)
+def test_actor_scoped_settlements_survive_restart_and_zero_after_reversal(
+    tmp_path: Path,
+    track: Track,
+    amount: int,
+    currency: str,
+    expert_net: int,
+    platform_net: int,
+) -> None:
+    path = tmp_path / "three-ledgers.sqlite3"
+    purchase_ref = f"purchase:settlement:{track}"
+    ledger = ThreeLedgerSandbox(path)
+    ledger.purchase(
+        actor=actor(),
+        command=Purchase(
+            purchase_ref=purchase_ref,
+            track=track,
+            subject_ref=f"subject:{track}",
+            amount=amount,
+            currency=currency,
+            idempotency_key=f"purchase-key:settlement:{track}",
+        ),
+    )
+
+    settlement = ThreeLedgerSandbox(path).settlements(actor=actor(), purchase_ref=purchase_ref)
+    assert settlement == {
+        "purchase_ref": purchase_ref,
+        "track": track.value,
+        "currency": currency,
+        "entitlement": "ACTIVE",
+        "beneficiaries": [
+            {"beneficiary_ref": "expert.synthetic.1", "net_amount": expert_net},
+            {"beneficiary_ref": "platform:aifamily", "net_amount": platform_net},
+        ],
+        "total": amount,
+        "external_effect": False,
+    }
+    balances = ThreeLedgerSandbox(path).balances(actor=actor(), purchase_ref=purchase_ref)
+    assert balances["cash"] == (0 if track is Track.POINTS else amount)
+
+    ledger.reverse(
+        actor=actor(),
+        purchase_ref=purchase_ref,
+        reversal_ref=f"reversal:settlement:{track}",
+        idempotency_key=f"reversal-key:settlement:{track}",
+        reason="synthetic settlement reversal",
+    )
+    reversed_settlement = ThreeLedgerSandbox(path).settlements(
+        actor=actor(), purchase_ref=purchase_ref
+    )
+    assert reversed_settlement["entitlement"] == "REVOKED"
+    assert reversed_settlement["beneficiaries"] == [
+        {"beneficiary_ref": "expert.synthetic.1", "net_amount": 0},
+        {"beneficiary_ref": "platform:aifamily", "net_amount": 0},
+    ]
+    assert reversed_settlement["total"] == 0
+
+
 def test_child_cross_family_currency_and_idempotency_fail_closed(tmp_path: Path) -> None:
     ledger = ThreeLedgerSandbox(tmp_path / "three-ledgers.sqlite3")
     command = Purchase(
@@ -104,3 +168,16 @@ def test_child_cross_family_currency_and_idempotency_fail_closed(tmp_path: Path)
             actor=replace(actor(), family_id="family.synthetic.other"),
             purchase_ref=command.purchase_ref,
         )
+    with pytest.raises(LedgerRejected, match="actor scope"):
+        ledger.settlements(
+            actor=replace(actor(), family_id="family.synthetic.other"),
+            purchase_ref=command.purchase_ref,
+        )
+    with pytest.raises(LedgerRejected, match="child"):
+        ledger.settlements(
+            actor=replace(actor(), is_adult=False), purchase_ref=command.purchase_ref
+        )
+    with pytest.raises(LedgerRejected, match="trusted actor scope"):
+        ledger.settlements(actor=replace(actor(), actor_id=""), purchase_ref=command.purchase_ref)
+    with pytest.raises(LedgerRejected, match="actor scope"):
+        ledger.settlements(actor=actor(), purchase_ref="purchase:missing")

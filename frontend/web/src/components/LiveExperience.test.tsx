@@ -191,6 +191,7 @@ describe("Xiao Ju Deng live product surface", () => {
     expect(screen.getByRole("heading", { name: "预约30分钟真人咨询" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "了解平台积分" })).toBeInTheDocument();
     expect(screen.getByText(/不会获得优先提问、私聊或预约权/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "使用 100 积分支持专家（演示）" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "暂不可预约" })).toBeDisabled();
   });
 
@@ -366,6 +367,112 @@ describe("Xiao Ju Deng live product surface", () => {
       { headers: expect.any(Object) },
     );
     expect(localStorage).toHaveLength(1);
+    localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it("records adult points support with beneficiary settlement and reverses every ledger", async () => {
+    localStorage.clear();
+    let pointsPurchaseRef = "";
+    const activeSettlement = () => ({
+      purchase_ref: pointsPurchaseRef,
+      track: "POINTS",
+      currency: "POINT",
+      entitlement: "ACTIVE",
+      beneficiaries: [
+        { beneficiary_ref: "expert.synthetic.1", net_amount: 80 },
+        { beneficiary_ref: "platform:aifamily", net_amount: 20 },
+      ],
+      total: 100,
+      external_effect: false,
+      source: "SANDBOX_SYNTHETIC",
+      fixture_only: true,
+    });
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(async (_input, init) => {
+        const payload = JSON.parse(String(init?.body)) as {
+          purchase_ref: string;
+          track: string;
+          amount: number;
+          currency: string;
+        };
+        pointsPurchaseRef = payload.purchase_ref;
+        expect(payload.track).toBe("POINTS");
+        expect(payload.amount).toBe(100);
+        expect(payload.currency).toBe("POINT");
+        return {
+          ok: true,
+          json: async () => ({
+            purchase_ref: pointsPurchaseRef,
+            track: "POINTS",
+            external_effect: false,
+            source: "SANDBOX_SYNTHETIC",
+            fixture_only: true,
+          }),
+        };
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          purchase_ref: pointsPurchaseRef,
+          cash: 0,
+          settlement: 100,
+          entitlement: "ACTIVE",
+          external_effect: false,
+          source: "SANDBOX_SYNTHETIC",
+          fixture_only: true,
+        }),
+      })
+      .mockImplementationOnce(async () => ({ ok: true, json: async () => activeSettlement() }))
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          state: "REVERSED",
+          external_effect: false,
+          source: "SANDBOX_SYNTHETIC",
+          fixture_only: true,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          purchase_ref: pointsPurchaseRef,
+          cash: 0,
+          settlement: 0,
+          entitlement: "REVOKED",
+          external_effect: false,
+          source: "SANDBOX_SYNTHETIC",
+          fixture_only: true,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ...activeSettlement(),
+          entitlement: "REVOKED",
+          beneficiaries: [
+            { beneficiary_ref: "expert.synthetic.1", net_amount: 0 },
+            { beneficiary_ref: "platform:aifamily", net_amount: 0 },
+          ],
+          total: 0,
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LiveServiceOfferingPage commerceBaseUrl="http://127.0.0.1:55400" />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "使用 100 积分支持专家（演示）" }));
+    expect(await screen.findByText("积分支持：已记录（演示）")).toBeInTheDocument();
+    expect(screen.getByText(/专家 80 积分/)).toBeInTheDocument();
+    expect(screen.getByText(/平台 20 积分/)).toBeInTheDocument();
+    expect(localStorage.getItem("xiaojudeng.sandbox.points.purchase_ref")).toBe(pointsPurchaseRef);
+
+    await user.click(screen.getByRole("button", { name: "撤销积分支持" }));
+    expect(
+      await screen.findByText("积分支持已撤销：现金 ¥0.00，专家与平台待结算均为 0。"),
+    ).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(6);
     localStorage.clear();
     vi.unstubAllGlobals();
   });

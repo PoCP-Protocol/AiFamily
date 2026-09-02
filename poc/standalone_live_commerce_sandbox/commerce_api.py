@@ -222,6 +222,18 @@ def create_app(database_path: Path | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return sandbox_result(result)
 
+    @app.get("/sandbox/live-commerce/purchases/{purchase_ref}/settlements")
+    def settlements(
+        purchase_ref: str,
+        actor: Annotated[SyntheticActor, Depends(actor_headers())],
+    ) -> dict[str, object]:
+        require_role(actor, {"ADULT_VIEWER"})
+        try:
+            result = ledger.settlements(actor=ledger_actor(actor), purchase_ref=purchase_ref)
+        except LedgerRejected as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return sandbox_result(result)
+
     return app
 
 

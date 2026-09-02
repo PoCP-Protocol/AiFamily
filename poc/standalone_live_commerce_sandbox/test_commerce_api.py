@@ -176,3 +176,119 @@ def test_persistent_ledger_rejects_cross_family_child_and_conflict(tmp_path: Pat
     assert (
         client.get(balance_url, headers=headers(family="family.synthetic.other")).status_code == 404
     )
+
+
+@pytest.mark.parametrize(
+    ("track", "amount", "currency", "expert_net", "platform_net"),
+    [
+        ("CONTENT_SUPPORT", 500, "CNY_CENT", 400, 100),
+        ("POINTS", 100, "POINT", 80, 20),
+    ],
+)
+def test_http_settlements_are_scoped_restart_safe_and_zero_after_reversal(
+    tmp_path: Path,
+    track: str,
+    amount: int,
+    currency: str,
+    expert_net: int,
+    platform_net: int,
+) -> None:
+    database = tmp_path / "commerce.sqlite3"
+    purchase_ref = f"purchase:settlement:http:{track}"
+    purchase = {
+        "purchase_ref": purchase_ref,
+        "track": track,
+        "subject_ref": f"subject:settlement:http:{track}",
+        "amount": amount,
+        "currency": currency,
+        "idempotency_key": f"purchase-key:settlement:http:{track}",
+    }
+    client = TestClient(create_app(database))
+    assert (
+        client.post(
+            "/sandbox/live-commerce/purchases", headers=headers(), json=purchase
+        ).status_code
+        == 200
+    )
+
+    settlement_url = f"/sandbox/live-commerce/purchases/{purchase_ref}/settlements"
+    settlement = TestClient(create_app(database)).get(settlement_url, headers=headers())
+    assert settlement.status_code == 200
+    assert settlement.json() == {
+        "purchase_ref": purchase_ref,
+        "track": track,
+        "currency": currency,
+        "entitlement": "ACTIVE",
+        "beneficiaries": [
+            {"beneficiary_ref": "expert.synthetic.1", "net_amount": expert_net},
+            {"beneficiary_ref": "platform:aifamily", "net_amount": platform_net},
+        ],
+        "total": amount,
+        "external_effect": False,
+        "source": "SANDBOX_SYNTHETIC",
+        "fixture_only": True,
+    }
+
+    reversal = TestClient(create_app(database)).post(
+        f"/sandbox/live-commerce/purchases/{purchase_ref}/reversals",
+        headers=headers(),
+        json={
+            "reversal_ref": f"reversal:settlement:http:{track}",
+            "idempotency_key": f"reversal-key:settlement:http:{track}",
+            "reason": "synthetic settlement reversal",
+        },
+    )
+    assert reversal.status_code == 200
+    after_restart = TestClient(create_app(database)).get(settlement_url, headers=headers())
+    assert after_restart.status_code == 200
+    assert after_restart.json()["entitlement"] == "REVOKED"
+    assert after_restart.json()["beneficiaries"] == [
+        {"beneficiary_ref": "expert.synthetic.1", "net_amount": 0},
+        {"beneficiary_ref": "platform:aifamily", "net_amount": 0},
+    ]
+    assert after_restart.json()["total"] == 0
+
+
+def test_http_settlements_fail_closed_for_scope_child_and_unsafe_actor(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "commerce.sqlite3"))
+    purchase_ref = "purchase:settlement:http:scope"
+    assert (
+        client.post(
+            "/sandbox/live-commerce/purchases",
+            headers=headers(),
+            json={
+                "purchase_ref": purchase_ref,
+                "track": "CONTENT_SUPPORT",
+                "subject_ref": "subject:settlement:http:scope",
+                "amount": 500,
+                "currency": "CNY_CENT",
+                "idempotency_key": "purchase-key:settlement:http:scope",
+            },
+        ).status_code
+        == 200
+    )
+    url = f"/sandbox/live-commerce/purchases/{purchase_ref}/settlements"
+    assert client.get(url).status_code == 401
+    assert client.get(url, headers=headers(role="CHILD")).status_code == 403
+    assert client.get(url, headers=headers(family="family.synthetic.other")).status_code == 404
+    assert (
+        client.get(
+            url,
+            headers={**headers(), "X-Sandbox-Source": "PRODUCTION"},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.get(
+            url,
+            headers={**headers(), "X-Actor-Id": "adult.real.1"},
+        ).status_code
+        == 403
+    )
+    assert (
+        client.get(
+            "/sandbox/live-commerce/purchases/purchase:missing/settlements",
+            headers=headers(),
+        ).status_code
+        == 404
+    )

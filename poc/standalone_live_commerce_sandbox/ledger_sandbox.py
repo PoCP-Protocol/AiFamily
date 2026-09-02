@@ -280,6 +280,44 @@ class ThreeLedgerSandbox:
             "external_effect": False,
         }
 
+    def settlements(self, *, actor: LedgerActor, purchase_ref: str) -> dict[str, object]:
+        self._assert_actor(actor)
+        with self._connect() as database:
+            purchase = database.execute(
+                "SELECT track, state FROM entitlement_ledger "
+                "WHERE purchase_ref = ? AND tenant_id = ? AND family_id = ?",
+                (purchase_ref, actor.tenant_id, actor.family_id),
+            ).fetchone()
+            if purchase is None:
+                raise LedgerRejected("purchase not found in actor scope")
+            rows = database.execute(
+                "SELECT beneficiary_ref, currency, COALESCE(SUM(amount), 0) "
+                "FROM settlement_ledger "
+                "WHERE purchase_ref = ? AND tenant_id = ? AND family_id = ? "
+                "GROUP BY beneficiary_ref, currency",
+                (purchase_ref, actor.tenant_id, actor.family_id),
+            ).fetchall()
+        net_amounts = {row[0]: row[2] for row in rows}
+        currencies = {row[1] for row in rows}
+        if len(currencies) != 1:
+            raise LedgerRejected("settlement currency unavailable")
+        beneficiaries = [
+            {
+                "beneficiary_ref": beneficiary_ref,
+                "net_amount": net_amounts.get(beneficiary_ref, 0),
+            }
+            for beneficiary_ref in ("expert.synthetic.1", "platform:aifamily")
+        ]
+        return {
+            "purchase_ref": purchase_ref,
+            "track": purchase[0],
+            "currency": currencies.pop(),
+            "entitlement": purchase[1],
+            "beneficiaries": beneficiaries,
+            "total": sum(item["net_amount"] for item in beneficiaries),
+            "external_effect": False,
+        }
+
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self._path)
 

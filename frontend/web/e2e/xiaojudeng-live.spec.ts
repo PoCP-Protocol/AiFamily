@@ -355,6 +355,79 @@ test("adult membership remains independent and restart-readable", async ({ page 
   await page.screenshot({ path: testInfo.outputPath("desktop-membership-revoked.png"), fullPage: true });
 });
 
+test("adult points support preserves expert settlement across restart and reversal", async ({ page }, testInfo) => {
+  await installOriginProxy(page, mediaUrl, mediaBrowserOrigin, new URL(sandboxDto.control_url).origin);
+  await page.goto(mediaUrl);
+  await page.evaluate(() => localStorage.removeItem("xiaojudeng.sandbox.points.purchase_ref"));
+  await page.goto(`${mediaUrl}#live-service`);
+
+  const pointsButton = page.getByRole("button", { name: "使用 100 积分支持专家（演示）" });
+  const [purchaseResponse] = await Promise.all([
+    page.waitForResponse(
+      (response) => response.url().endsWith("/sandbox/live-commerce/purchases")
+        && response.request().method() === "POST",
+    ),
+    pointsButton.click(),
+  ]);
+  const purchaseBody = await purchaseResponse.json() as { purchase_ref: string; track: string };
+  expect(purchaseBody.track).toBe("POINTS");
+  expect(purchaseBody.purchase_ref).toMatch(/^points-support\.ui\./);
+  await expect(page.getByText("积分支持：已记录（演示）")).toBeVisible();
+  await expect(page.getByText(/专家 80 积分/)).toBeVisible();
+  await expect(page.getByText(/平台 20 积分/)).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("desktop-points-active.png"), fullPage: true });
+
+  commerceProcess.kill();
+  await waitForProcessExit(commerceProcess);
+  commerceProcess = await startCommerceSandbox(commercePort);
+  await page.reload();
+  await expect(page.getByText("积分支持：已记录（演示）")).toBeVisible();
+  const settlementAfterRestart = await fetch(
+    `${commerceApiUrl}/sandbox/live-commerce/purchases/${encodeURIComponent(purchaseBody.purchase_ref)}/settlements`,
+    { headers: syntheticActorHeaders() },
+  );
+  expect(settlementAfterRestart.status).toBe(200);
+  const activeSettlement = await settlementAfterRestart.json() as {
+    beneficiaries: Array<{ beneficiary_ref: string; net_amount: number }>;
+    total: number;
+  };
+  expect(activeSettlement.total).toBe(100);
+  expect(activeSettlement.beneficiaries).toEqual([
+    { beneficiary_ref: "expert.synthetic.1", net_amount: 80 },
+    { beneficiary_ref: "platform:aifamily", net_amount: 20 },
+  ]);
+
+  await page.getByRole("button", { name: "撤销积分支持" }).click();
+  await expect(page.getByText("积分支持已撤销：现金 ¥0.00，专家与平台待结算均为 0。")).toBeVisible();
+  commerceProcess.kill();
+  await waitForProcessExit(commerceProcess);
+  commerceProcess = await startCommerceSandbox(commercePort);
+  const [balanceAfterRestart, settlementAfterReversal] = await Promise.all([
+    fetch(
+      `${commerceApiUrl}/sandbox/live-commerce/purchases/${encodeURIComponent(purchaseBody.purchase_ref)}/balances`,
+      { headers: syntheticActorHeaders() },
+    ),
+    fetch(
+      `${commerceApiUrl}/sandbox/live-commerce/purchases/${encodeURIComponent(purchaseBody.purchase_ref)}/settlements`,
+      { headers: syntheticActorHeaders() },
+    ),
+  ]);
+  expect(balanceAfterRestart.status).toBe(200);
+  expect(settlementAfterReversal.status).toBe(200);
+  expect(await balanceAfterRestart.json()).toMatchObject({
+    cash: 0,
+    settlement: 0,
+    entitlement: "REVOKED",
+  });
+  expect(await settlementAfterReversal.json()).toMatchObject({
+    entitlement: "REVOKED",
+    total: 0,
+  });
+  await page.reload();
+  await expect(page.getByText("积分支持已撤销：现金 ¥0.00，专家与平台待结算均为 0。")).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("desktop-points-revoked.png"), fullPage: true });
+});
+
 async function startMediaSandbox(): Promise<SandboxDto> {
   const child = spawn(
     pythonExecutable,
