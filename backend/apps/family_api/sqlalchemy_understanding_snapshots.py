@@ -22,6 +22,8 @@ class SqlAlchemyUnderstandingDraftSnapshots:
     async def save(self, snapshot: UnderstandingDraftSnapshot) -> None:
         if snapshot.expires_at <= datetime.now(UTC):
             raise ValueError("understanding snapshot is already expired")
+        if snapshot.prior_artifact_ref is not None:
+            await self._expire_prior_snapshot(snapshot)
         inserted = (
             await self._session.execute(
                 text(
@@ -64,6 +66,26 @@ class SqlAlchemyUnderstandingDraftSnapshots:
         stored = _snapshot(stored_row)
         if inserted is None and stored != snapshot:
             raise RuntimeError("understanding_snapshot_idempotency_conflict")
+
+    async def _expire_prior_snapshot(self, snapshot: UnderstandingDraftSnapshot) -> None:
+        """Keep history while removing a replaced draft from the current projection."""
+
+        await self._session.execute(
+            text(
+                f"UPDATE {TABLE_NAME} SET status='EXPIRED',"
+                "expires_at=LEAST(expires_at,now()) "
+                "WHERE tenant_id=:tenant AND family_id=:family "
+                "AND understanding_run_ref=:run_ref AND artifact_ref=:prior "
+                "AND artifact_version<:version AND status='DRAFT'"
+            ),
+            {
+                "tenant": UUID(snapshot.tenant_id),
+                "family": UUID(snapshot.family_id),
+                "run_ref": snapshot.understanding_run_ref,
+                "prior": snapshot.prior_artifact_ref,
+                "version": snapshot.artifact_version,
+            },
+        )
 
     async def load(
         self,

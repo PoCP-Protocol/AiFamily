@@ -174,6 +174,70 @@ async def test_save_restart_read_and_exact_idempotency(prepared_database: str) -
         await restarted.dispose()
 
 
+async def test_new_version_expires_prior_draft_but_keeps_history(
+    prepared_database: str,
+) -> None:
+    first = replace(
+        snapshot(),
+        artifact_ref="artifact-v1",
+        artifact_version=1,
+        prior_artifact_ref=None,
+        provenance_ref="air-provenance-v1",
+    )
+    second = replace(
+        snapshot(),
+        artifact_ref="artifact-v2",
+        artifact_version=2,
+        prior_artifact_ref=first.artifact_ref,
+        provenance_ref="air-provenance-v2",
+    )
+    engine = create_async_engine(prepared_database, connect_args={"statement_cache_size": 0})
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with sessions() as session:
+            adapter = SqlAlchemyUnderstandingDraftSnapshots(session)
+            await adapter.save(first)
+            await adapter.save(second)
+            await session.commit()
+
+        async with sessions() as session:
+            adapter = SqlAlchemyUnderstandingDraftSnapshots(session)
+            assert (
+                await adapter.load(
+                    tenant_id=TENANT_ID,
+                    family_id=FAMILY_ID,
+                    artifact_ref=first.artifact_ref,
+                    artifact_version=first.artifact_version,
+                    provenance_ref=first.provenance_ref,
+                )
+                is None
+            )
+            assert (
+                await adapter.load(
+                    tenant_id=TENANT_ID,
+                    family_id=FAMILY_ID,
+                    artifact_ref=second.artifact_ref,
+                    artifact_version=second.artifact_version,
+                    provenance_ref=second.provenance_ref,
+                )
+                == second
+            )
+            statuses = dict(
+                (
+                    await session.execute(
+                        text(
+                            "SELECT artifact_ref,status FROM family_understanding_draft_snapshots "
+                            "WHERE tenant_id=:tenant ORDER BY artifact_version"
+                        ),
+                        {"tenant": UUID(TENANT_ID)},
+                    )
+                ).all()
+            )
+            assert statuses == {"artifact-v1": "EXPIRED", "artifact-v2": "DRAFT"}
+    finally:
+        await engine.dispose()
+
+
 async def test_changed_replay_conflicts_and_revoked_snapshot_never_resurrects(
     prepared_database: str,
 ) -> None:

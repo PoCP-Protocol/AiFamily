@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -110,7 +111,7 @@ class SqlAlchemyReviewedUnderstandingSignals(
         understanding_run_ref: str | None = None,
         human_gate_receipt_ref: str,
     ) -> ViewedUnderstandingSignal | None:
-        return await self._load_by_gate_receipt(
+        signal = await self._load_by_gate_receipt(
             tenant_id=tenant_id,
             family_id=family_id,
             assessment_session_id=assessment_session_id,
@@ -118,6 +119,50 @@ class SqlAlchemyReviewedUnderstandingSignals(
             human_gate_receipt_ref=human_gate_receipt_ref,
             lock=False,
         )
+        if signal is None or signal.understanding_run_ref is None:
+            return signal
+        return await self._project_current_problem_understanding_status(signal)
+
+    async def _project_current_problem_understanding_status(
+        self, signal: ViewedUnderstandingSignal
+    ) -> ViewedUnderstandingSignal:
+        row = (
+            (
+                await self._session.execute(
+                    text(
+                        "select status,expires_at,revoked_at,revocation_ref "
+                        "from family_understanding_draft_snapshots "
+                        "where tenant_id=:tenant_id and family_id=:family_id "
+                        "and understanding_run_ref=:understanding_run_ref "
+                        "and artifact_ref=:artifact_ref and artifact_version=:artifact_version "
+                        "and provenance_ref=:provenance_ref"
+                    ),
+                    {
+                        "tenant_id": UUID(signal.tenant_id),
+                        "family_id": UUID(signal.family_id),
+                        "understanding_run_ref": signal.understanding_run_ref,
+                        "artifact_ref": signal.reviewed_draft_ref,
+                        "artifact_version": signal.draft_version,
+                        "provenance_ref": signal.provenance_ref,
+                    },
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if row is None:
+            return replace(signal, human_gate_effective_status="EXPIRED")
+        now = datetime.now(UTC)
+        if row["revoked_at"] is not None or str(row["status"]) == "REVOKED":
+            return replace(
+                signal,
+                human_gate_effective_status="REVOKED",
+                revoked_at=row["revoked_at"],
+                revocation_ref=row["revocation_ref"],
+            )
+        if str(row["status"]) != "DRAFT" or row["expires_at"] <= now:
+            return replace(signal, human_gate_effective_status="EXPIRED")
+        return signal
 
     async def load_confirmation_replay(
         self,

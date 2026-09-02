@@ -97,6 +97,21 @@ reviewed_signals = Table(
         name="ck_reviewed_understanding_model_gateway_source",
     ),
 )
+understanding_snapshots = Table(
+    "family_understanding_draft_snapshots",
+    metadata,
+    Column("understanding_snapshot_id", Uuid(as_uuid=True), primary_key=True),
+    Column("tenant_id", Uuid(as_uuid=True), nullable=False),
+    Column("family_id", Uuid(as_uuid=True), nullable=False),
+    Column("understanding_run_ref", String(256), nullable=False),
+    Column("artifact_ref", String(256), nullable=False),
+    Column("artifact_version", Integer, nullable=False),
+    Column("provenance_ref", String(256), nullable=False),
+    Column("status", String(16), nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("revoked_at", DateTime(timezone=True), nullable=True),
+    Column("revocation_ref", String(256), nullable=True),
+)
 
 
 @pytest.fixture
@@ -288,6 +303,24 @@ def decision(command: RecordReviewedUnderstandingInput) -> DecideViewedUnderstan
     )
 
 
+async def insert_current_snapshot(
+    session: AsyncSession, command: RecordReviewedUnderstandingInput
+) -> None:
+    await session.execute(
+        understanding_snapshots.insert().values(
+            understanding_snapshot_id=uuid.uuid4(),
+            tenant_id=uuid.UUID(command.tenant_id),
+            family_id=uuid.UUID(command.family_id),
+            understanding_run_ref=command.understanding_run_ref,
+            artifact_ref=command.reviewed_draft_ref,
+            artifact_version=command.draft_version,
+            provenance_ref=command.provenance_ref,
+            status="DRAFT",
+            expires_at=command.expires_at,
+        )
+    )
+
+
 async def test_problem_understanding_signal_survives_restart_and_handoffs(
     session_factory,
 ) -> None:
@@ -305,6 +338,7 @@ async def test_problem_understanding_signal_survives_restart_and_handoffs(
         human_gate_receipt_ref="review-receipt:v1:sha256:one",
     )
     async with session_factory() as session:
+        await insert_current_snapshot(session, command)
         adapter = SqlAlchemyReviewedUnderstandingSignals(session)
         first = await RecordReviewedUnderstandingService(adapter).record_viewed(command)
         replay = await RecordReviewedUnderstandingService(adapter).record_viewed(command)
@@ -326,6 +360,46 @@ async def test_problem_understanding_signal_survives_restart_and_handoffs(
 
     assert receipt.outcome == "INTENT_CREATED"
     assert growth.calls == 1
+
+
+async def test_superseded_problem_understanding_cannot_create_growth_intent(
+    session_factory,
+) -> None:
+    assessment = reviewed_command()
+    command = replace(
+        assessment,
+        assessment_session_id=None,
+        understanding_run_ref="understanding-run-superseded",
+        scope_ref=(f"family://{assessment.tenant_id}/{assessment.family_id}/problem-understanding"),
+        signal_ref="understanding-signal:v1:sha256:superseded",
+        signal_version=1,
+        reviewed_draft_ref="artifact-superseded-v1",
+        draft_version=1,
+        provenance_ref="air-provenance:v1:sha256:superseded",
+        human_gate_receipt_ref="review-receipt:v1:sha256:superseded",
+    )
+    async with session_factory() as session:
+        await insert_current_snapshot(session, command)
+        adapter = SqlAlchemyReviewedUnderstandingSignals(session)
+        await RecordReviewedUnderstandingService(adapter).record_viewed(command)
+        await session.execute(
+            understanding_snapshots.update()
+            .where(
+                understanding_snapshots.c.understanding_run_ref
+                == command.understanding_run_ref
+            )
+            .values(status="EXPIRED", expires_at=datetime.now(UTC) - timedelta(seconds=1))
+        )
+        await session.commit()
+
+    growth = GrowthIntentStub()
+    async with session_factory() as session:
+        handoff = AssessmentGrowthIntentHandoff(
+            SqlAlchemyReviewedUnderstandingSignals(session), growth
+        )
+        with pytest.raises(AssessmentForbiddenError, match="human_gate_receipt_not_effective"):
+            await handoff.decide(decision(command))
+    assert growth.calls == 0
 
 
 async def test_confirm_uses_exact_durable_binding_and_rejects_stale_version(
