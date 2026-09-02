@@ -115,6 +115,12 @@ export function UnderstandingMap({ model }: UnderstandingMapProps) {
             <Bullet key={item}>{item}</Bullet>
           ))}
         </MapSection>
+        <MapSection title="这份理解从哪里来" tone="quiet">
+          <Text style={styles.body}>{model.sourceSummary}</Text>
+          <Text style={styles.supporting}>
+            第 {model.draftVersion} 版 · {formatGeneratedAt(model.generatedAt)}
+          </Text>
+        </MapSection>
       </View>
     </View>
   );
@@ -131,6 +137,9 @@ interface CorrectionConfirmationProps {
   onConfirm: () => void;
   onSkipClarification: () => void;
   onSaveAndExit: () => void;
+  onRequestHumanReview: () => void;
+  onDelete: () => void;
+  busyAction?: "human-review" | "delete" | "decision" | null;
 }
 
 export function CorrectionConfirmation({
@@ -144,6 +153,9 @@ export function CorrectionConfirmation({
   onConfirm,
   onSkipClarification,
   onSaveAndExit,
+  onRequestHumanReview,
+  onDelete,
+  busyAction = null,
 }: CorrectionConfirmationProps) {
   if (phase === "CORRECTING") {
     return (
@@ -174,10 +186,16 @@ export function CorrectionConfirmation({
       <Text accessibilityRole="header" style={styles.sectionTitle}>
         这份理解准确吗？
       </Text>
-      <Text style={styles.actionHint}>只有你确认后，才会进入下一步。</Text>
+      <Text style={styles.actionHint}>
+        这只会记下你的反馈，不会自动改变家庭记录。
+      </Text>
       <ActionButton
-        disabled={!canConfirm}
-        label={PROBLEM_UNDERSTANDING_COPY.confirmAction}
+        disabled={!canConfirm || busyAction !== null}
+        label={
+          busyAction === "decision"
+            ? "正在记下"
+            : PROBLEM_UNDERSTANDING_COPY.confirmAction
+        }
         onPress={onConfirm}
       />
       <View style={styles.actionRow}>
@@ -200,7 +218,21 @@ export function CorrectionConfirmation({
       </View>
       <View style={styles.divider} />
       <ActionButton label="先跳过澄清" onPress={onSkipClarification} quiet />
+      <ActionButton
+        disabled={busyAction !== null}
+        label={
+          busyAction === "human-review" ? "正在联系人工" : "请人工帮我看看"
+        }
+        onPress={onRequestHumanReview}
+        secondary
+      />
       <ActionButton label="退出并保存" onPress={onSaveAndExit} quiet />
+      <ActionButton
+        disabled={busyAction !== null}
+        label={busyAction === "delete" ? "正在删除" : "删除这次内容"}
+        onPress={onDelete}
+        quiet
+      />
     </View>
   );
 }
@@ -245,6 +277,18 @@ function MapSection({
 
 function Bullet({ children }: { children: ReactNode }) {
   return <Text style={styles.body}>• {children}</Text>;
+}
+
+function formatGeneratedAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "刚刚更新";
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
 }
 
 function ActionButton({

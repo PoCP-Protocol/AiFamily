@@ -24,6 +24,7 @@ export interface UnderstandingUnknown {
 }
 
 export interface UnderstandingDraft {
+  runId: string;
   signalRef: string;
   signalVersion: number;
   scopeRef: string;
@@ -37,7 +38,17 @@ export interface UnderstandingDraft {
   familyStrengths: readonly string[];
   desiredChange: string;
   unknowns: readonly UnderstandingUnknown[];
+  sourceSummary: string;
+  generatedAt: string;
+  mediaCount: number;
   lifecycle: "PROPOSED" | "SUPERSEDED" | "CONFIRMED";
+}
+
+export interface AuthorizedMediaAttachment {
+  mediaType: "IMAGE";
+  uri: string;
+  mimeType: string;
+  sha256: string;
 }
 
 export interface DraftBinding {
@@ -86,6 +97,10 @@ export interface UnderstandingMapViewModel {
   familyStrengths: readonly string[];
   desiredChange: string;
   unknowns: readonly UnderstandingUnknown[];
+  sourceSummary: string;
+  generatedAt: string;
+  mediaCount: number;
+  draftVersion: number;
   canCorrect: boolean;
   canConfirm: boolean;
   clarificationSkipped: boolean;

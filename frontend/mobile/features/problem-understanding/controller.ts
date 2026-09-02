@@ -178,6 +178,25 @@ export function applyConfirmationReceipt(
   };
 }
 
+export function markUnderstandingFeedbackRecorded(
+  state: ProblemUnderstandingState,
+): ProblemUnderstandingState {
+  if (!state.activeSignal || state.phase !== "AWAITING_CONFIRMATION") {
+    return { ...state, phase: "ERROR" };
+  }
+  return {
+    ...state,
+    phase: "CONFIRMED",
+    drafts: state.drafts.map((draft) =>
+      draft.signalRef === state.activeSignal?.signalRef &&
+      draft.signalVersion === state.activeSignal.signalVersion
+        ? { ...draft, lifecycle: "CONFIRMED" as const }
+        : draft,
+    ),
+    recoveryMessage: null,
+  };
+}
+
 export function markUnderstandingUnavailable(
   state: ProblemUnderstandingState,
 ): ProblemUnderstandingState {
@@ -303,11 +322,13 @@ export function buildUnderstandingMap(
     familyStrengths: draft.familyStrengths,
     desiredChange: draft.desiredChange,
     unknowns: draft.unknowns,
+    sourceSummary: draft.sourceSummary,
+    generatedAt: draft.generatedAt,
+    mediaCount: draft.mediaCount,
+    draftVersion: draft.draftVersion,
     canCorrect: draft.lifecycle === "PROPOSED",
     canConfirm:
-      draft.lifecycle === "PROPOSED" &&
-      state.phase === "AWAITING_CONFIRMATION" &&
-      Boolean(state.activeSignal?.humanGateReceiptRef),
+      draft.lifecycle === "PROPOSED" && state.phase === "AWAITING_CONFIRMATION",
     clarificationSkipped: state.clarificationSkipped,
   };
 }
