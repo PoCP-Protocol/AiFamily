@@ -21,7 +21,7 @@ from backend.intelligence.experience.multimodal_context_application import (
 )
 from backend.intelligence.experience.multimodal_routing import MultimodalRouteRequest
 
-NOW = datetime(2026, 8, 30, 8, 0, tzinfo=UTC)
+NOW = datetime.now(UTC)
 
 
 def _scope() -> ContextScope:

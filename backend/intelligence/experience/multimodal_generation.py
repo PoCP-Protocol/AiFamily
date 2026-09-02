@@ -20,6 +20,14 @@ from backend.intelligence.model_gateway.contracts import (
     StructuredRequest,
 )
 from backend.intelligence.model_gateway.gateway import ModelGateway
+from backend.intelligence.model_gateway.provenance import (
+    ModelDraftIdentity,
+    ModelDraftNotFound,
+    ModelDraftRegistryError,
+    ModelDraftRegistryPort,
+    ModelDraftScope,
+    StoredModelDraft,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +46,7 @@ class MultimodalExperienceCommand:
     input_refs: tuple[str, ...] = ()
     media_inputs: tuple[MediaInput, ...] = ()
     session_id: str | None = None
+    model_draft_scope: ModelDraftScope | None = None
 
     def __post_init__(self) -> None:
         required = (
@@ -59,6 +68,10 @@ class MultimodalExperienceCommand:
             raise ValueError("input_refs must contain non-empty references")
         if len(set(self.input_refs)) != len(self.input_refs):
             raise ValueError("input_refs must not contain duplicates")
+        if self.model_draft_scope is not None and not isinstance(
+            self.model_draft_scope, ModelDraftScope
+        ):
+            raise ValueError("model_draft_scope must be a ModelDraftScope")
 
     def to_structured_request(self) -> StructuredRequest:
         """Build the gateway request without exposing provider details elsewhere."""
@@ -85,6 +98,8 @@ class MultimodalExperienceDraft:
     run_id: str
     draft: ModelDraft
     media_inputs: tuple[MediaInput, ...]
+    draft_id: str | None = None
+    provenance_ref: str | None = None
 
     @property
     def output(self) -> dict[str, Any]:
@@ -98,8 +113,14 @@ class MultimodalExperienceDraft:
 class MultimodalExperienceService:
     """Generate a structured multimodal draft through the sole Model Gateway."""
 
-    def __init__(self, gateway: ModelGateway) -> None:
+    def __init__(
+        self,
+        gateway: ModelGateway,
+        *,
+        registry: ModelDraftRegistryPort | None = None,
+    ) -> None:
         self._gateway = gateway
+        self._registry = registry
 
     async def generate_draft(
         self,
@@ -107,16 +128,37 @@ class MultimodalExperienceService:
         *,
         run: DurableExperienceRun | None = None,
     ) -> MultimodalExperienceDraft:
+        identity: ModelDraftIdentity | None = None
+        if self._registry is not None:
+            if command.model_draft_scope is None:
+                raise ValueError(
+                    "model_draft_scope is required when a ModelDraft registry is configured"
+                )
+            identity = ModelDraftIdentity.from_run_id(command.run_id)
+
         if run is not None:
             if run.run_id != command.run_id:
                 raise ValueError("run_id does not match the experience command")
             if run.state is RunState.QUEUED:
                 run.transition(RunState.RUNNING, event_id=f"{run.run_id}:started")
+        stored: StoredModelDraft | None = None
         try:
-            draft = await self._gateway.generate_structured(
-                command.to_structured_request(),
-                provider_id=command.provider_id,
-            )
+            if self._registry is not None and identity is not None:
+                stored = await self._resolve_existing(command, identity)
+            if stored is None:
+                draft = await self._gateway.generate_structured(
+                    command.to_structured_request(),
+                    provider_id=command.provider_id,
+                )
+                if self._registry is not None and identity is not None:
+                    stored = await self._registry.save(
+                        draft_id=identity.draft_id,
+                        provenance_ref=identity.provenance_ref,
+                        scope=command.model_draft_scope,
+                        draft=draft,
+                    )
+            else:
+                draft = stored.draft
         except Exception:
             if run is not None and run.state is RunState.RUNNING:
                 run.transition(RunState.FAILED, event_id=f"{run.run_id}:failed")
@@ -125,6 +167,15 @@ class MultimodalExperienceService:
         if run is not None:
             run.checkpoint(
                 checkpoint_id=f"{run.run_id}:draft",
+                payload=(
+                    {
+                        "draft_id": stored.draft_id,
+                        "provenance_ref": stored.provenance_ref,
+                        "status": "DRAFT",
+                    }
+                    if stored is not None
+                    else {}
+                ),
                 artifact_refs=tuple(
                     f"media:sha256:{media.sha256}" for media in command.media_inputs
                 ),
@@ -135,7 +186,54 @@ class MultimodalExperienceService:
             run_id=command.run_id,
             draft=draft,
             media_inputs=command.media_inputs,
+            draft_id=stored.draft_id if stored is not None else None,
+            provenance_ref=stored.provenance_ref if stored is not None else None,
         )
+
+    async def _resolve_existing(
+        self,
+        command: MultimodalExperienceCommand,
+        identity: ModelDraftIdentity,
+    ) -> StoredModelDraft | None:
+        if self._registry is None:
+            return None
+        scope = command.model_draft_scope
+        if scope is None:
+            raise ValueError(
+                "model_draft_scope is required when a ModelDraft registry is configured"
+            )
+        try:
+            stored = await self._registry.resolve_stored(
+                identity.provenance_ref,
+                tenant_id=scope.tenant_id,
+                family_id=scope.family_id,
+                subject_person_id=scope.subject_person_id,
+                purpose=scope.purpose,
+                correlation_id=scope.correlation_id,
+            )
+        except ModelDraftNotFound:
+            return None
+
+        provenance = stored.draft.provenance
+        expected = (
+            command.provider_id,
+            command.use_case,
+            command.prompt_version,
+            command.schema_version,
+            command.data_class,
+            command.context_snapshot_ref,
+        )
+        actual = (
+            provenance.provider_id,
+            provenance.use_case,
+            provenance.prompt_version,
+            provenance.schema_version,
+            provenance.data_class,
+            provenance.context_snapshot_ref,
+        )
+        if actual != expected:
+            raise ModelDraftRegistryError("MODEL_DRAFT_REPLAY_MISMATCH")
+        return stored
 
 
 __all__ = [
