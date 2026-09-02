@@ -27,6 +27,10 @@ from backend.intelligence.experience.multimodal_generation import (
     MultimodalExperienceCommand,
 )
 from backend.intelligence.experience.multimodal_routing import MultimodalRouteRequest
+from backend.intelligence.experience.observation_normalization import (
+    NormalizedObservation,
+    normalize_observations,
+)
 from backend.intelligence.experience.runs import DurableExperienceRun
 from backend.intelligence.model_gateway.contracts import MediaInput
 from backend.intelligence.model_gateway.provenance import (
@@ -78,6 +82,7 @@ class ContextBoundMultimodalCommand:
 class ContextBoundMultimodalDraft:
     snapshot: ContextSnapshot
     routed: RoutedMultimodalExperienceDraft
+    normalized_observations: tuple[NormalizedObservation, ...] = ()
 
     @property
     def run_id(self) -> str:
@@ -146,6 +151,13 @@ class ContextBoundMultimodalExperienceService:
                 snapshot_ttl=command.snapshot_ttl,
             )
         )
+        normalized = normalize_observations(
+            run_id=command.run_id,
+            modalities=command.route_request.modalities,
+            payload=command.payload,
+            media_inputs=command.media_inputs,
+            input_refs=command.input_refs,
+        )
         generation_command = MultimodalExperienceCommand(
             run_id=command.run_id,
             provider_id="context-router",
@@ -154,12 +166,12 @@ class ContextBoundMultimodalExperienceService:
             schema_version=command.schema_version,
             data_class=command.route_request.data_class,
             context_snapshot_ref=snapshot.snapshot_ref,
-            payload=dict(command.payload),
+            payload=normalized.payload,
             output_schema=dict(command.output_schema),
             # A caller may already include an evidence ref that the broker
             # returns in ``source_refs``.  Preserve order while deduplicating so
             # the generation command remains replay-safe and contract-valid.
-            input_refs=tuple(dict.fromkeys((*command.input_refs, *snapshot.source_refs))),
+            input_refs=tuple(dict.fromkeys((*normalized.input_refs, *snapshot.source_refs))),
             media_inputs=command.media_inputs,
             session_id=command.session_id,
             model_draft_scope=self._draft_scope(command),
@@ -167,7 +179,11 @@ class ContextBoundMultimodalExperienceService:
         routed = await self._routed.generate_draft(
             generation_command, command.route_request, run=run
         )
-        return ContextBoundMultimodalDraft(snapshot=snapshot, routed=routed)
+        return ContextBoundMultimodalDraft(
+            snapshot=snapshot,
+            routed=routed,
+            normalized_observations=normalized.observations,
+        )
 
     async def _resolve_existing(
         self, command: ContextBoundMultimodalCommand
