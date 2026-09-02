@@ -37,108 +37,15 @@ from backend.intelligence.experience.multimodal_routing import (
     MultimodalRouter,
 )
 from backend.intelligence.experience.run_http import InMemoryExperienceRunLedger
-from backend.intelligence.model_gateway.contracts import StructuredRequest
 from backend.intelligence.model_gateway.gateway import ModelGateway
 from backend.intelligence.model_gateway.provider_registry import (
     ProviderRecord,
     ProviderRegistry,
 )
-from backend.intelligence.model_gateway.providers.fake import deterministic_provider
+from backend.intelligence.model_gateway.providers.fake import FakeProvider
 
 _SYNTHETIC_PURPOSE = "family-image-summary"
 _SYNTHETIC_PROVIDER_ID = "synthetic-deterministic"
-
-
-def _synthetic_output(request: StructuredRequest) -> dict[str, object]:
-    """Return a schema-shaped fixture while keeping the real gateway path visible."""
-
-    if request.schema_version != "family-understanding-draft.v1":
-        return {
-            "headline": "合成运行时草案",
-            "next_step": "由家庭成员确认后再继续",
-        }
-
-    turns = request.payload.get("conversation_turns")
-    first_turn = turns[0] if isinstance(turns, (list, tuple)) and turns else {}
-    source_ref = first_turn.get("input_ref") if isinstance(first_turn, dict) else None
-    if not isinstance(source_ref, str) or not source_ref.strip():
-        source_ref = request.input_refs[0] if request.input_refs else "input:synthetic"
-    expression = request.payload.get("expression")
-    if not isinstance(expression, str) or not expression.strip():
-        expression = "家长正在描述一个反复出现、希望被认真理解的家庭困扰。"
-
-    return {
-        "understanding": {
-            "lived_experience": (
-                f"你提到“{expression.strip()}”。这不只是一个表面事件，"
-                "也包含了反复投入却仍感到无力的体验。"
-            ),
-            "central_tension": (
-                "一边是希望事情尽快回到正轨的现实压力，另一边是家人各自"
-                "尚未被说清的感受、节奏与需要。"
-            ),
-            "care_intent": (
-                "你真正想守护的既有孩子的成长，也有家庭成员之间能够理解、合作而不是彼此消耗的关系。"
-            ),
-        },
-        "hypotheses": [
-            {
-                "hypothesis_id": "H1",
-                "statement": "困难可能集中在事件发生前后的转换与沟通方式。",
-                "rationale": (
-                    "当前表达显示冲突会反复出现，但还不足以把原因归结为某一个人；"
-                    "需要一起辨认触发点、当时的期待和已经尝试过的办法。"
-                ),
-                "evidence": [
-                    {
-                        "source_type": "PARENT_TEXT",
-                        "source_ref": source_ref,
-                        "observation": expression.strip(),
-                    }
-                ],
-                "knowledge_refs": ["knowledge:family-transition-reviewed-v1"],
-                "confidence": "MEDIUM",
-                "disconfirming_evidence_needed": (
-                    "如果在节奏宽松、期待已经说清时仍同样发生，就需要重新理解原因。"
-                ),
-            }
-        ],
-        "unknowns": [
-            {
-                "unknown_id": "U1",
-                "description": "最近一次相对顺利的相似时刻发生了什么",
-                "why_it_matters": "它能帮助发现家庭已经拥有、但尚未被看见的有效条件",
-                "related_hypothesis_ids": ["H1"],
-            }
-        ],
-        "follow_up_questions": [
-            {
-                "question_id": "Q1",
-                "question": "最近一次这件事没有升级成冲突时，当时有什么不同？",
-                "purpose": "用真实例外校正当前理解，并寻找家庭已有的力量",
-                "answers_unknown_ids": ["U1"],
-            }
-        ],
-        "strengths": [
-            {
-                "statement": "你愿意停下来重新理解问题，而不是简单给家人贴标签。",
-                "evidence_refs": [source_ref],
-                "why_it_matters": "这为家庭共同修正理解、形成合作创造了空间。",
-            }
-        ],
-        "desired_change": {
-            "statement": "希望类似时刻能够减少拉扯，让家人更容易理解彼此并一起处理问题。",
-            "basis": "INFERRED",
-            "observable_signs": [
-                "家庭成员能够说出各自真正担心的事情",
-                "同类事件出现时，沟通不再立刻升级为对抗",
-            ],
-            "confirmation_question": "这是否接近你真正希望家庭发生的变化？",
-        },
-        "limitations": [
-            "当前理解只基于本轮家长表达，需要通过后续回答、修正和家庭真实情境继续验证。"
-        ],
-    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,8 +145,13 @@ def build_synthetic_runtime(
         causation_id=f"synthetic-causation:{uuid4()}",
     )
 
-    provider = deterministic_provider(
-        _synthetic_output,
+    provider = FakeProvider(
+        {
+            _SYNTHETIC_PURPOSE: {
+                "headline": "合成运行时草案",
+                "next_step": "由家庭成员确认后再继续",
+            }
+        },
         provider_id=_SYNTHETIC_PROVIDER_ID,
     )
     provider_record = ProviderRecord(
@@ -286,7 +198,9 @@ def build_synthetic_runtime(
         scope=scope,
         application=application,
         environment=environment,
-        run_ledger=(run_ledger if run_ledger is not None else InMemoryExperienceRunLedger()),
+        run_ledger=(
+            run_ledger if run_ledger is not None else InMemoryExperienceRunLedger()
+        ),
     )
 
 
