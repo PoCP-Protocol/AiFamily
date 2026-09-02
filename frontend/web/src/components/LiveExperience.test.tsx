@@ -55,6 +55,22 @@ const controlRecord = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+const registrationReceipt = (
+  status: "CONFIRMED" | "CANCELLED",
+  registrationRef = "registration.synthetic.ui.1",
+) => ({
+  registration_ref: registrationRef,
+  session_ref: XIAO_JU_DENG_FIXTURE.session_ref,
+  tenant_id: "tenant.synthetic.alpha",
+  family_id: "family.synthetic.alpha",
+  guardian_id: "actor.synthetic.adult",
+  consent_ref: "consent.synthetic.canonical.1",
+  status,
+  source: "SANDBOX_SYNTHETIC",
+  fixture_only: true,
+  external_effect: false,
+});
+
 describe("Xiao Ju Deng live product surface", () => {
   it("puts expert value first and keeps technical evidence collapsed", async () => {
     render(<LiveExperience environment={{ DEV: true }} />);
@@ -91,6 +107,94 @@ describe("Xiao Ju Deng live product surface", () => {
     render(<LiveExperience environment={{ DEV: false }} />);
     expect(screen.getByText("后端未接入")).toBeInTheDocument();
     expect(screen.queryByText(XIAO_JU_DENG_FIXTURE.title)).not.toBeInTheDocument();
+  });
+
+  it("shows the adult registration plan but fails closed without a control provider", () => {
+    render(<LiveDetailPage record={XIAO_JU_DENG_FIXTURE} onBack={() => undefined} />);
+
+    expect(screen.getByRole("heading", { name: "预约这场专家直播" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "预约本场" })).toBeDisabled();
+    expect(screen.getByText("预约服务未连接")).toBeInTheDocument();
+    expect(screen.getByText("SANDBOX · SYNTHETIC")).toBeInTheDocument();
+    expect(screen.getByText("开播前一天：准备主题与参与时间")).toBeInTheDocument();
+    expect(screen.getByText("开播前一小时：再次确认是否参加")).toBeInTheDocument();
+    expect(screen.getByText("直播开始时：提示进入已授权直播间")).toBeInTheDocument();
+    expect(screen.getByText("当前只展示提醒计划，不会真实发送通知。")).toBeInTheDocument();
+  });
+
+  it("registers and cancels through the local control provider without inventing Consent", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => registrationReceipt("CONFIRMED") })
+      .mockResolvedValueOnce({ ok: true, json: async () => registrationReceipt("CANCELLED") });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <LiveDetailPage
+        record={XIAO_JU_DENG_FIXTURE}
+        controlBaseUrl="http://127.0.0.1:55300"
+        onBack={() => undefined}
+      />,
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "预约本场" }));
+    expect(await screen.findByText("已预约本场")).toBeInTheDocument();
+    const registrationCall = fetchMock.mock.calls[0];
+    expect(registrationCall[0]).toBe(
+      `http://127.0.0.1:55300/sandbox/live-control/sessions/${XIAO_JU_DENG_FIXTURE.session_ref}/registrations`,
+    );
+    const registrationBody = JSON.parse(String(registrationCall[1]?.body)) as Record<string, unknown>;
+    expect(registrationBody.idempotency_key).toBeTruthy();
+    expect(registrationBody.correlation_id).toBeTruthy();
+    expect(registrationBody).not.toHaveProperty("consent_ref");
+    expect(registrationBody).not.toHaveProperty("granted");
+
+    await user.click(screen.getByRole("button", { name: "取消预约" }));
+    expect(await screen.findByText("预约已取消，不会生成后续提醒。")).toBeInTheDocument();
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "http://127.0.0.1:55300/sandbox/live-control/registrations/registration.synthetic.ui.1/cancel",
+    );
+    expect(screen.getByRole("button", { name: "预约本场" })).toBeDisabled();
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    ["withdrawn", { status: "WITHDRAWN" as const }, "本场已撤回，不能预约。"],
+    [
+      "expired",
+      { status: "EXPIRED" as const, expiry_state: "EXPIRED" as const },
+      "本场已过期，不能预约。",
+    ],
+  ])("keeps %s sessions unavailable for registration", (_label, overrides, message) => {
+    render(
+      <LiveDetailPage
+        record={{ ...XIAO_JU_DENG_FIXTURE, ...overrides }}
+        controlBaseUrl="http://127.0.0.1:55300"
+        onBack={() => undefined}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "预约本场" })).toBeDisabled();
+    expect(screen.getByText(message)).toBeInTheDocument();
+  });
+
+  it("rejects unsafe registration evidence and leaves the state unconfirmed", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ...registrationReceipt("CONFIRMED"), fixture_only: false }),
+    }));
+    render(
+      <LiveDetailPage
+        record={XIAO_JU_DENG_FIXTURE}
+        controlBaseUrl="http://127.0.0.1:55300"
+        onBack={() => undefined}
+      />,
+    );
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "预约本场" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("预约状态未确认，请稍后重试。");
+    expect(screen.queryByText("已预约本场")).not.toBeInTheDocument();
+    vi.unstubAllGlobals();
   });
 
   it("loads approved sessions from the local control plane without fixture fallback", async () => {
@@ -995,7 +1099,7 @@ describe("Xiao Ju Deng live product surface", () => {
     const { container } = render(<LiveExperience environment={{ DEV: true }} />);
     await userEvent.setup().click(screen.getByRole("button", { name: "查看直播详情" }));
     const text = container.textContent?.toLowerCase() ?? "";
-    for (const prohibited of ["room", "token", "画像", "排序", "分数", "购买", "预约"]) {
+    for (const prohibited of ["room", "token", "画像", "排序", "分数", "购买"]) {
       expect(text).not.toContain(prohibited);
     }
     expect(container.querySelector("video")).toBeNull();

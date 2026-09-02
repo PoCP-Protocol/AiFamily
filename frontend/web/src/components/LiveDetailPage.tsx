@@ -1,5 +1,9 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import type { LiveRecord, MediaPlaybackState } from "../live/liveCatalog";
+import {
+  resolveLiveControlBaseUrl,
+  type LiveRecord,
+  type MediaPlaybackState,
+} from "../live/liveCatalog";
 import { LiveReplayKnowledge } from "./LiveReplayKnowledge";
 
 type Props = {
@@ -10,6 +14,7 @@ type Props = {
   replayBaseUrl?: string;
   replayKnowledgeBaseUrl?: string;
   commerceBaseUrl?: string;
+  controlBaseUrl?: string;
   onBack: () => void;
 };
 
@@ -71,6 +76,38 @@ type MediaBalance = CommerceEvidence & {
   entitlement: "ACTIVE" | "REVOKED";
 };
 
+type RegistrationState =
+  | "missing"
+  | "idle"
+  | "registering"
+  | "confirmed"
+  | "cancelling"
+  | "cancelled"
+  | "error";
+
+type RegistrationView = {
+  registration_ref: string;
+  session_ref: string;
+  tenant_id: string;
+  family_id: string;
+  guardian_id: string;
+  consent_ref: string;
+  status: "CONFIRMED" | "CANCELLED";
+};
+
+type RegistrationReceipt = {
+  registration: RegistrationView;
+  source: "SANDBOX_SYNTHETIC";
+  fixture_only: true;
+  external_effect: false;
+};
+
+type DirectRegistrationReceipt = RegistrationView & {
+  source: "SANDBOX_SYNTHETIC";
+  fixture_only: true;
+  external_effect: false;
+};
+
 const SANDBOX_DIAGNOSTIC_MARKERS =
   "SANDBOX_SYNTHETIC fixture_only DEV_ONLY LOCKED WAITING_AUTHORIZATION 问题搜索 直播中 已结束 / 回看受限 NO_MEDIA MEDIA_READY PLAYBACK_AUTHORIZED SCHEDULED ENDED";
 const SYNTHETIC_VIDEO_POSTER = `data:image/svg+xml,${encodeURIComponent(
@@ -96,6 +133,7 @@ export function LiveDetailPage({
   replayBaseUrl,
   replayKnowledgeBaseUrl,
   commerceBaseUrl,
+  controlBaseUrl,
   onBack,
 }: Props) {
   const playback = record.playback;
@@ -112,6 +150,11 @@ export function LiveDetailPage({
   const [replayUrl, setReplayUrl] = useState("");
   const [mediaEntitlementRef, setMediaEntitlementRef] = useState("");
   const [deletedRefs, setDeletedRefs] = useState<string[]>([]);
+  const registrationApiBaseUrl = resolveRegistrationBaseUrl(controlBaseUrl);
+  const [registrationState, setRegistrationState] = useState<RegistrationState>(
+    registrationApiBaseUrl ? "idle" : "missing",
+  );
+  const [registrationRef, setRegistrationRef] = useState("");
   const hasStartedPlayback = useRef(false);
   const canRenderVideo =
     playback?.source === "synthetic" &&
@@ -122,6 +165,14 @@ export function LiveDetailPage({
   const showAdultNextStep = ["ENDED", "STOPPED", "REVOKED"].includes(surfaceState);
   const sessionLabel = getEffectiveSessionLabel(record.status, surfaceState);
   const isLiveSession = sessionLabel === "直播中";
+  const registrationEligible =
+    record.source === "SANDBOX_SYNTHETIC" &&
+    record.fixture_only === true &&
+    record.approval_status === "APPROVED" &&
+    record.expiry_state === "UNEXPIRED" &&
+    record.status === "SCHEDULED" &&
+    record.audience_scope === "FAMILY" &&
+    record.family_visibility === "family-private";
 
   useEffect(() => {
     if (!interactionBaseUrl) return;
@@ -356,6 +407,63 @@ export function LiveDetailPage({
         </aside>
       </div>
 
+      <section className="live-registration-panel" aria-labelledby="live-registration-heading">
+        <div>
+          <span className="live-registration-fixture">SANDBOX · SYNTHETIC</span>
+          <h4 id="live-registration-heading">预约这场专家直播</h4>
+          <p>仅限成人主动操作；服务端负责核验家庭范围与 canonical Consent，页面不会代替授权。</p>
+          <ul aria-label="预约提醒说明">
+            <li>开播前一天：准备主题与参与时间</li>
+            <li>开播前一小时：再次确认是否参加</li>
+            <li>直播开始时：提示进入已授权直播间</li>
+          </ul>
+          <small>当前只展示提醒计划，不会真实发送通知。</small>
+        </div>
+        <div className="live-registration-actions">
+          {registrationState === "confirmed" ? (
+            <>
+              <strong role="status">已预约本场</strong>
+              <button
+                type="button"
+                className="live-registration-cancel"
+                onClick={() => void cancelRegistration()}
+              >
+                取消预约
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="live-registration-submit"
+              disabled={
+                !registrationEligible ||
+                registrationState === "missing" ||
+                registrationState === "registering" ||
+                registrationState === "cancelling" ||
+                registrationState === "cancelled"
+              }
+              onClick={() => void registerForSession()}
+            >
+              {registrationState === "registering" ? "预约中…" : "预约本场"}
+            </button>
+          )}
+          {registrationState === "missing" ? (
+            <span className="live-registration-message" role="status">预约服务未连接</span>
+          ) : null}
+          {!registrationEligible ? (
+            <span className="live-registration-message" role="status">
+              {getRegistrationUnavailableMessage(record)}
+            </span>
+          ) : null}
+          {registrationState === "cancelled" ? (
+            <span className="live-registration-message" role="status">预约已取消，不会生成后续提醒。</span>
+          ) : null}
+          {registrationState === "error" ? (
+            <span className="live-registration-message" role="alert">预约状态未确认，请稍后重试。</span>
+          ) : null}
+        </div>
+      </section>
+
       <p className="live-capability-note">收藏与回看将在获得明确授权后开放。</p>
       {showAdultNextStep ? (
         <section className="live-service-next-step" aria-labelledby="live-service-next-step-heading">
@@ -538,6 +646,53 @@ export function LiveDetailPage({
     }
   }
 
+  async function registerForSession() {
+    if (!registrationApiBaseUrl || !registrationEligible) return;
+    const commandRef = `registration.ui.${Date.now()}`;
+    setRegistrationState("registering");
+    try {
+      const receipt = await requestRegistration(
+        `${registrationApiBaseUrl}/sandbox/live-control/sessions/${encodeURIComponent(record.session_ref)}/registrations`,
+        {
+          method: "POST",
+          headers: SYNTHETIC_ACTOR_HEADERS,
+          body: JSON.stringify({
+            idempotency_key: commandRef,
+            correlation_id: commandRef,
+          }),
+        },
+      );
+      assertRegistrationReceipt(receipt, record.session_ref, "CONFIRMED");
+      setRegistrationRef(receipt.registration.registration_ref);
+      setRegistrationState("confirmed");
+    } catch {
+      setRegistrationState("error");
+    }
+  }
+
+  async function cancelRegistration() {
+    if (!registrationApiBaseUrl || !registrationRef) return;
+    const commandRef = `registration-cancel.ui.${Date.now()}`;
+    setRegistrationState("cancelling");
+    try {
+      const receipt = await requestRegistration(
+        `${registrationApiBaseUrl}/sandbox/live-control/registrations/${encodeURIComponent(registrationRef)}/cancel`,
+        {
+          method: "POST",
+          headers: SYNTHETIC_ACTOR_HEADERS,
+          body: JSON.stringify({
+            idempotency_key: commandRef,
+            correlation_id: commandRef,
+          }),
+        },
+      );
+      assertRegistrationReceipt(receipt, record.session_ref, "CANCELLED", registrationRef);
+      setRegistrationState("cancelled");
+    } catch {
+      setRegistrationState("error");
+    }
+  }
+
   async function unlockReplay() {
     if (
       !commerceBaseUrl ||
@@ -691,6 +846,66 @@ async function requestCommerce<T extends CommerceEvidence>(url: string, init?: R
     throw new Error("commerce evidence rejected");
   }
   return result;
+}
+
+function resolveRegistrationBaseUrl(explicitBaseUrl?: string): string | undefined {
+  if (explicitBaseUrl !== undefined) {
+    return isLocalPlaybackUrl(explicitBaseUrl) ? explicitBaseUrl.replace(/\/$/, "") : undefined;
+  }
+  return resolveLiveControlBaseUrl(import.meta.env);
+}
+
+async function requestRegistration(url: string, init: RequestInit): Promise<RegistrationReceipt> {
+  const response = await fetch(url, init);
+  if (!response.ok) throw new Error(`registration request failed: ${response.status}`);
+  const payload = (await response.json()) as RegistrationReceipt | DirectRegistrationReceipt;
+  const receipt = "registration" in payload
+    ? payload
+    : {
+        registration: payload,
+        source: payload.source,
+        fixture_only: payload.fixture_only,
+        external_effect: payload.external_effect,
+      };
+  if (
+    receipt.source !== "SANDBOX_SYNTHETIC" ||
+    receipt.fixture_only !== true ||
+    receipt.external_effect !== false
+  ) {
+    throw new Error("registration evidence rejected");
+  }
+  return receipt;
+}
+
+function assertRegistrationReceipt(
+  receipt: RegistrationReceipt,
+  sessionRef: string,
+  status: RegistrationView["status"],
+  registrationRef?: string,
+): void {
+  const registration = receipt.registration;
+  if (
+    !registration ||
+    !registration.registration_ref ||
+    registration.session_ref !== sessionRef ||
+    registration.tenant_id !== "tenant.synthetic.alpha" ||
+    registration.family_id !== "family.synthetic.alpha" ||
+    registration.guardian_id !== "actor.synthetic.adult" ||
+    !registration.consent_ref ||
+    registration.status !== status ||
+    (registrationRef !== undefined && registration.registration_ref !== registrationRef)
+  ) {
+    throw new Error("registration receipt is outside the synthetic adult scope");
+  }
+}
+
+function getRegistrationUnavailableMessage(record: LiveRecord): string {
+  if (record.status === "WITHDRAWN") return "本场已撤回，不能预约。";
+  if (record.status === "EXPIRED" || record.expiry_state === "EXPIRED") {
+    return "本场已过期，不能预约。";
+  }
+  if (record.approval_status !== "APPROVED") return "本场尚未通过审核，不能预约。";
+  return "当前场次不满足 Family 预约条件。";
 }
 
 function isLocalPlaybackUrl(value: string): boolean {

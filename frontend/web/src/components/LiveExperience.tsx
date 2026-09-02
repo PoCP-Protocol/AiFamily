@@ -117,6 +117,7 @@ export function LiveExperience({ environment = import.meta.env, viewModel }: Pro
             replayBaseUrl={resolveLiveReplayBaseUrl(environment)}
             replayKnowledgeBaseUrl={resolveLiveReplayKnowledgeBaseUrl(environment)}
             commerceBaseUrl={resolveLiveCommerceBaseUrl(environment)}
+            controlBaseUrl={controlBaseUrl}
             onBack={() => setSelectedRecord(null)}
           />
         ) : (
