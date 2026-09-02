@@ -79,7 +79,7 @@ export class FamilyApiError extends Error {
 }
 
 interface FamilyApiRequestOptions {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "DELETE";
   token?: string | null;
   body?: unknown;
   headers?: Record<string, string>;
@@ -417,6 +417,77 @@ export class FamilyApiClient {
         "x-source": "family-ai-mobile",
       },
     });
+  }
+
+  createMultimodalUnderstandingDraft<T>(
+    token: string,
+    familyId: string,
+    body: unknown,
+    idempotencyKey: string,
+  ) {
+    return this.request<T>(`/families/${familyId}/experience/multimodal/drafts`, {
+      method: "POST", token, body,
+      headers: {
+        "idempotency-key": idempotencyKey,
+        "x-correlation-id": createMobileRequestId("family-multimodal-understanding"),
+        "x-source": "family-ai-mobile",
+      },
+    });
+  }
+
+  decideMultimodalUnderstandingRun<T>(
+    token: string,
+    familyId: string,
+    runId: string,
+    body: unknown,
+    idempotencyKey: string,
+  ) {
+    return this.request<T>(`/families/${familyId}/experience/multimodal/runs/${runId}/decisions`, {
+      method: "POST", token, body,
+      headers: {
+        "idempotency-key": idempotencyKey,
+        "x-correlation-id": createMobileRequestId("family-multimodal-decision"),
+        "x-source": "family-ai-mobile",
+      },
+    });
+  }
+
+  requestMultimodalHumanReview<T>(
+    token: string,
+    familyId: string,
+    runId: string,
+    body: unknown,
+    idempotencyKey: string,
+  ) {
+    return this.request<T>(`/families/${familyId}/experience/multimodal/runs/${runId}/human-review`, {
+      method: "POST", token, body,
+      headers: {
+        "idempotency-key": idempotencyKey,
+        "x-correlation-id": createMobileRequestId("family-multimodal-human-review"),
+        "x-source": "family-ai-mobile",
+      },
+    });
+  }
+
+  deleteMultimodalUnderstandingRun<T>(
+    token: string,
+    familyId: string,
+    runId: string,
+    body: unknown,
+    idempotencyKey: string,
+  ) {
+    return this.request<T>(`/families/${familyId}/experience/multimodal/runs/${runId}`, {
+      method: "DELETE", token, body,
+      headers: {
+        "idempotency-key": idempotencyKey,
+        "x-correlation-id": createMobileRequestId("family-multimodal-delete"),
+        "x-source": "family-ai-mobile",
+      },
+    });
+  }
+
+  replayMultimodalUnderstandingRun<T>(token: string, familyId: string, runId: string) {
+    return this.request<T>(`/families/${familyId}/experience/multimodal/runs/${runId}/replay`, { token });
   }
 
   startFamilyAssessment<T>(token: string, familyId: string, body: { subject_person_id: string; tool_ref?: string }, idempotencyKey: string) {

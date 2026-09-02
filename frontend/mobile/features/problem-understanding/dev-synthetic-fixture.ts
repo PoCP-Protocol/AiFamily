@@ -26,6 +26,7 @@ export function createSyntheticUnderstanding(
 ): UnderstandingDraft {
   const draftVersion = correction ? 2 : 1;
   return {
+    runId: `dev-run-${draftVersion}`,
     signalRef: "dev-signal-family-conversation",
     signalVersion: draftVersion,
     scopeRef: "family://dev-tenant/dev-family/problem-understanding",
@@ -46,6 +47,9 @@ export function createSyntheticUnderstanding(
       { key: "starting-point", label: "分歧通常从哪个时刻开始" },
       { key: "other-view", label: "另一位家人怎样理解当时的情况" },
     ],
+    sourceSummary: "仅用于开发测试的合成内容",
+    generatedAt: "2026-09-01T09:00:00+08:00",
+    mediaCount: 0,
     lifecycle: "PROPOSED",
   };
 }

@@ -25,14 +25,21 @@ describe("Problem Understanding standalone Expo route", () => {
     expect(route).toContain("UnderstandingMap");
     expect(route).toContain("CorrectionConfirmation");
     expect(route).toContain("RecoveryNotice");
-    expect(route).toContain("useColors");
+    expect(route).toContain('backgroundColor: "#FFF9F5"');
     expect(rootLayout).toContain("<ResponsivePlatformShell>");
   });
 
-  it("uses only the real family-understanding HTTP response at runtime", () => {
-    expect(route).toContain("familyApi.generateFamilyUnderstanding");
+  it("uses only the real S3 multimodal HTTP response at runtime", () => {
+    expect(route).toContain("familyApi.createMultimodalUnderstandingDraft");
+    expect(route).toContain("buildMultimodalDraftRequest");
     expect(route).toContain("toUnderstandingDraft");
-    expect(route).toContain("prior_draft_artifact_hash");
+    expect(route).toContain("familyApi.decideMultimodalUnderstandingRun");
+    expect(route).toContain("familyApi.requestMultimodalHumanReview");
+    expect(route).toContain("familyApi.deleteMultimodalUnderstandingRun");
+    expect(route).toContain("replayMultimodalUnderstandingRun");
+    expect(route).toContain("选择测试图片（仅沙盒）");
+    expect(route).toContain("asset:sandbox/family-homework-transition-v1");
+    expect(route).toContain('process.env.NODE_ENV !== "production"');
     expect(route).not.toContain("createSyntheticUnderstanding");
     expect(route).not.toContain("createSyntheticReceipt");
     expect(route).not.toContain("DEV_SYNTHETIC_PROBLEM_UNDERSTANDING");
@@ -47,13 +54,27 @@ describe("Problem Understanding standalone Expo route", () => {
     expect(route).not.toContain("默认50");
   });
 
-  it("offers a complete human-readable confirm, exit, delete, and restore path", () => {
+  it("offers a complete human-readable feedback, exit, server delete, and restore path", () => {
     expect(route).toContain("AsyncStorage.getItem");
     expect(route).toContain("AsyncStorage.setItem");
     expect(route).toContain("AsyncStorage.removeItem");
     expect(route).toContain("继续这次对话");
     expect(route).toContain("删除已保存内容");
+    const deleteHandler = route.slice(
+      route.indexOf("const handleDelete"),
+      route.indexOf("const handleStartNew"),
+    );
+    expect(
+      deleteHandler.indexOf("deleteMultimodalUnderstandingRun"),
+    ).toBeLessThan(
+      deleteHandler.indexOf("AsyncStorage.removeItem(STORAGE_KEY)"),
+    );
+    expect(route).toContain("内容仍然保留");
+    expect(route).toContain("刷新后也不会恢复");
     expect(route).toContain("正在找回你上次保存的内容");
+    expect(route).toContain("家庭服务暂时没有连接");
+    expect(route).toContain("重新连接");
+    expect(route).toContain("session.connectDevSession()");
     expect(route).toContain("onSkipClarification");
     expect(route).toContain("onSaveAndExit");
     expect(components).toContain("你说的");
@@ -64,7 +85,9 @@ describe("Problem Understanding standalone Expo route", () => {
     expect(components).toContain("我想补充");
     expect(components).toContain("先跳过澄清");
     expect(components).toContain("退出并保存");
-    expect(components).toContain("点“继续”后，我们才会整理这段话");
+    expect(components).toContain("请人工帮我看看");
+    expect(components).toContain("删除这次内容");
+    expect(components).toContain("这份理解从哪里来");
   });
 
   it("uses one clear three-step promise and adapts review density by viewport", () => {
@@ -80,12 +103,12 @@ describe("Problem Understanding standalone Expo route", () => {
     expect(route).toContain("reviewLayoutWide");
     expect(route).toContain("maxWidth: 1180");
     expect(components).toContain("这份理解准确吗？");
-    expect(components).toContain("只有你确认后，才会进入下一步");
+    expect(components).toContain("不会自动改变家庭记录");
   });
 
   it("lets the adult add context or start a new understanding after confirmation", () => {
     expect(route).toContain('state.phase === "CONFIRMED"');
-    expect(route).toContain("这次理解已经确认");
+    expect(route).toContain("已记下你的反馈");
     expect(route).toContain("补充新情况");
     expect(route).toContain("开始新的理解");
     expect(route).not.toContain("选一个彼此都不赶时间的时刻");
