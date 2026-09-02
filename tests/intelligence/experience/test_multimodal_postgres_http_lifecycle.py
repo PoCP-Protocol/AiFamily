@@ -22,7 +22,11 @@ from backend.intelligence.context_engine.contracts import (
     DataClass,
     StateObservation,
 )
-from backend.intelligence.context_engine.sql_store import AsyncSqlContextBroker
+from backend.intelligence.context_engine.sql_store import (
+    AsyncSqlContextBroker,
+    ContextSnapshotObservationRow,
+    ContextSnapshotRow,
+)
 from backend.intelligence.experience.api import MultimodalDraftRuntime
 from backend.intelligence.experience.multimodal_application import (
     RoutedMultimodalExperienceService,
@@ -37,6 +41,7 @@ from backend.intelligence.experience.multimodal_routing import (
     QWEN_MULTIMODAL_CANDIDATE,
     MultimodalRouter,
 )
+from backend.intelligence.experience.run_store import ExperienceRunRow
 from backend.intelligence.experience.sql_run_ledger import (
     CommittedExperienceRunLedger,
     ExperienceRunInteractionRow,
@@ -268,6 +273,24 @@ async def test_multimodal_http_delete_survives_new_engine_and_session(
         transport=ASGITransport(app=_app(runtime)),
         base_url="http://aifamily.test",
     ) as client:
+        invalid_body = _request_body()
+        invalid_body["payload"] = {"parent_message": "每天一到写作业就开始争吵"}
+        invalid = await client.post(
+            f"/families/{FAMILY_ID}/experience/multimodal/drafts",
+            headers={"Idempotency-Key": f"create:{RUN_ID}"},
+            json=invalid_body,
+        )
+        assert invalid.status_code == 422
+        assert invalid.json() == {"detail": "TEXT_OBSERVATION_REQUIRED"}
+        assert len(provider.invocations) == 0
+        for row_type in (
+            ContextSnapshotRow,
+            ContextSnapshotObservationRow,
+            ExperienceRunRow,
+            ModelDraftRow,
+        ):
+            assert await session.scalar(select(func.count()).select_from(row_type)) == 0
+
         created = await client.post(
             f"/families/{FAMILY_ID}/experience/multimodal/drafts",
             headers={"Idempotency-Key": f"create:{RUN_ID}"},

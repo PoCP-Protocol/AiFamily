@@ -138,6 +138,17 @@ class ContextBoundMultimodalExperienceService:
             or run.subject_ids != command.scope.subject_ids
         ):
             raise ValueError("run scope must match context scope")
+        # Normalize and reject malformed client observations before minting a
+        # durable context snapshot.  Snapshot creation commits independently
+        # in the SQL broker, so doing this validation afterwards would leave
+        # orphaned context rows for requests that never reached Model Gateway.
+        normalized = normalize_observations(
+            run_id=command.run_id,
+            modalities=command.route_request.modalities,
+            payload=command.payload,
+            media_inputs=command.media_inputs,
+            input_refs=command.input_refs,
+        )
         stored = await self._resolve_existing(command)
         snapshot = (
             await self._context.read(
@@ -150,13 +161,6 @@ class ContextBoundMultimodalExperienceService:
                 now=None,
                 snapshot_ttl=command.snapshot_ttl,
             )
-        )
-        normalized = normalize_observations(
-            run_id=command.run_id,
-            modalities=command.route_request.modalities,
-            payload=command.payload,
-            media_inputs=command.media_inputs,
-            input_refs=command.input_refs,
         )
         generation_command = MultimodalExperienceCommand(
             run_id=command.run_id,
