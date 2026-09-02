@@ -96,6 +96,7 @@ export interface ProblemUnderstandingState {
   phase: ProblemUnderstandingPhase;
   concernDraft: string;
   correctionDraft: string;
+  activeFollowUpQuestion: string | null;
   inputs: readonly UnderstandingInput[];
   drafts: readonly UnderstandingDraft[];
   activeSignal: DraftBinding | null;

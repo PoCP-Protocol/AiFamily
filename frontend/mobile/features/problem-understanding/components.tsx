@@ -193,6 +193,7 @@ export function UnderstandingMap({
 
 interface CorrectionConfirmationProps {
   correction: string;
+  followUpQuestion: string | null;
   phase: ProblemUnderstandingPhase;
   canCorrect: boolean;
   canConfirm: boolean;
@@ -209,6 +210,7 @@ interface CorrectionConfirmationProps {
 
 export function CorrectionConfirmation({
   correction,
+  followUpQuestion,
   phase,
   canCorrect,
   canConfirm,
@@ -226,13 +228,22 @@ export function CorrectionConfirmation({
     return (
       <View style={styles.surface}>
         <Text accessibilityRole="header" style={styles.sectionTitle}>
-          {PROBLEM_UNDERSTANDING_COPY.correctionHeading}
+          {followUpQuestion
+            ? "关于这个问题，你愿意多说一点吗？"
+            : PROBLEM_UNDERSTANDING_COPY.correctionHeading}
         </Text>
+        {followUpQuestion ? (
+          <Text style={styles.followUpQuestion}>“{followUpQuestion}”</Text>
+        ) : null}
         <TextInput
           accessibilityLabel="补充或修正"
           multiline
           onChangeText={onChangeCorrection}
-          placeholder="把不准确的地方告诉我，我会保留前面的内容，重新整理。"
+          placeholder={
+            followUpQuestion
+              ? "写下你想到的情形、感受或例子。"
+              : "把不准确的地方告诉我，我会保留前面的内容，重新整理。"
+          }
           placeholderTextColor="#8E8378"
           style={styles.input}
           value={correction}
@@ -454,6 +465,12 @@ const styles = StyleSheet.create({
   },
   confidenceLabel: { color: "#75675D", fontSize: 12, fontWeight: "700" },
   evidenceHeading: { color: "#4F443B", fontSize: 13, fontWeight: "800" },
+  followUpQuestion: {
+    color: "#6A3B2A",
+    fontSize: 16,
+    fontWeight: "700",
+    lineHeight: 25,
+  },
   knowledgeNote: {
     color: "#516148",
     fontSize: 13,

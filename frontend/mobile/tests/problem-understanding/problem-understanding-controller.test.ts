@@ -74,8 +74,41 @@ describe("Problem Understanding mobile controller", () => {
     expect(answering.correctionDraft).toContain(
       initialUnderstanding.followUpQuestions[0],
     );
+    expect(answering.activeFollowUpQuestion).toBe(
+      initialUnderstanding.followUpQuestions[0],
+    );
     expect(answering.activeSignal).toEqual(ready.activeSignal);
     expect(answering.drafts).toEqual(ready.drafts);
+
+    const submitted = submitCorrection(answering, {
+      inputRef: "input-test-follow-up",
+      kind: "FOLLOW_UP",
+      text: `${answering.correctionDraft} 上周日我们先散步，再商量时就顺利很多。`,
+      createdAt: "2026-09-01T09:06:00+08:00",
+    });
+    expect(submitted.inputs.at(-1)?.kind).toBe("FOLLOW_UP");
+    expect(submitted.activeFollowUpQuestion).toBeNull();
+    expect(submitted.phase).toBe("UNDERSTANDING");
+  });
+
+  it("rejects a generic correction when the parent is answering an AI question", () => {
+    const ready = receiveUnderstanding(
+      submitConcern(createProblemUnderstandingState(), concernInput),
+      initialUnderstanding,
+    );
+    const answering = answerFollowUpQuestion(
+      ready,
+      initialUnderstanding.followUpQuestions[0],
+    );
+    const mismatched = submitCorrection(answering, {
+      inputRef: "input-test-wrong-kind",
+      kind: "CORRECTION",
+      text: "这是对追问的回答。",
+      createdAt: "2026-09-01T09:06:00+08:00",
+    });
+
+    expect(mismatched.phase).toBe("ERROR");
+    expect(mismatched.inputs).toEqual(answering.inputs);
   });
 
   it("binds confirmation to the exact signal and version the parent reviewed", () => {

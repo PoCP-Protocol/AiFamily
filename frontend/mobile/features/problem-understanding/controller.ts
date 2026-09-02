@@ -23,6 +23,7 @@ export function createProblemUnderstandingState(): ProblemUnderstandingState {
     phase: "DRAFTING",
     concernDraft: "",
     correctionDraft: "",
+    activeFollowUpQuestion: null,
     inputs: [],
     drafts: [],
     activeSignal: null,
@@ -84,6 +85,7 @@ export function receiveUnderstanding(
     pendingConfirmation: null,
     recoveryMessage: null,
     clarificationSkipped: false,
+    activeFollowUpQuestion: null,
   };
 }
 
@@ -93,7 +95,12 @@ export function beginCorrection(
   if (!state.activeSignal) {
     return { ...state, phase: "ERROR" };
   }
-  return { ...state, phase: "CORRECTING", correctionDraft: "" };
+  return {
+    ...state,
+    phase: "CORRECTING",
+    correctionDraft: "",
+    activeFollowUpQuestion: null,
+  };
 }
 
 export function answerFollowUpQuestion(
@@ -112,6 +119,7 @@ export function answerFollowUpQuestion(
     ...state,
     phase: "CORRECTING",
     correctionDraft: `关于“${normalizedQuestion}”：`,
+    activeFollowUpQuestion: normalizedQuestion,
   };
 }
 
@@ -126,7 +134,11 @@ export function submitCorrection(
   state: ProblemUnderstandingState,
   correction: UnderstandingInput,
 ): ProblemUnderstandingState {
-  if (correction.kind !== "CORRECTION" || correction.text.trim().length === 0) {
+  const expectedKind = state.activeFollowUpQuestion ? "FOLLOW_UP" : "CORRECTION";
+  if (
+    correction.kind !== expectedKind ||
+    correction.text.trim().length === 0
+  ) {
     return { ...state, phase: "ERROR" };
   }
 
@@ -134,6 +146,7 @@ export function submitCorrection(
     ...state,
     phase: "UNDERSTANDING",
     correctionDraft: "",
+    activeFollowUpQuestion: null,
     inputs: [...state.inputs, { ...correction, text: correction.text.trim() }],
     drafts: state.drafts.map((draft) =>
       draft.lifecycle === "PROPOSED"
@@ -300,6 +313,11 @@ export function restoreProblemUnderstandingState(
         typeof state.concernDraft === "string" ? state.concernDraft : "",
       correctionDraft:
         typeof state.correctionDraft === "string" ? state.correctionDraft : "",
+      activeFollowUpQuestion:
+        typeof state.activeFollowUpQuestion === "string" &&
+        state.activeFollowUpQuestion.trim()
+          ? state.activeFollowUpQuestion.trim()
+          : null,
       clarificationSkipped: state.clarificationSkipped === true,
       savedAt: typeof state.savedAt === "string" ? state.savedAt : null,
     } as ProblemUnderstandingState;

@@ -236,7 +236,12 @@ export default function ProblemUnderstandingRoute() {
 
   const handleCorrectionSubmit = async () => {
     const correction = state.correctionDraft.trim();
-    const inputRef = createMobileRequestId("guardian-correction");
+    const inputKind = state.activeFollowUpQuestion
+      ? ("FOLLOW_UP" as const)
+      : ("CORRECTION" as const);
+    const inputRef = createMobileRequestId(
+      inputKind === "FOLLOW_UP" ? "guardian-follow-up" : "guardian-correction",
+    );
     const priorDraft = state.drafts.at(-1) ?? null;
     if (
       !priorDraft ||
@@ -249,7 +254,7 @@ export default function ProblemUnderstandingRoute() {
     }
     const submitted = submitCorrection(state, {
       inputRef,
-      kind: "CORRECTION",
+      kind: inputKind,
       text: correction,
       createdAt: new Date().toISOString(),
     });
@@ -603,6 +608,7 @@ export default function ProblemUnderstandingRoute() {
                   canConfirm={map.canConfirm}
                   canCorrect={map.canCorrect}
                   correction={state.correctionDraft}
+                  followUpQuestion={state.activeFollowUpQuestion}
                   onBeginCorrection={() => setState(beginCorrection(state))}
                   onChangeCorrection={(value) =>
                     setState(updateCorrectionDraft(state, value))

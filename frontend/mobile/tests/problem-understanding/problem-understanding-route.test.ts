@@ -93,6 +93,9 @@ describe("Problem Understanding standalone Expo route", () => {
     expect(components).toContain("什么信息会改变这个判断");
     expect(components).toContain("你们已经拥有的力量");
     expect(components).toContain("回答这个问题 →");
+    expect(components).toContain("关于这个问题，你愿意多说一点吗？");
+    expect(route).toContain('("FOLLOW_UP" as const)');
+    expect(route).toContain('"guardian-follow-up"');
     expect(route).toContain("handleAnswerQuestion");
     expect(route).toContain("onAnswerQuestion={handleAnswerQuestion}");
   });
