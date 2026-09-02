@@ -6,9 +6,11 @@ production domain, database adapter, consent ledger, audit ledger, or HTTP
 route.  In particular, consent, audit/outbox, and idempotency are ports: the
 production implementation must be supplied by the canonical platform owners.
 
-The sandbox deliberately models one user action only: an authenticated adult
-registers for an approved, current, Family-scoped live session after the
-canonical Consent port confirms the purpose-specific grant.
+The sandbox models the H-LIVE-02 registration lifecycle: an authenticated
+adult registers for an approved, current, Family-scoped live session, may
+cancel the confirmed registration, and a canonical Consent withdrawal
+projection revokes it.  It never creates a local Consent ledger, reminder, or
+media capability.
 """
 
 from __future__ import annotations
@@ -41,6 +43,10 @@ class ScopeViolation(RegistrationRejected):
 
 class IdempotencyConflict(RegistrationRejected):
     """One idempotency key was reused for a different command."""
+
+
+class RegistrationStateConflict(RegistrationRejected):
+    """A registration transition was requested from an invalid state."""
 
 
 class SessionStatus(StrEnum):
@@ -131,6 +137,32 @@ class CanonicalConsentPort(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class CanonicalConsentWithdrawal:
+    """Projection emitted by AiFamily's canonical Consent implementation."""
+
+    event_ref: str
+    consent_ref: str
+    tenant_id: str
+    family_id: str
+    guardian_id: str
+    purpose: str
+    withdrawn_at: datetime
+
+    def __post_init__(self) -> None:
+        if not all(
+            (
+                self.event_ref,
+                self.consent_ref,
+                self.tenant_id,
+                self.family_id,
+                self.guardian_id,
+                self.purpose,
+            )
+        ):
+            raise ValueError("canonical Consent withdrawal fields must not be empty")
+
+
+@dataclass(frozen=True, slots=True)
 class MutationAudit:
     """Data sent to canonical Audit/Outbox, never stored by this sandbox."""
 
@@ -153,6 +185,8 @@ class CanonicalAuditOutboxPort(Protocol):
         audit: MutationAudit,
         event_type: str,
         idempotency_key: str,
+        command_fingerprint: str,
+        expected_status: RegistrationStatus | None,
     ) -> None: ...
 
 
@@ -186,6 +220,7 @@ class InMemoryAtomicRegistrationStore:
 
     def __init__(self) -> None:
         self._by_key: dict[str, tuple[str, Registration]] = {}
+        self._by_ref: dict[str, Registration] = {}
         self.commits: list[tuple[Registration, MutationAudit, str, str]] = []
         self.fail_next_commit = False
 
@@ -196,16 +231,29 @@ class InMemoryAtomicRegistrationStore:
         audit: MutationAudit,
         event_type: str,
         idempotency_key: str,
+        command_fingerprint: str,
+        expected_status: RegistrationStatus | None,
     ) -> None:
         if self.fail_next_commit:
             self.fail_next_commit = False
             raise RuntimeError("synthetic atomic commit failure")
-        fingerprint = _command_fingerprint(registration.session_ref, registration.family_id)
-        self._by_key[idempotency_key] = (fingerprint, registration)
+        current = self._by_ref.get(registration.registration_ref)
+        if expected_status is None:
+            if current is not None:
+                raise RegistrationStateConflict("registration already exists")
+        elif current is None or current.status is not expected_status:
+            raise RegistrationStateConflict(
+                f"registration must be {expected_status.value} before transition"
+            )
+        self._by_key[idempotency_key] = (command_fingerprint, registration)
+        self._by_ref[registration.registration_ref] = registration
         self.commits.append((registration, audit, event_type, idempotency_key))
 
     def receipt_for(self, idempotency_key: str) -> tuple[str, Registration] | None:
         return self._by_key.get(idempotency_key)
+
+    def registration_for(self, registration_ref: str) -> Registration | None:
+        return self._by_ref.get(registration_ref)
 
 
 class SandboxLiveControlPlane:
@@ -249,7 +297,9 @@ class SandboxLiveControlPlane:
         if guardian.guardian_id not in session.audience_scope:
             raise ScopeViolation("guardian is outside the audience scope")
 
-        fingerprint = _command_fingerprint(session.session_ref, session.family_id)
+        fingerprint = _command_fingerprint(
+            "register", session.session_ref, session.family_id, guardian.guardian_id
+        )
         previous = self._lookup(idempotency_key)
         if previous is not None:
             previous_fingerprint, previous_registration = previous
@@ -292,8 +342,146 @@ class SandboxLiveControlPlane:
             audit=audit,
             event_type="live.registration.confirmed",
             idempotency_key=idempotency_key,
+            command_fingerprint=fingerprint,
+            expected_status=None,
         )
         return RegistrationReceipt(registration=registration)
+
+    def cancel(
+        self,
+        *,
+        registration_ref: str,
+        guardian: GuardianContext,
+        idempotency_key: str,
+        correlation_id: str,
+    ) -> RegistrationReceipt:
+        """Cancel the authenticated adult's own confirmed registration."""
+
+        _require_command_metadata(idempotency_key, correlation_id)
+        fingerprint = _command_fingerprint(
+            "cancel",
+            registration_ref,
+            guardian.tenant_id,
+            guardian.family_id,
+            guardian.guardian_id,
+        )
+        previous = self._replayed_receipt(idempotency_key, fingerprint)
+        if previous is not None:
+            return previous
+
+        current = self._registration(registration_ref)
+        _require_registration_scope(current, guardian)
+        if current.status is not RegistrationStatus.CONFIRMED:
+            raise RegistrationStateConflict("only a confirmed registration can be cancelled")
+
+        cancelled = _with_status(current, RegistrationStatus.CANCELLED, correlation_id)
+        self._commit_transition(
+            registration=cancelled,
+            guardian=guardian,
+            action="cancel_live_registration",
+            event_type="live.registration.cancelled",
+            idempotency_key=idempotency_key,
+            command_fingerprint=fingerprint,
+            correlation_id=correlation_id,
+        )
+        return RegistrationReceipt(registration=cancelled)
+
+    def project_consent_withdrawal(
+        self,
+        *,
+        registration_ref: str,
+        withdrawal: CanonicalConsentWithdrawal,
+        idempotency_key: str,
+        correlation_id: str,
+    ) -> RegistrationReceipt:
+        """Revoke a confirmed registration from a canonical Consent event.
+
+        This transition emits no reminder and requests no media capability.
+        Consumers must treat ``live.registration.revoked`` as a cancellation
+        signal for any independently managed downstream work.
+        """
+
+        _require_command_metadata(idempotency_key, correlation_id)
+        fingerprint = _command_fingerprint(
+            "consent_withdrawal",
+            withdrawal.event_ref,
+            withdrawal.consent_ref,
+            registration_ref,
+        )
+        previous = self._replayed_receipt(idempotency_key, fingerprint)
+        if previous is not None:
+            return previous
+
+        current = self._registration(registration_ref)
+        _require_withdrawal_scope(current, withdrawal)
+        if current.status is not RegistrationStatus.CONFIRMED:
+            raise RegistrationStateConflict("only a confirmed registration can be revoked")
+
+        revoked = _with_status(current, RegistrationStatus.REVOKED, correlation_id)
+        guardian = GuardianContext(
+            tenant_id=withdrawal.tenant_id,
+            family_id=withdrawal.family_id,
+            guardian_id=withdrawal.guardian_id,
+        )
+        self._commit_transition(
+            registration=revoked,
+            guardian=guardian,
+            action="revoke_live_registration_after_consent_withdrawal",
+            event_type="live.registration.revoked",
+            idempotency_key=idempotency_key,
+            command_fingerprint=fingerprint,
+            correlation_id=correlation_id,
+        )
+        return RegistrationReceipt(registration=revoked)
+
+    def _replayed_receipt(
+        self, idempotency_key: str, fingerprint: str
+    ) -> RegistrationReceipt | None:
+        previous = self._lookup(idempotency_key)
+        if previous is None:
+            return None
+        previous_fingerprint, previous_registration = previous
+        if previous_fingerprint != fingerprint:
+            raise IdempotencyConflict("idempotency key was reused for another command")
+        return RegistrationReceipt(registration=previous_registration, replayed=True)
+
+    def _registration(self, registration_ref: str) -> Registration:
+        lookup = getattr(self._audit_outbox, "registration_for", None)
+        if lookup is None:
+            raise RegistrationRejected("canonical registration projection is unavailable")
+        registration = lookup(registration_ref)
+        if registration is None:
+            raise RegistrationRejected("registration was not found")
+        return registration
+
+    def _commit_transition(
+        self,
+        *,
+        registration: Registration,
+        guardian: GuardianContext,
+        action: str,
+        event_type: str,
+        idempotency_key: str,
+        command_fingerprint: str,
+        correlation_id: str,
+    ) -> None:
+        audit = MutationAudit(
+            action=action,
+            actor_id=guardian.guardian_id,
+            tenant_id=guardian.tenant_id,
+            family_id=guardian.family_id,
+            resource_ref=registration.registration_ref,
+            purpose=LIVE_ATTENDANCE_PURPOSE,
+            correlation_id=correlation_id,
+        )
+        self._audit_outbox.commit_registration(
+            registration=registration,
+            audit=audit,
+            event_type=event_type,
+            idempotency_key=idempotency_key,
+            command_fingerprint=command_fingerprint,
+            expected_status=RegistrationStatus.CONFIRMED,
+        )
 
     def _lookup(self, idempotency_key: str) -> tuple[str, Registration] | None:
         lookup = getattr(self._audit_outbox, "receipt_for", None)
@@ -322,5 +510,51 @@ def _consent_is_valid(
     return decision.expires_at is None or decision.expires_at.astimezone(UTC) > now.astimezone(UTC)
 
 
-def _command_fingerprint(session_ref: str, family_id: str) -> str:
-    return sha256(f"{family_id}:{session_ref}".encode()).hexdigest()
+def _require_command_metadata(idempotency_key: str, correlation_id: str) -> None:
+    if not idempotency_key or not correlation_id:
+        raise ValueError("idempotency_key and correlation_id are required")
+
+
+def _require_registration_scope(registration: Registration, guardian: GuardianContext) -> None:
+    if registration.tenant_id != guardian.tenant_id:
+        raise ScopeViolation("registration is outside the authenticated tenant scope")
+    if registration.family_id != guardian.family_id:
+        raise ScopeViolation("registration is outside the authenticated family scope")
+    if registration.guardian_id != guardian.guardian_id:
+        raise ScopeViolation("registration belongs to another guardian")
+
+
+def _require_withdrawal_scope(
+    registration: Registration, withdrawal: CanonicalConsentWithdrawal
+) -> None:
+    if withdrawal.purpose != LIVE_ATTENDANCE_PURPOSE:
+        raise ConsentRequired("canonical withdrawal has the wrong purpose")
+    if registration.consent_ref != withdrawal.consent_ref:
+        raise ConsentRequired("canonical withdrawal does not match the registration Consent")
+    if registration.tenant_id != withdrawal.tenant_id:
+        raise ScopeViolation("canonical withdrawal crossed the registration tenant")
+    if registration.family_id != withdrawal.family_id:
+        raise ScopeViolation("canonical withdrawal crossed the registration family")
+    if registration.guardian_id != withdrawal.guardian_id:
+        raise ScopeViolation("canonical withdrawal crossed the registration guardian")
+
+
+def _with_status(
+    registration: Registration,
+    status: RegistrationStatus,
+    correlation_id: str,
+) -> Registration:
+    return Registration(
+        registration_ref=registration.registration_ref,
+        session_ref=registration.session_ref,
+        tenant_id=registration.tenant_id,
+        family_id=registration.family_id,
+        guardian_id=registration.guardian_id,
+        consent_ref=registration.consent_ref,
+        status=status,
+        correlation_id=correlation_id,
+    )
+
+
+def _command_fingerprint(command: str, *parts: str) -> str:
+    return sha256(":".join((command, *parts)).encode()).hexdigest()

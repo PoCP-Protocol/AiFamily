@@ -10,12 +10,14 @@ from poc.standalone_live_control_sandbox.control_plane import (
     LIVE_ATTENDANCE_PURPOSE,
     SANDBOX_SOURCE,
     CanonicalConsentDecision,
+    CanonicalConsentWithdrawal,
     ConsentRequired,
     GuardianContext,
     IdempotencyConflict,
     InMemoryAtomicRegistrationStore,
     LiveSessionFixture,
     RegistrationRejected,
+    RegistrationStateConflict,
     RegistrationStatus,
     ReviewStatus,
     SandboxBoundaryError,
@@ -76,6 +78,34 @@ def make_plane(decision: CanonicalConsentDecision | None = None):
     consent_port = FakeCanonicalConsent(decision or consent())
     store = InMemoryAtomicRegistrationStore()
     return SandboxLiveControlPlane(consent=consent_port, audit_outbox=store), consent_port, store
+
+
+def withdrawal(**overrides: object) -> CanonicalConsentWithdrawal:
+    values: dict[str, object] = {
+        "event_ref": "consent-event.synthetic.1",
+        "consent_ref": "consent.synthetic.1",
+        "tenant_id": "tenant.synthetic",
+        "family_id": "family.synthetic",
+        "guardian_id": "guardian.synthetic",
+        "purpose": LIVE_ATTENDANCE_PURPOSE,
+        "withdrawn_at": NOW,
+    }
+    values.update(overrides)
+    return CanonicalConsentWithdrawal(**values)
+
+
+def confirmed_registration(
+    plane: SandboxLiveControlPlane,
+    *,
+    idempotency_key: str = "idem-register-setup",
+):
+    return plane.register(
+        session=session(),
+        guardian=GUARDIAN,
+        idempotency_key=idempotency_key,
+        correlation_id="corr-register-setup",
+        now=NOW,
+    ).registration
 
 
 def test_register_calls_canonical_consent_and_atomic_audit_outbox() -> None:
@@ -209,3 +239,229 @@ def test_fixture_boundary_is_explicit_and_baseline_content_is_rejected() -> None
         session(fixture_only=False)
     assert session().source == SANDBOX_SOURCE
     assert session().fixture_only is True
+
+
+def test_adult_can_cancel_own_confirmed_registration_atomically() -> None:
+    plane, _, store = make_plane()
+    registration = confirmed_registration(plane)
+
+    receipt = plane.cancel(
+        registration_ref=registration.registration_ref,
+        guardian=GUARDIAN,
+        idempotency_key="idem-cancel",
+        correlation_id="corr-cancel",
+    )
+
+    assert receipt.registration.status is RegistrationStatus.CANCELLED
+    assert receipt.registration.correlation_id == "corr-cancel"
+    assert store.registration_for(registration.registration_ref) == receipt.registration
+    committed, audit, event_type, key = store.commits[-1]
+    assert committed.status is RegistrationStatus.CANCELLED
+    assert audit.action == "cancel_live_registration"
+    assert event_type == "live.registration.cancelled"
+    assert key == "idem-cancel"
+
+
+def test_cancel_replay_is_idempotent_without_another_commit() -> None:
+    plane, _, store = make_plane()
+    registration = confirmed_registration(plane)
+    first = plane.cancel(
+        registration_ref=registration.registration_ref,
+        guardian=GUARDIAN,
+        idempotency_key="idem-cancel-replay",
+        correlation_id="corr-cancel-1",
+    )
+    second = plane.cancel(
+        registration_ref=registration.registration_ref,
+        guardian=GUARDIAN,
+        idempotency_key="idem-cancel-replay",
+        correlation_id="corr-cancel-2",
+    )
+
+    assert second.replayed is True
+    assert second.registration == first.registration
+    assert len(store.commits) == 2
+
+
+@pytest.mark.parametrize(
+    "guardian",
+    [
+        GuardianContext("tenant.other", "family.synthetic", "guardian.synthetic"),
+        GuardianContext("tenant.synthetic", "family.other", "guardian.synthetic"),
+        GuardianContext("tenant.synthetic", "family.synthetic", "guardian.other"),
+    ],
+)
+def test_cancel_cross_scope_is_fail_closed(guardian: GuardianContext) -> None:
+    plane, _, store = make_plane()
+    registration = confirmed_registration(plane)
+
+    with pytest.raises(ScopeViolation):
+        plane.cancel(
+            registration_ref=registration.registration_ref,
+            guardian=guardian,
+            idempotency_key="idem-cancel-scope",
+            correlation_id="corr-cancel-scope",
+        )
+
+    assert len(store.commits) == 1
+    assert store.registration_for(registration.registration_ref) == registration
+
+
+def test_cancel_wrong_state_and_idempotency_conflict_are_fail_closed() -> None:
+    plane, _, store = make_plane()
+    registration = confirmed_registration(plane)
+    plane.cancel(
+        registration_ref=registration.registration_ref,
+        guardian=GUARDIAN,
+        idempotency_key="idem-cancel-first",
+        correlation_id="corr-cancel-first",
+    )
+
+    with pytest.raises(RegistrationStateConflict):
+        plane.cancel(
+            registration_ref=registration.registration_ref,
+            guardian=GUARDIAN,
+            idempotency_key="idem-cancel-second",
+            correlation_id="corr-cancel-second",
+        )
+    with pytest.raises(IdempotencyConflict):
+        plane.cancel(
+            registration_ref="registration.synthetic.other",
+            guardian=GUARDIAN,
+            idempotency_key="idem-cancel-first",
+            correlation_id="corr-cancel-conflict",
+        )
+
+    assert len(store.commits) == 2
+
+
+def test_cancel_atomic_commit_failure_preserves_confirmed_registration() -> None:
+    plane, _, store = make_plane()
+    registration = confirmed_registration(plane)
+    store.fail_next_commit = True
+
+    with pytest.raises(RuntimeError, match="atomic commit"):
+        plane.cancel(
+            registration_ref=registration.registration_ref,
+            guardian=GUARDIAN,
+            idempotency_key="idem-cancel-failure",
+            correlation_id="corr-cancel-failure",
+        )
+
+    assert store.registration_for(registration.registration_ref) == registration
+    assert store.receipt_for("idem-cancel-failure") is None
+
+
+def test_canonical_consent_withdrawal_revokes_confirmed_registration() -> None:
+    plane, _, store = make_plane()
+    registration = confirmed_registration(plane)
+
+    receipt = plane.project_consent_withdrawal(
+        registration_ref=registration.registration_ref,
+        withdrawal=withdrawal(),
+        idempotency_key="idem-withdrawal",
+        correlation_id="corr-withdrawal",
+    )
+
+    assert receipt.registration.status is RegistrationStatus.REVOKED
+    committed, audit, event_type, key = store.commits[-1]
+    assert committed.status is RegistrationStatus.REVOKED
+    assert audit.action == "revoke_live_registration_after_consent_withdrawal"
+    assert event_type == "live.registration.revoked"
+    assert key == "idem-withdrawal"
+    assert not hasattr(receipt.registration, "reminder")
+    assert not hasattr(receipt.registration, "media_capability")
+
+
+def test_withdrawal_replay_is_idempotent_without_follow_up_effects() -> None:
+    plane, _, store = make_plane()
+    registration = confirmed_registration(plane)
+    first = plane.project_consent_withdrawal(
+        registration_ref=registration.registration_ref,
+        withdrawal=withdrawal(),
+        idempotency_key="idem-withdrawal-replay",
+        correlation_id="corr-withdrawal-1",
+    )
+    second = plane.project_consent_withdrawal(
+        registration_ref=registration.registration_ref,
+        withdrawal=withdrawal(),
+        idempotency_key="idem-withdrawal-replay",
+        correlation_id="corr-withdrawal-2",
+    )
+
+    assert second.replayed is True
+    assert second.registration == first.registration
+    assert len(store.commits) == 2
+
+
+@pytest.mark.parametrize(
+    "overrides, error",
+    [
+        ({"tenant_id": "tenant.other"}, ScopeViolation),
+        ({"family_id": "family.other"}, ScopeViolation),
+        ({"guardian_id": "guardian.other"}, ScopeViolation),
+        ({"consent_ref": "consent.other"}, ConsentRequired),
+        ({"purpose": "service"}, ConsentRequired),
+    ],
+)
+def test_withdrawal_scope_and_consent_mismatch_are_fail_closed(
+    overrides: dict[str, object], error: type[Exception]
+) -> None:
+    plane, _, store = make_plane()
+    registration = confirmed_registration(plane)
+
+    with pytest.raises(error):
+        plane.project_consent_withdrawal(
+            registration_ref=registration.registration_ref,
+            withdrawal=withdrawal(**overrides),
+            idempotency_key="idem-withdrawal-scope",
+            correlation_id="corr-withdrawal-scope",
+        )
+
+    assert len(store.commits) == 1
+    assert store.registration_for(registration.registration_ref) == registration
+
+
+def test_withdrawal_wrong_state_and_idempotency_conflict_are_fail_closed() -> None:
+    plane, _, store = make_plane()
+    registration = confirmed_registration(plane)
+    plane.cancel(
+        registration_ref=registration.registration_ref,
+        guardian=GUARDIAN,
+        idempotency_key="idem-before-withdrawal",
+        correlation_id="corr-before-withdrawal",
+    )
+
+    with pytest.raises(RegistrationStateConflict):
+        plane.project_consent_withdrawal(
+            registration_ref=registration.registration_ref,
+            withdrawal=withdrawal(),
+            idempotency_key="idem-withdrawal-after-cancel",
+            correlation_id="corr-withdrawal-after-cancel",
+        )
+    with pytest.raises(IdempotencyConflict):
+        plane.project_consent_withdrawal(
+            registration_ref=registration.registration_ref,
+            withdrawal=withdrawal(event_ref="consent-event.synthetic.other"),
+            idempotency_key="idem-before-withdrawal",
+            correlation_id="corr-withdrawal-conflict",
+        )
+
+    assert len(store.commits) == 2
+
+
+def test_withdrawal_atomic_commit_failure_preserves_confirmed_registration() -> None:
+    plane, _, store = make_plane()
+    registration = confirmed_registration(plane)
+    store.fail_next_commit = True
+
+    with pytest.raises(RuntimeError, match="atomic commit"):
+        plane.project_consent_withdrawal(
+            registration_ref=registration.registration_ref,
+            withdrawal=withdrawal(),
+            idempotency_key="idem-withdrawal-failure",
+            correlation_id="corr-withdrawal-failure",
+        )
+
+    assert store.registration_for(registration.registration_ref) == registration
+    assert store.receipt_for("idem-withdrawal-failure") is None
