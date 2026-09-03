@@ -5,16 +5,18 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import signal
+import secrets
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+import urllib.parse
 import urllib.request
-from contextlib import suppress
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 DEFAULT_PORTS = {
@@ -45,10 +47,107 @@ class RuntimeEvidence:
     fixture_only: bool
     external_effect: bool
     launcher_pid: int
+    runtime_id: str
+    generation: str
+    state: str
+    started_at: str
+    executable: str
+    command: list[str]
+    control_url: str
+    ports: dict[str, int]
     runtime_dir: str
     web_url: str
     media_descriptor: str
     services: dict[str, dict[str, object]]
+
+
+def atomic_json(path: Path, payload: dict[str, object]) -> None:
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    temporary.replace(path)
+
+
+def dynamic_ports() -> dict[str, int]:
+    ports: dict[str, int] = {}
+    reserved: set[int] = set()
+    for name in DEFAULT_PORTS:
+        while True:
+            with socket.socket() as probe:
+                probe.bind(("127.0.0.1", 0))
+                port = int(probe.getsockname()[1])
+            if port not in reserved:
+                reserved.add(port)
+                ports[name] = port
+                break
+    return ports
+
+
+def parse_port_overrides(values: list[str]) -> dict[str, int]:
+    overrides: dict[str, int] = {}
+    for value in values:
+        name, separator, raw_port = value.partition("=")
+        if separator != "=" or name not in DEFAULT_PORTS:
+            raise ValueError(f"invalid port override: {value}")
+        port = int(raw_port)
+        if not 1 <= port <= 65535:
+            raise ValueError(f"invalid port override: {value}")
+        overrides[name] = port
+    if len(set(overrides.values())) != len(overrides):
+        raise ValueError("port overrides must be unique")
+    return overrides
+
+
+class RuntimeControlServer:
+    def __init__(self, runtime_id: str, secret: str, identity: dict[str, object]) -> None:
+        self.runtime_id = runtime_id
+        self.secret = secret
+        self.identity = identity
+        self.stop_event = threading.Event()
+        owner = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:  # noqa: N802 - stdlib handler contract
+                if self.path != "/stop":
+                    self.send_error(404)
+                    return
+                length = int(self.headers.get("Content-Length", "0"))
+                body = json.loads(self.rfile.read(length) or b"{}")
+                if (
+                    not secrets.compare_digest(
+                        self.headers.get("X-Runtime-Secret", ""), owner.secret
+                    )
+                    or body.get("runtime_id") != owner.runtime_id
+                ):
+                    self.send_error(403)
+                    return
+                payload = json.dumps(owner.identity, sort_keys=True).encode("utf-8")
+                self.send_response(202)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+                owner.stop_event.set()
+
+            def log_message(self, _format: str, *_args: object) -> None:
+                return
+
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+
+    @property
+    def url(self) -> str:
+        host, port = self.httpd.server_address
+        return f"http://{host}:{port}"
+
+    def start(self) -> None:
+        self.thread.start()
+
+    def close(self) -> None:
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.thread.join(timeout=2)
 
 
 def assert_ports_available(ports: dict[str, int]) -> None:
@@ -352,56 +451,175 @@ def terminate(processes: list[subprocess.Popen[bytes]]) -> None:
 
 def stop_runtime(runtime_dir: Path) -> dict[str, object]:
     manifest_path = runtime_dir / "runtime.json"
+    control_path = runtime_dir / ".runtime-control.json"
     if not manifest_path.is_file():
         raise RuntimeError(f"sandbox runtime manifest is missing: {manifest_path}")
+    if not control_path.is_file():
+        raise RuntimeError("sandbox runtime control identity is missing")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    control = json.loads(control_path.read_text(encoding="utf-8"))
     if (
         manifest.get("source") != "SANDBOX_SYNTHETIC"
         or manifest.get("fixture_only") is not True
         or manifest.get("external_effect") is not False
+        or manifest.get("runtime_id") != control.get("runtime_id")
+        or manifest.get("control_url") != control.get("control_url")
     ):
         raise RuntimeError("refusing to stop an unverified runtime")
     launcher_pid = manifest.get("launcher_pid")
     if not isinstance(launcher_pid, int) or launcher_pid <= 0 or launcher_pid == os.getpid():
         raise RuntimeError("sandbox launcher pid is invalid")
-    if os.name == "nt":
-        result = subprocess.run(
-            ("taskkill", "/PID", str(launcher_pid), "/T", "/F"),
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode not in {0, 128}:
-            raise RuntimeError(f"sandbox stop failed: {result.stderr.strip()}")
+    service_pids = {
+        name: service["pid"] for name, service in manifest.get("services", {}).items()
+    }
+    if not service_pids or not all(
+        isinstance(process_id, int) and process_id > 0 for process_id in service_pids.values()
+    ):
+        raise RuntimeError("sandbox service pid identity is invalid")
+    ports = set(manifest["ports"].values())
+    media = json.loads(Path(manifest["media_descriptor"]).read_text(encoding="utf-8"))
+    ports.add(int(urllib.parse.urlsplit(media["control_url"]).port))
+    request = urllib.request.Request(
+        f"{control['control_url']}/stop",
+        data=json.dumps({"runtime_id": control["runtime_id"]}).encode("utf-8"),
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "X-Runtime-Secret": control["secret"],
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=3) as response:
+            identity = json.loads(response.read())
+    except OSError as exc:
+        if not process_exists(launcher_pid):
+            if all(not process_exists(process_id) for process_id in service_pids.values()) and all(
+                port_is_free(port) for port in ports
+            ):
+                return {"status": "ALREADY_STOPPED", "launcher_pid": launcher_pid}
+            raise RuntimeError("sandbox launcher stopped but verified resources remain") from exc
+        raise RuntimeError(f"verified sandbox stop endpoint failed: {exc}") from exc
+    expected_identity = {
+        key: manifest[key]
+        for key in ("runtime_id", "launcher_pid", "started_at", "executable", "runtime_dir")
+    }
+    expected_identity["service_pids"] = service_pids
+    if identity != expected_identity:
+        raise RuntimeError("runtime control identity mismatch")
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        all_processes = (launcher_pid, *service_pids.values())
+        if all(not process_exists(process_id) for process_id in all_processes) and all(
+            port_is_free(port) for port in ports
+        ):
+            break
+        time.sleep(0.1)
     else:
-        with suppress(ProcessLookupError):
-            os.kill(launcher_pid, signal.SIGTERM)
+        raise RuntimeError("sandbox stop was not fully released")
     receipt = {
         "source": "SANDBOX_SYNTHETIC",
         "fixture_only": True,
         "external_effect": False,
         "launcher_pid": launcher_pid,
+        "runtime_id": manifest["runtime_id"],
+        "generation": manifest["generation"],
+        "status": "STOPPED",
+        "released_ports": sorted(ports),
+        "service_pids": expected_identity["service_pids"],
         "stopped_at": datetime.now(UTC).isoformat(),
     }
-    (runtime_dir / "stopped.json").write_text(
-        json.dumps(receipt, indent=2, sort_keys=True), encoding="utf-8"
-    )
+    atomic_json(runtime_dir / "stopped.json", receipt)
     return receipt
+
+
+def process_exists(process_id: int) -> bool:
+    if process_id <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        synchronize = 0x00100000
+        wait_timeout = 0x00000102
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        handle = kernel32.OpenProcess(synchronize, False, process_id)
+        if not handle:
+            return ctypes.get_last_error() == 5
+        try:
+            return kernel32.WaitForSingleObject(handle, 0) == wait_timeout
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(process_id, 0)
+    except (OSError, SystemError):
+        return False
+    return True
+
+
+def port_is_free(port: int) -> bool:
+    with socket.socket() as probe:
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
 
 
 def run(runtime_dir: Path, ports: dict[str, int]) -> int:
     repo_root = Path(__file__).resolve().parents[2]
     runtime_dir.mkdir(parents=True, exist_ok=True)
     assert_ports_available(ports)
-    media_descriptor = runtime_dir / "media.json"
-    media_path = runtime_dir / "live.web-compatible.mp4"
-    specs = build_service_specs(repo_root, runtime_dir, ports, media_descriptor, media_path)
+    runtime_id = secrets.token_urlsafe(24)
+    generation = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}-{secrets.token_hex(4)}"
+    generation_dir = runtime_dir / "generations" / generation
+    generation_dir.mkdir(parents=True)
+    media_descriptor = generation_dir / "media.json"
+    media_path = generation_dir / "live.web-compatible.mp4"
+    specs = build_service_specs(repo_root, generation_dir, ports, media_descriptor, media_path)
     processes: list[subprocess.Popen[bytes]] = []
     logs: list[object] = []
     evidence: dict[str, dict[str, object]] = {}
+    started_at = datetime.now(UTC).isoformat()
+    identity: dict[str, object] = {
+        "runtime_id": runtime_id,
+        "launcher_pid": os.getpid(),
+        "started_at": started_at,
+        "executable": str(Path(sys.executable).resolve()),
+        "runtime_dir": str(runtime_dir.resolve()),
+        "service_pids": {},
+    }
+    secret = secrets.token_urlsafe(48)
+    control = RuntimeControlServer(runtime_id, secret, identity)
+    control.start()
+    control_identity = {
+        "runtime_id": runtime_id,
+        "control_url": control.url,
+        "secret": secret,
+    }
+    atomic_json(runtime_dir / ".runtime-control.json", control_identity)
+    os.chmod(runtime_dir / ".runtime-control.json", 0o600)
+    starting = {
+        "source": "SANDBOX_SYNTHETIC",
+        "fixture_only": True,
+        "external_effect": False,
+        **{key: value for key, value in identity.items() if key != "service_pids"},
+        "generation": generation,
+        "state": "STARTING",
+        "command": list(sys.argv),
+        "control_url": control.url,
+        "ports": ports,
+        "services": {},
+    }
+    atomic_json(runtime_dir / "runtime.json", starting)
     try:
         for spec in specs:
-            log = (runtime_dir / f"{spec.name}.log").open("ab")
+            log = (generation_dir / f"{spec.name}.log").open("ab")
             logs.append(log)
             process = subprocess.Popen(spec.command, cwd=spec.cwd, stdout=log, stderr=log)
             processes.append(process)
@@ -443,7 +661,7 @@ def run(runtime_dir: Path, ports: dict[str, int]) -> int:
             repo_root,
             f"http://127.0.0.1:{ports['observability']}/health",
         )
-        log = (runtime_dir / "observability.log").open("ab")
+        log = (generation_dir / "observability.log").open("ab")
         logs.append(log)
         process = subprocess.Popen(observability.command, cwd=repo_root, stdout=log, stderr=log)
         processes.append(process)
@@ -453,7 +671,7 @@ def run(runtime_dir: Path, ports: dict[str, int]) -> int:
         }
 
         env = {**os.environ, **web_environment(ports, media)}
-        web_log = (runtime_dir / "web.log").open("ab")
+        web_log = (generation_dir / "web.log").open("ab")
         logs.append(web_log)
         web_command = (
             "pnpm.cmd" if os.name == "nt" else "pnpm",
@@ -473,31 +691,52 @@ def run(runtime_dir: Path, ports: dict[str, int]) -> int:
             "health": {"fixture_only": True, "source": "SANDBOX_SYNTHETIC"},
         }
 
+        identity["service_pids"] = {name: service["pid"] for name, service in evidence.items()}
+
         runtime = RuntimeEvidence(
             source="SANDBOX_SYNTHETIC",
             fixture_only=True,
             external_effect=False,
             launcher_pid=os.getpid(),
+            runtime_id=runtime_id,
+            generation=generation,
+            state="RUNNING",
+            started_at=started_at,
+            executable=str(Path(sys.executable).resolve()),
+            command=list(sys.argv),
+            control_url=control.url,
+            ports=ports,
             runtime_dir=str(runtime_dir.resolve()),
             web_url=f"http://127.0.0.1:{ports['web']}/#live-home",
             media_descriptor=str(media_descriptor.resolve()),
             services=evidence,
         )
-        (runtime_dir / "runtime.json").write_text(
-            json.dumps(asdict(runtime), ensure_ascii=False, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
+        atomic_json(runtime_dir / "runtime.json", asdict(runtime))
         print(json.dumps(asdict(runtime), ensure_ascii=False, sort_keys=True), flush=True)
-        while all(process.poll() is None for process in processes):
-            time.sleep(0.5)
-        failed = next(process for process in processes if process.poll() is not None)
-        raise RuntimeError(
-            f"sandbox process exited unexpectedly: pid={failed.pid} code={failed.returncode}"
-        )
+        while not control.stop_event.wait(0.5):
+            failed = next((process for process in processes if process.poll() is not None), None)
+            if failed is not None:
+                raise RuntimeError(
+                    "sandbox process exited unexpectedly: "
+                    f"pid={failed.pid} code={failed.returncode}"
+                )
+        return 0
     except KeyboardInterrupt:
         return 0
+    except Exception as exc:
+        atomic_json(
+            runtime_dir / "runtime.json",
+            {
+                **starting,
+                "state": "FAILED",
+                "error": str(exc),
+                "failed_at": datetime.now(UTC).isoformat(),
+            },
+        )
+        raise
     finally:
         terminate(processes)
+        control.close()
         for log in logs:
             log.close()
 
@@ -507,6 +746,8 @@ def main() -> int:
     parser.add_argument("--serve", action="store_true")
     parser.add_argument("--stop", action="store_true")
     parser.add_argument("--runtime-dir", type=Path)
+    parser.add_argument("--port-profile", choices=("fixed", "dynamic"), default="fixed")
+    parser.add_argument("--port", action="append", default=[], metavar="NAME=PORT")
     args = parser.parse_args()
     if args.stop:
         if args.runtime_dir is None:
@@ -516,7 +757,11 @@ def main() -> int:
     if not args.serve:
         raise SystemExit("use --serve or --stop")
     runtime_dir = args.runtime_dir or Path(tempfile.mkdtemp(prefix="xiaojudeng-runtime-"))
-    return run(runtime_dir, DEFAULT_PORTS)
+    ports = dynamic_ports() if args.port_profile == "dynamic" else dict(DEFAULT_PORTS)
+    ports.update(parse_port_overrides(args.port))
+    if len(set(ports.values())) != len(ports):
+        raise SystemExit("all sandbox ports must be unique")
+    return run(runtime_dir, ports)
 
 
 if __name__ == "__main__":
