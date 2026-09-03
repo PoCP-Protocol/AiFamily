@@ -1,13 +1,16 @@
+import json
 from copy import deepcopy
+from hashlib import sha256
 
 import pytest
 
 from backend.intelligence.experience.family_growth_plan_contract import (
+    ConfirmedUnderstandingReceipt,
+    PublishedPlanKnowledge,
     build_family_growth_plan_request,
     family_growth_plan_output_schema,
     validate_family_growth_plan_output,
 )
-from backend.intelligence.model_gateway.errors import ModelGatewayError
 
 
 def _understanding() -> dict:
@@ -21,8 +24,41 @@ def _understanding() -> dict:
     }
 
 
-def _knowledge() -> tuple[dict, ...]:
-    return ({"knowledge_ref": "knowledge:transition:v1", "content": "活动转换需要准备"},)
+def _confirmation(**overrides) -> ConfirmedUnderstandingReceipt:
+    understanding = _understanding()
+    values = {
+        "receipt_ref": "confirmation:understanding:1",
+        "tenant_id": "tenant:1",
+        "family_id": "family:1",
+        "subject_refs": ("guardian:1", "child:1"),
+        "confirmed_by": "guardian:1",
+        "confirmed_at": "2026-09-03T12:00:00+08:00",
+        "version": "understanding.v1",
+        "content_sha256": sha256(
+            json.dumps(
+                understanding, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+        ).hexdigest(),
+        "understanding": understanding,
+    }
+    values.update(overrides)
+    return ConfirmedUnderstandingReceipt(**values)
+
+
+def _knowledge(**overrides) -> tuple[PublishedPlanKnowledge, ...]:
+    values = {
+        "knowledge_ref": "knowledge:transition:v1",
+        "source_ref": "source:reviewed:1",
+        "version": "v1",
+        "chunk_ref": "chunk:1",
+        "content": "活动转换需要准备",
+        "applicability": "晚间活动转换",
+        "limitations": ("不代表所有启动困难原因相同",),
+        "purpose": "family_growth_plan",
+        "scope": "family_growth",
+    }
+    values.update(overrides)
+    return (PublishedPlanKnowledge(**values),)
 
 
 def _output() -> dict:
@@ -30,16 +66,29 @@ def _output() -> dict:
         "stage_id": "observe-transition",
         "title": "看清晚间转换发生了什么",
         "purpose": "共同辨认开始前最容易卡住的时刻",
-        "family_practices": ["连续记录三次从自由活动转向学习的过程"],
-        "parent_role": "描述观察，不提前解释原因",
-        "child_participation": "选择愿意说明的一次体验",
-        "success_signals": ["双方能说出一个具体卡点"],
-        "adaptation_triggers": ["记录本身引发争执时改为家长单独记录"],
+        "practices": [
+            {
+                "practice_id": "observe-1",
+                "description": "连续记录三次从自由活动转向学习的过程",
+                "actor": "ADULT",
+                "cadence": "发生转换时记录",
+                "effort": "每次约三分钟",
+                "stop_condition": "记录引发新的争执",
+                "repair_option": "改为当天结束后由家长单独回忆记录",
+            }
+        ],
+        "child_participation_mode": "OPTIONAL",
+        "signals": [
+            {"signal_type": "OUTCOME", "description": "双方能说出一个具体卡点"},
+            {"signal_type": "STOP", "description": "观察过程明显增加家庭压力"},
+        ],
         "reflection_question": "哪一次转换比预想中更顺利，发生了什么？",
         "evidence_refs": ["input:concern"],
         "knowledge_refs": ["knowledge:transition:v1"],
     }
     return {
+        "result_status": "PLAN_DRAFT",
+        "information_needed": [],
         "title": "让晚间学习从拉扯变成共同准备",
         "family_goal": {
             "statement": "晚间开始学习时减少催促和争执",
@@ -48,12 +97,27 @@ def _output() -> dict:
         },
         "why_this_plan": "家庭已发现拥有选择时更容易开始，因此先理解转换再共同设计节奏。",
         "duration": {"days": 28, "rationale": "需要覆盖多个上学日和周末情境。"},
-        "stages": [stage, {**stage, "stage_id": "co-design-rhythm", "title": "共同设计晚间节奏"}],
+        "stages": [
+            stage,
+            {
+                **stage,
+                "stage_id": "co-design-rhythm",
+                "title": "共同设计晚间节奏",
+                "practices": [
+                    {
+                        **stage["practices"][0],
+                        "practice_id": "co-design-1",
+                        "description": "家长与孩子共同选择一个可尝试的开始提示",
+                    }
+                ],
+            },
+        ],
         "adjustable_choices": [
             {
                 "choice_id": "review-time",
                 "question": "你们更愿意在什么时候一起复盘？",
                 "options": ["当天睡前", "第二天晚饭后"],
+                "target_stage_ids": ["observe-transition", "co-design-rhythm"],
             }
         ],
         "unknowns_to_watch": ["不同科目的启动困难是否相同"],
@@ -70,8 +134,7 @@ def test_builds_a_real_generation_request_without_fixed_plan_content() -> None:
         run_id="run:plan:1",
         data_class="SYNTHETIC",
         context_snapshot_ref="context:plan:1",
-        confirmed_understanding_ref="understanding:confirmed:1",
-        confirmed_understanding=_understanding(),
+        confirmation=_confirmation(),
         reviewed_knowledge=_knowledge(),
     )
 
@@ -80,7 +143,7 @@ def test_builds_a_real_generation_request_without_fixed_plan_content() -> None:
     assert "duration" not in request.payload
     assert "stages" not in request.payload
     assert request.input_refs == (
-        "understanding:confirmed:1",
+        "confirmation:understanding:1",
         "input:concern",
         "input:exception",
         "knowledge:transition:v1",
@@ -89,34 +152,24 @@ def test_builds_a_real_generation_request_without_fixed_plan_content() -> None:
 
 def test_validates_generated_depth_and_reference_grounding() -> None:
     validated = validate_family_growth_plan_output(
-        _output(),
-        allowed_evidence_refs=frozenset({"input:concern", "input:exception"}),
-        allowed_knowledge_refs=frozenset({"knowledge:transition:v1"}),
+        _output(), request=_request()
     )
 
     assert validated["duration"]["days"] == 28
     assert len(validated["stages"]) == 2
-    assert validated["stages"][0]["adaptation_triggers"]
+    assert validated["stages"][0]["practices"][0]["repair_option"]
 
 
 def test_rejects_invented_evidence_or_knowledge_refs() -> None:
     invented_evidence = deepcopy(_output())
     invented_evidence["family_goal"]["evidence_refs"] = ["input:invented"]
     with pytest.raises(ValueError, match="evidence outside"):
-        validate_family_growth_plan_output(
-            invented_evidence,
-            allowed_evidence_refs=frozenset({"input:concern"}),
-            allowed_knowledge_refs=frozenset({"knowledge:transition:v1"}),
-        )
+        validate_family_growth_plan_output(invented_evidence, request=_request())
 
     invented_knowledge = deepcopy(_output())
     invented_knowledge["stages"][0]["knowledge_refs"] = ["knowledge:invented"]
     with pytest.raises(ValueError, match="knowledge outside"):
-        validate_family_growth_plan_output(
-            invented_knowledge,
-            allowed_evidence_refs=frozenset({"input:concern"}),
-            allowed_knowledge_refs=frozenset({"knowledge:transition:v1"}),
-        )
+        validate_family_growth_plan_output(invented_knowledge, request=_request())
 
 
 def test_schema_copy_is_isolated_and_requires_meaningful_stages() -> None:
@@ -127,9 +180,49 @@ def test_schema_copy_is_isolated_and_requires_meaningful_stages() -> None:
     assert "stages" in second["properties"]
     shallow = _output()
     shallow["stages"] = [shallow["stages"][0]]
-    with pytest.raises(ModelGatewayError, match="minItems 2"):
-        validate_family_growth_plan_output(
-            shallow,
-            allowed_evidence_refs=frozenset({"input:concern"}),
-            allowed_knowledge_refs=frozenset({"knowledge:transition:v1"}),
-        )
+    with pytest.raises(ValueError, match="at least two stages"):
+        validate_family_growth_plan_output(shallow, request=_request())
+
+
+def test_rejects_unconfirmed_or_unpublished_inputs() -> None:
+    with pytest.raises(ValueError, match="must be confirmed"):
+        _confirmation(status="DRAFT")
+    with pytest.raises(ValueError, match="content hash mismatch"):
+        _confirmation(content_sha256="0" * 64)
+    with pytest.raises(ValueError, match="published and active"):
+        _knowledge(status="RETIRED")
+    with pytest.raises(ValueError, match="source must be verified"):
+        _knowledge(source_verified=False)
+
+
+def test_information_gap_does_not_fabricate_a_plan() -> None:
+    output = _output()
+    output["result_status"] = "NEEDS_MORE_INFORMATION"
+    output["information_needed"] = ["孩子愿意如何参与这段计划"]
+    output["stages"] = []
+
+    assert validate_family_growth_plan_output(output, request=_request())["stages"] == []
+
+
+def test_rejects_duplicate_or_generic_practices() -> None:
+    duplicate = _output()
+    duplicate["stages"][1]["practices"][0]["description"] = (
+        duplicate["stages"][0]["practices"][0]["description"]
+    )
+    with pytest.raises(ValueError, match="must not repeat"):
+        validate_family_growth_plan_output(duplicate, request=_request())
+
+    generic = _output()
+    generic["stages"][0]["practices"][0]["description"] = "多沟通"
+    with pytest.raises(ValueError, match="generic practice"):
+        validate_family_growth_plan_output(generic, request=_request())
+
+
+def _request():
+    return build_family_growth_plan_request(
+        run_id="run:plan:1",
+        data_class="SYNTHETIC",
+        context_snapshot_ref="context:plan:1",
+        confirmation=_confirmation(),
+        reviewed_knowledge=_knowledge(),
+    )

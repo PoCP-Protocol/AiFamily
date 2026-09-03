@@ -7,8 +7,12 @@ may adopt a validated draft only through its own parent-confirmation action.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from copy import deepcopy
+from dataclasses import dataclass
+from datetime import datetime
+from hashlib import sha256
 from typing import Any
 
 from backend.intelligence.model_gateway.contracts import DataClass, StructuredRequest
@@ -17,6 +21,86 @@ from backend.intelligence.model_gateway.validation import SchemaValidator
 FAMILY_GROWTH_PLAN_USE_CASE = "family_growth_plan_draft"
 FAMILY_GROWTH_PLAN_PROMPT_VERSION = "family-growth-plan.v1"
 FAMILY_GROWTH_PLAN_SCHEMA_VERSION = "family-growth-plan-output.v1"
+
+
+@dataclass(frozen=True, slots=True)
+class ConfirmedUnderstandingReceipt:
+    receipt_ref: str
+    tenant_id: str
+    family_id: str
+    subject_refs: tuple[str, ...]
+    confirmed_by: str
+    confirmed_at: str
+    version: str
+    content_sha256: str
+    understanding: Mapping[str, Any]
+    status: str = "CONFIRMED"
+
+    def __post_init__(self) -> None:
+        if self.status != "CONFIRMED":
+            raise ValueError("family understanding must be confirmed")
+        values = (
+            self.receipt_ref,
+            self.tenant_id,
+            self.family_id,
+            self.confirmed_by,
+            self.confirmed_at,
+            self.version,
+        )
+        if not all(value.strip() for value in values) or not self.subject_refs:
+            raise ValueError("confirmed understanding receipt identity is incomplete")
+        parsed = datetime.fromisoformat(self.confirmed_at.replace("Z", "+00:00"))
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError("confirmed_at must include a timezone")
+        if self.content_sha256 != _content_digest(self.understanding):
+            raise ValueError("confirmed understanding content hash mismatch")
+
+
+@dataclass(frozen=True, slots=True)
+class PublishedPlanKnowledge:
+    knowledge_ref: str
+    source_ref: str
+    version: str
+    chunk_ref: str
+    content: str
+    applicability: str
+    limitations: tuple[str, ...]
+    purpose: str
+    scope: str
+    status: str = "PUBLISHED"
+    source_status: str = "ACTIVE"
+    source_verified: bool = True
+
+    def __post_init__(self) -> None:
+        if self.status != "PUBLISHED" or self.source_status != "ACTIVE":
+            raise ValueError("growth plan knowledge must be published and active")
+        if self.source_verified is not True:
+            raise ValueError("growth plan knowledge source must be verified")
+        values = (
+            self.knowledge_ref,
+            self.source_ref,
+            self.version,
+            self.chunk_ref,
+            self.content,
+            self.applicability,
+            self.purpose,
+            self.scope,
+        )
+        if not all(value.strip() for value in values) or not self.limitations:
+            raise ValueError("published knowledge metadata is incomplete")
+
+    def as_payload(self) -> dict[str, object]:
+        return {
+            "knowledge_ref": self.knowledge_ref,
+            "source_ref": self.source_ref,
+            "version": self.version,
+            "chunk_ref": self.chunk_ref,
+            "content": self.content,
+            "applicability": self.applicability,
+            "limitations": list(self.limitations),
+            "purpose": self.purpose,
+            "scope": self.scope,
+        }
 
 FAMILY_GROWTH_PLAN_INSTRUCTIONS = """你是 AiFamily 的家庭成长方案设计伙伴。
 
@@ -44,11 +128,19 @@ _REFS: dict[str, Any] = {
     "uniqueItems": True,
     "items": _TEXT,
 }
+_OPTIONAL_REFS: dict[str, Any] = {
+    "type": "array",
+    "minItems": 0,
+    "uniqueItems": True,
+    "items": _TEXT,
+}
 
 _OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "required": [
+        "result_status",
+        "information_needed",
         "title",
         "family_goal",
         "why_this_plan",
@@ -60,6 +152,11 @@ _OUTPUT_SCHEMA: dict[str, Any] = {
         "limitations",
     ],
     "properties": {
+        "result_status": {
+            "type": "string",
+            "enum": ["PLAN_DRAFT", "NEEDS_MORE_INFORMATION"],
+        },
+        "information_needed": {"type": "array", "minItems": 0, "items": _TEXT},
         "title": _TEXT,
         "family_goal": {
             "type": "object",
@@ -83,7 +180,7 @@ _OUTPUT_SCHEMA: dict[str, Any] = {
         },
         "stages": {
             "type": "array",
-            "minItems": 2,
+            "minItems": 0,
             "maxItems": 6,
             "items": {
                 "type": "object",
@@ -92,11 +189,9 @@ _OUTPUT_SCHEMA: dict[str, Any] = {
                     "stage_id",
                     "title",
                     "purpose",
-                    "family_practices",
-                    "parent_role",
-                    "child_participation",
-                    "success_signals",
-                    "adaptation_triggers",
+                    "practices",
+                    "child_participation_mode",
+                    "signals",
                     "reflection_question",
                     "evidence_refs",
                     "knowledge_refs",
@@ -105,23 +200,59 @@ _OUTPUT_SCHEMA: dict[str, Any] = {
                     "stage_id": _TEXT,
                     "title": _TEXT,
                     "purpose": _TEXT,
-                    "family_practices": {
+                    "practices": {
                         "type": "array",
                         "minItems": 1,
                         "maxItems": 4,
-                        "items": _TEXT,
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": [
+                                "practice_id",
+                                "description",
+                                "actor",
+                                "cadence",
+                                "effort",
+                                "stop_condition",
+                                "repair_option",
+                            ],
+                            "properties": {
+                                "practice_id": _TEXT,
+                                "description": _TEXT,
+                                "actor": {
+                                    "type": "string",
+                                    "enum": ["ADULT", "FAMILY", "CHILD_OPTIONAL"],
+                                },
+                                "cadence": _TEXT,
+                                "effort": _TEXT,
+                                "stop_condition": _TEXT,
+                                "repair_option": _TEXT,
+                            },
+                        },
                     },
-                    "parent_role": _TEXT,
-                    "child_participation": _TEXT,
-                    "success_signals": {"type": "array", "minItems": 1, "items": _TEXT},
-                    "adaptation_triggers": {
+                    "child_participation_mode": {
+                        "type": "string",
+                        "enum": ["ADULT_ONLY", "OPTIONAL", "ASSENT_REQUIRED"],
+                    },
+                    "signals": {
                         "type": "array",
                         "minItems": 1,
-                        "items": _TEXT,
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["signal_type", "description"],
+                            "properties": {
+                                "signal_type": {
+                                    "type": "string",
+                                    "enum": ["OUTCOME", "PROTECTION", "ADAPT", "STOP"],
+                                },
+                                "description": _TEXT,
+                            },
+                        },
                     },
                     "reflection_question": _TEXT,
                     "evidence_refs": _REFS,
-                    "knowledge_refs": _REFS,
+                    "knowledge_refs": _OPTIONAL_REFS,
                 },
             },
         },
@@ -131,11 +262,12 @@ _OUTPUT_SCHEMA: dict[str, Any] = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["choice_id", "question", "options"],
+                "required": ["choice_id", "question", "options", "target_stage_ids"],
                 "properties": {
                     "choice_id": _TEXT,
                     "question": _TEXT,
                     "options": {"type": "array", "minItems": 2, "maxItems": 5, "items": _TEXT},
+                    "target_stage_ids": _REFS,
                 },
             },
         },
@@ -163,26 +295,34 @@ def build_family_growth_plan_request(
     run_id: str,
     data_class: DataClass,
     context_snapshot_ref: str,
-    confirmed_understanding_ref: str,
-    confirmed_understanding: Mapping[str, Any],
-    reviewed_knowledge: tuple[Mapping[str, Any], ...],
+    confirmation: ConfirmedUnderstandingReceipt,
+    reviewed_knowledge: tuple[PublishedPlanKnowledge, ...],
     locale: str = "zh-CN",
 ) -> StructuredRequest:
     if not all(
         value.strip()
-        for value in (run_id, context_snapshot_ref, confirmed_understanding_ref, locale)
+        for value in (run_id, context_snapshot_ref, locale)
     ):
         raise ValueError("growth plan request identity fields are required")
     if not reviewed_knowledge:
         raise ValueError("growth plan generation requires reviewed knowledge")
-    evidence_refs = _understanding_evidence_refs(confirmed_understanding)
+    evidence_refs = _understanding_evidence_refs(confirmation.understanding)
     knowledge_refs = _reviewed_knowledge_refs(reviewed_knowledge)
     payload = {
         "server_instructions": FAMILY_GROWTH_PLAN_INSTRUCTIONS,
         "locale": locale,
-        "confirmed_understanding_ref": confirmed_understanding_ref,
-        "confirmed_understanding": dict(confirmed_understanding),
-        "reviewed_knowledge": [dict(item) for item in reviewed_knowledge],
+        "confirmation": {
+            "receipt_ref": confirmation.receipt_ref,
+            "tenant_id": confirmation.tenant_id,
+            "family_id": confirmation.family_id,
+            "subject_refs": list(confirmation.subject_refs),
+            "confirmed_by": confirmation.confirmed_by,
+            "confirmed_at": confirmation.confirmed_at,
+            "version": confirmation.version,
+            "content_sha256": confirmation.content_sha256,
+        },
+        "confirmed_understanding": dict(confirmation.understanding),
+        "reviewed_knowledge": [item.as_payload() for item in reviewed_knowledge],
         "allowed_evidence_refs": sorted(evidence_refs),
         "allowed_knowledge_refs": sorted(knowledge_refs),
         "generation_contract": {
@@ -200,7 +340,7 @@ def build_family_growth_plan_request(
         payload=payload,
         output_schema=family_growth_plan_output_schema(),
         context_snapshot_ref=context_snapshot_ref,
-        input_refs=(confirmed_understanding_ref, *sorted(evidence_refs), *sorted(knowledge_refs)),
+        input_refs=(confirmation.receipt_ref, *sorted(evidence_refs), *sorted(knowledge_refs)),
         request_id=run_id,
     )
 
@@ -208,17 +348,44 @@ def build_family_growth_plan_request(
 def validate_family_growth_plan_output(
     output: Mapping[str, Any],
     *,
-    allowed_evidence_refs: frozenset[str],
-    allowed_knowledge_refs: frozenset[str],
+    request: StructuredRequest,
 ) -> dict[str, Any]:
     validated = SchemaValidator().validate(
         dict(output), family_growth_plan_output_schema(), provider_id="family-growth-plan"
     )
+    allowed_evidence_refs = frozenset(request.payload["allowed_evidence_refs"])
+    allowed_knowledge_refs = frozenset(request.payload["allowed_knowledge_refs"])
+    if validated["result_status"] == "NEEDS_MORE_INFORMATION":
+        if validated["stages"] or not validated["information_needed"]:
+            raise ValueError("information-needed result must not fabricate plan stages")
+        return validated
+    if len(validated["stages"]) < 2 or validated["information_needed"]:
+        raise ValueError("plan draft requires at least two stages and no information gap")
     cited_evidence = set(validated["family_goal"]["evidence_refs"])
     cited_knowledge: set[str] = set()
     for stage in validated["stages"]:
         cited_evidence.update(stage["evidence_refs"])
         cited_knowledge.update(stage["knowledge_refs"])
+    stage_ids = [stage["stage_id"] for stage in validated["stages"]]
+    if len(set(stage_ids)) != len(stage_ids):
+        raise ValueError("growth plan stage ids must be unique")
+    practices = [
+        practice["description"].strip().casefold()
+        for stage in validated["stages"]
+        for practice in stage["practices"]
+    ]
+    if len(set(practices)) != len(practices):
+        raise ValueError("growth plan practices must not repeat across stages")
+    generic = {"多沟通", "保持耐心", "每天试一下", "好好沟通"}
+    if any(description in generic for description in practices):
+        raise ValueError("growth plan contains a generic practice")
+    for stage in validated["stages"]:
+        signal_types = {signal["signal_type"] for signal in stage["signals"]}
+        if "OUTCOME" not in signal_types or not signal_types & {"PROTECTION", "STOP"}:
+            raise ValueError("each growth plan stage requires outcome and stop/protection signals")
+    for choice in validated["adjustable_choices"]:
+        if not set(choice["target_stage_ids"]) <= set(stage_ids):
+            raise ValueError("adjustable choice targets an unknown stage")
     if not cited_evidence <= allowed_evidence_refs:
         raise ValueError("growth plan cites evidence outside the confirmed understanding")
     if not cited_knowledge <= allowed_knowledge_refs:
@@ -245,15 +412,16 @@ def _understanding_evidence_refs(understanding: Mapping[str, Any]) -> frozenset[
     return frozenset(refs)
 
 
-def _reviewed_knowledge_refs(items: tuple[Mapping[str, Any], ...]) -> frozenset[str]:
-    refs = {
-        str(item["knowledge_ref"])
-        for item in items
-        if isinstance(item.get("knowledge_ref"), str) and str(item["knowledge_ref"]).strip()
-    }
+def _reviewed_knowledge_refs(items: tuple[PublishedPlanKnowledge, ...]) -> frozenset[str]:
+    refs = {item.knowledge_ref for item in items}
     if len(refs) != len(items):
         raise ValueError("each reviewed knowledge item requires a unique knowledge_ref")
     return frozenset(refs)
+
+
+def _content_digest(value: Mapping[str, Any]) -> str:
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return sha256(encoded.encode("utf-8")).hexdigest()
 
 
 __all__ = [
@@ -261,6 +429,8 @@ __all__ = [
     "FAMILY_GROWTH_PLAN_PROMPT_VERSION",
     "FAMILY_GROWTH_PLAN_SCHEMA_VERSION",
     "FAMILY_GROWTH_PLAN_USE_CASE",
+    "ConfirmedUnderstandingReceipt",
+    "PublishedPlanKnowledge",
     "build_family_growth_plan_request",
     "family_growth_plan_output_schema",
     "validate_family_growth_plan_output",
