@@ -72,10 +72,17 @@ async def _apply_family_need_migration(engine) -> None:
         "database.migrations.versions.0058_family_need_assignment_and_outcome"
     )
 
+    assignment_resolution_migration = importlib.import_module(
+        "database.migrations.versions.0059_family_need_assignment_plan_resolution"
+    )
+
     async with engine.begin() as connection:
         await connection.run_sync(lambda sync_conn: _run_upgrade(sync_conn, family_need_migration))
         await connection.run_sync(
             lambda sync_conn: _run_upgrade(sync_conn, assignment_outcome_migration)
+        )
+        await connection.run_sync(
+            lambda sync_conn: _run_upgrade(sync_conn, assignment_resolution_migration)
         )
 
 
@@ -194,6 +201,51 @@ async def test_save_and_get_assignment_plan_round_trips_through_real_postgres() 
                 tenant_id="tenant-2", family_id="family-1", plan_id=plan.plan_id
             )
             assert other_tenant is None
+
+
+@pytest.mark.skipif(postgres_test_url() is None, reason=SKIP_REASON)
+async def test_resolved_assignment_plan_round_trips_through_real_postgres() -> None:
+    """N4: once fulfilment succeeds, `AssignmentPlan.resolve()` must persist
+    real resolution facts (not merely the original authorization), and a
+    second `save_assignment_plan` call for the same `plan_id` must update the
+    existing row rather than reject it as a replay mismatch."""
+
+    from sqlalchemy import MetaData
+
+    async with postgres_schema_engine(MetaData()) as engine:
+        await _apply_family_need_migration(engine)
+        async with engine.begin() as connection:
+            repository = SqlAlchemyFamilyNeedRepository(connection)
+            plan = AssignmentPlan.create(
+                tenant_id="tenant-1",
+                family_id="family-1",
+                need_id="need-1",
+                draft_id="draft-1",
+                component_refs=(
+                    SolutionComponentRef(
+                        component_id="component-1", shape=SupplyShape.SERVICE, version="v1"
+                    ),
+                ),
+                authorization_basis="family_confirmed_draft:draft-1",
+            )
+            await repository.save_assignment_plan(plan)
+
+            resolved = plan.resolve(
+                resolved_slot_id="slot-real-1",
+                resolved_booking_ref="booking-real-1",
+            )
+            await repository.save_assignment_plan(resolved)
+
+            loaded = await repository.get_assignment_plan(
+                tenant_id="tenant-1", family_id="family-1", plan_id=plan.plan_id
+            )
+            assert loaded == resolved
+            assert loaded.resolved_slot_id == "slot-real-1"
+            assert loaded.resolved_booking_ref == "booking-real-1"
+            assert loaded.resolved_order_intent_ref is None
+            # The authorization fact this plan started with must not have
+            # been overwritten by resolving it.
+            assert loaded.authorization_basis == "family_confirmed_draft:draft-1"
 
 
 @pytest.mark.skipif(postgres_test_url() is None, reason=SKIP_REASON)

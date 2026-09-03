@@ -598,6 +598,29 @@ def test_confirmed_draft_is_really_booked_and_completion_reaches_the_growth_jour
     booking_service_record_id = fulfillment["booking_service_record_id"]
     assert booking_service_record_id is not None, fulfillment
 
+    # N4: the assignment plan returned in this same response must now name
+    # the *real* resource fulfilment assigned this need to — not merely the
+    # family's authorization to attempt it. Before this, only the booking
+    # record itself (looked up separately) could answer "what was this need
+    # actually assigned to".
+    assignment_plan = confirm_payload["assignment_plan"]
+    assert assignment_plan["resolved_slot_id"] is not None, assignment_plan
+    assert assignment_plan["resolved_slot_id"] == fulfillment["availability_slot_id"]
+    assert assignment_plan["resolved_booking_ref"] == booking_service_record_id
+
+    # The hard proof: querying the assignment plan directly (not just reading
+    # the confirm response) shows the same resolved facts — this really is a
+    # queryable, persisted record of the actual assignment outcome.
+    async def _get_assignment_plan():
+        return await dev_wiring._family_need_repository.get_assignment_plan(
+            tenant_id=family_id, family_id=family_id, plan_id=assignment_plan["plan_id"]
+        )
+
+    persisted_plan = asyncio.run(_get_assignment_plan())
+    assert persisted_plan is not None
+    assert persisted_plan.resolved_slot_id == fulfillment["availability_slot_id"]
+    assert persisted_plan.resolved_booking_ref == booking_service_record_id
+
     # Snapshot the family's growth journey before delivery: no action fact
     # tied to this booking should exist yet.
     before_snapshot = dev_wiring._journey_outcome_loop.snapshot(
@@ -801,6 +824,7 @@ def test_family_confirms_did_not_help_and_gets_an_honest_retriage_suggestion() -
             "fulfillment_ref": booking_service_record_id,
             "decision": "DID_NOT_HELP",
             "family_note": "孩子还是没能按时完成作业",
+            "draft_id": draft_id,
         },
         headers={**auth, "idempotency-key": "e2e-outcome-neg:confirm-outcome"},
     )
@@ -810,6 +834,36 @@ def test_family_confirms_did_not_help_and_gets_an_honest_retriage_suggestion() -
     # The core promise: a negative result gets an explicit, honest pointer
     # back toward re-triage, not silence.
     assert confirm_outcome_payload["recommended_next_action"] == "N8_RETRIAGE_SUGGESTED"
+
+    # N8 (product side): a de-identified, cross-family "this component did
+    # not help" signal must now exist for the exact SERVICE component
+    # ("COMMUNICATION") this draft matched — queryable by the product
+    # team's own endpoint, entirely separate from the family's own private
+    # re-triage signal below.
+    candidates_response = client.get("/product-intelligence/improvement-candidates")
+    assert candidates_response.status_code == 200, candidates_response.text
+    candidates_payload = candidates_response.json()
+    matching_candidates = [
+        item
+        for item in candidates_payload["candidates"]
+        if item["component_id"] == "COMMUNICATION" and item["decision"] == "DID_NOT_HELP"
+    ]
+    assert len(matching_candidates) == 1, candidates_payload
+    candidate = matching_candidates[0]
+    assert candidate["component_shape"] == "SERVICE"
+
+    # The hard privacy proof: nothing about this specific family appears in
+    # the candidate record or the raw response body — no family_id/tenant_id
+    # field exists on the record at all, and neither this family's id nor its
+    # free-text note leaked into any string value on the wire.
+    assert "family_id" not in candidate
+    assert "tenant_id" not in candidate
+    assert "child_id" not in candidate
+    assert "family_note" not in candidate
+    raw_body = candidates_response.text
+    assert family_id not in raw_body
+    assert subject not in raw_body
+    assert "孩子还是没能按时完成作业" not in raw_body
 
     # The negative result is not hidden from the growth journey either.
     outcome_journey_action = confirm_outcome_payload["journey_action"]
