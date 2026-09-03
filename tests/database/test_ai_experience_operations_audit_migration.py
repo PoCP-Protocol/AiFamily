@@ -27,6 +27,7 @@ CHAIN_FILES = (
     "0037_ai_experience_operations_audit.py",
     "0038_product_definition_education_fields.py",
     "0039_competitor_evidence_drafts.py",
+    "0040_experience_interaction_evaluation.py",
 )
 CHAIN = (
     ("0008_experience_runs", "0007_experience_outbox"),
@@ -35,6 +36,7 @@ CHAIN = (
     ("0037_ops_audit", "0010_experience_run_interactions"),
     ("0038_product_definition", "0037_ops_audit"),
     ("0039_competitor_evidence", "0038_product_definition"),
+    ("0040_interaction_evaluation", "0039_competitor_evidence"),
 )
 CONTEXT_TABLES = {
     "ai_context_observations",
@@ -175,7 +177,7 @@ async def test_upgrade_downgrade_and_reupgrade_on_postgres(
 ) -> None:
     heads = _run_alembic("heads", database_url=throwaway_database_url)
     assert heads.returncode == 0, f"alembic heads failed:\n{heads.stdout}\n{heads.stderr}"
-    assert heads.stdout.split()[:1] == ["0039_competitor_evidence"]
+    assert heads.stdout.split()[:1] == ["0040_interaction_evaluation"]
 
     history = _run_alembic("history", database_url=throwaway_database_url)
     assert history.returncode == 0, f"alembic history failed:\n{history.stdout}\n{history.stderr}"
@@ -196,7 +198,7 @@ async def test_upgrade_downgrade_and_reupgrade_on_postgres(
         database_url=throwaway_database_url,
     )
     assert downgrade.returncode == 0, (
-        f"alembic downgrade 0039 -> 0010 failed:\n{downgrade.stdout}\n{downgrade.stderr}"
+        f"alembic downgrade 0040 -> 0010 failed:\n{downgrade.stdout}\n{downgrade.stderr}"
     )
     tables_after_downgrade = await _table_names(throwaway_database_url)
     assert CONTEXT_TABLES.isdisjoint(tables_after_downgrade)
