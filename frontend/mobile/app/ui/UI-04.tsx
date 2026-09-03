@@ -63,7 +63,11 @@ export default function GenerativeGrowthPlanScreen() {
       const adopted = await familyApi.adoptGenerativeGrowthPlan<GenerativeGrowthPlanResponse>(
         session.token,
         session.selectedFamily.family_id,
-        { draft_ref: draft.draft_ref, selected_choices: selectedChoices },
+        {
+          draft_ref: draft.draft_ref,
+          draft_version: draft.draft_version,
+          selected_choices: selectedChoices,
+        },
         createMobileRequestId("ui04-adopt"),
       );
       setResponse(adopted);

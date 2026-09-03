@@ -32,6 +32,7 @@ export interface GrowthPlanChoice {
 export interface GenerativeGrowthPlanDraft {
   result_status: "PLAN_DRAFT";
   draft_ref: string;
+  draft_version: number;
   title: string;
   family_goal: { statement: string; observable_signs: string[]; evidence_refs: string[] };
   why_this_plan: string;
