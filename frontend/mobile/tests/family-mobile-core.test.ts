@@ -272,7 +272,7 @@ describe("Family API mobile contract", () => {
     await client.adoptGenerativeGrowthPlan(
       "fam_token",
       "family-1",
-      { draft_ref: "draft-1", selected_choices: { rhythm: "每周两次" } },
+      { draft_ref: "draft-1", draft_version: 2, selected_choices: { rhythm: "每周两次" } },
       "adopt-idempotency-1",
     );
 
@@ -288,6 +288,7 @@ describe("Family API mobile contract", () => {
     });
     expect(JSON.parse(request?.body as string)).toEqual({
       draft_ref: "draft-1",
+      draft_version: 2,
       selected_choices: { rhythm: "每周两次" },
     });
   });

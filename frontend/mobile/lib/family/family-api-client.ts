@@ -386,7 +386,7 @@ export class FamilyApiClient {
     familyId: string,
     body: {
       draft_ref: string;
-      draft_version?: string;
+      draft_version: number;
       selected_choices: Record<string, string>;
       parent_note?: string;
     },
