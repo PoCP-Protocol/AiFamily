@@ -17,6 +17,9 @@ from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.domains.product_intelligence.application.family_experience_signal import (
+    record_family_experience_signal,
+)
 from backend.domains.product_intelligence.application.improvement_candidate import (
     record_improvement_candidate,
 )
@@ -1012,40 +1015,61 @@ async def confirm_family_outcome(
     recommended_next_action = (
         "N8_RETRIAGE_SUGGESTED" if body.decision is FamilyOutcomeDecision.DID_NOT_HELP else None
     )
-    if body.decision is FamilyOutcomeDecision.DID_NOT_HELP:
-        # N8 (product/content side): a *separate*, cross-family,
-        # de-identified "this component did not help" signal — see
-        # `backend.domains.product_intelligence.domain.improvement_candidate`'s
-        # module docstring for why this must never carry family_id/tenant_id/
-        # child identity/the family's own free-text note. Only written when
-        # the draft that was confirmed is still resolvable (it names the
-        # actual component/shape) and the process has wired a repository;
-        # a missing draft_id or an unwired repository skips this write
-        # honestly rather than fabricating a component reference.
-        if body.draft_id and fulfillment.improvement_candidate_repository is not None:
-            resolved_draft = await service._repository.get_solution_draft(
-                tenant_id=actor.tenant_id, family_id=family_id, draft_id=body.draft_id
+    # N8/experience-pool (product/content + parent-facing side): a
+    # *separate*, cross-family, de-identified signal is written for the
+    # matched component(s), regardless of decision — see
+    # `backend.domains.product_intelligence.domain.family_experience_signal`'s
+    # module docstring for why every verdict (not only DID_NOT_HELP) is a
+    # real family's experience worth recording, and why this is a distinct
+    # aggregate from `ImprovementCandidate`. Both writes are skipped
+    # honestly (not fabricated) when the draft that was confirmed is not
+    # resolvable, or the process has not wired the relevant repository.
+    if body.draft_id and (
+        fulfillment.improvement_candidate_repository is not None
+        or fulfillment.family_experience_signal_repository is not None
+    ):
+        resolved_draft = await service._repository.get_solution_draft(
+            tenant_id=actor.tenant_id, family_id=family_id, draft_id=body.draft_id
+        )
+        if resolved_draft is not None and resolved_draft.components:
+            resolved_profile = await service._repository.get_profile(
+                tenant_id=actor.tenant_id,
+                family_id=family_id,
+                profile_id=resolved_draft.need_profile_id,
             )
-            if resolved_draft is not None and resolved_draft.components:
-                resolved_profile = await service._repository.get_profile(
-                    tenant_id=actor.tenant_id,
-                    family_id=family_id,
-                    profile_id=resolved_draft.need_profile_id,
-                )
-                for component in resolved_draft.components:
+            resolved_intervention_tier = (
+                resolved_profile.intervention_tier.value
+                if resolved_profile is not None
+                else "LIGHT_GUIDANCE"
+            )
+            for component in resolved_draft.components:
+                # Experience pool: every decision, for the "similar
+                # problem" search a parent runs.
+                if fulfillment.family_experience_signal_repository is not None:
+                    await record_family_experience_signal(
+                        fulfillment.family_experience_signal_repository,
+                        component_id=component.component_id,
+                        component_shape=component.shape.value,
+                        decision=body.decision.value,
+                        category=existing_need.category.value,
+                        intervention_tier=resolved_intervention_tier,
+                    )
+                # N8 improvement candidate: only the negative verdict, for
+                # the product/content team's "revise or retire" question.
+                if (
+                    body.decision is FamilyOutcomeDecision.DID_NOT_HELP
+                    and fulfillment.improvement_candidate_repository is not None
+                ):
                     await record_improvement_candidate(
                         fulfillment.improvement_candidate_repository,
                         component_id=component.component_id,
                         component_shape=component.shape.value,
                         decision=body.decision.value,
                         category=existing_need.category.value,
-                        intervention_tier=(
-                            resolved_profile.intervention_tier.value
-                            if resolved_profile is not None
-                            else "LIGHT_GUIDANCE"
-                        ),
+                        intervention_tier=resolved_intervention_tier,
                     )
 
+    if body.decision is FamilyOutcomeDecision.DID_NOT_HELP:
         # N8 (family side): re-open the need through the exact same intake
         # use case a brand-new family request uses — no parallel "retriage"
         # pipeline — with `causation_id` naming the outcome-confirmed need

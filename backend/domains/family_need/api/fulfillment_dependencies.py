@@ -26,6 +26,9 @@ from backend.domains.journey.application.outcome_loop import GrowthOutcomeLoop
 from backend.domains.product_intelligence.application.course_publication import (
     CourseContentRepository,
 )
+from backend.domains.product_intelligence.application.family_experience_signal import (
+    FamilyExperienceSignalRepository,
+)
 from backend.domains.product_intelligence.application.improvement_candidate import (
     ImprovementCandidateRepository,
 )
@@ -95,6 +98,15 @@ class FulfillmentDeps:
     # writing this signal rather than failing the family's own outcome
     # confirmation over a missing product-analytics sink.
     improvement_candidate_repository: ImprovementCandidateRepository | None = None
+    # The broader "did this help a family like mine" signal sink —
+    # `confirm_family_outcome` writes here for *every* decision
+    # (HELPED/PARTIALLY_HELPED/DID_NOT_HELP), not only DID_NOT_HELP. `None`
+    # means the process has not wired this store — the route skips writing
+    # this signal rather than failing the family's own outcome confirmation
+    # over a missing analytics sink. See
+    # `backend.domains.product_intelligence.domain.family_experience_signal`
+    # for why this is a separate aggregate from `ImprovementCandidate`.
+    family_experience_signal_repository: FamilyExperienceSignalRepository | None = None
 
 
 def get_fulfillment_deps() -> FulfillmentDeps:

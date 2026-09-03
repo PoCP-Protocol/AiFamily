@@ -1484,3 +1484,184 @@ def test_ai_coach_sees_a_real_prior_course_completion_not_a_brand_new_family() -
         action.task_id == f"course-completion:{dev_wiring.DEV_SEEDED_COURSE_ID}"
         for action in snapshot.actions
     )
+
+
+def _run_family_to_confirmed_outcome(client: TestClient, *, family_id: str, decision: str) -> None:
+    """Push one family through signal -> clarify -> profile -> draft -> confirm
+    -> book -> complete -> outcome-confirm, ending in the given `decision`.
+
+    Shared by the experience-signal aggregation test below so it can put
+    several distinct families' real verdicts on the same SERVICE component
+    without repeating the whole chain inline for each one.
+    """
+
+    auth = _auth(client, family_id)
+    subject = f"dev-child:{family_id}"
+
+    signal_response = client.post(
+        f"/families/{family_id}/needs/signals",
+        json={
+            "raw_text": "孩子做作业总是拖拖拉拉，需要有人帮忙",
+            "statement": "孩子做作业拖延，家长需要陪伴式的督促帮助",
+            "desired_outcome": "孩子能按时、专注地完成作业",
+            "source": "FAMILY_EXPRESSED",
+            "purpose": "FAMILY_NEED",
+            "consent_version": "v1",
+            "data_class": "MINOR_PERSONAL_DATA",
+            "subject_person_ids": [subject],
+        },
+        headers={**auth, "idempotency-key": f"{family_id}:signal"},
+    )
+    assert signal_response.status_code == 201, signal_response.text
+    need = signal_response.json()["need"]
+    need_id = need["need_id"]
+
+    clarify_response = client.post(
+        f"/families/{family_id}/needs/{need_id}/clarify",
+        json={
+            "statement": need["statement"],
+            "desired_outcome": need["desired_outcome"],
+            "expected_version": need["version"],
+            "purpose": "FAMILY_NEED",
+            "consent_version": "v1",
+            "data_class": "MINOR_PERSONAL_DATA",
+            "subject_person_ids": [subject],
+        },
+        headers={**auth, "idempotency-key": f"{family_id}:clarify"},
+    )
+    assert clarify_response.status_code == 200, clarify_response.text
+
+    from backend.domains.family_need.domain.value_objects import ActorType, EmotionalGate
+
+    async def _advance_value_gate() -> int:
+        need_entity = await dev_wiring._family_need_repository.get_need(
+            tenant_id=family_id, family_id=family_id, need_id=need_id
+        )
+        advanced_need = need_entity.advance_emotional_gate(
+            EmotionalGate.E3_VALUE_CONFIRMED,
+            actor_id=f"guardian-1:{family_id}",
+            actor_type=ActorType.FAMILY_GUARDIAN,
+        )
+        await dev_wiring._family_need_repository.save_need(advanced_need)
+        return advanced_need.version
+
+    need_version_after_gate = asyncio.run(_advance_value_gate())
+
+    profile_response = client.post(
+        f"/families/{family_id}/needs/{need_id}/profile",
+        json={
+            "expected_need_version": need_version_after_gate,
+            "urgency": "SOON",
+            "complexity": "SIMPLE",
+            "risk_level": "LOW",
+            "preferred_shapes": ["SERVICE"],
+            "purpose": "FAMILY_NEED",
+            "consent_version": "v1",
+            "data_class": "MINOR_PERSONAL_DATA",
+            "subject_person_ids": [subject],
+        },
+        headers={**auth, "idempotency-key": f"{family_id}:profile"},
+    )
+    assert profile_response.status_code == 200, profile_response.text
+    profile = profile_response.json()["profile"]
+
+    draft_response = client.post(
+        f"/families/{family_id}/needs/{need_id}/solution-drafts",
+        json={
+            "profile_id": profile["profile_id"],
+            "expected_profile_version": profile["version"],
+            "shape": "SERVICE",
+            "component_refs": [
+                {"component_id": "COMMUNICATION", "shape": "SERVICE", "version": "1"}
+            ],
+            "commercial_intent": True,
+            "purpose": "FAMILY_NEED",
+            "consent_version": "v1",
+            "data_class": "MINOR_PERSONAL_DATA",
+            "subject_person_ids": [subject],
+        },
+        headers={**auth, "idempotency-key": f"{family_id}:draft"},
+    )
+    assert draft_response.status_code == 200, draft_response.text
+    draft_id = draft_response.json()["draft"]["draft_id"]
+
+    confirm_response = client.post(
+        f"/families/{family_id}/needs/{need_id}/solution-drafts/{draft_id}/confirm",
+        json={"subject_person_id": subject},
+        headers={**auth, "idempotency-key": f"{family_id}:confirm"},
+    )
+    assert confirm_response.status_code == 200, confirm_response.text
+    booking_service_record_id = confirm_response.json()["fulfillment"]["booking_service_record_id"]
+    assert booking_service_record_id is not None
+
+    complete_response = client.post(
+        f"/families/{family_id}/needs/{need_id}/bookings/{booking_service_record_id}"
+        "/complete-and-review",
+        json={"day_number": 5},
+        headers={**auth, "idempotency-key": f"{family_id}:complete"},
+    )
+    assert complete_response.status_code == 200, complete_response.text
+
+    outcome_response = client.post(
+        f"/families/{family_id}/needs/{need_id}/outcomes/confirm",
+        json={
+            "fulfillment_ref": booking_service_record_id,
+            "decision": decision,
+            "family_note": f"{family_id} 的私人反馈，不应该出现在任何跨家庭查询里",
+            "draft_id": draft_id,
+        },
+        headers={**auth, "idempotency-key": f"{family_id}:confirm-outcome"},
+    )
+    assert outcome_response.status_code == 200, outcome_response.text
+    assert outcome_response.json()["outcome"]["decision"] == decision
+
+
+def test_experience_signal_summary_aggregates_across_families_with_no_identity_leak() -> None:
+    """The 小红书-style "search a similar problem" surface: several distinct
+    families' real, confirmed verdicts on the same SERVICE component
+    ("COMMUNICATION") must aggregate into one queryable, de-identified
+    summary — and that summary must not leak any of those families' identity
+    or private text, even though this test deliberately puts a
+    family-identifying string into `family_note` to prove it never survives
+    the trip."""
+
+    client = TestClient(create_app())
+
+    families = [
+        ("family-need-e2e-experience-1", "HELPED"),
+        ("family-need-e2e-experience-2", "HELPED"),
+        ("family-need-e2e-experience-3", "DID_NOT_HELP"),
+    ]
+    for family_id, decision in families:
+        _run_family_to_confirmed_outcome(client, family_id=family_id, decision=decision)
+
+    summary_response = client.get(
+        "/product-intelligence/experience-signals/summary", params={"category": "EDUCATION"}
+    )
+    assert summary_response.status_code == 200, summary_response.text
+    summary_payload = summary_response.json()
+    assert summary_payload["boundary"] == "CROSS_FAMILY_DEIDENTIFIED_SIGNAL_NOT_A_FAMILY_RECORD"
+
+    communication = next(
+        item for item in summary_payload["components"] if item["component_id"] == "COMMUNICATION"
+    )
+    # The hard proof this is a real aggregate, not a stub: three distinct
+    # families' real confirmations, summed correctly.
+    assert communication["helped_count"] >= 2, communication
+    assert communication["did_not_help_count"] >= 1, communication
+    assert communication["total_count"] >= 3, communication
+    expected_rate = communication["helped_count"] / communication["total_count"]
+    assert abs(communication["helped_rate"] - expected_rate) < 1e-6, communication
+
+    # The hard privacy proof: none of the three families' ids, the shared
+    # child-id naming pattern, or the deliberately family-identifying
+    # `family_note` text appear anywhere in the raw response body.
+    raw_body = summary_response.text
+    for family_id, _decision in families:
+        assert family_id not in raw_body
+        assert f"dev-child:{family_id}" not in raw_body
+        assert f"{family_id} 的私人反馈" not in raw_body
+    for item in summary_payload["components"]:
+        assert "family_id" not in item
+        assert "tenant_id" not in item
+        assert "family_note" not in item

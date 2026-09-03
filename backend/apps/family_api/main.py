@@ -69,6 +69,12 @@ from backend.domains.product_intelligence.api.course_routes import (
 from backend.domains.product_intelligence.api.dependencies import (
     configure_actor_resolver as configure_product_intelligence_actor_resolver,
 )
+from backend.domains.product_intelligence.api.family_experience_signal_routes import (
+    configure_family_experience_signal_repository,
+)
+from backend.domains.product_intelligence.api.family_experience_signal_routes import (
+    router as family_experience_signal_router,
+)
 from backend.domains.product_intelligence.api.improvement_candidate_routes import (
     configure_improvement_candidate_repository,
 )
@@ -83,6 +89,9 @@ from backend.domains.product_intelligence.infrastructure.course_content_reposito
 )
 from backend.domains.product_intelligence.infrastructure.course_content_wiring import (
     install_course_content_production_wiring,
+)
+from backend.domains.product_intelligence.infrastructure.family_experience_signal_wiring import (
+    install_family_experience_signal_production_wiring,
 )
 from backend.domains.product_intelligence.infrastructure.improvement_candidate_wiring import (
     install_improvement_candidate_production_wiring,
@@ -296,6 +305,37 @@ def _mount_improvement_candidates(application: FastAPI, *, database_url: str | N
         install_improvement_candidate_production_wiring(engine=get_engine(configured_url))
 
 
+def _mount_family_experience_signals(
+    application: FastAPI, *, database_url: str | None = None
+) -> None:
+    """Mount the cross-family, de-identified "did this help a family like
+    mine" experience-pool query — the "小红书-style" similar-problem search.
+
+    Mirrors `_mount_improvement_candidates`'s dev/production split. No
+    actor/tenant dependency is wired here — this router carries no
+    family-scoped data by design (see
+    `backend.domains.product_intelligence.domain.family_experience_signal`).
+    """
+
+    application.include_router(family_experience_signal_router)
+    if is_dev_environment():
+        # Reuse `dev_wiring`'s own singleton (already wired into
+        # `FulfillmentDeps.family_experience_signal_repository` by
+        # `_dev_fulfillment_deps`) rather than a second, disconnected
+        # instance — otherwise `confirm_family_outcome`'s write would go to
+        # one repository while this query reads from another.
+        from backend.apps.family_api import dev_wiring as _dev_wiring
+
+        configure_family_experience_signal_repository(
+            _dev_wiring._family_experience_signal_repository
+        )
+        return
+
+    configured_url = database_url or _runtime_database_url()
+    if configured_url is not None and is_postgres_url(configured_url):
+        install_family_experience_signal_production_wiring(engine=get_engine(configured_url))
+
+
 def create_app(
     *,
     experience_runtime_resolver: MultimodalDraftRuntimeResolver | None = None,
@@ -369,6 +409,10 @@ def create_app(
     # N8 (product side): cross-family, de-identified "did not help" signal
     # query for product/content teams. See `_mount_improvement_candidates`.
     _mount_improvement_candidates(application)
+    # Experience pool (parent-facing): cross-family, de-identified "did this
+    # help a family like mine" signal query, for every decision. See
+    # `_mount_family_experience_signals`.
+    _mount_family_experience_signals(application)
     # FGCN's AI draft -> Human Gate -> Named Action control plane. Its default
     # identity/session/worker dependencies fail closed; no client can inject
     # actor or scope fields into these routes.
