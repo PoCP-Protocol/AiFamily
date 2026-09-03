@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { LiveGiftSupport } from "./LiveGiftSupport";
+
 type Props = { commerceBaseUrl?: string };
 type SupportState = "idle" | "sending" | "active" | "reversing" | "reversed" | "error";
 type MembershipState = "idle" | "loading" | "sending" | "active" | "reversing" | "reversed" | "error";
@@ -115,6 +117,7 @@ export function LiveServiceOfferingPage({ commerceBaseUrl }: Props) {
       </div>
 
       <section className="live-offering-grid" aria-label="内容支持与独立服务状态">
+        <LiveGiftSupport commerceBaseUrl={commerceBaseUrl} />
         <article className="live-offering-support-card" data-contract-kind="CONTENT_SUPPORT">
           <h3>支持这场内容</h3>
           <p>专家演示分配 ¥4，平台内容与技术服务演示分配 ¥1；不会获得优先提问、私聊或预约权。</p>

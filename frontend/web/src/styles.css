@@ -922,6 +922,11 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .live-offering-grid dl div { display: flex; justify-content: space-between; }
 .live-offering-grid dt { color: #9a3412; }
 .live-offering-grid dd { color: #431407; font-weight: 800; margin: 0; }
+.live-gift-catalog { display: grid; gap: 8px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 16px 0; }
+.live-gift-catalog button { align-items: center; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 14px; color: #7c2d12; display: grid; gap: 4px; padding: 12px 8px; }
+.live-gift-catalog button[aria-pressed="true"] { background: #c2410c; border-color: #c2410c; color: #fff; }
+.live-gift-catalog button > span { font-size: 1.35rem; }
+.live-gift-catalog button > small { color: inherit; }
 .live-offering-gate { align-items: center; background: #fff7ed; border-radius: 20px; display: flex; gap: 24px; justify-content: space-between; margin: 18px auto 0; max-width: 1080px; padding: 22px; }
 .live-offering-gate strong { color: #431407; }
 .live-offering-gate p { color: #7c2d12; margin-bottom: 0; }
