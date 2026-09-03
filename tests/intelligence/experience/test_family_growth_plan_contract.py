@@ -1,6 +1,7 @@
 import asyncio
 import json
 from copy import deepcopy
+from dataclasses import replace
 from hashlib import sha256
 
 import pytest
@@ -35,6 +36,9 @@ def _confirmation(**overrides) -> ConfirmedUnderstandingReceipt:
         "family_id": "family:1",
         "subject_refs": ("guardian:1", "child:1"),
         "confirmed_by": "guardian:1",
+        "actor_type": "GUARDIAN",
+        "permission": "CONFIRM_UNDERSTANDING",
+        "audit_receipt_ref": "audit:confirmation:1",
         "confirmed_at": "2026-09-03T12:00:00+08:00",
         "version": "understanding.v1",
         "content_sha256": sha256(
@@ -57,8 +61,12 @@ def _knowledge(**overrides) -> tuple[PublishedPlanKnowledge, ...]:
         "content": "活动转换需要准备",
         "applicability": "晚间活动转换",
         "limitations": ("不代表所有启动困难原因相同",),
-        "purpose": "family_growth_plan",
-        "scope": "family_growth",
+        "purpose": "family_growth_plan_draft",
+        "scope": "tenant:1/family:1",
+        "expires_at": "2099-09-03T12:00:00+08:00",
+        "evidence_level": "REVIEWED_PRACTICE",
+        "license_ref": "license:source:1",
+        "source_digest": "sha256:" + "a" * 64,
     }
     values.update(overrides)
     return (PublishedPlanKnowledge(**values),)
@@ -207,14 +215,18 @@ def test_schema_copy_is_isolated_and_requires_meaningful_stages() -> None:
 
 
 def test_rejects_unconfirmed_or_unpublished_inputs() -> None:
-    with pytest.raises(ValueError, match="must be confirmed"):
-        _confirmation(status="DRAFT")
+    with pytest.raises(ValueError, match="active and confirmed"):
+        _confirmation(status="WITHDRAWN")
     with pytest.raises(ValueError, match="content hash mismatch"):
         _confirmation(content_sha256="0" * 64)
     with pytest.raises(ValueError, match="published and active"):
         _knowledge(status="RETIRED")
     with pytest.raises(ValueError, match="source must be verified"):
         _knowledge(source_verified=False)
+    with pytest.raises(ValueError, match="unexpired"):
+        _knowledge(expires_at="2020-01-01T00:00:00+00:00")
+    with pytest.raises(ValueError, match="guardian permission"):
+        _confirmation(actor_type="MEMBER")
 
 
 def test_information_gap_does_not_fabricate_a_plan() -> None:
@@ -278,6 +290,25 @@ def test_repositories_cannot_return_cross_family_or_wrong_purpose_records() -> N
                 context_snapshot_ref="context:plan:1",
             )
         )
+    wrong_item = PublishedKnowledgeSelection(
+        selection_ref="selection:1",
+        scope=_scope(),
+        purpose="family_growth_plan_draft",
+        items=_knowledge(scope="tenant:1/family:other"),
+    )
+    with pytest.raises(ValueError, match="item purpose or scope mismatch"):
+        asyncio.run(
+            prepare_family_growth_plan_request(
+                confirmation_repository=_ConfirmationRepository(),
+                knowledge_repository=_KnowledgeRepository(wrong_item),
+                scope=_scope(),
+                confirmation_ref="confirmation:understanding:1",
+                knowledge_selection_ref="selection:1",
+                run_id="run:plan:1",
+                data_class="SYNTHETIC",
+                context_snapshot_ref="context:plan:1",
+            )
+        )
 
 
 def test_validator_rejects_modified_preparation_request() -> None:
@@ -285,6 +316,13 @@ def test_validator_rejects_modified_preparation_request() -> None:
     preparation.request.payload["allowed_evidence_refs"].append("input:invented")
     with pytest.raises(ValueError, match="modified"):
         validate_family_growth_plan_output(_output(), preparation=preparation)
+
+    preparation = _preparation()
+    changed = replace(preparation.request, data_class="FAMILY_PRIVATE_TEXT")
+    with pytest.raises(ValueError, match="modified"):
+        validate_family_growth_plan_output(
+            _output(), preparation=replace(preparation, request=changed)
+        )
 
 
 def _preparation():

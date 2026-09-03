@@ -12,7 +12,7 @@ import json
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any, Protocol
 
@@ -31,15 +31,20 @@ class ConfirmedUnderstandingReceipt:
     family_id: str
     subject_refs: tuple[str, ...]
     confirmed_by: str
+    actor_type: str
+    permission: str
+    audit_receipt_ref: str
     confirmed_at: str
     version: str
     content_sha256: str
     understanding: Mapping[str, Any]
-    status: str = "CONFIRMED"
+    status: str = "ACTIVE_CONFIRMED"
 
     def __post_init__(self) -> None:
-        if self.status != "CONFIRMED":
-            raise ValueError("family understanding must be confirmed")
+        if self.status != "ACTIVE_CONFIRMED":
+            raise ValueError("family understanding must be active and confirmed")
+        if self.actor_type != "GUARDIAN" or self.permission != "CONFIRM_UNDERSTANDING":
+            raise ValueError("family understanding confirmation requires guardian permission")
         values = (
             self.receipt_ref,
             self.tenant_id,
@@ -47,9 +52,16 @@ class ConfirmedUnderstandingReceipt:
             self.confirmed_by,
             self.confirmed_at,
             self.version,
+            self.audit_receipt_ref,
         )
         if not all(value.strip() for value in values) or not self.subject_refs:
             raise ValueError("confirmed understanding receipt identity is incomplete")
+        canonical_subjects = tuple(sorted(set(self.subject_refs)))
+        if len(canonical_subjects) != len(self.subject_refs):
+            raise ValueError("confirmed understanding subjects must be unique")
+        object.__setattr__(self, "subject_refs", canonical_subjects)
+        if self.confirmed_by not in self.subject_refs:
+            raise ValueError("confirming guardian must belong to the confirmed scope")
         parsed = datetime.fromisoformat(self.confirmed_at.replace("Z", "+00:00"))
         if parsed.tzinfo is None or parsed.utcoffset() is None:
             raise ValueError("confirmed_at must include a timezone")
@@ -68,6 +80,10 @@ class PublishedPlanKnowledge:
     limitations: tuple[str, ...]
     purpose: str
     scope: str
+    expires_at: str
+    evidence_level: str
+    license_ref: str
+    source_digest: str
     status: str = "PUBLISHED"
     source_status: str = "ACTIVE"
     source_verified: bool = True
@@ -77,6 +93,9 @@ class PublishedPlanKnowledge:
             raise ValueError("growth plan knowledge must be published and active")
         if self.source_verified is not True:
             raise ValueError("growth plan knowledge source must be verified")
+        expiry = datetime.fromisoformat(self.expires_at.replace("Z", "+00:00"))
+        if expiry.tzinfo is None or expiry.utcoffset() is None or expiry <= datetime.now(UTC):
+            raise ValueError("growth plan knowledge must be unexpired")
         values = (
             self.knowledge_ref,
             self.source_ref,
@@ -86,6 +105,9 @@ class PublishedPlanKnowledge:
             self.applicability,
             self.purpose,
             self.scope,
+            self.evidence_level,
+            self.license_ref,
+            self.source_digest,
         )
         if not all(value.strip() for value in values) or not self.limitations:
             raise ValueError("published knowledge metadata is incomplete")
@@ -101,6 +123,10 @@ class PublishedPlanKnowledge:
             "limitations": list(self.limitations),
             "purpose": self.purpose,
             "scope": self.scope,
+            "expires_at": self.expires_at,
+            "evidence_level": self.evidence_level,
+            "license_ref": self.license_ref,
+            "source_digest": self.source_digest,
         }
 
 
@@ -110,9 +136,23 @@ class FamilyGrowthPlanScope:
     family_id: str
     subject_refs: tuple[str, ...]
 
+    def __post_init__(self) -> None:
+        if not self.tenant_id.strip() or not self.family_id.strip() or not self.subject_refs:
+            raise ValueError("growth plan scope is incomplete")
+        if any(not item.strip() for item in self.subject_refs):
+            raise ValueError("growth plan subject refs must be non-empty")
+        canonical = tuple(sorted(set(self.subject_refs)))
+        if len(canonical) != len(self.subject_refs):
+            raise ValueError("growth plan subject refs must be unique")
+        object.__setattr__(self, "subject_refs", canonical)
+
     @property
     def key(self) -> tuple[str, str, tuple[str, ...]]:
         return self.tenant_id, self.family_id, self.subject_refs
+
+    @property
+    def policy_scope(self) -> str:
+        return f"{self.tenant_id}/{self.family_id}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -360,6 +400,9 @@ async def prepare_family_growth_plan_request(
         raise ValueError("knowledge repository returned the wrong selection")
     if selection.purpose != FAMILY_GROWTH_PLAN_USE_CASE:
         raise ValueError("knowledge selection purpose mismatch")
+    for item in selection.items:
+        if item.purpose != FAMILY_GROWTH_PLAN_USE_CASE or item.scope != scope.policy_scope:
+            raise ValueError("knowledge item purpose or scope mismatch")
     request = _build_family_growth_plan_request(
         run_id=run_id,
         data_class=data_class,
@@ -406,6 +449,9 @@ def _build_family_growth_plan_request(
             "family_id": confirmation.family_id,
             "subject_refs": list(confirmation.subject_refs),
             "confirmed_by": confirmation.confirmed_by,
+            "actor_type": confirmation.actor_type,
+            "permission": confirmation.permission,
+            "audit_receipt_ref": confirmation.audit_receipt_ref,
             "confirmed_at": confirmation.confirmed_at,
             "version": confirmation.version,
             "content_sha256": confirmation.content_sha256,
@@ -548,6 +594,21 @@ def _request_fingerprint(request: StructuredRequest) -> str:
         "payload": request.payload,
         "output_schema": request.output_schema,
         "request_id": request.request_id,
+        "session_id": request.session_id,
+        "data_class": request.data_class,
+        "media_inputs": [
+            {
+                "media_type": item.media_type,
+                "uri": item.uri,
+                "mime_type": item.mime_type,
+                "sha256": item.sha256,
+            }
+            for item in request.media_inputs
+        ],
+        "policy_context": {
+            "human_confirmation_required": request.policy_context.human_confirmation_required,
+            "may_mutate_business_state": request.policy_context.may_mutate_business_state,
+        },
     }
     return _content_digest(value)
 
