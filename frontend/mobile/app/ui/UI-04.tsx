@@ -7,7 +7,15 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { createMobileRequestId, familyApi } from "@/lib/family/family-api-client";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
-import type { GenerativeGrowthPlanDraft, GenerativeGrowthPlanResponse, GrowthPlanStage } from "@/lib/family/generative-growth-plan";
+import {
+  isAdoptedGrowthPlan,
+  isGrowthPlanDraft,
+  isGrowthPlanInformationNeeded,
+  type AdoptedGenerativeGrowthPlan,
+  type GenerativeGrowthPlanDraft,
+  type GenerativeGrowthPlanResponse,
+  type GrowthPlanStage,
+} from "@/lib/family/generative-growth-plan";
 import { haptic } from "@/lib/haptics";
 
 type LoadState = "idle" | "loading" | "ready" | "empty" | "error";
@@ -34,6 +42,9 @@ export default function GenerativeGrowthPlanScreen() {
         session.selectedFamily.family_id,
       );
       setResponse(result);
+      if (isAdoptedGrowthPlan(result.plan)) {
+        setSelectedChoices(result.plan.selected_choices);
+      }
       setLoadState(result.plan ? "ready" : "empty");
     } catch {
       setResponse(null);
@@ -45,7 +56,9 @@ export default function GenerativeGrowthPlanScreen() {
   useEffect(() => { void loadPlan(); }, [loadPlan]);
 
   const plan = response?.plan ?? null;
-  const draft = plan?.result_status === "PLAN_DRAFT" ? plan : null;
+  const draft = isGrowthPlanDraft(plan) ? plan : null;
+  const adoptedPlan = isAdoptedGrowthPlan(plan) ? plan : null;
+  const informationNeeded = isGrowthPlanInformationNeeded(plan) ? plan : null;
   const allChoicesSelected = useMemo(
     () => !draft || draft.adjustable_choices.every((choice) => selectedChoices[choice.choice_id]),
     [draft, selectedChoices],
@@ -89,23 +102,33 @@ export default function GenerativeGrowthPlanScreen() {
           {loadState === "loading" ? <LoadingState /> : null}
           {loadState === "empty" ? <EmptyState /> : null}
           {loadState === "error" ? <ErrorState message={message} onRetry={loadPlan} /> : null}
-          {plan?.result_status === "NEEDS_MORE_INFORMATION" ? (
+          {informationNeeded ? (
             <InformationNeeded
-              summary={plan.known_context_summary}
-              questions={plan.information_needed}
-              limitations={plan.limitations}
+              summary={informationNeeded.known_context_summary}
+              questions={informationNeeded.information_needed}
+              limitations={informationNeeded.limitations}
             />
           ) : null}
-          {draft ? (
+          {draft || adoptedPlan ? (
             <PlanDraft
-              draft={draft}
+              draft={draft ?? adoptedPlan!}
+              adopted={Boolean(adoptedPlan)}
               selectedChoices={selectedChoices}
               onSelect={(choiceId, option) => setSelectedChoices((current) => ({ ...current, [choiceId]: option }))}
             />
           ) : null}
           {message && loadState === "ready" ? <Text style={styles.message}>{message}</Text> : null}
         </ScrollView>
-        {draft ? (
+        {adoptedPlan ? (
+          <View style={styles.footer}>
+            <Pressable onPress={() => router.push("/" as Href)} style={styles.secondaryButton}>
+              <Text style={styles.secondaryButtonText}>返回首页</Text>
+            </Pressable>
+            <Pressable onPress={() => router.push("/ui/UI-05" as Href)} style={styles.primaryButton}>
+              <Text style={styles.primaryButtonText}>进入成长陪伴</Text>
+            </Pressable>
+          </View>
+        ) : draft ? (
           <View style={styles.footer}>
             <Pressable onPress={() => router.push("/ui/UI-02" as Href)} style={styles.secondaryButton}>
               <Text style={styles.secondaryButtonText}>返回调整理解</Text>
@@ -199,13 +222,18 @@ function Hero({ kicker, title, copy }: { kicker: string; title: string; copy: st
   );
 }
 
-function PlanDraft({ draft, selectedChoices, onSelect }: { draft: GenerativeGrowthPlanDraft; selectedChoices: Record<string, string>; onSelect: (choiceId: string, option: string) => void }) {
+function PlanDraft({ draft, adopted, selectedChoices, onSelect }: {
+  draft: GenerativeGrowthPlanDraft | AdoptedGenerativeGrowthPlan;
+  adopted: boolean;
+  selectedChoices: Record<string, string>;
+  onSelect: (choiceId: string, option: string) => void;
+}) {
   return (
     <View>
       <View style={styles.heroCard}>
         <View style={styles.heroTopRow}>
           <Text style={styles.heroKicker}>基于你确认的家庭理解</Text>
-          <View style={styles.draftBadge}><Text style={styles.draftBadgeText}>待你决定</Text></View>
+          <View style={styles.draftBadge}><Text style={styles.draftBadgeText}>{adopted ? "已采用" : "待你决定"}</Text></View>
         </View>
         <Text style={styles.heroTitle}>{draft.title}</Text>
         <Text style={styles.heroCopy}>{draft.family_goal.statement}</Text>
@@ -221,7 +249,7 @@ function PlanDraft({ draft, selectedChoices, onSelect }: { draft: GenerativeGrow
       </View>
       <Text style={styles.sectionTitle}>我们建议这样推进</Text>
       {draft.stages.map((stage, index) => <StageCard key={stage.stage_id} stage={stage} index={index} />)}
-      <Text style={styles.sectionTitle}>把方案调成你们家的节奏</Text>
+      <Text style={styles.sectionTitle}>{adopted ? "你们确认的节奏" : "把方案调成你们家的节奏"}</Text>
       {draft.adjustable_choices.map((choice) => (
         <View key={choice.choice_id} style={styles.choiceCard}>
           <Text style={styles.choiceQuestion}>{choice.question}</Text>
@@ -229,7 +257,12 @@ function PlanDraft({ draft, selectedChoices, onSelect }: { draft: GenerativeGrow
             {choice.options.map((option) => {
               const selected = selectedChoices[choice.choice_id] === option;
               return (
-                <Pressable key={option} onPress={() => onSelect(choice.choice_id, option)} style={[styles.choiceOption, selected && styles.choiceOptionSelected]}>
+                <Pressable
+                  disabled={adopted}
+                  key={option}
+                  onPress={() => onSelect(choice.choice_id, option)}
+                  style={[styles.choiceOption, selected && styles.choiceOptionSelected, adopted && !selected && styles.choiceOptionMuted]}
+                >
                   <Text style={[styles.choiceOptionText, selected && styles.choiceOptionTextSelected]}>{option}</Text>
                 </Pressable>
               );
@@ -319,6 +352,7 @@ const styles = StyleSheet.create({
   choiceOptions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 13 },
   choiceOption: { borderRadius: 18, paddingHorizontal: 14, paddingVertical: 9, backgroundColor: "#EFE9E0", borderWidth: 1, borderColor: "transparent" },
   choiceOptionSelected: { backgroundColor: "#E9F2EE", borderColor: "#3F7566" },
+  choiceOptionMuted: { opacity: 0.38 },
   choiceOptionText: { color: "#685E55", fontSize: 13, fontWeight: "700" },
   choiceOptionTextSelected: { color: "#285E50" },
   watchCard: { borderRadius: 22, backgroundColor: "#E9F0EC", padding: 20, marginTop: 14 },
