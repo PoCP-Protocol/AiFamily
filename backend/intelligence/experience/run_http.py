@@ -126,9 +126,9 @@ class RunReplaySnapshot:
         if self.event_sequence < 0:
             raise RunHttpError("RUN_EVENT_SEQUENCE_INVALID")
         if self.deletion_state == "deleted" and (
-            self.draft_payload is not None or self.artifact_refs
+            self.draft_payload is not None or self.artifact_refs or self.interactions
         ):
-            raise RunHttpError("DELETED_REPLAY_MUST_NOT_EXPOSE_DRAFT")
+            raise RunHttpError("DELETED_REPLAY_MUST_NOT_EXPOSE_BUSINESS_DATA")
         if self.draft_payload is not None:
             _assert_draft_payload(self.draft_payload)
         object.__setattr__(self, "artifact_refs", tuple(self.artifact_refs))
@@ -620,7 +620,7 @@ class InMemoryExperienceRunLedger:
                 state=record.run.state,
                 status="DRAFT",
                 event_sequence=record.run.version + len(record.interactions),
-                interactions=tuple(record.interactions),
+                interactions=(),
                 draft_payload=None,
                 artifact_refs=(),
                 deletion_state="deleted",

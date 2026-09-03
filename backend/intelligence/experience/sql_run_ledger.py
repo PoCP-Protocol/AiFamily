@@ -628,7 +628,7 @@ class SqlAlchemyExperienceRunLedger:
             state=durable.snapshot.state,
             status="DRAFT",
             event_sequence=durable.snapshot.version + len(interactions),
-            interactions=interactions,
+            interactions=() if deleted else interactions,
             draft_payload=(
                 None
                 if deleted or latest is None or latest.draft_payload is None

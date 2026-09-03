@@ -19,6 +19,8 @@ from backend.intelligence.experience.run_http import (
 )
 
 FeedbackSignal = Literal["helpful", "not_helpful", "request_human"]
+MIN_EVAL_RESPONSE_COUNT = 2
+MIN_EVAL_COVERAGE_RATE = 0.8
 FeedbackReasonCode = Literal[
     "MISSED_CONTEXT",
     "TOO_GENERIC",
@@ -234,7 +236,19 @@ def apply_parent_feedback_to_eval_spec(
     spec: FamilyUnderstandingEvalSpec,
     projection: FamilyUnderstandingFeedbackProjection,
 ) -> FamilyUnderstandingEvalSpec:
-    return replace(spec, parent_felt_understood=projection.felt_understood_mean)
+    eligible = (
+        projection.status == "MEASURED"
+        and projection.response_count >= MIN_EVAL_RESPONSE_COUNT
+        and projection.expected_response_count is not None
+        and projection.coverage_rate is not None
+        and projection.coverage_rate >= MIN_EVAL_COVERAGE_RATE
+        and projection.high_understanding_rate is not None
+        and projection.low_understanding_rate is not None
+    )
+    return replace(
+        spec,
+        parent_felt_understood=(projection.felt_understood_mean if eligible else None),
+    )
 
 
 def _latest_feedback_by_key(

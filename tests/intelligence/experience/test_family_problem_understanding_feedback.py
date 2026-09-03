@@ -77,7 +77,44 @@ async def test_records_and_projects_bounded_parent_feedback() -> None:
         allowed_evidence_refs=frozenset({"input:concern"}),
         allowed_knowledge_refs=frozenset(),
     )
-    assert apply_parent_feedback_to_eval_spec(spec, projection).parent_felt_understood == 0.75
+    assert apply_parent_feedback_to_eval_spec(spec, projection).parent_felt_understood is None
+
+
+@pytest.mark.asyncio
+async def test_feedback_only_enters_eval_after_minimum_count_and_coverage() -> None:
+    ledger = _ledger()
+    await record_family_understanding_feedback(
+        ledger,
+        scope=_scope(),
+        run_id="run:understanding",
+        signal="helpful",
+        feedback=_feedback(correction_needed=False, correction_ref=None),
+        idempotency_key="feedback:eligible:1",
+    )
+    await record_family_understanding_feedback(
+        ledger,
+        scope=_scope(),
+        run_id="run:understanding",
+        signal="not_helpful",
+        feedback=_feedback(
+            feedback_ref="feedback:eligible:2",
+            adult_actor_ref="actor:guardian:2",
+            understood_rating=2,
+            correction_needed=False,
+            correction_ref=None,
+        ),
+        idempotency_key="feedback:eligible:2",
+    )
+    projection = project_family_understanding_feedback(
+        ledger.replay(scope=_scope(), run_id="run:understanding"),
+        expected_response_count=2,
+    )
+    spec = FamilyUnderstandingEvalSpec(
+        allowed_evidence_refs=frozenset({"input:concern"}),
+        allowed_knowledge_refs=frozenset(),
+    )
+
+    assert apply_parent_feedback_to_eval_spec(spec, projection).parent_felt_understood == 0.5
 
 
 @pytest.mark.asyncio
@@ -172,6 +209,7 @@ def test_deleted_run_feedback_projection_is_unavailable() -> None:
     projection = project_family_understanding_feedback(
         ledger.replay(scope=_scope(), run_id="run:understanding")
     )
+    assert ledger.replay(scope=_scope(), run_id="run:understanding").interactions == ()
     assert projection.status == "DELETED"
     assert projection.response_count == 0
     assert projection.latest_correction_ref is None

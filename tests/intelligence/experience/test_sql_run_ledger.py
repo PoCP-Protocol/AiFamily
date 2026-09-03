@@ -346,7 +346,7 @@ async def test_sql_delete_scrubs_derived_material_but_retains_event(session_fact
         assert snapshot.deletion_state == "deleted"
         assert snapshot.draft_payload is None
         assert snapshot.artifact_refs == ()
-        assert snapshot.entries[-1].interaction_type is InteractionType.DELETE
+        assert snapshot.entries == ()
 
         checkpoint = await session.scalar(select(ExperienceRunCheckpointRow))
         run = await session.get(
@@ -401,7 +401,7 @@ async def test_sql_delete_removes_linked_model_draft_in_same_transaction(
         )
         assert snapshot.deletion_state == "deleted"
         assert snapshot.draft_payload is None
-        assert snapshot.entries[-1].interaction_type is InteractionType.DELETE
+        assert snapshot.entries == ()
 
 
 @pytest.mark.asyncio
