@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -8,7 +9,10 @@ from fastapi.testclient import TestClient
 
 from poc.standalone_live_control_sandbox import session_api
 from poc.standalone_live_control_sandbox.control_plane import CanonicalConsentDecision
-from poc.standalone_live_control_sandbox.session_api import create_app
+from poc.standalone_live_control_sandbox.session_api import (
+    SyntheticConsentProjection,
+    create_app,
+)
 
 NOW = datetime(2026, 9, 3, 12, tzinfo=UTC)
 
@@ -408,8 +412,130 @@ def test_health_and_response_shape_are_explicit(client: TestClient) -> None:
         "status": "ok",
         "source": "SANDBOX_SYNTHETIC",
         "fixture_only": True,
+        "synthetic_consent_enabled": False,
+        "consent_persistence": False,
         "external_effect": False,
     }
+
+
+def test_explicit_synthetic_consent_adapter_enables_registration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(session_api, "now_utc", lambda: NOW)
+    client = TestClient(
+        create_app(
+            tmp_path / "synthetic-consent.sqlite3",
+            consent=SyntheticConsentProjection(),
+        )
+    )
+    create_and_approve(client)
+
+    health = client.get("/health").json()
+    assert health["synthetic_consent_enabled"] is True
+    assert health["fixture_only"] is True
+    assert health["consent_persistence"] is False
+    response = client.post(
+        "/sandbox/live-control/sessions/live.synthetic.control.1/registrations",
+        headers=headers(role="ADULT_VIEWER"),
+        json=registration_payload(),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "CONFIRMED"
+    assert response.json()["consent_ref"].startswith("consent.synthetic.ephemeral.")
+    assert response.json()["external_effect"] is False
+
+
+def test_synthetic_consent_projection_is_short_lived_and_not_persistent() -> None:
+    projection = SyntheticConsentProjection(ttl=timedelta(minutes=7))
+
+    decision = projection.require_grant(
+        tenant_id="tenant.synthetic.alpha",
+        family_id="family.synthetic.alpha",
+        guardian_id="actor.synthetic.adult_viewer",
+        purpose="live_attendance",
+        session_ref="live.synthetic.control.1",
+        now=NOW,
+    )
+
+    assert decision.granted is True
+    assert decision.expires_at == NOW + timedelta(minutes=7)
+    assert not hasattr(projection, "database")
+    with pytest.raises(ValueError, match="within 15 minutes"):
+        SyntheticConsentProjection(ttl=timedelta(minutes=16))
+
+
+def test_synthetic_consent_does_not_bypass_session_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(session_api, "now_utc", lambda: NOW)
+    client = TestClient(
+        create_app(
+            tmp_path / "synthetic-consent-scope.sqlite3",
+            consent=SyntheticConsentProjection(),
+        )
+    )
+    create_and_approve(client)
+
+    response = client.post(
+        "/sandbox/live-control/sessions/live.synthetic.control.1/registrations",
+        headers=headers(role="ADULT_VIEWER", family="family.synthetic.other"),
+        json=registration_payload(),
+    )
+
+    assert response.status_code == 403
+
+
+def test_cli_wires_synthetic_consent_only_when_explicitly_enabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(app, *, host: str, port: int) -> None:
+        captured.update(app=app, host=host, port=port)
+
+    monkeypatch.setattr(session_api.uvicorn, "run", fake_run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "session_api.py",
+            "--serve",
+            "--database",
+            str(tmp_path / "cli.sqlite3"),
+            "--port",
+            "55301",
+        ],
+    )
+
+    session_api.main()
+
+    disabled_health = TestClient(captured["app"]).get("/health").json()
+    assert disabled_health["synthetic_consent_enabled"] is False
+    captured.clear()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "session_api.py",
+            "--serve",
+            "--database",
+            str(tmp_path / "cli.sqlite3"),
+            "--port",
+            "55301",
+            "--enable-synthetic-consent",
+        ],
+    )
+
+    session_api.main()
+
+    assert captured["host"] == "127.0.0.1"
+    assert captured["port"] == 55301
+    health = TestClient(captured["app"]).get("/health").json()
+    assert health["synthetic_consent_enabled"] is True
+    assert health["source"] == "SANDBOX_SYNTHETIC"
+    assert health["fixture_only"] is True
+    assert health["consent_persistence"] is False
 
 
 def test_adult_registers_and_cancels_with_canonical_consent_projection(

@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from typing import Annotated, Literal
@@ -104,6 +104,50 @@ class RegistrationView(BaseModel):
     external_effect: Literal[False] = False
 
 
+class SyntheticConsentProjection:
+    """Ephemeral CLI-only Consent adapter for the disposable sandbox."""
+
+    def __init__(self, *, ttl: timedelta = timedelta(minutes=10)) -> None:
+        if ttl <= timedelta(0) or ttl > timedelta(minutes=15):
+            raise ValueError("synthetic Consent TTL must be within 15 minutes")
+        self._ttl = ttl
+
+    def require_grant(
+        self,
+        *,
+        tenant_id: str,
+        family_id: str,
+        guardian_id: str,
+        purpose: str,
+        session_ref: str,
+        now: datetime,
+    ) -> CanonicalConsentDecision:
+        identifiers = (tenant_id, family_id, guardian_id, session_ref)
+        if now.tzinfo is None:
+            raise ValueError("synthetic Consent clock must be timezone-aware")
+        if purpose != LIVE_ATTENDANCE_PURPOSE or not all(
+            value.startswith(prefix)
+            for value, prefix in zip(
+                identifiers,
+                ("tenant.synthetic", "family.synthetic", "actor.synthetic", "live.synthetic"),
+                strict=True,
+            )
+        ):
+            raise ValueError("synthetic Consent scope rejected")
+        consent_hash = sha256(
+            ":".join((*identifiers, purpose, now.isoformat())).encode()
+        ).hexdigest()[:24]
+        return CanonicalConsentDecision(
+            consent_ref=f"consent.synthetic.ephemeral.{consent_hash}",
+            tenant_id=tenant_id,
+            family_id=family_id,
+            guardian_id=guardian_id,
+            purpose=purpose,
+            granted=True,
+            expires_at=now + self._ttl,
+        )
+
+
 class SessionView(BaseModel):
     session_ref: str
     title: str
@@ -132,6 +176,7 @@ class SessionView(BaseModel):
 
 def create_app(database_path: Path, *, consent: CanonicalConsentPort | None = None) -> FastAPI:
     initialise(database_path)
+    synthetic_consent_enabled = isinstance(consent, SyntheticConsentProjection)
     app = FastAPI(title="Xiao Ju Deng Live Control Plane sandbox")
     app.add_middleware(
         CORSMiddleware,
@@ -146,6 +191,8 @@ def create_app(database_path: Path, *, consent: CanonicalConsentPort | None = No
             "status": "ok",
             "source": SANDBOX_SOURCE,
             "fixture_only": True,
+            "synthetic_consent_enabled": synthetic_consent_enabled,
+            "consent_persistence": False,
             "external_effect": False,
         }
 
@@ -953,10 +1000,12 @@ def main() -> None:
     parser.add_argument("--serve", action="store_true")
     parser.add_argument("--database", type=Path, required=True)
     parser.add_argument("--port", type=int, default=55300)
+    parser.add_argument("--enable-synthetic-consent", action="store_true")
     args = parser.parse_args()
     if not args.serve:
         raise SystemExit("use --serve")
-    uvicorn.run(create_app(args.database), host="127.0.0.1", port=args.port)
+    consent = SyntheticConsentProjection() if args.enable_synthetic_consent else None
+    uvicorn.run(create_app(args.database, consent=consent), host="127.0.0.1", port=args.port)
 
 
 if __name__ == "__main__":
