@@ -19,8 +19,39 @@ from backend.intelligence.experience.run_http import (
 )
 
 FeedbackSignal = Literal["helpful", "not_helpful", "request_human"]
-MIN_EVAL_RESPONSE_COUNT = 2
-MIN_EVAL_COVERAGE_RATE = 0.8
+FeedbackEvidenceStatus = Literal[
+    "NOT_MEASURED",
+    "INSUFFICIENT_N",
+    "LOW_COVERAGE",
+    "ARM_IMBALANCED",
+    "DESCRIPTIVE_READY",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class FeedbackEvalPolicy:
+    policy_version: str
+    minimum_response_count: int
+    minimum_coverage_rate: float
+    maximum_arm_coverage_gap: float
+
+    def __post_init__(self) -> None:
+        if not self.policy_version.strip():
+            raise ValueError("feedback eval policy version is required")
+        if self.minimum_response_count <= 0:
+            raise ValueError("minimum response count must be positive")
+        if not 0.0 < self.minimum_coverage_rate <= 1.0:
+            raise ValueError("minimum coverage rate must be in (0, 1]")
+        if not 0.0 <= self.maximum_arm_coverage_gap <= 1.0:
+            raise ValueError("maximum arm coverage gap must be in [0, 1]")
+
+
+DEFAULT_FEEDBACK_EVAL_POLICY = FeedbackEvalPolicy(
+    policy_version="family-understanding-feedback-eval.v1",
+    minimum_response_count=10,
+    minimum_coverage_rate=0.8,
+    maximum_arm_coverage_gap=0.1,
+)
 FeedbackReasonCode = Literal[
     "MISSED_CONTEXT",
     "TOO_GENERIC",
@@ -235,20 +266,68 @@ def project_family_understanding_feedback(
 def apply_parent_feedback_to_eval_spec(
     spec: FamilyUnderstandingEvalSpec,
     projection: FamilyUnderstandingFeedbackProjection,
+    *,
+    policy: FeedbackEvalPolicy = DEFAULT_FEEDBACK_EVAL_POLICY,
+    response_count_by_arm: Mapping[str, int] | None = None,
+    expected_response_count_by_arm: Mapping[str, int] | None = None,
 ) -> FamilyUnderstandingEvalSpec:
-    eligible = (
-        projection.status == "MEASURED"
-        and projection.response_count >= MIN_EVAL_RESPONSE_COUNT
-        and projection.expected_response_count is not None
-        and projection.coverage_rate is not None
-        and projection.coverage_rate >= MIN_EVAL_COVERAGE_RATE
-        and projection.high_understanding_rate is not None
-        and projection.low_understanding_rate is not None
+    evidence_status = classify_feedback_evidence(
+        projection,
+        policy=policy,
+        response_count_by_arm=response_count_by_arm,
+        expected_response_count_by_arm=expected_response_count_by_arm,
     )
     return replace(
         spec,
-        parent_felt_understood=(projection.felt_understood_mean if eligible else None),
+        # Parent feedback remains descriptive evidence. It must not silently
+        # change a model-quality score or choose an experiment winner.
+        parent_felt_understood=None,
+        parent_feedback_evidence_status=evidence_status,
+        parent_feedback_response_count=projection.response_count,
+        parent_feedback_coverage_rate=projection.coverage_rate,
+        parent_feedback_rating_distribution=projection.rating_distribution,
+        parent_feedback_high_understanding_rate=projection.high_understanding_rate,
+        parent_feedback_low_understanding_rate=projection.low_understanding_rate,
     )
+
+
+def classify_feedback_evidence(
+    projection: FamilyUnderstandingFeedbackProjection,
+    *,
+    policy: FeedbackEvalPolicy = DEFAULT_FEEDBACK_EVAL_POLICY,
+    response_count_by_arm: Mapping[str, int] | None = None,
+    expected_response_count_by_arm: Mapping[str, int] | None = None,
+) -> FeedbackEvidenceStatus:
+    if projection.status != "MEASURED":
+        return "NOT_MEASURED"
+    if projection.response_count < policy.minimum_response_count:
+        return "INSUFFICIENT_N"
+    if (
+        projection.expected_response_count is None
+        or projection.coverage_rate is None
+        or projection.coverage_rate < policy.minimum_coverage_rate
+    ):
+        return "LOW_COVERAGE"
+    if (response_count_by_arm is None) != (expected_response_count_by_arm is None):
+        raise ValueError("both actual and expected arm counts are required")
+    if response_count_by_arm is not None and expected_response_count_by_arm is not None:
+        if (
+            set(response_count_by_arm) != set(expected_response_count_by_arm)
+            or not response_count_by_arm
+        ):
+            raise ValueError("feedback experiment arms must match and be non-empty")
+        arm_coverages: list[float] = []
+        for arm, expected in expected_response_count_by_arm.items():
+            actual = response_count_by_arm[arm]
+            if expected <= 0 or actual < 0 or actual > expected:
+                raise ValueError("feedback experiment arm counts are invalid")
+            arm_coverages.append(actual / expected)
+        if (
+            min(arm_coverages) < policy.minimum_coverage_rate
+            or max(arm_coverages) - min(arm_coverages) > policy.maximum_arm_coverage_gap
+        ):
+            return "ARM_IMBALANCED"
+    return "DESCRIPTIVE_READY"
 
 
 def _latest_feedback_by_key(
@@ -297,6 +376,8 @@ __all__ = [
     "FeedbackReasonCode",
     "FeedbackSignal",
     "apply_parent_feedback_to_eval_spec",
+    "classify_feedback_evidence",
+    "FeedbackEvalPolicy",
     "project_family_understanding_feedback",
     "record_family_understanding_feedback",
 ]

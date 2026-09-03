@@ -39,6 +39,12 @@ class FamilyUnderstandingEvalSpec:
     prior_hypothesis_statements: tuple[str, ...] = ()
     requires_revision: bool = False
     parent_felt_understood: float | None = None
+    parent_feedback_evidence_status: str = "NOT_MEASURED"
+    parent_feedback_response_count: int = 0
+    parent_feedback_coverage_rate: float | None = None
+    parent_feedback_rating_distribution: tuple[tuple[int, int], ...] = ()
+    parent_feedback_high_understanding_rate: float | None = None
+    parent_feedback_low_understanding_rate: float | None = None
 
     def __post_init__(self) -> None:
         if not self.allowed_evidence_refs:
@@ -59,6 +65,8 @@ class FamilyUnderstandingEvalSpec:
             and not 0.0 <= self.parent_felt_understood <= 1.0
         ):
             raise MultimodalEvalError("parent feedback must be between 0 and 1")
+        if self.parent_feedback_response_count < 0:
+            raise MultimodalEvalError("parent feedback response count must be non-negative")
 
 
 @dataclass(frozen=True, slots=True)

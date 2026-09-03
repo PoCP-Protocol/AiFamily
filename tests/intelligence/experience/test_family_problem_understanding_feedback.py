@@ -5,11 +5,17 @@ from backend.intelligence.experience.family_problem_understanding_eval import (
 )
 from backend.intelligence.experience.family_problem_understanding_feedback import (
     FamilyUnderstandingFeedback,
+    FeedbackEvalPolicy,
     apply_parent_feedback_to_eval_spec,
+    classify_feedback_evidence,
     project_family_understanding_feedback,
     record_family_understanding_feedback,
 )
-from backend.intelligence.experience.run_http import InMemoryExperienceRunLedger, RunScope
+from backend.intelligence.experience.run_http import (
+    InMemoryExperienceRunLedger,
+    InteractionType,
+    RunScope,
+)
 
 
 def _scope() -> RunScope:
@@ -77,7 +83,9 @@ async def test_records_and_projects_bounded_parent_feedback() -> None:
         allowed_evidence_refs=frozenset({"input:concern"}),
         allowed_knowledge_refs=frozenset(),
     )
-    assert apply_parent_feedback_to_eval_spec(spec, projection).parent_felt_understood is None
+    enriched = apply_parent_feedback_to_eval_spec(spec, projection)
+    assert enriched.parent_felt_understood is None
+    assert enriched.parent_feedback_evidence_status == "INSUFFICIENT_N"
 
 
 @pytest.mark.asyncio
@@ -114,7 +122,54 @@ async def test_feedback_only_enters_eval_after_minimum_count_and_coverage() -> N
         allowed_knowledge_refs=frozenset(),
     )
 
-    assert apply_parent_feedback_to_eval_spec(spec, projection).parent_felt_understood == 0.5
+    policy = FeedbackEvalPolicy("test.v1", 2, 0.8, 0.1)
+    enriched = apply_parent_feedback_to_eval_spec(spec, projection, policy=policy)
+    assert enriched.parent_felt_understood is None
+    assert enriched.parent_feedback_evidence_status == "DESCRIPTIVE_READY"
+    assert enriched.parent_feedback_rating_distribution == projection.rating_distribution
+
+
+def test_feedback_arm_imbalance_blocks_comparison_even_when_total_coverage_is_high() -> None:
+    projection = project_family_understanding_feedback(
+        _two_adult_feedback_replay(), expected_response_count=2
+    )
+    policy = FeedbackEvalPolicy("test.v1", 2, 0.8, 0.1)
+
+    assert classify_feedback_evidence(
+        projection,
+        policy=policy,
+        response_count_by_arm={"A": 8, "B": 2},
+        expected_response_count_by_arm={"A": 10, "B": 10},
+    ) == "ARM_IMBALANCED"
+
+
+def _two_adult_feedback_replay():
+    ledger = _ledger()
+    first_payload = _feedback(correction_needed=False, correction_ref=None).as_payload()
+    first_payload["signal"] = "helpful"
+    ledger.append_interaction(
+        scope=_scope(),
+        run_id="run:understanding",
+        interaction_type=InteractionType.FEEDBACK,
+        payload=first_payload,
+        idempotency_key="fixture:feedback:1",
+    )
+    second_payload = _feedback(
+        feedback_ref="feedback:2",
+        adult_actor_ref="actor:guardian:2",
+        understood_rating=2,
+        correction_needed=False,
+        correction_ref=None,
+    ).as_payload()
+    second_payload["signal"] = "not_helpful"
+    ledger.append_interaction(
+        scope=_scope(),
+        run_id="run:understanding",
+        interaction_type=InteractionType.FEEDBACK,
+        payload=second_payload,
+        idempotency_key="fixture:feedback:2",
+    )
+    return ledger.replay(scope=_scope(), run_id="run:understanding")
 
 
 @pytest.mark.asyncio
