@@ -1,8 +1,4 @@
-"""Persistence DTO and port for the canonical reviewed-knowledge registry.
-
-K1 is contract-only. It defines no database table, migration, engine, or
-``create_all`` path. A K2 adapter must implement this port after Data approval.
-"""
+"""Contract-only persistence boundary for canonical reviewed knowledge."""
 
 from __future__ import annotations
 
@@ -15,10 +11,22 @@ from typing import Protocol
 from backend.intelligence.knowledge.contracts import (
     KnowledgeSource,
     KnowledgeStatus,
+    meets_evidence_gate,
 )
-from backend.packages.contracts.evidence import Provenance
+from backend.packages.contracts.evidence import EvidenceLevel, Provenance
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_REF = re.compile(r"^(?P<claim>[^@\s]+)@(?P<version>[^@\s]+)$")
+_TRANSITIONS: dict[KnowledgeStatus | None, frozenset[KnowledgeStatus]] = {
+    None: frozenset({"INGESTED"}),
+    "INGESTED": frozenset({"PARSED", "RETIRED"}),
+    "PARSED": frozenset({"CHUNKED", "RETIRED"}),
+    "CHUNKED": frozenset({"GROUNDED", "RETIRED"}),
+    "GROUNDED": frozenset({"REVIEWED", "RETIRED"}),
+    "REVIEWED": frozenset({"PUBLISHED", "RETIRED"}),
+    "PUBLISHED": frozenset({"RETIRED"}),
+    "RETIRED": frozenset(),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,16 +55,18 @@ class PersistedKnowledgeClaimVersion:
         )
         if any(not value.strip() for value in required):
             raise ValueError("claim version fields must be non-empty")
-        if not _SHA256.fullmatch(self.content_digest):
-            raise ValueError("content_digest must be lowercase sha256 hex")
-        if self.content_digest != content_digest(self.text):
-            raise ValueError("content_digest does not match canonical text")
+        if not _SHA256.fullmatch(self.content_digest) or self.content_digest != content_digest(
+            self.text
+        ):
+            raise ValueError("content_digest must be matching lowercase sha256")
         if self.provenance.source_ref != self.source_id:
-            raise ValueError("claim version provenance must reference its source")
+            raise ValueError("claim provenance must reference source")
         if not self.limitations or any(not item.strip() for item in self.limitations):
-            raise ValueError("claim version limitations are required")
+            raise ValueError("limitations are required")
         if self.expires_at is not None and self.expires_at.tzinfo is None:
-            raise ValueError("claim version expiry must include timezone")
+            raise ValueError("expiry must include timezone")
+        if self.replacement_ref is not None and not _REF.fullmatch(self.replacement_ref):
+            raise ValueError("replacement_ref must use claim_id@version")
         if self.replacement_ref == self.ref:
             raise ValueError("claim version cannot replace itself")
 
@@ -70,55 +80,18 @@ class KnowledgeLifecycleEvent:
     event_id: str
     claim_id: str
     version: str
+    sequence: int
+    previous_status: KnowledgeStatus | None
     status: KnowledgeStatus
     occurred_at: datetime
     actor_ref: str
-    reason_ref: str | None = None
+    expected_version: str
 
     def __post_init__(self) -> None:
-        required = (self.event_id, self.claim_id, self.version, self.actor_ref)
-        if any(not value.strip() for value in required):
-            raise ValueError("lifecycle event references are required")
+        if self.sequence <= 0 or self.expected_version != self.version:
+            raise ValueError("lifecycle sequence and expected version are required")
         if self.occurred_at.tzinfo is None:
-            raise ValueError("lifecycle event time must include timezone")
-
-
-@dataclass(frozen=True, slots=True)
-class KnowledgeSelectionItem:
-    claim_id: str
-    version: str
-    content_digest: str
-    provenance_ref: str
-    status_at_selection: KnowledgeStatus
-    replacement_ref: str | None = None
-
-    def __post_init__(self) -> None:
-        if not _SHA256.fullmatch(self.content_digest):
-            raise ValueError("selection item digest must be lowercase sha256 hex")
-        if any(not value.strip() for value in (self.claim_id, self.version, self.provenance_ref)):
-            raise ValueError("selection item references are required")
-        if self.status_at_selection != "PUBLISHED":
-            raise ValueError("only a published claim version may enter a selection")
-
-
-@dataclass(frozen=True, slots=True)
-class KnowledgeSelectionReceipt:
-    selection_id: str
-    request_ref: str
-    purpose: str
-    scope: str
-    selected_at: datetime
-    items: tuple[KnowledgeSelectionItem, ...]
-
-    def __post_init__(self) -> None:
-        required = (self.selection_id, self.request_ref, self.purpose, self.scope)
-        if any(not value.strip() for value in required):
-            raise ValueError("selection receipt references are required")
-        if self.selected_at.tzinfo is None:
-            raise ValueError("selection receipt time must include timezone")
-        keys = tuple((item.claim_id, item.version) for item in self.items)
-        if len(keys) != len(set(keys)):
-            raise ValueError("selection receipt cannot repeat a claim version")
+            raise ValueError("lifecycle time must include timezone")
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,66 +99,176 @@ class KnowledgeClaimStatusProjection:
     claim_id: str
     version: str
     status: KnowledgeStatus
+    sequence: int
     latest_event_id: str
     replacement_ref: str | None
     withdrawn: bool
 
 
+@dataclass(frozen=True, slots=True)
+class KnowledgeSelectionCommand:
+    selection_id: str
+    request_ref: str
+    request_fingerprint: str
+    policy_version: str
+    purpose: str
+    scope: str
+    selected_at: datetime
+    minimum_evidence: EvidenceLevel
+
+    def __post_init__(self) -> None:
+        if not _SHA256.fullmatch(self.request_fingerprint):
+            raise ValueError("request_fingerprint must be lowercase sha256")
+        if self.selected_at.tzinfo is None:
+            raise ValueError("selection time must include timezone")
+
+
+@dataclass(frozen=True, slots=True)
+class KnowledgeSelectionItem:
+    claim_id: str
+    version: str
+    content_digest: str
+    provenance_locator: str
+    provenance_hash: str
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class KnowledgeSelectionReceipt:
+    selection_id: str
+    request_ref: str
+    request_fingerprint: str
+    policy_version: str
+    purpose: str
+    scope: str
+    selected_at: datetime
+    items: tuple[KnowledgeSelectionItem, ...]
+
+    def __new__(cls, _factory_token: object | None = None):
+        if _factory_token is not _RECEIPT_FACTORY_TOKEN:
+            raise TypeError("selection receipts must be created by the controlled factory")
+        return super().__new__(cls)
+
+
+_RECEIPT_FACTORY_TOKEN = object()
+
+
 class KnowledgePersistencePort(Protocol):
-    """Single canonical persistence boundary to be implemented by K2."""
-
     def append_source(self, source: KnowledgeSource) -> None: ...
-
     def append_claim_version(self, claim: PersistedKnowledgeClaimVersion) -> None: ...
-
     def append_lifecycle_event(self, event: KnowledgeLifecycleEvent) -> None: ...
-
     def project_status(
         self, *, claim_id: str, version: str
     ) -> KnowledgeClaimStatusProjection | None: ...
-
     def append_selection_receipt(self, receipt: KnowledgeSelectionReceipt) -> None: ...
+    def get_selection_receipt(
+        self, *, scope: str, selection_id: str, request_fingerprint: str
+    ) -> KnowledgeSelectionReceipt | None: ...
 
-    def retrieve_published(
-        self,
-        *,
-        purpose: str,
-        scope: str,
-        at: datetime,
-    ) -> tuple[PersistedKnowledgeClaimVersion, ...]: ...
 
-    def get_selection_receipt(self, selection_id: str) -> KnowledgeSelectionReceipt | None: ...
+def advance_lifecycle(
+    projection: KnowledgeClaimStatusProjection | None,
+    event: KnowledgeLifecycleEvent,
+) -> KnowledgeClaimStatusProjection:
+    current = projection.status if projection else None
+    expected_sequence = projection.sequence + 1 if projection else 1
+    if projection is not None and (
+        projection.claim_id != event.claim_id or projection.version != event.expected_version
+    ):
+        raise ValueError("lifecycle aggregate version mismatch")
+    if event.previous_status != current or event.sequence != expected_sequence:
+        raise ValueError("lifecycle optimistic sequence mismatch")
+    if event.status not in _TRANSITIONS[current]:
+        raise ValueError(f"invalid lifecycle transition: {current}->{event.status}")
+    return KnowledgeClaimStatusProjection(
+        event.claim_id,
+        event.version,
+        event.status,
+        event.sequence,
+        event.event_id,
+        projection.replacement_ref if projection else None,
+        event.status == "RETIRED",
+    )
+
+
+def validate_replacement_chain(
+    claim: PersistedKnowledgeClaimVersion,
+    versions: dict[str, PersistedKnowledgeClaimVersion],
+    *,
+    max_depth: int = 8,
+) -> None:
+    current = claim
+    seen = {current.ref}
+    for _ in range(max_depth):
+        if current.replacement_ref is None:
+            return
+        replacement = versions.get(current.replacement_ref)
+        if replacement is None or replacement.scope != claim.scope:
+            raise ValueError("replacement must exist in the same scope")
+        if replacement.ref in seen:
+            raise ValueError("replacement chain contains a cycle")
+        seen.add(replacement.ref)
+        current = replacement
+    raise ValueError("replacement chain exceeds maximum depth")
+
+
+def create_selection_receipt(
+    command: KnowledgeSelectionCommand,
+    candidates: tuple[
+        tuple[PersistedKnowledgeClaimVersion, KnowledgeClaimStatusProjection, KnowledgeSource], ...
+    ],
+) -> KnowledgeSelectionReceipt:
+    items = []
+    for claim, projection, source in candidates:
+        if projection.status != "PUBLISHED" or projection.withdrawn:
+            raise ValueError("only published claims may be selected")
+        if source.status != "ACTIVE" or not source.verified or not source.license_ref.strip():
+            raise ValueError("source is not selectable")
+        if claim.source_id != source.source_id or claim.scope not in {command.scope, "*"}:
+            raise ValueError("claim source or scope mismatch")
+        if claim.allowed_purposes and command.purpose not in claim.allowed_purposes:
+            raise ValueError("claim purpose mismatch")
+        if claim.expires_at is not None and claim.expires_at <= command.selected_at:
+            raise ValueError("expired claim cannot be selected")
+        if not meets_evidence_gate(claim.provenance.level, command.minimum_evidence):
+            raise ValueError("claim does not meet evidence gate")
+        locator = f"{claim.source_id}:{claim.claim_id}@{claim.version}"
+        items.append(
+            KnowledgeSelectionItem(
+                claim.claim_id,
+                claim.version,
+                claim.content_digest,
+                locator,
+                content_digest(locator),
+            )
+        )
+    receipt = object.__new__(KnowledgeSelectionReceipt)
+    for name, value in (
+        ("selection_id", command.selection_id),
+        ("request_ref", command.request_ref),
+        ("request_fingerprint", command.request_fingerprint),
+        ("policy_version", command.policy_version),
+        ("purpose", command.purpose),
+        ("scope", command.scope),
+        ("selected_at", command.selected_at),
+        ("items", tuple(items)),
+    ):
+        object.__setattr__(receipt, name, value)
+    return receipt
 
 
 def content_digest(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def selection_item(
-    claim: PersistedKnowledgeClaimVersion,
-    projection: KnowledgeClaimStatusProjection,
-) -> KnowledgeSelectionItem:
-    if (claim.claim_id, claim.version) != (projection.claim_id, projection.version):
-        raise ValueError("selection projection does not match claim version")
-    if projection.status != "PUBLISHED" or projection.withdrawn:
-        raise ValueError("withdrawn or unpublished claim cannot enter a selection")
-    return KnowledgeSelectionItem(
-        claim_id=claim.claim_id,
-        version=claim.version,
-        content_digest=claim.content_digest,
-        provenance_ref=claim.provenance.source_ref,
-        status_at_selection="PUBLISHED",
-        replacement_ref=projection.replacement_ref,
-    )
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
 __all__ = [
     "KnowledgeClaimStatusProjection",
     "KnowledgeLifecycleEvent",
     "KnowledgePersistencePort",
-    "KnowledgeSelectionItem",
+    "KnowledgeSelectionCommand",
     "KnowledgeSelectionReceipt",
     "PersistedKnowledgeClaimVersion",
+    "advance_lifecycle",
     "content_digest",
-    "selection_item",
+    "create_selection_receipt",
+    "validate_replacement_chain",
 ]
