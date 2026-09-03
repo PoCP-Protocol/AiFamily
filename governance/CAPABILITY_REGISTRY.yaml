@@ -238,7 +238,11 @@ capabilities:
       交付凭证、质量验收、ServiceContribution 与 100 单位影子分配依据
     actor: [guardian, teacher, operator, system]
     command: CONFIRM_SERVICE_TASK_ASSIGNMENT
-    api: null
+    api:
+      - "POST /families/{family_id}/fgcn/tasks/{service_task_id}/assignment-proposals"
+      - "GET /families/{family_id}/fgcn/human-tasks/{task_id}"
+      - "POST /families/{family_id}/fgcn/human-tasks/{task_id}/decisions"
+      - "POST /families/{family_id}/fgcn/human-tasks/{task_id}/consume"
     code:
       domain: backend/domains/service/fgcn/engine.py
       application: backend/domains/service/fgcn/application.py
@@ -248,6 +252,7 @@ capabilities:
       human_gate_persistence: backend/intelligence/human_gate/persistence.py
       human_gate_migration: database/migrations/versions/0006_ai_human_tasks.py
       worker_handler: backend/domains/service/fgcn/workflow_worker.py
+      api: backend/domains/service/fgcn/api/routes.py
     tests:
       - tests/domains/service/fgcn/
     consent:
@@ -271,6 +276,37 @@ capabilities:
       - "one-shot durable worker handler 已有；尚未挂载 FastAPI、常驻队列/lease 或重启重建完整 engine"
       - "真实 PostgreSQL round-trip 已有环境门禁测试；当前未配置 AIFAMILY_TEST_DATABASE_URL，因此本轮为 skip"
       - "返工、争议、资源准入、质量池释放和真实资金通道未实现"
+
+  - capability: service_fgcn_quality_contribution
+    business_capability: service_delivery
+    domain: domains/service/fgcn
+    purpose: >
+      交付之后的质量审核与贡献事实记录——与交付本身分离的独立人工动作，
+      只有通过审核才能产生 ServiceContribution；不调用 AI、不计算家庭价值、
+      不产生资金/结算行（见该模块 docstring）。五公司对标研究（docs/13_research/
+      market/FIVE_COMPANY_BENCHMARK_STATUS_V1.md §5）里指出这正是规避
+      TikTok"纯流量决定曝光"反例、对标 Maven Clinic 可复现证据链的既有机制。
+    actor: [operator, teacher]
+    command:
+      - verify_service_delivery
+      - record_service_contribution
+    api: null                    # 纯应用层命令，尚未挂载到任何 FastAPI router
+    code:
+      application: backend/domains/service/fgcn/quality_contribution_application.py
+      contracts: backend/domains/service/fgcn/contracts.py
+      idempotency: backend/domains/service/fgcn/idempotency.py
+    tests:
+      - tests/domains/service/fgcn/test_quality_contribution_application.py
+    consent: {required: false, note: "运营/教师侧人工审核动作，不直接读写家庭个人数据字段"}
+    audit: {required: true, note: "质量审核与贡献事实是权威状态变更，走 AuditRecorder"}
+    idempotency: {required: true, note: "claim_mutation + effective_mutation_key 拒绝冲突重放"}
+    ai:
+      involved: false
+      constraint: "该模块 docstring 明确声明：不调用 AI，质量审核必须是与交付分离的独立人工动作"
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - "尚未挂载 HTTP router——只能通过应用层直接调用或未来 FastAPI 路由触达"
+      - "与 service_fgcn_p0_collaboration 共享 domains/service/fgcn 目录但分开登记，因为审核/贡献是与派单分离的独立人工动作，合并会掩盖这个边界"
 
 # ---------------------------------------------------------------------------
 # AI Runtime 能力（backend/intelligence，R10：各一份）
