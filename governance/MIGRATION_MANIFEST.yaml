@@ -693,6 +693,24 @@ entries:
     evidence:
       - "该文件的 structured output schema 设计(JSON schema 强制 construct_ref 枚举)、边界重校验(不信任 schema 本身，收到输出后再跑一次 assert_interpretation_boundary)、知识库 grounding 注入(system prompt 动态拼接已核验理论依据)、grounding_source 净化(模型自报的引用 id 经白名单核对，编造的一律清空不透传)等具体手法值得重写时参照，但调用方式必须换成走 model_gateway，不能保留 `anthropic.AsyncAnthropic()` 直连"
 
+  - capability: media_factory_gate1_benchmark
+    disposition: REIMPLEMENT
+    source: []
+    target: [backend/intelligence/media_factory]
+    status: FOUNDATION_TESTED
+    adr: governance/ADR/ADR-0018-media-avatar-provider-and-gate1-benchmark.md
+    reason: >
+      Greenfield Gate1 Offline Avatar Benchmark Foundation under R10. Not a
+      wholesale import of D:/Family multimodal TS packages. AUTOavantar is
+      code-level reference only (selective reimplementation of run isolation /
+      provenance / provider lifecycle concepts).
+    evidence:
+      - "FAMILY-MEDIA-001 reality audit: REAL_NEURAL_AVATAR_INFERENCE=ABSENT"
+      - "tests/intelligence/media_factory/test_gate1_benchmark_foundation.py"
+    note: >
+      Does NOT authorize Ditto/MuseTalk/HeyGem install, model weights, CUDA
+      changes, full Media Workflow, realtime, or Family canonical writes.
+
 # ============ 待人工裁决清单（disposition = REVIEW_REQUIRED 的完整索引） ============
 review_required_index:
   - docs_current_baseline_CONTRADICTION   # 最高优先级——与源仓库既有Python迁移计划的关系

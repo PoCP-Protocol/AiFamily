@@ -32,6 +32,10 @@ _scratch_*
 tmp_verify/
 _wip_quarantine/
 
+# Media Factory Gate1 benchmark outputs (local / remote GPU node artifacts).
+# Never commit generated videos or run directories unless a later ADR says otherwise.
+artifacts/media_factory/
+
 # Research fetch artifacts.
 # The compliance deep-research (see docs/12_governance/COMPLIANCE_HARD_CONSTRAINTS.md)
 # pulled primary legal sources (PIPL, 未成年人网络保护条例, 儿童个人信息网络保护规定)

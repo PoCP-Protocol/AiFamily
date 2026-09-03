@@ -1,0 +1,51 @@
+candidate_id: ECHOMIMIC_V3_FLASH
+display_name: EchoMimicV3-Flash
+shortlist_role: CANDIDATE_B
+gate1_participation: ACTIVE
+role_note: STATIC_IMAGE_PLUS_AUDIO_ENGINE
+upstream_repository: "https://github.com/antgroup/echomimic_v3"
+input_modalities:
+  - static_image
+  - audio
+  - text_prompt
+output_modalities:
+  - talking_avatar_mp4
+code_license: Apache-2.0
+weights_license: Apache-2.0
+commercial_status: LICENSE_REVIEW_REQUIRED
+tested_os: "Centos 7.2 / Ubuntu 22.04 (official); Windows via official one-click package note"
+python_requirement: "3.10 / 3.11 (official README)"
+cuda_requirement: "Cuda >= 12.1 (official README)"
+tested_gpu: "A100(80G) / RTX4090D(24G) / V100(16G) (official README)"
+minimum_vram_claim: "12G (EchoMimicV3-Flash update 2026.01.22)"
+recommended_vram: "12G+ (official Flash claim); preview/quantized paths may differ"
+chinese_audio_support: YES
+offline_support: YES_WITH_LOCAL_CHECKPOINTS
+realtime_potential: UNKNOWN
+route_distinction:
+  flash:
+    script: run_flash.sh / infer_flash.py
+    audio_encoder: chinese-wav2vec2-base
+    claims:
+      - "8-step high-quality generation"
+      - "No Face Mask required"
+      - "12G VRAM Requirement"
+      - "Supports up to 768×768 Resolution"
+  preview:
+    script: infer_preview.py / app_mm.py
+    audio_encoder: wav2vec2-base-960h
+    note: "Different weights and audio encoder from Flash; not the Gate1 preferred route"
+gate1_preferred_route: EchoMimicV3-Flash
+gate1_preferred_route_rationale: >
+  Official Flash update targets lower-step generation, Chinese wav2vec encoder,
+  12G VRAM, and 768×768 without face mask. Preview is a separate route.
+  This is route selection for fair engineering fit — NOT a quality ranking vs Ditto.
+benchmark_status: NOT_RUN
+quality_scores: null
+winner: UNKNOWN
+evidence_refs:
+  - "https://raw.githubusercontent.com/antgroup/echomimic_v3/main/README.md"
+  - "https://github.com/antgroup/echomimic_v3/blob/main/run_flash.sh"
+notes: >
+  Official run_flash.sh takes --image_path and --audio_path. Do not claim
+  QUALITY > Ditto without Gate1 runs. WINNER=UNKNOWN.

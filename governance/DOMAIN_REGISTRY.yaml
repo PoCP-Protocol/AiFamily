@@ -307,6 +307,23 @@ entries:
       project_owner_override 作废：代码确实落在 backend/intelligence/design_copilot，
       按 R2 必须有一行登记。
 
+  - capability: media_factory_gate1_benchmark
+    canonical_path: backend/intelligence/media_factory
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: >
+      NEW (ADR-0018). Concepts selectively reimplemented from AUTOavantar reference
+      at D:/_reference/AUTOavantar (run isolation / provenance / provider lifecycle).
+      Not a wholesale migration from D:/Family multimodal TS stack.
+    tests:
+      - tests/intelligence/media_factory
+    scope: >
+      Gate1 Offline Avatar Benchmark Foundation only: AvatarProvider protocol,
+      fixture provider (gate1_eligible=false), input/output contracts, human visual
+      gate schema, candidate manifests. Does NOT include neural engine install,
+      full Media Workflow, realtime, or Family canonical writes.
+    adr: governance/ADR/ADR-0018-media-avatar-provider-and-gate1-benchmark.md
+
   - capability: packages_contracts_provenance
     canonical_path: backend/packages/contracts
     status: MIGRATED_UNTESTED

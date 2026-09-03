@@ -1,0 +1,40 @@
+candidate_id: HEYGEM
+display_name: HeyGem / Duix Avatar lineage
+shortlist_role: DEFERRED
+gate1_participation: DEFERRED
+deferred_class: DEFERRED_VIDEO_CLONE_AVATAR_CANDIDATE
+upstream_repository: "https://github.com/duixcom/Duix.Avatar"
+input_modalities:
+  - real_person_source_video
+  - text_or_voice_drive
+output_modalities:
+  - cloned_digital_human_video
+code_license: DUIX_COM_COMMUNITY_LICENSE
+weights_license: LICENSE_REVIEW_REQUIRED
+commercial_status: LICENSE_REVIEW_REQUIRED
+tested_os: "Windows (official offline toolkit positioning)"
+python_requirement: UNKNOWN
+cuda_requirement: UNKNOWN
+tested_gpu: UNKNOWN
+minimum_vram_claim: UNKNOWN
+recommended_vram: UNKNOWN
+chinese_audio_support: UNKNOWN
+offline_support: YES_CLAIMED_OFFICIAL
+realtime_potential: UNKNOWN
+benchmark_status: NOT_RUN
+quality_scores: null
+winner: UNKNOWN
+evidence_refs:
+  - "https://github.com/duixcom/Duix.Avatar"
+  - "https://github.com/duixcom/Duix.Avatar/blob/main/LICENSE"
+deferral_rationale: >
+  Official positioning: clone appearance/voice from real-person video data, then
+  drive the avatar with text/voice. Primary creation path is video-clone, not
+  fair single static identity PNG + fixed audio Gate1 class. Deferred from ACTIVE
+  Gate1 shortlist. AUTOavantar remains code-level reference for offline workflow
+  concepts only — not a Gate1 competitor install.
+future_value: >
+  Production avatar clone pipelines when source video identity capture is available.
+license_note: >
+  Community license with attribution and commercial MAU-threshold clauses;
+  GitHub Public ≠ unrestricted commercial reuse.

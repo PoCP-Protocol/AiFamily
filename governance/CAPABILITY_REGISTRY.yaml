@@ -651,6 +651,77 @@ capabilities:
       - "无 Postgres 集成测试，仅 SQLite 内存库"
       - "router 未挂载，实际不可通过 HTTP 调用"
 
+  - capability: prepare_avatar_benchmark
+    business_capability: PLATFORM_INTERNAL
+    domain: intelligence/media_factory
+    purpose: >
+      锁定 Gate1 输入契约（image/audio sha256、尺寸、采样率、benchmark_version），
+      供候选引擎公平对比。不调用 neural 推理。
+    actor: [system, operator]
+    command: null
+    api: null
+    code:
+      domain: backend/intelligence/media_factory/contracts.py
+    tests:
+      - tests/intelligence/media_factory/test_gate1_benchmark_foundation.py
+    consent: {required: false}
+    audit: {required: false, note: "本阶段只写本地 artifact 目录，不写业务权威状态"}
+    idempotency: {required: false}
+    ai:
+      involved: true
+      may_mutate_business_state: false
+      note: "AIUC-001 interim; AI_USE_CASE_REGISTRY.yaml still MISSING"
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - "Canonical V2 PNG binaries are local-reference only (not in git)"
+      - "Smoke audio remains in D:/Family read-only locator"
+
+  - capability: run_avatar_benchmark
+    business_capability: PLATFORM_INTERNAL
+    domain: intelligence/media_factory
+    purpose: >
+      在隔离 run 目录内调用已登记 AvatarProvider.render，写出 input/provider/metrics/
+      human_review manifests。当前仅 fixture provider 可跑；neural 候选 NOT_RUN。
+    actor: [system, operator]
+    command: null
+    api: null
+    code:
+      application: backend/intelligence/media_factory/benchmark.py
+      infrastructure: backend/intelligence/media_factory/providers/
+    tests:
+      - tests/intelligence/media_factory/test_gate1_benchmark_foundation.py
+    consent: {required: false}
+    audit: {required: false}
+    idempotency: {required: false}
+    ai:
+      involved: true
+      may_mutate_business_state: false
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - "CANDIDATE_BENCHMARKS_RUN=0 — Ditto/MuseTalk/HeyGem not installed"
+      - "FixtureAvatarProvider is gate1_eligible=false by design"
+
+  - capability: record_avatar_benchmark_result
+    business_capability: PLATFORM_INTERNAL
+    domain: intelligence/media_factory
+    purpose: >
+      记录 Gate1 Human Visual Review schema 与 IDENTITY_HARD_FAIL 强制失败规则；
+      自动指标字段保持 NOT_MEASURED，不得冒充人工结论。
+    actor: [operator]
+    command: null
+    api: null
+    code:
+      domain: backend/intelligence/media_factory/human_gate.py
+    tests:
+      - tests/intelligence/media_factory/test_gate1_benchmark_foundation.py
+    consent: {required: false}
+    audit: {required: false}
+    idempotency: {required: false}
+    ai:
+      involved: false
+      note: "Human gate schema itself is not model inference"
+    status: IMPLEMENTED_TESTED
+
 # ---------------------------------------------------------------------------
 # 待登记（有代码但仅为骨架，不构成能力，故不给 capability 条目）
 # ---------------------------------------------------------------------------
