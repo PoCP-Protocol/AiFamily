@@ -182,9 +182,23 @@ class DevWiringNotPermittedError(RuntimeError):
     """Raised when dev wiring is asked to install outside a dev environment."""
 
 
-DEV_DEFAULT_DATABASE_URL = "postgresql+asyncpg://aifamily:aifamily@localhost:55442/aifamily_test"
-"""Fallback dev/test PostgreSQL URL, matching `docker-compose.dev.yml`'s
-`aifamily-dev-postgres` container port mapping.
+DEV_DEFAULT_DATABASE_URL = (
+    "postgresql+asyncpg://aifamily:aifamily@localhost:55442/aifamily_dev_claude"
+)
+"""Fallback dev/test PostgreSQL URL — same `aifamily-dev-postgres` container
+`docker-compose.dev.yml` starts, but a **separate database**
+(`aifamily_dev_claude`), not `aifamily_test`.
+
+`aifamily_test` is shared, long-lived state other gated integration tests
+(and other concurrent development work against this same repository/
+container) read and write. This module's `reset_dev_state()` truncates its
+tables on every test's setup — pointing that at `aifamily_test` would
+periodically wipe out unrelated concurrent work sharing the same Postgres
+container. `aifamily_dev_claude` is created once
+(``CREATE DATABASE aifamily_dev_claude``) and migrated
+(``DATABASE_URL=...aifamily_dev_claude uv run alembic upgrade head``) so this
+module's truncate-on-reset semantics stay confined to state only this dev
+wiring owns.
 
 Dev/test for the five domains this module wires (family_need, course_content,
 improvement_candidate, family_experience_signal, and the FGCN provider
@@ -440,8 +454,6 @@ def _truncate_dev_tables() -> None:
                 )
         finally:
             await engine.dispose()
-
-    asyncio.run(_run())
 
     asyncio.run(_run())
 
