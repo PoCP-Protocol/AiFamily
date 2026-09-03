@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>小橘灯｜为你的家庭推荐</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header>
+        <a class="brand" href="#top" aria-label="小橘灯首页">小橘灯</a>
+        <span>AiFamily · 专家直播</span>
+        <span class="sandbox">仅作合成演示</span>
+      </header>
+
+      <section class="recommendation" id="top" aria-labelledby="title">
+        <div class="copy">
+          <p class="context">你的家庭正在关注</p>
+          <h1 id="title">把“先听懂”练成今晚就能用的一句话</h1>
+          <p class="need">来自已确认的家庭需要：放学后的沟通常常以争执收场。</p>
+          <dl>
+            <div><dt>适合谁</dt><dd>希望减少冲突的家长与照护者</dd></div>
+            <div><dt>为什么是这场</dt><dd>主题与“家庭沟通”匹配，内容已人工审核</dd></div>
+          </dl>
+          <button class="primary" id="enter" type="button">进入直播</button>
+          <p class="notice">仅成人主动进入。不会替代你的授权，也不会自动购买。</p>
+        </div>
+        <div class="stage" aria-label="专家直播预览">
+          <div class="live-dot">LIVE</div>
+          <div class="speaker">小橘灯<br /><span>家庭沟通专家</span></div>
+          <p>“先把对方的话复述一遍，再说自己的感受。”</p>
+          <div class="progress"><span></span></div>
+        </div>
+      </section>
+
+      <section class="entry hidden" id="entry" aria-live="polite">
+        <h2>你已主动进入这场直播</h2>
+        <p>本场围绕「家庭沟通」展开。结束后，我们只会向你询问是否有帮助。</p>
+        <button class="secondary" id="complete" type="button">模拟直播结束</button>
+      </section>
+
+      <section class="feedback hidden" id="feedback" aria-labelledby="feedback-title">
+        <h2 id="feedback-title">这场直播对你有帮助吗？</h2>
+        <p>你的反馈会作为服务回执候选，供你确认后回流到家庭需要；不会自动成为家庭事实。</p>
+        <div class="choices" role="group" aria-label="是否有帮助">
+          <button data-answer="有帮助" type="button">有帮助</button>
+          <button data-answer="暂时没有" type="button">暂时没有</button>
+        </div>
+        <p class="result" id="result"></p>
+      </section>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>
