@@ -53,9 +53,14 @@ async def get_family_experience_signal_summary(
     helped.
 
     Returns only `component_id`/`helped_count`/`partially_helped_count`/
-    `did_not_help_count`/`total_count`/`helped_rate` per component — no
-    family/tenant/child field exists on this aggregate to leak (see
-    `domain/family_experience_signal.py`).
+    `did_not_help_count`/`total_count`/`helped_rate`/`is_low_confidence` per
+    component — no family/tenant/child field exists on this aggregate to
+    leak (see `domain/family_experience_signal.py`).
+
+    `is_low_confidence` is true when `total_count` is too small for
+    `helped_rate` to mean anything; callers must not present `helped_rate`
+    as a confident stat when this is true (see
+    `ComponentExperienceSummary.is_low_confidence`).
     """
 
     repo = _require_repository()
@@ -72,6 +77,7 @@ async def get_family_experience_signal_summary(
                 "did_not_help_count": summary.did_not_help_count,
                 "total_count": summary.total_count,
                 "helped_rate": summary.helped_rate,
+                "is_low_confidence": summary.is_low_confidence,
             }
             for summary in summaries
         ],

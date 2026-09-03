@@ -22,6 +22,13 @@ from ..domain.family_experience_signal import (
     OutcomeDecision,
 )
 
+# Below this many signals, `helped_rate` is one or two families' outcome
+# dressed up as a percentage — the small-sample-false-consensus failure mode
+# that de-identified social-proof surfaces (小红书-style "种草") are prone to.
+# A parent-facing renderer must not show `helped_rate` as a confident stat
+# when `total_count` is under this floor.
+MIN_SAMPLE_SIZE_FOR_CONFIDENT_RATE = 5
+
 
 @dataclass(frozen=True, slots=True)
 class ComponentExperienceSummary:
@@ -36,6 +43,13 @@ class ComponentExperienceSummary:
     did_not_help_count: int
     total_count: int
     helped_rate: float
+
+    @property
+    def is_low_confidence(self) -> bool:
+        """True when `total_count` is too small for `helped_rate` to mean
+        anything — the renderer must show this instead of the raw rate."""
+
+        return self.total_count < MIN_SAMPLE_SIZE_FOR_CONFIDENT_RATE
 
 
 class FamilyExperienceSignalRepository(Protocol):
@@ -91,7 +105,7 @@ async def summarize_family_experience_by_component(
     *,
     category: NeedCategoryLabel,
 ) -> tuple[ComponentExperienceSummary, ...]:
-    """"Search for a similar problem" query: every component tried by
+    """ "Search for a similar problem" query: every component tried by
     families whose need fell under `category`, with how many said it
     helped."""
 

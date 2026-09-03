@@ -123,10 +123,10 @@ from backend.domains.product_intelligence.domain.course_content import CourseLes
 from backend.domains.product_intelligence.infrastructure.course_content_postgres_repository import (
     SqlAlchemyCourseContentRepository,
 )
-from backend.domains.product_intelligence.infrastructure.family_experience_signal_postgres_repository import (
+from backend.domains.product_intelligence.infrastructure.family_experience_signal_postgres_repository import (  # noqa: E501
     SqlAlchemyFamilyExperienceSignalRepository,
 )
-from backend.domains.product_intelligence.infrastructure.improvement_candidate_postgres_repository import (
+from backend.domains.product_intelligence.infrastructure.improvement_candidate_postgres_repository import (  # noqa: E501
     SqlAlchemyImprovementCandidateRepository,
 )
 from backend.domains.service.api import dependencies as service_deps

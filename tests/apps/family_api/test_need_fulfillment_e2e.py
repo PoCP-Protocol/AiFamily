@@ -1652,6 +1652,10 @@ def test_experience_signal_summary_aggregates_across_families_with_no_identity_l
     assert communication["total_count"] >= 3, communication
     expected_rate = communication["helped_count"] / communication["total_count"]
     assert abs(communication["helped_rate"] - expected_rate) < 1e-6, communication
+    # Three families is still below MIN_SAMPLE_SIZE_FOR_CONFIDENT_RATE (5):
+    # the summary must flag this so a renderer never shows `helped_rate` as
+    # a confident stat off a handful of families.
+    assert communication["is_low_confidence"] is True, communication
 
     # The hard privacy proof: none of the three families' ids, the shared
     # child-id naming pattern, or the deliberately family-identifying
