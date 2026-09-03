@@ -58,6 +58,7 @@ reviewed_signals = Table(
     Column("tenant_id", Uuid(as_uuid=True), nullable=False),
     Column("family_id", Uuid(as_uuid=True), nullable=False),
     Column("assessment_session_id", Uuid(as_uuid=True), nullable=False),
+    Column("understanding_run_ref", String(256)),
     Column("signal_ref", String(256), nullable=False),
     Column("signal_version", Integer, nullable=False),
     Column("scope_ref", String(256), nullable=False),
