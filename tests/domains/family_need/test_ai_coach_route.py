@@ -173,7 +173,7 @@ def test_ai_coach_provenance_is_complete() -> None:
     provenance = response.json()["provenance"]
     assert provenance["provider_id"] == "fake-deterministic"
     assert provenance["model"]
-    assert provenance["prompt_version"] == "family-ai-coach-prompt-v1"
+    assert provenance["prompt_version"] == "family-ai-coach-prompt-v2"
     assert provenance["schema_version"] == "family-ai-coach-schema-v1"
     assert provenance["context_snapshot_ref"]
     assert isinstance(provenance["latency_ms"], int)
