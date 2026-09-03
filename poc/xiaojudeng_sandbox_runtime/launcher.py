@@ -468,6 +468,29 @@ def terminate(processes: list[subprocess.Popen[bytes]]) -> None:
                 process.kill()
 
 
+def runtime_receipt(
+    manifest: dict[str, object],
+    service_pids: dict[str, int],
+    ports: set[int],
+    secret: str,
+    status: str,
+) -> dict[str, object]:
+    receipt = {
+        "source": "SANDBOX_SYNTHETIC",
+        "fixture_only": True,
+        "external_effect": False,
+        "launcher_pid": manifest["launcher_pid"],
+        "runtime_id": manifest["runtime_id"],
+        "generation": manifest["generation"],
+        "status": status,
+        "released_ports": sorted(ports),
+        "service_pids": service_pids,
+        "observed_at": datetime.now(UTC).isoformat(),
+    }
+    receipt["receipt_digest"] = signed_payload_digest(receipt, secret)
+    return receipt
+
+
 def stop_runtime(runtime_dir: Path) -> dict[str, object]:
     manifest_path = runtime_dir / "runtime.json"
     control_path = runtime_dir / ".runtime-control.json"
@@ -537,7 +560,10 @@ def stop_runtime(runtime_dir: Path) -> dict[str, object]:
             ):
                 receipt_path = runtime_dir / "stopped.json"
                 if not receipt_path.is_file():
-                    raise RuntimeError("stopped runtime is missing a trusted receipt") from exc
+                    raise RuntimeError(
+                        "sandbox runtime is externally terminated; "
+                        "trusted receipt/reconciliation required"
+                    ) from exc
                 receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
                 signature = receipt.pop("receipt_digest", None)
                 if (
@@ -566,19 +592,7 @@ def stop_runtime(runtime_dir: Path) -> dict[str, object]:
         time.sleep(0.1)
     else:
         raise RuntimeError("sandbox stop was not fully released")
-    receipt = {
-        "source": "SANDBOX_SYNTHETIC",
-        "fixture_only": True,
-        "external_effect": False,
-        "launcher_pid": launcher_pid,
-        "runtime_id": manifest["runtime_id"],
-        "generation": manifest["generation"],
-        "status": "STOPPED",
-        "released_ports": sorted(ports),
-        "service_pids": expected_identity["service_pids"],
-        "stopped_at": datetime.now(UTC).isoformat(),
-    }
-    receipt["receipt_digest"] = signed_payload_digest(receipt, secret)
+    receipt = runtime_receipt(manifest, service_pids, ports, secret, "STOPPED")
     atomic_json(runtime_dir / "stopped.json", receipt)
     return receipt
 

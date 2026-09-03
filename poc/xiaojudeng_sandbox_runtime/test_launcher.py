@@ -233,6 +233,48 @@ def test_stop_runtime_rejects_dead_launcher_with_live_orphan(
         stop_runtime(tmp_path)
 
 
+def test_externally_terminated_runtime_requires_human_reconciliation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media = tmp_path / "media.json"
+    media.write_text(json.dumps({"control_url": "http://127.0.0.1:54321/control/live"}))
+    manifest = {
+        "source": "SANDBOX_SYNTHETIC",
+        "fixture_only": True,
+        "external_effect": False,
+        "runtime_id": "runtime-test",
+        "generation": "generation-test",
+        "launcher_pid": 43210,
+        "started_at": "2026-09-03T00:00:00+00:00",
+        "executable": str(Path(sys.executable).resolve()),
+        "runtime_dir": str(tmp_path.resolve()),
+        "control_url": "http://127.0.0.1:1",
+        "ports": {"web": 54320},
+        "media_descriptor": str(media),
+        "services": {"media": {"pid": 43211}},
+    }
+    (tmp_path / "runtime.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (tmp_path / ".runtime-control.json").write_text(
+        json.dumps(
+            {
+                "runtime_id": "runtime-test",
+                "control_url": "http://127.0.0.1:1",
+                "secret": TEST_SECRET,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "poc.xiaojudeng_sandbox_runtime.launcher.process_exists", lambda _pid: False
+    )
+    monkeypatch.setattr("poc.xiaojudeng_sandbox_runtime.launcher.port_is_free", lambda _port: True)
+
+    with pytest.raises(RuntimeError, match="trusted receipt/reconciliation required"):
+        stop_runtime(tmp_path)
+    assert not (tmp_path / "stopped.json").exists()
+    assert json.loads((tmp_path / "runtime.json").read_text()).get("state") != "STOPPED"
+
+
 def test_manifest_identity_rewrite_does_not_trigger_stop(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
