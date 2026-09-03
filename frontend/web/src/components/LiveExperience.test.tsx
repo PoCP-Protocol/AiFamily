@@ -765,9 +765,25 @@ describe("Xiao Ju Deng live product surface", () => {
   });
 
   it("renders a verified runtime snapshot and exposes every live dependency", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
+    const fetchMock = vi.fn().mockImplementation(async (input: string) => ({
       ok: true,
-      json: async () => ({
+      json: async () => input.endsWith("/slo") ? ({
+        session_ref: "live.synthetic.control.1",
+        sample_count: 24,
+        startup_success: 1,
+        first_frame_p95_ms: 820,
+        stall_ratio: 0.004,
+        interaction_latency_p95_ms: 110,
+        recovery_p95_ms: 640,
+        error_budget: 0.92,
+        recommendation: "GREEN",
+        reasons: [],
+        human_review_required: false,
+        automatic_stop_issued: false,
+        external_effect: false,
+        source: "SANDBOX_SYNTHETIC",
+        fixture_only: true,
+      }) : ({
         overall: "READY",
         checked_at: "2026-09-03T03:00:00+08:00",
         components: [
@@ -780,7 +796,7 @@ describe("Xiao Ju Deng live product surface", () => {
         source: "SANDBOX_SYNTHETIC",
         fixture_only: true,
       }),
-    });
+    }));
     vi.stubGlobal("fetch", fetchMock);
     render(<LiveRuntimeConsole observabilityBaseUrl="http://127.0.0.1:55500" />);
 
@@ -789,6 +805,10 @@ describe("Xiao Ju Deng live product surface", () => {
     expect(screen.getByText("成人互动与审核")).toBeInTheDocument();
     expect(screen.getByText("录制回放")).toBeInTheDocument();
     expect(screen.getByText("交易与权益")).toBeInTheDocument();
+    expect(screen.getByText("首帧 P95")).toBeInTheDocument();
+    expect(screen.getByText("820 ms")).toBeInTheDocument();
+    expect(screen.getByText("0.4%")).toBeInTheDocument();
+    expect(screen.getByText("92.0%")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       "http://127.0.0.1:55500/sandbox/live-ops/runtime-snapshot",
       expect.objectContaining({ cache: "no-store", headers: expect.any(Object) }),
@@ -809,6 +829,46 @@ describe("Xiao Ju Deng live product surface", () => {
     }));
     render(<LiveRuntimeConsole observabilityBaseUrl="http://127.0.0.1:55500" />);
     expect(await screen.findByText("无法取得可信运行快照，按降级处理。")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("shows STOP only as a human loss-control recommendation", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async (input: string) => ({
+      ok: true,
+      json: async () => input.endsWith("/slo") ? ({
+        session_ref: "live.synthetic.control.1",
+        sample_count: 8,
+        startup_success: 0.75,
+        first_frame_p95_ms: 4800,
+        stall_ratio: 0.18,
+        interaction_latency_p95_ms: 1600,
+        recovery_p95_ms: 12000,
+        error_budget: 0,
+        recommendation: "STOP",
+        reasons: ["error budget exhausted"],
+        human_review_required: true,
+        automatic_stop_issued: false,
+        external_effect: false,
+        source: "SANDBOX_SYNTHETIC",
+        fixture_only: true,
+      }) : ({
+        overall: "DEGRADED",
+        checked_at: "2026-09-03T03:00:00+08:00",
+        components: [
+          { component: "media", state: "DOWN", latency_ms: 750, detail: "provider unreachable", external_effect: false },
+          { component: "interaction", state: "UP", latency_ms: 3, detail: "verified synthetic health", external_effect: false },
+          { component: "replay", state: "UP", latency_ms: 5, detail: "verified synthetic health", external_effect: false },
+          { component: "commerce", state: "UP", latency_ms: 2, detail: "verified synthetic health", external_effect: false },
+        ],
+        external_effect: false,
+        source: "SANDBOX_SYNTHETIC",
+        fixture_only: true,
+      }),
+    })));
+    render(<LiveRuntimeConsole observabilityBaseUrl="http://127.0.0.1:55500" />);
+
+    expect(await screen.findByText("STOP")).toBeInTheDocument();
+    expect(screen.getByText("指标要求人工止损确认；系统没有自动停播。")).toBeInTheDocument();
     vi.unstubAllGlobals();
   });
 

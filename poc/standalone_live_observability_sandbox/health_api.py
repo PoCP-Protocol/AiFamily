@@ -16,6 +16,7 @@ from urllib.request import Request, urlopen
 
 import uvicorn
 from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from poc.standalone_live_moderation_sandbox.question_api import (
     SyntheticActor,
@@ -67,6 +68,20 @@ def create_app(
     samples_provider = slo_samples or missing_slo_samples
     current_time = clock or (lambda: datetime.now(UTC))
     app = FastAPI(title="Xiao Ju Deng runtime observability sandbox")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"^http://(?:localhost|127\.0\.0\.1)(?::\d+)?$",
+        allow_credentials=False,
+        allow_methods=["GET"],
+        allow_headers=[
+            "X-Sandbox-Source",
+            "X-Fixture-Only",
+            "X-Tenant-Id",
+            "X-Family-Id",
+            "X-Actor-Id",
+            "X-Actor-Role",
+        ],
+    )
 
     @app.get("/health")
     def health() -> dict[str, object]:

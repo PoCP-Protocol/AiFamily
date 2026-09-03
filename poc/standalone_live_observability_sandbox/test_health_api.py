@@ -83,6 +83,38 @@ def healthy_slo_samples(
     ]
 
 
+def test_local_web_origin_can_read_runtime_evidence() -> None:
+    client = TestClient(create_app(targets(), probe=healthy_probe))
+
+    response = client.options(
+        "/sandbox/live-ops/runtime-snapshot",
+        headers={
+            "Origin": "http://127.0.0.1:4192",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": (
+                "X-Sandbox-Source,X-Fixture-Only,X-Tenant-Id,X-Family-Id,X-Actor-Id,X-Actor-Role"
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:4192"
+
+
+def test_non_local_web_origin_is_not_authorized_by_cors() -> None:
+    client = TestClient(create_app(targets(), probe=healthy_probe))
+
+    response = client.options(
+        "/sandbox/live-ops/runtime-snapshot",
+        headers={
+            "Origin": "https://unverified.example",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert "access-control-allow-origin" not in response.headers
+
+
 def test_four_components_are_probed_concurrently_and_ready_without_secret_leak() -> None:
     barrier = threading.Barrier(len(COMPONENTS))
 

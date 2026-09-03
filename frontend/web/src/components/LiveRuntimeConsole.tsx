@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-type Props = { observabilityBaseUrl?: string };
+type Props = { observabilityBaseUrl?: string; sessionRef?: string };
 type ComponentState = "UP" | "DOWN" | "UNSAFE";
 type RuntimeComponent = {
   component: "media" | "interaction" | "replay" | "commerce";
@@ -17,6 +17,23 @@ type RuntimeSnapshot = {
   fixture_only: true;
   external_effect: false;
 };
+type SloSnapshot = {
+  session_ref: string;
+  sample_count: number;
+  startup_success: number | null;
+  first_frame_p95_ms: number | null;
+  stall_ratio: number | null;
+  interaction_latency_p95_ms: number | null;
+  recovery_p95_ms: number | null;
+  error_budget: number;
+  recommendation: "GREEN" | "DEGRADED" | "STOP";
+  reasons: string[];
+  human_review_required: boolean;
+  automatic_stop_issued: false;
+  source: "SANDBOX_SYNTHETIC";
+  fixture_only: true;
+  external_effect: false;
+};
 
 const OPERATOR_HEADERS = {
   "X-Sandbox-Source": "SANDBOX_SYNTHETIC",
@@ -28,8 +45,12 @@ const OPERATOR_HEADERS = {
 };
 const RUNTIME_COMPONENTS = ["media", "interaction", "replay", "commerce"] as const;
 
-export function LiveRuntimeConsole({ observabilityBaseUrl }: Props) {
+export function LiveRuntimeConsole({
+  observabilityBaseUrl,
+  sessionRef = "live.synthetic.control.1",
+}: Props) {
   const [snapshot, setSnapshot] = useState<RuntimeSnapshot | null>(null);
+  const [slo, setSlo] = useState<SloSnapshot | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "missing" | "error">(
     observabilityBaseUrl ? "loading" : "missing",
   );
@@ -37,16 +58,17 @@ export function LiveRuntimeConsole({ observabilityBaseUrl }: Props) {
   useEffect(() => {
     if (!observabilityBaseUrl || !isLocalUrl(observabilityBaseUrl)) return;
     const controller = new AbortController();
-    void loadSnapshot(observabilityBaseUrl, controller.signal)
+    void loadRuntimeEvidence(observabilityBaseUrl, sessionRef, controller.signal)
       .then((result) => {
-        setSnapshot(result);
+        setSnapshot(result.snapshot);
+        setSlo(result.slo);
         setState("ready");
       })
       .catch((error: unknown) => {
         if (!(error instanceof DOMException && error.name === "AbortError")) setState("error");
       });
     return () => controller.abort();
-  }, [observabilityBaseUrl]);
+  }, [observabilityBaseUrl, sessionRef]);
 
   return (
     <section className="live-ops-shell" aria-labelledby="live-runtime-heading">
@@ -75,6 +97,7 @@ export function LiveRuntimeConsole({ observabilityBaseUrl }: Props) {
               </article>
             ))}
           </div>
+          {slo ? <SloPanel slo={slo} /> : null}
           <button type="button" onClick={() => void refresh()}>重新检查运行状态</button>
         </>
       ) : null}
@@ -85,13 +108,61 @@ export function LiveRuntimeConsole({ observabilityBaseUrl }: Props) {
     if (!observabilityBaseUrl || !isLocalUrl(observabilityBaseUrl)) return;
     setState("loading");
     try {
-      setSnapshot(await loadSnapshot(observabilityBaseUrl));
+      const evidence = await loadRuntimeEvidence(observabilityBaseUrl, sessionRef);
+      setSnapshot(evidence.snapshot);
+      setSlo(evidence.slo);
       setState("ready");
     } catch {
       setSnapshot(null);
+      setSlo(null);
       setState("error");
     }
   }
+}
+
+function SloPanel({ slo }: { slo: SloSnapshot }) {
+  const metrics = [
+    ["首帧 P95", formatMilliseconds(slo.first_frame_p95_ms)],
+    ["卡顿率", formatPercent(slo.stall_ratio)],
+    ["互动延迟 P95", formatMilliseconds(slo.interaction_latency_p95_ms)],
+    ["恢复时间 P95", formatMilliseconds(slo.recovery_p95_ms)],
+    ["错误预算", formatPercent(slo.error_budget)],
+  ];
+  return (
+    <section className="live-slo-panel" aria-label="本场直播质量目标">
+      <div className="live-slo-summary">
+        <div>
+          <small>本场质量判断 · {slo.sample_count} 个样本</small>
+          <strong>{slo.recommendation}</strong>
+        </div>
+        <p>
+          {slo.recommendation === "STOP"
+            ? "指标要求人工止损确认；系统没有自动停播。"
+            : slo.reasons[0] ?? "当前指标处于沙盒目标范围。"}
+        </p>
+      </div>
+      <div className="live-slo-metrics">
+        {metrics.map(([label, value]) => (
+          <div key={label}>
+            <span>{label}</span>
+            <strong>{value}</strong>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+async function loadRuntimeEvidence(
+  baseUrl: string,
+  sessionRef: string,
+  signal?: AbortSignal,
+): Promise<{ snapshot: RuntimeSnapshot; slo: SloSnapshot }> {
+  const [snapshot, slo] = await Promise.all([
+    loadSnapshot(baseUrl, signal),
+    loadSlo(baseUrl, sessionRef, signal),
+  ]);
+  return { snapshot, slo };
 }
 
 async function loadSnapshot(baseUrl: string, signal?: AbortSignal): Promise<RuntimeSnapshot> {
@@ -124,6 +195,54 @@ async function loadSnapshot(baseUrl: string, signal?: AbortSignal): Promise<Runt
     throw new Error("unsafe runtime snapshot");
   }
   return result;
+}
+
+async function loadSlo(
+  baseUrl: string,
+  sessionRef: string,
+  signal?: AbortSignal,
+): Promise<SloSnapshot> {
+  const response = await fetch(
+    `${baseUrl}/sandbox/live-ops/sessions/${encodeURIComponent(sessionRef)}/slo`,
+    { cache: "no-store", headers: OPERATOR_HEADERS, signal },
+  );
+  if (!response.ok) throw new Error(`SLO snapshot rejected: ${response.status}`);
+  const result = (await response.json()) as SloSnapshot;
+  const nullableMetrics = [
+    result.startup_success,
+    result.first_frame_p95_ms,
+    result.stall_ratio,
+    result.interaction_latency_p95_ms,
+    result.recovery_p95_ms,
+  ];
+  if (
+    result.session_ref !== sessionRef ||
+    result.source !== "SANDBOX_SYNTHETIC" ||
+    result.fixture_only !== true ||
+    result.external_effect !== false ||
+    result.automatic_stop_issued !== false ||
+    !["GREEN", "DEGRADED", "STOP"].includes(result.recommendation) ||
+    !Number.isInteger(result.sample_count) ||
+    result.sample_count < 0 ||
+    !Number.isFinite(result.error_budget) ||
+    result.error_budget < 0 ||
+    result.error_budget > 1 ||
+    !Array.isArray(result.reasons) ||
+    result.reasons.some((reason) => typeof reason !== "string") ||
+    nullableMetrics.some((metric) => metric !== null && (!Number.isFinite(metric) || metric < 0)) ||
+    (result.recommendation === "STOP" && result.human_review_required !== true)
+  ) {
+    throw new Error("unsafe SLO snapshot");
+  }
+  return result;
+}
+
+function formatMilliseconds(value: number | null): string {
+  return value === null ? "无可信样本" : `${Math.round(value)} ms`;
+}
+
+function formatPercent(value: number | null): string {
+  return value === null ? "无可信样本" : `${(value * 100).toFixed(1)}%`;
 }
 
 function componentLabel(component: RuntimeComponent["component"]): string {

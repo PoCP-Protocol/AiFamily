@@ -229,11 +229,33 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
   padding: 28px;
 }
 .live-ops-empty p { margin-bottom: 0; }
+.live-slo-panel {
+  background: #431407;
+  border-radius: 20px;
+  color: #fff7ed;
+  display: grid;
+  gap: 22px;
+  margin: 18px auto 0;
+  max-width: 1080px;
+  padding: 22px;
+}
+.live-slo-summary { align-items: end; display: flex; gap: 20px; justify-content: space-between; }
+.live-slo-summary > div { display: grid; gap: 5px; }
+.live-slo-summary small { color: #fdba74; }
+.live-slo-summary strong { font-size: 1.65rem; }
+.live-slo-summary p { color: #ffedd5; margin: 0; max-width: 520px; text-align: right; }
+.live-slo-metrics { display: grid; gap: 10px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.live-slo-metrics > div { background: rgb(255 247 237 / 9%); border-radius: 14px; display: grid; gap: 8px; padding: 14px; }
+.live-slo-metrics span { color: #fdba74; font-size: 0.72rem; font-weight: 750; }
+.live-slo-metrics strong { font-size: 1rem; }
 
 @media (max-width: 620px) {
   .live-ops-shell { padding: 28px 14px; }
   .live-ops-heading, .live-ops-card { align-items: stretch; flex-direction: column; }
   .live-ops-actions button { flex: 1; }
+  .live-slo-summary { align-items: stretch; flex-direction: column; }
+  .live-slo-summary p { text-align: left; }
+  .live-slo-metrics { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 840px) {
