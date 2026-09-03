@@ -709,11 +709,16 @@ def _validate_feedback_payload(payload: Mapping[str, Any]) -> None:
 
 
 def _validate_family_understanding_feedback(payload: Mapping[str, Any]) -> None:
-    if payload.get("feedback_version") != "family-understanding-feedback.v1":
+    if payload.get("feedback_version") != "family-understanding-feedback.v2":
         raise RunHttpError("FAMILY_UNDERSTANDING_FEEDBACK_VERSION_INVALID")
-    rating = payload.get("understood_rating")
-    if isinstance(rating, bool) or not isinstance(rating, int) or not 1 <= rating <= 5:
-        raise RunHttpError("FAMILY_UNDERSTANDING_RATING_INVALID")
+    for field_name in ("feedback_ref", "adult_actor_ref", "draft_version", "candidate_id"):
+        value = payload.get(field_name)
+        if not isinstance(value, str) or not value.strip() or len(value) > 256:
+            raise RunHttpError("FAMILY_UNDERSTANDING_FEEDBACK_REFERENCE_INVALID")
+    for field_name in ("understood_rating", "response_relevance"):
+        rating = payload.get(field_name)
+        if isinstance(rating, bool) or not isinstance(rating, int) or not 1 <= rating <= 5:
+            raise RunHttpError("FAMILY_UNDERSTANDING_RATING_INVALID")
     for field_name in ("felt_judged", "willing_to_continue", "correction_needed"):
         if not isinstance(payload.get(field_name), bool):
             raise RunHttpError("FAMILY_UNDERSTANDING_FEEDBACK_FLAG_INVALID")
@@ -721,6 +726,32 @@ def _validate_family_understanding_feedback(payload: Mapping[str, Any]) -> None:
     has_correction_ref = isinstance(correction_ref, str) and bool(correction_ref.strip())
     if bool(payload["correction_needed"]) != has_correction_ref:
         raise RunHttpError("FAMILY_UNDERSTANDING_CORRECTION_REF_INVALID")
+    if correction_ref is not None and not correction_ref.startswith("input:"):
+        raise RunHttpError("FAMILY_UNDERSTANDING_CORRECTION_REF_INVALID")
+    correction_resolved = payload.get("correction_resolved")
+    if correction_resolved is not None and not isinstance(correction_resolved, bool):
+        raise RunHttpError("FAMILY_UNDERSTANDING_CORRECTION_RESOLUTION_INVALID")
+    if not payload["correction_needed"] and correction_resolved is not None:
+        raise RunHttpError("FAMILY_UNDERSTANDING_CORRECTION_RESOLUTION_INVALID")
+    reason_code = payload.get("reason_code")
+    allowed_reason_codes = {
+        "MISSED_CONTEXT",
+        "TOO_GENERIC",
+        "FELT_JUDGED",
+        "WRONG_ASSUMPTION",
+        "OTHER",
+    }
+    if reason_code is not None and reason_code not in allowed_reason_codes:
+        raise RunHttpError("FAMILY_UNDERSTANDING_REASON_CODE_INVALID")
+    reason_ref = payload.get("reason_ref")
+    if reason_ref is not None and (
+        not isinstance(reason_ref, str) or not reason_ref.startswith("input:")
+    ):
+        raise RunHttpError("FAMILY_UNDERSTANDING_REASON_REF_INVALID")
+    if reason_code == "OTHER" and reason_ref is None:
+        raise RunHttpError("FAMILY_UNDERSTANDING_REASON_REF_INVALID")
+    if "reason" in payload:
+        raise RunHttpError("FAMILY_UNDERSTANDING_FREE_TEXT_REASON_FORBIDDEN")
 
 
 def _validate_evaluation_payload(payload: Mapping[str, Any]) -> None:

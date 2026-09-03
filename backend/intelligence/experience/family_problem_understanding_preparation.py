@@ -7,9 +7,11 @@ against knowledge or observations that the model never received.
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any, Protocol
 
 from backend.intelligence.experience.family_problem_understanding_contract import (
     FamilyConversationTurn,
@@ -25,6 +27,10 @@ from backend.intelligence.experience.family_problem_understanding_knowledge impo
 from backend.intelligence.experience.run_http import RunReplaySnapshot, RunScope
 from backend.intelligence.model_gateway.contracts import DataClass, MediaInput, StructuredRequest
 from backend.packages.contracts.evidence import EvidenceLevel
+
+
+class ScopedReplayLedger(Protocol):
+    def replay(self, *, scope: RunScope, run_id: str) -> RunReplaySnapshot | Any: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,11 +110,12 @@ class FamilyProblemUnderstandingPreparer:
             eval_spec=eval_spec,
         )
 
-    def prepare_follow_up_from_replay(
+    async def prepare_follow_up_from_ledger(
         self,
         *,
+        ledger: ScopedReplayLedger,
         scope: RunScope,
-        prior_replay: RunReplaySnapshot,
+        prior_run_id: str,
         run_id: str,
         data_class: DataClass,
         context_snapshot_ref: str,
@@ -121,8 +128,13 @@ class FamilyProblemUnderstandingPreparer:
         at: datetime | None = None,
         locale: str = "zh-CN",
     ) -> FamilyProblemUnderstandingPreparation:
-        """Prepare a true revision from one scoped, replayed durable draft."""
+        """Load the prior draft through the scoped ledger before revising it."""
 
+        prior_replay = ledger.replay(scope=scope, run_id=prior_run_id)
+        if inspect.isawaitable(prior_replay):
+            prior_replay = await prior_replay
+        if not isinstance(prior_replay, RunReplaySnapshot):
+            raise ValueError("prior replay ledger returned an invalid snapshot")
         if prior_replay.scope.key != scope.key:
             raise ValueError("prior replay scope mismatch")
         if prior_replay.deletion_state != "active" or prior_replay.draft_payload is None:
@@ -134,7 +146,7 @@ class FamilyProblemUnderstandingPreparer:
             conversation_turns=conversation_turns,
             knowledge_scope=knowledge_scope,
             media_inputs=media_inputs,
-            prior_run_id=prior_replay.run_id,
+            prior_run_id=prior_run_id,
             prior_draft=prior_replay.draft_payload,
             expected_signal_terms=expected_signal_terms,
             parent_felt_understood=parent_felt_understood,
@@ -163,4 +175,5 @@ def _hypothesis_statements(prior_draft: Mapping[str, object] | None) -> tuple[st
 __all__ = [
     "FamilyProblemUnderstandingPreparation",
     "FamilyProblemUnderstandingPreparer",
+    "ScopedReplayLedger",
 ]

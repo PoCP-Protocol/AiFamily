@@ -1,3 +1,5 @@
+import pytest
+
 from backend.intelligence.experience.family_problem_understanding_contract import (
     FamilyConversationTurn,
 )
@@ -8,7 +10,11 @@ from backend.intelligence.experience.family_problem_understanding_preparation im
     FamilyProblemUnderstandingPreparation,
     FamilyProblemUnderstandingPreparer,
 )
-from backend.intelligence.experience.run_http import InMemoryExperienceRunLedger, RunScope
+from backend.intelligence.experience.run_http import (
+    InMemoryExperienceRunLedger,
+    RunHttpError,
+    RunScope,
+)
 from backend.intelligence.knowledge.contracts import KnowledgeClaim, KnowledgeSource
 from backend.intelligence.knowledge.registry import KnowledgeRegistry
 from backend.intelligence.model_gateway.contracts import MediaInput
@@ -144,7 +150,8 @@ def test_preparation_uses_exact_same_evidence_for_generation_and_evaluation() ->
     )
 
 
-def test_follow_up_preparation_requires_and_scores_real_hypothesis_revision() -> None:
+@pytest.mark.asyncio
+async def test_follow_up_preparation_requires_and_scores_real_hypothesis_revision() -> None:
     concern = _turn("CONCERN", "input:concern", "孩子写作业前总是很难开始。")
     follow_up = _turn(
         "FOLLOW_UP",
@@ -160,9 +167,10 @@ def test_follow_up_preparation_requires_and_scores_real_hypothesis_revision() ->
         draft_payload=_prior_draft(),
         idempotency_key="create:initial",
     )
-    prepared = _preparer().prepare_follow_up_from_replay(
+    prepared = await _preparer().prepare_follow_up_from_ledger(
+        ledger=ledger,
         scope=scope,
-        prior_replay=prior_replay,
+        prior_run_id=prior_replay.run_id,
         run_id="run:follow-up",
         data_class="SYNTHETIC",
         context_snapshot_ref="context:follow-up",
@@ -176,12 +184,14 @@ def test_follow_up_preparation_requires_and_scores_real_hypothesis_revision() ->
     assert prepared.eval_spec.prior_hypothesis_statements == ("孩子可能缺乏学习动力。",)
 
 
-def test_follow_up_rejects_cross_family_prior_replay() -> None:
+@pytest.mark.asyncio
+async def test_follow_up_rejects_cross_family_prior_replay() -> None:
     concern = _turn("CONCERN", "input:concern", "孩子写作业前总是很难开始。")
     follow_up = _turn("FOLLOW_UP", "input:follow-up", "有时可以开始。")
     scope = RunScope("tenant:1", "family:1", ("guardian:1", "child:1"))
     other_scope = RunScope("tenant:1", "family:2", ("guardian:2", "child:2"))
-    replay = InMemoryExperienceRunLedger().create_draft(
+    ledger = InMemoryExperienceRunLedger()
+    replay = ledger.create_draft(
         scope=scope,
         run_id="run:initial",
         request_ref="request:initial",
@@ -189,20 +199,17 @@ def test_follow_up_rejects_cross_family_prior_replay() -> None:
         idempotency_key="create:initial",
     )
 
-    try:
-        _preparer().prepare_follow_up_from_replay(
+    with pytest.raises(RunHttpError, match="RUN_SCOPE_MISMATCH"):
+        await _preparer().prepare_follow_up_from_ledger(
+            ledger=ledger,
             scope=other_scope,
-            prior_replay=replay,
+            prior_run_id=replay.run_id,
             run_id="run:follow-up",
             data_class="SYNTHETIC",
             context_snapshot_ref="context:follow-up",
             conversation_turns=(concern, follow_up),
             knowledge_scope="family_growth",
         )
-    except ValueError as exc:
-        assert "scope mismatch" in str(exc)
-    else:
-        raise AssertionError("cross-family prior replay must fail closed")
 
 
 def test_preparation_invariant_rejects_mismatched_evaluation_refs() -> None:

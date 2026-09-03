@@ -910,7 +910,12 @@ async def test_postgres_replay_supplies_the_actual_prior_draft_to_follow_up(
         run_id=first_run_id,
         signal="helpful",
         feedback=FamilyUnderstandingFeedback(
+            feedback_ref="feedback:family-understanding-memory-1",
+            adult_actor_ref="actor:guardian-s3-http",
+            draft_version="draft:family-understanding-memory-1:v1",
+            candidate_id="candidate:family-understanding-memory-1",
             understood_rating=4,
+            response_relevance=5,
             felt_judged=False,
             willing_to_continue=True,
             correction_needed=True,
@@ -958,9 +963,10 @@ async def test_postgres_replay_supplies_the_actual_prior_draft_to_follow_up(
             minimum_relevance=0.02,
         )
     )
-    prepared = preparer.prepare_follow_up_from_replay(
+    prepared = await preparer.prepare_follow_up_from_ledger(
+        ledger=SessionPerCallExperienceRunLedger(restarted_factory),
         scope=scope,
-        prior_replay=replay,
+        prior_run_id=first_run_id,
         run_id="run-family-understanding-memory-2",
         data_class="SYNTHETIC",
         context_snapshot_ref="context:family-understanding-memory-2",
