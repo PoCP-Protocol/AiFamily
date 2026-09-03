@@ -88,6 +88,11 @@ class KnowledgeLifecycleEvent:
     expected_version: str
 
     def __post_init__(self) -> None:
+        if any(
+            not value.strip()
+            for value in (self.event_id, self.claim_id, self.version, self.actor_ref)
+        ):
+            raise ValueError("lifecycle event references are required")
         if self.sequence <= 0 or self.expected_version != self.version:
             raise ValueError("lifecycle sequence and expected version are required")
         if self.occurred_at.tzinfo is None:
@@ -98,6 +103,7 @@ class KnowledgeLifecycleEvent:
 class KnowledgeClaimStatusProjection:
     claim_id: str
     version: str
+    scope: str
     status: KnowledgeStatus
     sequence: int
     latest_event_id: str
@@ -182,6 +188,7 @@ def advance_lifecycle(
     return KnowledgeClaimStatusProjection(
         event.claim_id,
         event.version,
+        projection.scope if projection else "*",
         event.status,
         event.sequence,
         event.event_id,
@@ -219,6 +226,11 @@ def create_selection_receipt(
 ) -> KnowledgeSelectionReceipt:
     items = []
     for claim, projection, source in candidates:
+        if (claim.claim_id, claim.version) != (
+            projection.claim_id,
+            projection.version,
+        ) or projection.scope not in {claim.scope, "*"}:
+            raise ValueError("claim and projection identity/version/scope mismatch")
         if projection.status != "PUBLISHED" or projection.withdrawn:
             raise ValueError("only published claims may be selected")
         if source.status != "ACTIVE" or not source.verified or not source.license_ref.strip():
