@@ -1639,6 +1639,73 @@ capabilities:
       - "无 Postgres 集成测试，仅 SQLite 内存库"
       - "router 未挂载，实际不可通过 HTTP 调用"
 
+  - capability: family_experience_signal
+    business_capability: product_intelligence
+    domain: domains/product_intelligence
+    purpose: >
+      跨家庭去标识化"这个帮到了像我一样的家庭吗"体验信号池——小红书式内容
+      发现的替代物：不是自由文本 UGC 种草，是家庭确认结果后由系统写入的
+      结构化 verdict（见五公司对标 docs/13_research/market/
+      FIVE_COMPANY_BENCHMARK_STATUS_V1.md §4）。
+    actor: [system]
+    command:
+      - record_family_experience_signal
+    api:
+      - "GET /product-intelligence/experience-signals/summary"
+    code:
+      domain: backend/domains/product_intelligence/domain/family_experience_signal.py
+      application: backend/domains/product_intelligence/application/family_experience_signal.py
+      infrastructure: backend/domains/product_intelligence/infrastructure/
+      api: backend/domains/product_intelligence/api/family_experience_signal_routes.py
+    tests:
+      - backend/domains/product_intelligence/tests/test_family_experience_signal.py
+      - tests/apps/family_api/test_need_fulfillment_e2e.py
+    consent: {required: false, note: "跨家庭去标识化聚合；无 family_id/tenant_id/儿童身份/家庭自由文本字段可携带"}
+    audit: {required: false, note: "无个体身份可审计；写入路径本身受 family_need confirm_family_outcome 一侧的 audit 覆盖"}
+    idempotency: {required: false}
+    ai:
+      involved: false
+      constraint: "无 AI 参与；signal 完全来自家庭对 FamilyConfirmedOutcome 的人工确认结果"
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - >
+        对应五公司对标发现的小样本伪共识问题已修复
+        （ComponentExperienceSummary.is_low_confidence，
+        MIN_SAMPLE_SIZE_FOR_CONFIDENT_RATE=5），但前端渲染层是否真的遵守
+        这个字段尚未核实——本仓库当前只覆盖到 API 契约层。
+      - "summarize_by_component 的真实 Postgres GROUP BY 路径无独立单元测试，只靠 e2e 覆盖"
+
+  - capability: improvement_candidate
+    business_capability: product_intelligence
+    domain: domains/product_intelligence
+    purpose: >
+      家庭确认"没帮上"后写入的去标识化改进信号——供产品/内容团队判断是否
+      修订或退场某个 component，与 family_experience_signal 目的不同、
+      形状镜像（见该模块 docstring 的对比说明）。
+    actor: [system]
+    command:
+      - record_improvement_candidate
+    api:
+      - "GET /product-intelligence/improvement-candidates"
+    code:
+      domain: backend/domains/product_intelligence/domain/improvement_candidate.py
+      application: backend/domains/product_intelligence/application/improvement_candidate.py
+      infrastructure: backend/domains/product_intelligence/infrastructure/
+      api: backend/domains/product_intelligence/api/improvement_candidate_routes.py
+    tests:
+      - tests/domains/product_intelligence/test_improvement_candidate_postgres_repository_integration.py
+      - tests/apps/family_api/test_need_fulfillment_e2e.py
+    consent: {required: false, note: "跨家庭去标识化聚合；同 family_experience_signal 的隐私不变式"}
+    audit: {required: false, note: "无个体身份可审计；写入路径受 family_need confirm_family_outcome 一侧的 audit 覆盖"}
+    idempotency: {required: false}
+    ai:
+      involved: false
+      constraint: "无 AI 参与；candidate 完全来自家庭对 FamilyConfirmedOutcome 的人工确认结果（仅 DID_NOT_HELP 判定才写入）"
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - "Postgres 集成测试是仅有的测试层——没有不依赖真实数据库的快速单元测试（对照 family_experience_signal 已补的 test_family_experience_signal.py）"
+      - "GET /product-intelligence/improvement-candidates 是否有下游消费方（产品/内容团队的实际决策动作）尚无代码证据"
+
 # ---------------------------------------------------------------------------
 # 待登记（有代码但仅为骨架，不构成能力，故不给 capability 条目）
 # ---------------------------------------------------------------------------
