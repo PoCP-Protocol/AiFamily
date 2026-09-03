@@ -5,11 +5,16 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
-from collections import Counter
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
-from typing import Any, Literal, Protocol
+from typing import Any, Protocol
 
+from backend.intelligence.experience.family_problem_understanding_feedback import (
+    DEFAULT_FEEDBACK_EVAL_POLICY,
+    FeedbackEvalPolicy,
+    classify_feedback_evidence,
+    project_family_understanding_feedback,
+)
 from backend.intelligence.experience.family_problem_understanding_preparation import (
     FamilyProblemUnderstandingPreparation,
 )
@@ -19,8 +24,6 @@ from backend.intelligence.experience.run_http import (
     RunScope,
 )
 
-SelectionStatus = Literal["NOT_MEASURED", "DESCRIPTIVE_ONLY", "ELIGIBLE"]
-
 
 class ScopedReplayLedger(Protocol):
     def replay(self, *, scope: RunScope, run_id: str) -> RunReplaySnapshot | Any: ...
@@ -29,8 +32,10 @@ class ScopedReplayLedger(Protocol):
 @dataclass(frozen=True, slots=True)
 class StoredUnderstandingPreparation:
     preparation_ref: str
+    scope_key: tuple[str, str, tuple[str, ...]]
     run_id: str
     prior_run_id: str
+    request_ref: str
     context_snapshot_ref: str
     draft_version: str
     candidate_id: str
@@ -40,8 +45,69 @@ class StoredUnderstandingPreparation:
 
 class UnderstandingPreparationRepository(Protocol):
     def get(
-        self, *, scope: RunScope, preparation_ref: str
+        self, *, scope: RunScope, run_id: str, preparation_ref: str
     ) -> StoredUnderstandingPreparation | Any: ...
+
+
+class UnderstandingPreparationRecordStore(Protocol):
+    def load(
+        self,
+        *,
+        scope_key: tuple[str, str, tuple[str, ...]],
+        run_id: str,
+        preparation_ref: str,
+    ) -> StoredUnderstandingPreparation | Any: ...
+
+
+class CanonicalUnderstandingPreparationRepositoryAdapter:
+    """Adapt the canonical record store without caching preparation records."""
+
+    def __init__(self, store: UnderstandingPreparationRecordStore) -> None:
+        self._store = store
+
+    def get(
+        self, *, scope: RunScope, run_id: str, preparation_ref: str
+    ) -> StoredUnderstandingPreparation | Any:
+        return self._store.load(
+            scope_key=scope.key,
+            run_id=run_id,
+            preparation_ref=preparation_ref,
+        )
+
+
+class FamilyUnderstandingRevisionObserver:
+    """Composition root for trusted ledger and canonical preparation reads."""
+
+    def __init__(
+        self,
+        ledger: ScopedReplayLedger,
+        preparation_repository: UnderstandingPreparationRepository,
+    ) -> None:
+        self._ledger = ledger
+        self._preparation_repository = preparation_repository
+
+    async def observe(
+        self,
+        *,
+        scope: RunScope,
+        prior_run_id: str,
+        current_run_id: str,
+        preparation_ref: str,
+        feedback_policy: FeedbackEvalPolicy = DEFAULT_FEEDBACK_EVAL_POLICY,
+        response_count_by_arm: Mapping[str, int] | None = None,
+        expected_response_count_by_arm: Mapping[str, int] | None = None,
+    ) -> DurableRevisionObservation:
+        return await observe_replayed_revision_from_ledger(
+            ledger=self._ledger,
+            preparation_repository=self._preparation_repository,
+            scope=scope,
+            prior_run_id=prior_run_id,
+            current_run_id=current_run_id,
+            preparation_ref=preparation_ref,
+            feedback_policy=feedback_policy,
+            response_count_by_arm=response_count_by_arm,
+            expected_response_count_by_arm=expected_response_count_by_arm,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,7 +133,9 @@ class DurableRevisionObservation:
     willing_to_continue_rate: float | None
     correction_rate: float | None
     correction_resolution_rate: float | None
-    selection_status: SelectionStatus
+    policy_version: str
+    feedback_evidence_status: str
+    arm_coverage_gap: float | None
     selection_bias: str
     may_mutate_business_state: bool = False
 
@@ -83,23 +151,31 @@ async def observe_replayed_revision_from_ledger(
     prior_run_id: str,
     current_run_id: str,
     preparation_ref: str,
+    feedback_policy: FeedbackEvalPolicy = DEFAULT_FEEDBACK_EVAL_POLICY,
+    response_count_by_arm: Mapping[str, int] | None = None,
+    expected_response_count_by_arm: Mapping[str, int] | None = None,
 ) -> DurableRevisionObservation:
     """Replay both runs now and load one canonical preparation record."""
 
     prior = await _replay(ledger, scope, prior_run_id)
     current = await _replay(ledger, scope, current_run_id)
-    stored = preparation_repository.get(scope=scope, preparation_ref=preparation_ref)
+    stored = preparation_repository.get(
+        scope=scope, run_id=current_run_id, preparation_ref=preparation_ref
+    )
     if inspect.isawaitable(stored):
         stored = await stored
     if not isinstance(stored, StoredUnderstandingPreparation):
         raise ValueError("preparation repository returned an invalid record")
-    _validate_lineage(stored, preparation_ref, prior_run_id, current_run_id, prior)
+    _validate_lineage(stored, scope, preparation_ref, prior_run_id, current_run_id, prior)
 
     feedback = _project_exact_feedback(
         prior,
         draft_version=stored.draft_version,
         candidate_id=stored.candidate_id,
         expected_response_count=stored.expected_response_count,
+        policy=feedback_policy,
+        response_count_by_arm=response_count_by_arm,
+        expected_response_count_by_arm=expected_response_count_by_arm,
     )
     prior_hypotheses = _hypotheses(prior.draft_payload)
     current_hypotheses = _hypotheses(current.draft_payload)
@@ -125,11 +201,14 @@ async def _replay(ledger: ScopedReplayLedger, scope: RunScope, run_id: str) -> R
         raise ValueError("ledger returned a cross-scope or invalid replay")
     if replay.deletion_state != "active" or replay.draft_payload is None:
         raise ValueError("durable replay draft is unavailable")
+    if replay.run_id != run_id:
+        raise ValueError("ledger replay run id mismatch")
     return replay
 
 
 def _validate_lineage(
     stored: StoredUnderstandingPreparation,
+    scope: RunScope,
     preparation_ref: str,
     prior_run_id: str,
     current_run_id: str,
@@ -138,9 +217,11 @@ def _validate_lineage(
     request = stored.preparation.request
     if (
         stored.preparation_ref != preparation_ref
+        or stored.scope_key != scope.key
         or stored.run_id != current_run_id
         or stored.prior_run_id != prior_run_id
-        or request.run_id != current_run_id
+        or stored.request_ref != current_run_id
+        or request.request_id != current_run_id
         or request.context_snapshot_ref != stored.context_snapshot_ref
         or request.payload.get("prior_run_id") != prior_run_id
         or request.payload.get("prior_draft") != prior.draft_payload
@@ -163,6 +244,9 @@ def _project_exact_feedback(
     draft_version: str,
     candidate_id: str,
     expected_response_count: int,
+    policy: FeedbackEvalPolicy,
+    response_count_by_arm: Mapping[str, int] | None,
+    expected_response_count_by_arm: Mapping[str, int] | None,
 ) -> dict[str, object]:
     latest: dict[str, Mapping[str, Any]] = {}
     for entry in replay.interactions:
@@ -170,6 +254,7 @@ def _project_exact_feedback(
         if (
             entry.interaction_type is InteractionType.FEEDBACK
             and payload.get("feedback_kind") == "family_understanding"
+            and payload.get("feedback_version") == "family-understanding-feedback.v2"
             and payload.get("draft_version") == draft_version
             and payload.get("candidate_id") == candidate_id
         ):
@@ -178,24 +263,38 @@ def _project_exact_feedback(
                 latest[actor] = payload
     values = tuple(latest.values())
     count = len(values)
-    coverage = round(count / expected_response_count, 6)
-    distribution = Counter(int(value["understood_rating"]) for value in values)
-    rating_distribution = tuple((rating, distribution.get(rating, 0)) for rating in range(1, 6))
-    if count == 0:
-        status: SelectionStatus = "NOT_MEASURED"
-    elif count < 3 or coverage < 0.5:
-        status = "DESCRIPTIVE_ONLY"
-    else:
-        status = "ELIGIBLE"
-    publish_means = status == "ELIGIBLE"
+    filtered_entries = tuple(
+        entry for entry in replay.interactions if any(entry.payload is value for value in values)
+    )
+    filtered_replay = RunReplaySnapshot(
+        run_id=replay.run_id,
+        scope=replay.scope,
+        state=replay.state,
+        status=replay.status,
+        event_sequence=replay.event_sequence,
+        interactions=filtered_entries,
+        draft_payload=replay.draft_payload,
+        artifact_refs=replay.artifact_refs,
+        deletion_state=replay.deletion_state,
+    )
+    projection = project_family_understanding_feedback(
+        filtered_replay, expected_response_count=expected_response_count
+    )
+    evidence_status = classify_feedback_evidence(
+        projection,
+        policy=policy,
+        response_count_by_arm=response_count_by_arm,
+        expected_response_count_by_arm=expected_response_count_by_arm,
+    )
+    publish_means = evidence_status == "DESCRIPTIVE_READY"
     ratings = [int(value["understood_rating"]) for value in values]
     relevance = [int(value["response_relevance"]) for value in values]
     corrections = [value for value in values if bool(value["correction_needed"])]
     return {
         "response_count": count,
         "expected_response_count": expected_response_count,
-        "coverage_rate": coverage,
-        "rating_distribution": rating_distribution,
+        "coverage_rate": projection.coverage_rate or 0.0,
+        "rating_distribution": projection.rating_distribution,
         "high_understanding_rate": _rate(ratings, lambda value: value >= 4)
         if publish_means
         else None,
@@ -218,10 +317,12 @@ def _project_exact_feedback(
             if publish_means and corrections
             else None
         ),
-        "selection_status": status,
+        "policy_version": policy.policy_version,
+        "feedback_evidence_status": evidence_status,
+        "arm_coverage_gap": _arm_gap(response_count_by_arm, expected_response_count_by_arm),
         "selection_bias": (
-            "complete-enough-for-comparison"
-            if status == "ELIGIBLE"
+            "descriptive-ready-not-selection-eligible"
+            if evidence_status == "DESCRIPTIVE_READY"
             else "insufficient-or-self-selected-feedback"
         ),
     }
@@ -258,10 +359,20 @@ def _bool_rate(values: tuple[Mapping[str, Any], ...], key: str) -> float:
     return round(sum(bool(value[key]) for value in values) / len(values), 6)
 
 
+def _arm_gap(actual: Mapping[str, int] | None, expected: Mapping[str, int] | None) -> float | None:
+    if actual is None or expected is None:
+        return None
+    coverages = [actual[arm] / count for arm, count in expected.items()]
+    return round(max(coverages) - min(coverages), 6)
+
+
 __all__ = [
+    "CanonicalUnderstandingPreparationRepositoryAdapter",
     "DurableRevisionObservation",
+    "FamilyUnderstandingRevisionObserver",
     "ScopedReplayLedger",
     "StoredUnderstandingPreparation",
     "UnderstandingPreparationRepository",
+    "UnderstandingPreparationRecordStore",
     "observe_replayed_revision_from_ledger",
 ]
