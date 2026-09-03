@@ -13,6 +13,11 @@ from __future__ import annotations
 
 import hashlib
 
+from backend.domains.journey.application.outcome_loop import (
+    ActionFactStatus,
+    GrowthOutcomeLoop,
+    OutcomeLoopSnapshot,
+)
 from backend.intelligence.experience.family_ai_coach import (
     CoachPerspective,
     coach_reply,
@@ -53,6 +58,57 @@ def _context_snapshot_ref(*, need_id: str, need_version: int, profile_id: str | 
     identity = f"{need_id}:{need_version}:{profile_id or ''}"
     digest = hashlib.sha256(identity.encode()).hexdigest()[:32]
     return f"family-ai-coach-context:{digest}"
+
+
+def summarize_growth_journey_for_coach(snapshot: OutcomeLoopSnapshot, *, limit: int = 5) -> str:
+    """Turn the family's real journey action facts into a short Chinese
+    summary for the coach's `family_context` — plain fact statements only
+    (task_id prefix + status + day_number), never a fabricated feeling or
+    interpretation.
+
+    Recognised `task_id` prefixes (as actually written by
+    `backend.domains.family_need.application.fulfillment`, see
+    `test_need_fulfillment_e2e.py`):
+
+    * ``course-completion:<course_id>`` — the family completed a course.
+    * ``booking-service-record:<record_id>`` — a real-person service session
+      was delivered.
+    * ``family-confirmed-outcome:<fulfillment_ref>`` — the family itself
+      confirmed whether a fulfilment actually helped.
+
+    Returns `""` when the snapshot has no actions yet — a brand-new family
+    with no history is not an error, it is simply nothing to summarize.
+    """
+
+    if not snapshot.actions:
+        return ""
+    recent = sorted(snapshot.actions, key=lambda action: action.recorded_at, reverse=True)[:limit]
+    lines: list[str] = []
+    for action in reversed(recent):
+        completed = action.status is ActionFactStatus.COMPLETED
+        if action.task_id.startswith("course-completion:"):
+            course_id = action.task_id.split(":", 1)[1]
+            verb = "完成过" if completed else f"参与过（状态：{action.status.value}）"
+            lines.append(f"这个家庭{verb}课程《{course_id}》（第{action.day_number}天）。")
+        elif action.task_id.startswith("booking-service-record:"):
+            record_id = action.task_id.split(":", 1)[1]
+            verb = (
+                "完成过一次真人服务预约"
+                if completed
+                else f"有一次真人服务预约（状态：{action.status.value}）"
+            )
+            lines.append(f"这个家庭{verb}（记录：{record_id}，第{action.day_number}天）。")
+        elif action.task_id.startswith("family-confirmed-outcome:"):
+            ref = action.task_id.split(":", 1)[1]
+            lines.append(
+                f"这个家庭对一次服务/课程结果做过确认（关联：{ref}，第{action.day_number}天）。"
+            )
+        else:
+            lines.append(
+                f"这个家庭有一条成长记录：{action.task_id}（状态：{action.status.value}，"
+                f"第{action.day_number}天）。"
+            )
+    return " ".join(lines)
 
 
 async def build_family_context(
@@ -149,6 +205,26 @@ async def enrich_family_context_with_solution_draft(
     return enriched
 
 
+def enrich_family_context_with_growth_journey(
+    context: dict, outcome_loop: GrowthOutcomeLoop, *, tenant_id: str, family_id: str
+) -> dict:
+    """Add `growth_journey_summary` from the family's *real* journey history
+    (`GrowthOutcomeLoop.snapshot`) — the Maven-style "the advocate remembers
+    this family" piece: the coach sees what actually happened before, not
+    just this conversation's own turns (`family_ai_coach.py`'s per-need
+    memory already covers the latter).
+
+    An empty summary (brand-new family, nothing recorded yet) still sets the
+    key to `""` rather than omitting it, so a caller inspecting
+    `family_context` never has to guess whether journey enrichment ran.
+    """
+
+    snapshot = outcome_loop.snapshot(tenant_id=tenant_id, family_id=family_id)
+    enriched = dict(context)
+    enriched["growth_journey_summary"] = summarize_growth_journey_for_coach(snapshot)
+    return enriched
+
+
 async def request_coach_perspective(
     gateway: ModelGateway,
     repository: FamilyNeedRepositoryPort,
@@ -161,8 +237,16 @@ async def request_coach_perspective(
     profile_id: str | None = None,
     draft_id: str | None = None,
     request_id: str | None = None,
+    outcome_loop: GrowthOutcomeLoop | None = None,
 ) -> CoachPerspective:
-    """The one call the HTTP route needs: real context in, governed draft out."""
+    """The one call the HTTP route needs: real context in, governed draft out.
+
+    `outcome_loop` is optional so the minimal signature (no journey wiring)
+    still works for callers/tests that do not care about growth-journey
+    continuity; when supplied, the family's real action-fact history is
+    folded into `family_context` before the model call (see
+    `enrich_family_context_with_growth_journey`).
+    """
 
     context, context_snapshot_ref, data_class = await build_family_context(
         repository, tenant_id=tenant_id, family_id=family_id, need_id=need_id
@@ -174,6 +258,10 @@ async def request_coach_perspective(
     if draft_id is not None:
         context = await enrich_family_context_with_solution_draft(
             context, repository, tenant_id=tenant_id, family_id=family_id, draft_id=draft_id
+        )
+    if outcome_loop is not None:
+        context = enrich_family_context_with_growth_journey(
+            context, outcome_loop, tenant_id=tenant_id, family_id=family_id
         )
 
     return await coach_reply(

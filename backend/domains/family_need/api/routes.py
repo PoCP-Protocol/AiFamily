@@ -1153,6 +1153,7 @@ async def send_ai_coach_message(
             profile_id=body.profile_id,
             draft_id=body.draft_id,
             request_id=request_id,
+            outcome_loop=ai_coach.outcome_loop,
         )
     except FamilyNeedNotFoundError:
         raise HTTPException(status_code=404, detail="family_need_not_found") from None

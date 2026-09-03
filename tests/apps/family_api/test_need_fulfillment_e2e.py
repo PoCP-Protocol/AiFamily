@@ -22,7 +22,13 @@ from fastapi.testclient import TestClient
 from backend.apps.family_api import dev_wiring
 from backend.apps.family_api.dev_wiring import reset_dev_state
 from backend.apps.family_api.main import create_app
+from backend.domains.family_need.api import ai_coach_dependencies as family_need_ai_coach_deps
 from backend.domains.family_need.domain.value_objects import SupplyShape
+from backend.intelligence.model_gateway.gateway import build_gateway
+from backend.intelligence.model_gateway.provider_registry import default_provider_registry
+from backend.intelligence.model_gateway.providers.fake import FakeProvider
+
+_COACH_USE_CASE = "FAMILY_AI_COACH_SOCRATIC_PERSPECTIVE"
 
 
 @pytest.fixture(autouse=True)
@@ -1304,3 +1310,177 @@ def test_self_help_failure_escalates_to_real_teacher_through_fgcn_human_gate() -
     booking_service_record_id_2 = fulfillment_2["booking_service_record_id"]
     assert booking_service_record_id_2 is not None, fulfillment_2
     assert booking_service_record_id_2 != booking_service_record_id_1
+
+
+def test_ai_coach_sees_a_real_prior_course_completion_not_a_brand_new_family() -> None:
+    """The Maven "Care Advocate" promise this task exists to prove: once a
+    family has really completed a course (a genuine journey action fact, not
+    a fabricated one), a *later* AI Coach call for this same family — even on
+    a brand-new need — must carry that history in `family_context`, not treat
+    the family as never seen before.
+
+    Wires a real, response-returning `FakeProvider` for this test only (the
+    dev-wired default fake responds with an empty/schema-invalid payload,
+    which is fine for the fulfillment-only scenarios above but would make
+    this test fail closed before it could inspect the payload)."""
+
+    client = TestClient(create_app())
+    family_id = "family-need-e2e-coach-journey"
+    auth = _auth(client, family_id)
+    subject = f"dev-child:{family_id}"
+
+    fake_provider = FakeProvider(
+        provider_id="fake-deterministic",
+        responses_by_use_case={
+            _COACH_USE_CASE: {
+                "reflection": "听起来这件事让你有点担心。",
+                "guiding_question": "你觉得是什么让孩子这次愿意开始写作业？",
+            }
+        },
+    )
+    gateway = build_gateway(
+        environment="test",
+        providers={"fake-deterministic": fake_provider},
+        registry=default_provider_registry(),
+    )
+    app = client.app
+    app.dependency_overrides[family_need_ai_coach_deps.get_ai_coach_deps] = lambda: (
+        family_need_ai_coach_deps.AiCoachDeps(
+            gateway=gateway,
+            repository=dev_wiring._family_need_repository,
+            provider_id="fake-deterministic",
+            outcome_loop=dev_wiring._journey_outcome_loop,
+        )
+    )
+
+    # 1. First need: the family completes a real, published course — this is
+    #    the "family did something before" fact the coach must later see.
+    signal_1_response = client.post(
+        f"/families/{family_id}/needs/signals",
+        json={
+            "raw_text": "孩子做作业总是拖拖拉拉，想找一套课程慢慢引导，不着急找人",
+            "statement": "家长希望通过一套课程帮孩子改善作业拖延",
+            "desired_outcome": "孩子能按时、专注地完成作业",
+            "source": "FAMILY_EXPRESSED",
+            "purpose": "FAMILY_NEED",
+            "consent_version": "v1",
+            "data_class": "MINOR_PERSONAL_DATA",
+            "subject_person_ids": [subject],
+        },
+        headers={**auth, "idempotency-key": "e2e-coach-journey:signal-1"},
+    )
+    assert signal_1_response.status_code == 201, signal_1_response.text
+    need_1 = signal_1_response.json()["need"]
+    need_1_id = need_1["need_id"]
+
+    clarify_1_response = client.post(
+        f"/families/{family_id}/needs/{need_1_id}/clarify",
+        json={
+            "statement": need_1["statement"],
+            "desired_outcome": need_1["desired_outcome"],
+            "expected_version": need_1["version"],
+            "purpose": "FAMILY_NEED",
+            "consent_version": "v1",
+            "data_class": "MINOR_PERSONAL_DATA",
+            "subject_person_ids": [subject],
+        },
+        headers={**auth, "idempotency-key": "e2e-coach-journey:clarify-1"},
+    )
+    assert clarify_1_response.status_code == 200, clarify_1_response.text
+    clarified_need_1 = clarify_1_response.json()["need"]
+
+    profile_1_response = client.post(
+        f"/families/{family_id}/needs/{need_1_id}/profile",
+        json={
+            "expected_need_version": clarified_need_1["version"],
+            "urgency": "WHEN_READY",
+            "complexity": "SIMPLE",
+            "risk_level": "LOW",
+            "preferred_shapes": ["SOLUTION"],
+            "purpose": "FAMILY_NEED",
+            "consent_version": "v1",
+            "data_class": "MINOR_PERSONAL_DATA",
+            "subject_person_ids": [subject],
+        },
+        headers={**auth, "idempotency-key": "e2e-coach-journey:profile-1"},
+    )
+    assert profile_1_response.status_code == 200, profile_1_response.text
+    profile_1 = profile_1_response.json()["profile"]
+
+    draft_1_response = client.post(
+        f"/families/{family_id}/needs/{need_1_id}/solution-drafts",
+        json={
+            "profile_id": profile_1["profile_id"],
+            "expected_profile_version": profile_1["version"],
+            "shape": "SOLUTION",
+            "component_refs": [
+                {
+                    "component_id": dev_wiring.DEV_SEEDED_COURSE_ID,
+                    "shape": "SOLUTION",
+                    "version": "3",
+                }
+            ],
+            "purpose": "FAMILY_NEED",
+            "consent_version": "v1",
+            "data_class": "MINOR_PERSONAL_DATA",
+            "subject_person_ids": [subject],
+        },
+        headers={**auth, "idempotency-key": "e2e-coach-journey:draft-1"},
+    )
+    assert draft_1_response.status_code == 200, draft_1_response.text
+    assert draft_1_response.json()["resource_gap"] is None
+
+    complete_1_response = client.post(
+        f"/families/{family_id}/needs/{need_1_id}/courses/"
+        f"{dev_wiring.DEV_SEEDED_COURSE_ID}/complete-and-review",
+        json={"day_number": 1},
+        headers={**auth, "idempotency-key": "e2e-coach-journey:complete-1"},
+    )
+    assert complete_1_response.status_code == 200, complete_1_response.text
+
+    # 2. A *second, unrelated* need — the point is that the AI Coach call
+    #    below is not asking about the course-completion need itself; it is
+    #    a fresh conversation, and the family's course history must still
+    #    show up.
+    signal_2_response = client.post(
+        f"/families/{family_id}/needs/signals",
+        json={
+            "raw_text": "孩子最近情绪有点低落，想聊聊",
+            "statement": "家长想聊聊孩子最近的情绪状态",
+            "desired_outcome": "了解怎么支持孩子",
+            "source": "FAMILY_EXPRESSED",
+            "purpose": "FAMILY_NEED",
+            "consent_version": "v1",
+            "data_class": "PUBLIC",
+            "subject_person_ids": [subject],
+        },
+        headers={**auth, "idempotency-key": "e2e-coach-journey:signal-2"},
+    )
+    assert signal_2_response.status_code == 201, signal_2_response.text
+    need_2_id = signal_2_response.json()["need"]["need_id"]
+
+    # 3. The AI Coach call for this brand-new conversation must still see the
+    #    family's real prior course-completion history in `family_context`.
+    coach_response = client.post(
+        f"/families/{family_id}/needs/{need_2_id}/ai-coach/messages",
+        json={"parent_message": "孩子最近写作业还是很拖，我有点担心"},
+        headers={**auth, "idempotency-key": "e2e-coach-journey:coach-msg-1"},
+    )
+    assert coach_response.status_code == 200, coach_response.text
+
+    assert len(fake_provider.invocations) == 1
+    sent_request = fake_provider.invocations[0]
+    family_context = sent_request.payload["family_context"]
+    assert "growth_journey_summary" in family_context
+    summary = family_context["growth_journey_summary"]
+    assert summary, "expected the family's real prior course completion in the summary"
+    assert dev_wiring.DEV_SEEDED_COURSE_ID in summary
+    assert "完成" in summary
+
+    # And the hard proof this is not an artefact of this call alone: the same
+    # fact is independently present in the process-local journey snapshot.
+    snapshot = dev_wiring._journey_outcome_loop.snapshot(tenant_id=family_id, family_id=family_id)
+    assert any(
+        action.task_id == f"course-completion:{dev_wiring.DEV_SEEDED_COURSE_ID}"
+        for action in snapshot.actions
+    )

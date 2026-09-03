@@ -856,10 +856,16 @@ _ai_coach_gateway = build_dev_ai_coach_gateway(environment="development")
 
 
 def _dev_ai_coach_deps() -> family_need_ai_coach_deps.AiCoachDeps:
+    # Reuses the same process-local `_journey_outcome_loop` the
+    # complete-and-review/course-completion routes already write to (see
+    # `_dev_fulfillment_deps` below), so the coach actually sees this
+    # family's real growth history instead of an empty, newly-constructed
+    # loop.
     return family_need_ai_coach_deps.AiCoachDeps(
         gateway=_ai_coach_gateway,
         repository=_family_need_repository,
         provider_id="fake-deterministic",
+        outcome_loop=_journey_outcome_loop,
     )
 
 
