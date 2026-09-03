@@ -34,6 +34,12 @@ from backend.intelligence.experience.api import MultimodalDraftRuntime
 from backend.intelligence.experience.family_problem_understanding_contract import (
     FamilyConversationTurn,
 )
+from backend.intelligence.experience.family_problem_understanding_feedback import (
+    FamilyUnderstandingFeedback,
+    apply_parent_feedback_to_eval_spec,
+    project_family_understanding_feedback,
+    record_family_understanding_feedback,
+)
 from backend.intelligence.experience.family_problem_understanding_knowledge import (
     FamilyUnderstandingKnowledgeRetriever,
 )
@@ -898,6 +904,20 @@ async def test_postgres_replay_supplies_the_actual_prior_draft_to_follow_up(
         draft_payload=prior_draft,
         idempotency_key="create:family-understanding-memory-1",
     )
+    await record_family_understanding_feedback(
+        ledger,
+        scope=scope,
+        run_id=first_run_id,
+        signal="helpful",
+        feedback=FamilyUnderstandingFeedback(
+            understood_rating=4,
+            felt_judged=False,
+            willing_to_continue=True,
+            correction_needed=True,
+            correction_ref="input:family-understanding-memory-1:correction",
+        ),
+        idempotency_key="feedback:family-understanding-memory-1",
+    )
     await engine.dispose()
 
     _restart_postgres_if_requested(migrated_database_url)
@@ -966,5 +986,16 @@ async def test_postgres_replay_supplies_the_actual_prior_draft_to_follow_up(
     assert prepared.request.payload["prior_draft"] == prior_draft
     assert prepared.eval_spec.prior_hypothesis_statements == (
         "作业启动前的转换可能比作业本身更困难。",
+    )
+    feedback_projection = project_family_understanding_feedback(replay)
+    assert feedback_projection.felt_understood_mean == 0.75
+    assert feedback_projection.latest_correction_ref == (
+        "input:family-understanding-memory-1:correction"
+    )
+    assert (
+        apply_parent_feedback_to_eval_spec(
+            prepared.eval_spec, feedback_projection
+        ).parent_felt_understood
+        == 0.75
     )
     await restarted_engine.dispose()

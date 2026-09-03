@@ -294,9 +294,7 @@ class InMemoryExperienceRunLedger:
                 idempotency_key=idempotency_key,
                 status="replay",
                 snapshot=snapshot,
-                response_payload=(
-                    None if existing.deleted else existing.create_response_payload
-                ),
+                response_payload=(None if existing.deleted else existing.create_response_payload),
             )
         if any(key[1] == run_id for key in self._records):
             raise RunHttpError("RUN_SCOPE_MISMATCH")
@@ -684,6 +682,8 @@ def _validate_feedback_payload(payload: Mapping[str, Any]) -> None:
 
     if payload.get("signal") not in {"helpful", "not_helpful", "request_human"}:
         raise RunHttpError("FEEDBACK_SIGNAL_UNSUPPORTED")
+    if payload.get("feedback_kind") == "family_understanding":
+        _validate_family_understanding_feedback(payload)
     for field_name in (
         "reason",
         "draft_version",
@@ -703,11 +703,24 @@ def _validate_feedback_payload(payload: Mapping[str, Any]) -> None:
     event_refs = payload.get("real_event_refs")
     if event_refs is not None and (
         not isinstance(event_refs, (list, tuple))
-        or any(
-            not isinstance(ref, str) or not ref.strip() or len(ref) > 256 for ref in event_refs
-        )
+        or any(not isinstance(ref, str) or not ref.strip() or len(ref) > 256 for ref in event_refs)
     ):
         raise RunHttpError("REAL_EVENT_REFS_INVALID")
+
+
+def _validate_family_understanding_feedback(payload: Mapping[str, Any]) -> None:
+    if payload.get("feedback_version") != "family-understanding-feedback.v1":
+        raise RunHttpError("FAMILY_UNDERSTANDING_FEEDBACK_VERSION_INVALID")
+    rating = payload.get("understood_rating")
+    if isinstance(rating, bool) or not isinstance(rating, int) or not 1 <= rating <= 5:
+        raise RunHttpError("FAMILY_UNDERSTANDING_RATING_INVALID")
+    for field_name in ("felt_judged", "willing_to_continue", "correction_needed"):
+        if not isinstance(payload.get(field_name), bool):
+            raise RunHttpError("FAMILY_UNDERSTANDING_FEEDBACK_FLAG_INVALID")
+    correction_ref = payload.get("correction_ref")
+    has_correction_ref = isinstance(correction_ref, str) and bool(correction_ref.strip())
+    if bool(payload["correction_needed"]) != has_correction_ref:
+        raise RunHttpError("FAMILY_UNDERSTANDING_CORRECTION_REF_INVALID")
 
 
 def _validate_evaluation_payload(payload: Mapping[str, Any]) -> None:
@@ -722,11 +735,7 @@ def _validate_evaluation_payload(payload: Mapping[str, Any]) -> None:
         or not report_ref.strip()
     ):
         raise RunHttpError("BENCHMARK_REPORT_REF_INVALID")
-    if (
-        not isinstance(case_version, str)
-        or not case_version.strip()
-        or len(case_version) > 128
-    ):
+    if not isinstance(case_version, str) or not case_version.strip() or len(case_version) > 128:
         raise RunHttpError("EVALUATION_CASE_VERSION_INVALID")
     if payload.get("education_outcome_status") != "NOT_MEASURED":
         raise RunHttpError("EDUCATION_OUTCOME_MUST_REMAIN_NOT_MEASURED")
