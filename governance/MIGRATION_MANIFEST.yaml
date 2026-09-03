@@ -18,7 +18,7 @@ entries:
 
   - capability: platform_actor_tenant_context
     disposition: REIMPLEMENT
-    target: [backend/platform/identity]
+    target: [backend/platform/identity, backend/platform/identity/session_port.py]
     status: MIGRATED_TESTED
     target_correction: >
       2026-08-29：原 target 含 backend/platform/tenant，该目录从未创建。ActorContext 与
@@ -90,16 +90,178 @@ entries:
 
   - capability: model_gateway
     disposition: REIMPLEMENT
-    target: [backend/intelligence/model_gateway]
-    status: PLANNED
+    target:
+      - backend/intelligence/model_gateway
+      - backend/intelligence/model_gateway/attempt_persistence.py
+      - backend/intelligence/model_gateway/usage.py
+      - backend/apps/family_api/production_experience_wiring.py
+      - database/migrations/versions/0017_ai_model_attempts.py
+      - database/migrations/versions/0019_ai_runtime_scope_columns.py
+      - tests/intelligence/model_gateway
+      - tests/database/test_growth_onboarding_migration.py
+      - governance/ADR/ADR-0063-safety-gateway-integration.md
+      - governance/ADR/ADR-0065-durable-model-attempt-sink.md
+    status: MIGRATED_TESTED
     evidence:
+      - "Python ModelGateway 已实现 provider admission、timeout、attempt、JSON/schema、AiProvenance、DRAFT-only 与受控 routing；Model Gateway 专项 125 项测试通过"
+      - "SqlAlchemyAttemptSink 在 provider 外呼前持久化 STARTED，完成后写 SUCCESS/FAILURE 与 token usage；0017_ai_model_attempts + 0019 scope columns 提供可回放的 AI-runtime-owned 表，usage.aggregate_attempts 通过显式 rate card 聚合微 USD，事务由组合根提交"
       - "TS 侧 packages/ai-gateway/src/index.ts (894行) 是唯一真实网关实现：Routing/Timeout/Admission/FailClosed/Provenance/HumanGate 均真实存在(见 report 03)"
       - "违规先例：apps/api/src/modules/orchestration/llm-gateway/family-llm-gateway.service.ts:58-63 绕过网关直连 new OpenAICompatibleAiGateway —— R7 的存在依据"
-    reason: "架构与策略常量作为设计参考重译，不搬 TS 运行时代码；Python 侧无任何对应物"
+    reason: "将源仓库网关的治理边界 provider-neutral 重建为 Python 唯一模型访问路径，不搬运 TS 运行时代码"
     reference_implementations:
       - "50_开发_dev/packages/ai-gateway/src/index.ts"
       - "50_开发_dev/packages/principal-ai/src/index.ts"
       - "50_开发_dev/packages/principal-runtime/src/index.ts"
+    known_gaps:
+      - "多模态与 Agent 生产组合根均按请求/事务注入 SqlAlchemyAttemptSink；统一 OpenTelemetry、并发 worker 和部署级 retention/deletion 验收仍待完成"
+
+  - capability: ai_safety_runtime
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/safety
+      - backend/intelligence/safety/runtime.py
+      - backend/intelligence/safety/persistence.py
+      - backend/intelligence/model_gateway/gateway.py
+      - database/migrations/versions/0018_ai_safety_decisions.py
+      - database/migrations/versions/0019_ai_runtime_scope_columns.py
+      - tests/intelligence/model_gateway/test_safety_integration.py
+      - tests/intelligence/safety/test_persistence.py
+      - tests/intelligence/safety/test_runtime.py
+      - governance/ADR/ADR-0063-safety-gateway-integration.md
+      - governance/ADR/ADR-0062-provider-neutral-safety-runtime.md
+      - governance/ADR/ADR-0069-safety-decision-durable-ledger.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "SafetyRuntime 在输入/输出边界执行禁止用例、家庭总分/排名字段、DRAFT-only 与 may_mutate_business_state=false 检查"
+      - "高影响用例和未成年人主体统一返回 REVIEW + requires_human_gate，禁止场景 BLOCK；不调用模型、不写业务事实"
+      - "tests/intelligence/safety/test_runtime.py 5 项测试通过，覆盖低风险放行、高影响复核、禁止字段和未成年人输出；Model Gateway 安全集成与 fail-closed 异常测试通过"
+      - "ModelGateway 在请求前执行输入阻断、在结构化输出后执行输出阻断；build_gateway 默认注入 SafetyRuntime，合成运行时显式注入同一策略；SqlAlchemySafetyDecisionSink 在请求级事务中保存输入/输出判定元数据"
+    reason: "将未成年人和高影响 AI 安全约束固化为跨环境共享的确定性运行时，而非散落在 Agent/UI"
+    known_gaps:
+      - "Model Gateway、Synthetic Runtime 与 Agent→Gateway 适配器已接线；生产仍需供应商 moderation、真实人工复核反馈闭环和部署级 SafetyDecision retention/deletion job"
+
+  - capability: ai_release_admission
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/evaluation
+      - backend/intelligence/evaluation/release_gate.py
+      - backend/intelligence/evaluation/release_persistence.py
+      - backend/intelligence/evaluation/release_service.py
+      - database/migrations/versions/0020_ai_release_decisions.py
+      - tests/intelligence/evaluation/test_release_gate.py
+      - tests/intelligence/evaluation/test_release_persistence.py
+      - governance/ADR/ADR-0060-ai-release-admission-gate.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "AiReleaseGate 仅消费离线 ModelBenchmark/MultimodalEvaluation 报告，不调用模型、不部署、不写业务事实"
+      - "发布前先经 ProviderRegistry.admit，再校验质量、安全、schema、拒答、provenance、p95 延迟与平均成本阈值；缺证据 fail-closed"
+      - "ReleaseDecision 返回 ADMITTED/BLOCKED 与稳定 failure codes、report_ref；SqlAlchemyReleaseDecisionSink 以 0020 ai_release_decisions 追加审计并按决策指纹幂等；release gate 与 persistence 测试通过"
+    reason: "将离线评测证据与供应商治理绑定为可审计、可回放的 AI 发布准入门，避免把 benchmark 分数误当成生产批准"
+    known_gaps:
+      - "持久化决策账本已建立；仍未建立审批人/签名 release catalog、回滚控制器和生产组合根接线"
+
+  - capability: ai_observability
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/observability
+      - backend/intelligence/observability/contracts.py
+      - backend/intelligence/observability/persistence.py
+      - backend/intelligence/observability/opentelemetry.py
+      - backend/intelligence/observability/retention.py
+      - database/migrations/versions/0021_ai_telemetry_spans.py
+      - tests/intelligence/observability
+      - tests/intelligence/model_gateway/test_telemetry_integration.py
+      - governance/ADR/ADR-0071-ai-telemetry-span-boundary.md
+      - governance/ADR/ADR-0097-ai-telemetry-retention-worker.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "统一 TelemetryContext/TelemetrySink 仅记录 trace、opaque scope、版本、状态和错误码等低基数元数据；allowlist 拒绝原始 payload/prompt/output，operation_id 保证重放幂等"
+      - "InMemoryTelemetrySink 与 SqlAlchemyTelemetrySink 支持 span start/finish、失败状态与跨会话查询；ModelGateway 包住安全、准入、provider、schema 和输出安全全链路，DurableAgentRuntime 记录 Agent 外层 span"
+      - "observability 与 Model Gateway telemetry 集成测试通过；迁移 0021 接在 0020 之后"
+      - "TelemetryRetentionWorker 以 started_at 作为 schema 的 created_at/TTL 基准，SQL/InMemory store 按稳定排序有界删除并返回 metadata-only deletion receipt；SQLite 测试覆盖 TTL、批次、幂等与事务回滚"
+    reason: "将 Agent/多模态/Model Gateway 的运行证据统一到 provider-neutral、可脱敏、可持久化的 AI telemetry 边界"
+    known_gaps:
+      - "OpenTelemetry SDK 与 retention worker seam 已接入；仍需部署级 scheduler、durable deletion proof/audit、PostgreSQL 并发压测与生产监控后端"
+
+  - capability: ai_memory_store
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/memory
+      - backend/intelligence/memory/store.py
+      - database/migrations/versions/0022_ai_memory_store.py
+      - tests/intelligence/memory/test_sql_store.py
+      - governance/ADR/ADR-0072-durable-memory-reference-store.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "SqlAlchemyMemoryStore 持久化 MemoryRef 治理元数据与 opaque source_ref，不保存原始媒体、prompt、embedding 或模型输出"
+      - "写入按稳定指纹幂等；读取复用 MemoryRef 作用域/同意/purpose/expiry 校验；删除级联 derived refs 并生成可回放 proof"
+      - "purge_expired 复用删除路径并保留 retention-worker proof；SQLite 契约测试覆盖重启读取、跨租户隔离、幂等和过期清理"
+    reason: "把 Memory 从进程内实验适配器升级为可重启、可删除、可审计的 provider-neutral 持久化能力"
+    known_gaps:
+      - "尚未接入向量 embedding、召回排序和常驻 retention worker；任何新增检索索引必须继承本层作用域与删除证明"
+
+  - capability: ai_growth_graph_projection
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/growth_graph
+      - backend/intelligence/growth_graph/store.py
+      - backend/intelligence/growth_graph/outbox_consumer.py
+      - database/migrations/versions/0023_ai_growth_graph_projection.py
+      - tests/intelligence/growth_graph/test_store.py
+      - tests/intelligence/growth_graph/test_outbox_consumer.py
+      - governance/ADR/ADR-0073-growth-graph-read-projection-runtime.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "GrowthGraphEdge 仅承载业务事件引用、证据引用和作用域元数据；SqlAlchemyGrowthGraphProjection 是 worker 投影写入 + AI 只读 query 边界，不写业务权威事实"
+      - "query 严格按 tenant/family/subject/purpose/consent/expiry 过滤；project 稳定指纹幂等并拒绝跨租户冲突"
+      - "cascade_delete 删除主体相关边并保留 proof；SQLite 测试覆盖重放、过期隐藏、跨租户隔离和删除审计"
+    reason: "依照 ADR-0010 把 Growth Graph 落地为业务域事件驱动的只读 AI 投影，而不是新建业务域或第二套事实"
+    known_gaps:
+      - "尚未接入全域 DomainEvent/outbox projector、生产只读数据库权限和图查询排序；当前通过显式 project seam 验证契约"
+
+  - capability: ai_growth_intervention
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/intervention
+      - backend/intelligence/intervention/engine.py
+      - backend/intelligence/intervention/blueprint_matching.py
+      - backend/intelligence/intervention/action_bridge.py
+      - tests/intelligence/intervention/test_engine.py
+      - tests/intelligence/intervention/test_blueprint_matching.py
+      - governance/ADR/ADR-0074-growth-intervention-engine-draft-boundary.md
+      - governance/ADR/ADR-0075-service-blueprint-matching-draft-boundary.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "GrowthInterventionEngine 消费 hypotheses/action_candidates 与 evidence refs，生成固定 DRAFT 的 InterventionDraft，不调用 provider、不写业务事实"
+      - "主要矛盾最多 3 个、候选按置信度确定性排序、所有候选保留 evidence_refs；MINOR_PERSONAL_DATA 或 high_impact 自动标记 human_gate_required"
+      - "to_payload 提供受限 Experience/UI 投影；测试覆盖 DRAFT-only、证据约束、排序、人工闸门和 malformed 输入 fail-closed"
+      - "ServiceBlueprintMatcher 只匹配业务域提供的 PUBLISHED Blueprint 快照，输出 DRAFT 推荐并保留证据引用；不创建/发布/执行 Blueprint"
+      - "to_pending_named_action 仅生成 PROPOSE_SERVICE_BLUEPRINT pending Named Action，保留 scope/provenance/expiry，后续仍须 Human Gate 决策"
+    reason: "将 AI_ARCHITECTURE.md 定义的 primary_contradiction → action_candidates 决策层落地为可审计草案边界"
+    known_gaps:
+      - "当前为 provider-neutral 确定性排序与 Blueprint 匹配；Human Gate pending bridge、accepted-action worker 与 FGCN proposal consumer 已接入，尚未接入真实模型推理和纵向效果评测"
+
+  - capability: ai_accepted_action_dispatch
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/tool_runtime/accepted_dispatch.py
+      - tests/intelligence/tool_runtime/test_accepted_dispatch.py
+      - governance/ADR/ADR-0076-accepted-named-action-dispatch-boundary.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "AcceptedNamedActionDispatcher 只向组合根显式注册的业务 handler 分发 NamedActionRequest，未注册 action 与跨 tenant/family scope 请求 fail-closed"
+      - "按 request_id 重放返回首次 ActionExecutionReceipt，不重复调用 handler；receipt 必须绑定 request_id/action_name"
+      - "Dispatcher 不 import domain repository；业务 handler 继续拥有授权、事务、审计和领域幂等"
+    reason: "建立 Human Gate accepted action 到业务域的唯一受治理分发边界，避免 AI/Tool Runtime 越权执行"
+    known_gaps:
+      - "尚未由 service/journey 业务域注册 Blueprint 的真实 handler，也未接 workflow worker 的生产组合根"
 
   - capability: agent_runtime
     disposition: REIMPLEMENT
@@ -108,52 +270,127 @@ entries:
       - backend/intelligence/agent_runtime
       - database/migrations/versions/0012_ai_agent_runs.py
       - backend/intelligence/agent_runtime/authorization_persistence.py
+      - backend/intelligence/agent_runtime/composition.py
+      - backend/intelligence/agent_runtime/gateway_port.py
+      - backend/intelligence/agent_runtime/durable_runtime.py
+      - backend/intelligence/agent_runtime/context_bound.py
+      - backend/apps/family_api/production_agent_wiring.py
+      - backend/intelligence/agent_runtime/registry.py
       - database/migrations/versions/0013_ai_authorization_leases.py
       - tests/intelligence/agent_runtime/test_persistence.py
       - tests/intelligence/agent_runtime/test_authorization_persistence.py
+      - tests/intelligence/agent_runtime/test_registry.py
+      - tests/intelligence/agent_runtime/test_gateway_port.py
+      - tests/intelligence/agent_runtime/test_parent_advisor_vertical_slice.py
+      - governance/ADR/ADR-0091-agent-runtime-request-scoped-sql-registries.md
       - governance/ADR/ADR-0053-agent-run-trace-durable-persistence.md
       - governance/ADR/ADR-0055-agent-authorization-lease-persistence.md
+      - governance/ADR/ADR-0061-agent-definition-registry-loader.md
+      - governance/ADR/ADR-0064-agent-gateway-execution-port.md
+      - governance/ADR/ADR-0066-durable-agent-runtime-orchestration.md
+      - governance/ADR/ADR-0067-context-bound-agent-runtime.md
+      - governance/ADR/ADR-0068-agent-production-composition-root.md
     status: MIGRATED_TESTED
     evidence:
       - "AI 原生运行时规格要求的 AgentDefinition、动态 AgentAuthorization 和 provider-neutral execution port 已在 Python 侧重建"
       - "AgentAuthorizer 对缺失授权、scope/TTL/撤回、用例/工具白名单和预算超限采用 fail-closed；拒绝路径在 Model Gateway 请求构造前结束"
       - "tests/intelligence/agent_runtime/test_runtime.py 覆盖授权成功、缺授权、scope/tool 越权和过期拒绝"
-      - "SqlAlchemyAgentRunStore 持久化 STARTED/SUCCEEDED/FAILED、append-only Trace、幂等指纹、scope 隔离与 DRAFT-only 输出；AgentAuthorizationLeaseStore 覆盖发行/撤回/过期与 scope/use_case/tool/budget fail-closed、审计回放；15 项 Agent Runtime 测试通过"
+      - "SqlAlchemyAgentRunStore 持久化 STARTED/SUCCEEDED/FAILED、append-only Trace、幂等指纹、scope 隔离与 DRAFT-only 输出；AgentAuthorizationLeaseStore 覆盖发行/撤回/过期与 scope/use_case/tool/budget fail-closed、审计回放；AgentDefinitionRegistry 从治理 YAML fail-closed 加载静态 Agent 白名单；build_agent_runtime 强制显式 Prompt/Schema registry；Agent Runtime registry 测试覆盖内存与 SQL 版本解析"
+      - "ModelGatewayExecutionPort 将显式 provider 绑定到 AgentExecutionPort，复用 Gateway 的准入、Safety、超时、provenance 与 DRAFT-only 约束；DurableAgentRuntime 将执行与 AgentRun/Trace 幂等重放绑定并拒绝并发重复执行；ContextBoundAgentRuntime 校验 ContextScope；ProductionAgentRuntimeResolver 在请求级 UoW 内可按请求 session 创建 SQL Prompt/Schema registry 并绑定 Attempt/AgentRun/Trace；Agent Runtime 专项测试持续通过"
     reason: "源仓库无可复用的 Python Agent Runtime；依据 AI_ARCHITECTURE 与 AI_PLATFORM_FORWARD_ARCHITECTURE 重建唯一 AI Runtime 边界"
     known_gaps:
       - "ToolAuthorization 独立持久化、生产 worker 的并发租约续期和真实身份/同意组合根接线仍待后续迭代"
       - "AgentRun/Trace migration 0012 依赖并发 WIP 的 0011_ai_human_task_claims；migration tracked 后必须重跑 PostgreSQL upgrade→downgrade→upgrade 门禁"
-      - "真实身份/同意组合根和生产 AgentDefinition registry 接线待后续迭代"
+      - "真实身份/同意 resolver、registry 签名发布工作流和授权租约来源仍需部署提供；组合根已支持请求级 SQL registry，并对缺失依赖 fail-closed"
+
+  - capability: ai_growth_plan_draft_review
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/apps/family_api/growth_plan_ai_wiring.py
+      - backend/apps/family_api/growth_plan_evidence_reader.py
+      - backend/apps/family_api/growth_plan_review_wiring.py
+      - backend/apps/family_api/growth_plan_accepted_action.py
+      - backend/apps/family_api/growth_plan_activation_wiring.py
+      - backend/apps/family_api/growth_plan_ai_api.py
+      - backend/apps/family_api/production_growth_plan_http_wiring.py
+      - backend/apps/family_api/accepted_action_wiring.py
+      - backend/apps/family_api/production_growth_plan_ai_wiring.py
+      - database/migrations/versions/0057_ai_growth_plan_draft_reviews.py
+      - tests/apps/family_api/test_growth_plan_ai_wiring.py
+      - tests/apps/family_api/test_growth_plan_ai_api.py
+      - tests/database/test_growth_plan_review_migration.py
+      - governance/ADR/ADR-0151-growth-plan-draft-review-envelope.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "GrowthIntent/onboarding/priority 只由服务端 SQL reader 解引用，跨 tenant/family/subject 与重复事实 fail-closed"
+      - "Model Gateway 的 DRAFT 与专用 review envelope 同事务持久化，信封绑定 consent、deletion、TTL、input refs、三类业务引用和稳定摘要"
+      - "后续审核 request 可使用新 correlation，但必须保持 family/subject/purpose/consent/data class/locale/deletion 边界"
+      - "Guardian-only HumanTask 接受后只产生 CREATE_JOURNEY_PLAN_FROM_AI_DRAFT NamedActionRequest，不直接创建或激活 JourneyPlan"
+      - "accepted-action handler 执行时重新加载当前 ContextScope 与 review digest，只调用 Journey create，并拒绝任何返回 ACTIVE 的实现"
+      - "共享 worker 注册 CREATE_JOURNEY_PLAN_FROM_AI_DRAFT 与 CONFIRM_AI_JOURNEY_PLAN；两次 Guardian HumanTask 分别控制 DRAFT 创建和 ACTIVE 激活"
+      - "认证 HTTP router 与 PostgreSQL bearer/tenant/family/guardian/subject/GROWTH_TRACKING Consent 解析组合已建立"
+      - "真实 PostgreSQL 已验证 0057 逐版本 upgrade、回退到 0015 后重建到 head，以及 BEFORE UPDATE 不可变触发器"
+    reason: "依据 UI-05 蓝图把 AI 规划草案接入可追溯、可过期、防篡改的人工闸门，同时维持 Journey 领域事实所有权"
+    known_gaps:
+      - "部署 main 挂载、常驻 worker 调度、真实 Evidence Reader PostgreSQL E2E 与 UI-05 展示仍待后续迭代"
+      - "review envelope 到期删除的 retention worker 尚待实现"
 
   - capability: tool_runtime
     disposition: REIMPLEMENT
     source: []
     target:
       - backend/intelligence/tool_runtime
+      - backend/intelligence/tool_runtime/action_outbox.py
+      - database/migrations/versions/0014_tool_action_outbox.py
       - tests/intelligence/tool_runtime/test_runtime.py
+      - tests/intelligence/tool_runtime/test_action_outbox.py
       - governance/ADR/ADR-0054-governed-tool-runtime-human-gated-actions.md
+      - governance/ADR/ADR-0057-tool-action-durable-outbox.md
     status: MIGRATED_TESTED
     evidence:
       - "ToolDefinition/ToolAuthorization/ToolCallRequest/ToolCallResult 仅允许生成 PENDING_HUMAN_CONFIRMATION Named Action，不执行领域命令或写业务事实"
       - "ToolRuntime 同时校验真实 AgentDefinition 静态白名单、AgentAuthorization 动态授权、ToolAuthorization scope/TTL 与 use_case"
       - "tests/intelligence/tool_runtime/test_runtime.py 5 项测试通过，覆盖成功 pending、授权拒绝、租约过期、静态白名单和 generic action 防护"
+      - "ToolActionOutboxEnvelope/SqlAlchemyToolActionOutbox 以 tenant+call_id 幂等持久化 pending Human Gate 动作，复用 at-least-once Worker；tests/intelligence/tool_runtime/test_action_outbox.py 7 项测试通过"
     reason: "AI Runtime 需要统一的具名工具边界，保证 Agent 只能提出可审阅动作，Human Gate/领域应用仍是唯一事实写入口"
     known_gaps:
       - "ToolAuthorization 当前为进程内值对象，生产需接入持久化授权租约与撤回审计"
       - "尚未接入 family_api 组合根、durable ToolCall/Named Action outbox 与真实业务域 consumer"
+      - "ToolAction outbox 已接入 provider-neutral Human Gate inbox consumer seam；仍缺 durable lease/attempt、DLQ 与领域二次授权"
 
   - capability: family_need_orchestration
     disposition: REIMPLEMENT
     target: [backend/domains/family_need]
     status: MIGRATED_TESTED
     evidence:
-      - "Family Need 域按 N0-N8 家庭需求闭环重建，含 domain/application/infrastructure 三层及合成仓储"
-      - "覆盖教育入口、需求澄清、资源组织、方案草案、情绪价值闸门、同意/租户/家庭隔离和多模态证据引用"
-      - "领域与 API 适配测试 16 passed，family_api 挂载联调测试通过；未从源仓库直接复制运行时代码"
+      - "Family Need 域按 N0-N8 全链路重建，含 domain/application/infrastructure 三层"
+      - "覆盖教育入口、需求澄清、画像（含 Triple P 式 InterventionTier 分级）、方案草案、
+         情绪价值闸门、同意/租户/家庭隔离和多模态证据引用"
+      - "N4 资源组织：AssignmentPlan 落一条可查询的分配依据事实（authorization_basis
+         明确记录来自家长自己批准，不是 AI 决定的）"
+      - "N6/N7 质量验收与结果确认：FamilyConfirmedOutcome 要求家庭本人确认，AI/SYSTEM
+         身份被应用层显式拒绝（403），R9 边界不是摆设"
+      - "N8 新需求回流：DID_NOT_HELP 时复用 capture_signal 真实开出新 NeedSignal，
+         causation_id 指回原需求，不是只返回一句提示"
+      - "PostgreSQL 仓储 + SqlAlchemyFamilyNeedActorResolver 在真实 PostgreSQL 上验证通过
+         （round-trip、乐观锁冲突、幂等约束、跨租户隔离）"
+      - "跨域履约协调器打通方案确认 → commerce 下单意向 → service_booking 真实预约 →
+         服务/课程完成 → journey 回访留痕的端到端 HTTP 链路
+         （tests/apps/family_api/test_need_fulfillment_e2e.py）"
+      - "FGCN 分派授权闸门：自助失败升级真人教师时，AI 建议候选人 + 家长 Human Gate
+         批准才产生真实 TaskAssignment；durable 路径已在真实 PostgreSQL 验证跨会话可查询"
+      - "AI Coach：苏格拉底式引导对话内容 100% 由真实模型生成（DeepSeek 已验证），
+         JSON schema 结构性禁止模型直接给答案，不经 Human Gate（纯展示型 Perspective）"
+      - "未从源仓库直接复制运行时代码"
     reason: "以核心商业蓝图为准在 Python 架构中重新实现家庭需求编排能力"
     known_gaps:
-      - "当前使用 Fake 仓储和 dev/test 合成身份/同意；PostgreSQL、真实身份/同意存储和 FGCN 分派仍待接线"
-      - "已挂载 N0→N1 需求入口；N1→N8 的澄清、画像、方案、交付和验收 API 尚未完成"
+      - "生产环境挂载分支（_mount_family_need）已写但未在真实生产部署中启用过"
+      - "FamilyNeedPolicyPort（同意/授权真实存储）仍是 dev/test 合成实现"
+      - "N4 只是分配决策记录层，非真正资源容量调度；N8 只回流到新信号层面，未接知识库改进闭环"
+      - "跨域履约协调器为同步顺序调用，无分布式事务补偿"
+      - "FGCN provider 准入无持久化表；AI Coach 无跨轮次记忆（backend/intelligence/memory/
+         的 M1_SESSION 能力尚未接入）"
 
   - capability: family_context_retrieval
     disposition: REIMPLEMENT
@@ -231,6 +468,29 @@ entries:
     project_owner_override: >
       2026-08-29 project-owner指示"将你在family-ai做的产品设计平台文档和程序代码迁移到AiFamily"。
       迁移对象是 product_intelligence 域完整的三轮硬化历史（非仅第一版）+ 两份三区引擎 ADR。
+
+  - capability: course_content
+    disposition: REIMPLEMENT
+    target: [backend/domains/product_intelligence]
+    status: MIGRATED_TESTED
+    evidence:
+      - "课程/课件作为 product_intelligence 治理生命周期下的新聚合 CourseContent 新建
+         （非从 family-ai 迁移），复用既有 EvidenceClaim CONTENT_ACCURACY 分类与
+         Human Gate PUBLISH_COURSE_CONTENT Named Action，未复用纯商品元数据的
+         ProductComponent"
+      - "'告别作业磨蹭'课程走完整 DRAFT→UNDER_REVIEW→PUBLISHED 状态机种入，
+         经 family_need 的 CourseSupplyAdapter 被 SOLUTION 形态方案草稿真实匹配到"
+      - "生产 PostgreSQL 仓储 + database/migrations/versions/0056_course_content.py
+         在真实 PostgreSQL 上验证 upgrade/downgrade/round-trip 通过"
+      - "家庭标记课程完成后，journey 的 GrowthOutcomeLoop 真实留下对应回访记录
+         （tests/apps/family_api/test_need_fulfillment_e2e.py）"
+    reason: "复用 product_intelligence 现有证据核验 + Human Gate 发布治理骨架，
+      避免为课程内容新建一套独立发布流程"
+    known_gaps:
+      - "生产挂载分支（_mount_course_content 的 PostgreSQL 分支）已写但未在真实生产部署中启用过"
+      - "课程学习进度只有'标记整门课完成'一个最小动作，非逐课时打卡系统"
+      - "Human Gate 审核路径在生产环境无 PostgreSQL 实现（全仓库通病），生产环境课程发布路由维持 fail-closed"
+      - "课程内容是单一共享目录，CourseSupplyAdapter 匹配时不按 tenant_id 过滤，是记录在案的简化"
 
   - capability: service_booking
     disposition: MIGRATE
@@ -577,7 +837,7 @@ entries:
     source: ["50_开发_dev/apps/api/src/modules/auth"]
     target: [backend/platform/identity]
     status: PLANNED
-    evidence: ["1546行，真实 Postgres(identity_sessions/otp_challenges/accounts/tenants等)，唯一显式标注为替换点的是 OtpService 的 StubOtpSender"]
+    evidence: ["1546行，真实 Postgres(identity_sessions/otp_challenges/accounts/tenants等)，唯一显式标注为替换点的是 OtpService 的 StubOtpSender", "AI 组合根已新增 provider-neutral IdentitySessionPort 与 mTLS HTTP 签发/轮换/撤销适配器（ADR-0117）；业务域迁移与真实 endpoint 仍未完成"]
 
   - capability: assessment
     disposition: REIMPLEMENT
@@ -617,12 +877,20 @@ entries:
   - capability: ai_human_gate
     disposition: REIMPLEMENT
     source: ["docs/05_ai/AI_TECHNICAL_ARCHITECTURE.md §5.2", "docs/05_ai/AI_TECHNICAL_ARCHITECTURE_DEEP_DESIGN.md §D09"]
-    target: [backend/intelligence/human_gate]
+    target:
+      - backend/intelligence/human_gate
+      - backend/intelligence/human_gate/tool_action_inbox.py
+      - backend/intelligence/human_gate/tool_action_consumer.py
+      - tests/intelligence/human_gate/test_tool_action_inbox.py
+      - tests/intelligence/human_gate/test_tool_action_consumer.py
+      - governance/ADR/ADR-0059-tool-action-human-gate-inbox.md
     status: MIGRATED_TESTED
     evidence:
       - "HumanTask 生命周期、真人审查角色、租户/家庭范围、过期与幂等均有可运行契约测试"
       - "接受只产生 NamedActionRequest；Human Gate 不导入业务 domain repository/application/infrastructure，也不执行业务事实写入"
       - "SqlAlchemyHumanGate + 0006_ai_human_tasks 已持久化 proposal、decision、scope、provenance reference 和 accepted request；新 session 回读与同事务审计有测试"
+      - "ToolActionHumanGateInbox 将 StoredToolActionMessage 幂等转换为 OPEN HumanTask，保留 scope/provenance/risk/expiry；test_tool_action_inbox.py 3 项测试通过"
+      - "SqlAlchemyToolActionHumanGateConsumer 与 outbox worker 复用同一 AsyncSession，先写 HumanTask+Audit 再确认 outbox；test_tool_action_consumer.py 1 项原子事务测试通过"
     known_gaps:
       - "尚无常驻队列/lease、通知、dead-letter 和生产 identity/consent factory；expire_due 与 one-shot consumer 不是完整调度器"
       - "FGCN 的 ServiceTask/TaskAssignment Named Action 已接入 durable application command，family_api 控制面已挂载；完整 workflow worker、生产 identity/session wiring 和资源协作仍未完成；本条目不等于完整 FGCN 分派能力已完成"
@@ -917,16 +1185,24 @@ entries:
     source: []
     target:
       - backend/intelligence/prompt_registry
+      - backend/intelligence/prompt_registry/sql_registry.py
       - backend/intelligence/schema_registry
+      - backend/intelligence/schema_registry/sql_registry.py
+      - database/migrations/versions/0030_ai_prompt_schema_registry.py
+      - governance/ADR/ADR-0089-durable-prompt-schema-registry.md
+      - tests/intelligence/prompt_registry/test_sql_registry.py
+      - tests/intelligence/schema_registry/test_sql_registry.py
+      - tests/intelligence/agent_runtime/test_sql_registry_integration.py
     status: MIGRATED_TESTED
     evidence:
-      - "PromptBundle/SchemaDefinition 为不可变版本值对象，重复版本注册 fail-closed"
+      - "PromptBundle/SchemaDefinition 为不可变版本值对象，重复版本注册 fail-closed；SQL adapter 可跨进程重启回读"
       - "resolve 按 use_case、agent、status、effective window 做严格绑定，禁止孤立 prompt/schema 字符串"
       - "SchemaValidator 执行 required/evidence_refs/forbidden fields/enum/JSON Schema 边界与 human gate 元数据"
       - "tests/intelligence/prompt_registry 与 tests/intelligence/schema_registry focused tests"
+      - "tests/intelligence/prompt_registry/test_sql_registry.py 与 tests/intelligence/schema_registry/test_sql_registry.py 覆盖 SQL lifecycle、scope-free binding、重启语义与 ambiguity fail-closed"
     reason: "AI 原生运行时需要可审计、可回滚且与 Agent/use case 绑定的 Prompt/Schema 资产边界"
     known_gaps:
-      - "当前为进程内 adapter，尚未接入 ai_runtime 持久化版本库、运营审批工作流和统一治理 YAML loader"
+      - "SQL 持久化版本库与 AgentRuntime 异步 resolve 已接入；运营审批签名和统一治理 YAML loader 仍待接入"
       - "AgentRuntime 组合根仍需显式 resolve 后把版本内容装配到 AgentTask；缺版本必须拒绝模型调用"
 
   - capability: experience_outbox_worker
@@ -948,22 +1224,139 @@ entries:
     reason: "体验闭环需要可重启的至少一次投递边界；源仓库无可复用的 Python worker，实现唯一 AI Runtime outbox consumer seam"
     known_gaps:
       - "attempt counter 当前为进程内策略；生产需接入带租约/attempt 持久化的 worker 与 durable DLQ"
-      - "achievement consumer 已接入契约级投影；尚未接入 family_api 组合根、durable achievement projection 与 analytics projection，不能据此声称生产消息链已上线"
+      - "achievement consumer 已接入契约级与 SQL durable projection；尚未接入 family_api 组合根、worker lease/DLQ 运行态与 analytics projection，不能据此声称生产消息链已上线"
+
+  - capability: durable_achievement_projection
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/experience/achievement.py
+      - backend/intelligence/experience/achievement_persistence.py
+      - backend/intelligence/experience/achievement_consumer.py
+      - database/migrations/versions/0015_ai_achievement_projections.py
+      - tests/intelligence/experience/test_achievement_persistence.py
+      - governance/ADR/ADR-0058-durable-achievement-projection.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "AchievementProjectionPort 同时支持 InMemory 与异步 SQL adapter；consumer 使用 apply_async 统一组合路径"
+      - "SqlAlchemyAchievementProjection 以 scope fingerprint + achievement key 幂等回读，保留 evidence_refs、provenance、earned_at 与完整 scope"
+      - "adapter 仅 add/flush，不 commit、调用模型供应商或写入 Family/Journey/Service/Commerce 事实"
+      - "tests/intelligence/experience/test_achievement_persistence.py 覆盖跨 session 重启回读、稳定证据冲突、事务回滚与禁止比较字段"
+    reason: "体验成就需要在 Outbox 重放与进程重启后仍可恢复的证据绑定派生读模型"
+    known_gaps:
+      - "生产组合根尚未默认注入 SQL projection；需完成 worker lease/DLQ 与删除 worker 运行态验收"
 
   - capability: multimodal_evaluation_boundary
     disposition: REIMPLEMENT
     source: []
     target:
       - backend/intelligence/experience/multimodal_eval.py
+      - backend/intelligence/experience/gold_set.py
+      - backend/intelligence/experience/slice_runner.py
       - tests/intelligence/experience/test_multimodal_eval.py
+      - tests/intelligence/experience/test_gold_set.py
+      - tests/intelligence/experience/test_slice_runner.py
     status: MIGRATED_TESTED
     evidence:
       - "版本化 synthetic/anonymous gold case 不携带媒体字节，评估 runner 不读取凭据、不打开网络"
-      - "4 个专项测试覆盖 schema、安全标签、预期拒答、provenance、一致版本和原始媒体拒绝"
+      - "专项测试覆盖 schema、安全标签、预期拒答、provenance、一致版本和原始媒体拒绝"
+      - "gold.v1 生成器稳定提供 200 个 synthetic case：text 50、image 40、audio 40、video 30、mixed 40；40 个拒答/对抗样本，并可由 fingerprint 重现"
+      - "MultimodalSliceRunner 复用统一评测契约，支持 modality/locale/age_band 有界切片；混合模态按包含关系进入多个 modality slice，结果保持独立报告"
       - "ADR-0056 明确报告只代表契约质量/安全/延迟/成本，不代表家庭总分、孩子成绩或教育疗效"
     known_gaps:
-      - "当前为离线评估原语，尚未持久化 benchmark report、绑定 Durable Run/feedback 或形成生产 release gate"
+      - "metadata-only benchmark report archive 与 staging/production 组合根已建立；仍未绑定 Durable Run/feedback、接入调度或提供按模态/语言切片 API；AiReleaseGate 已提供纯函数 release/admission 门禁"
       - "真实 provider 仍需完成合规、删除 SLA、长期 gold set 和 owner approval 后才可进入生产"
+
+  - capability: ai_evaluation_report_archive
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/evaluation/report_archive.py
+      - database/migrations/versions/0034_ai_benchmark_report_archive.py
+      - tests/intelligence/evaluation/test_report_archive.py
+      - governance/ADR/ADR-0102-benchmark-report-archive.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "InMemory/SQL archive 以 report_ref 幂等保存 dataset fingerprint、case version、总数和 bounded aggregate payload"
+      - "SQL adapter 跨 session 回读，事务由调用方负责；相同 report_ref 的 fingerprint/content 冲突拒绝"
+      - "归档递归拒绝 prompt/output/payload/media/credential 等敏感字段并限制 payload 大小"
+    reason: "为离线评测与 ReleaseGate 提供可重启、可审计且不携带家庭内容的报告证据"
+    known_gaps:
+      - "生产 scheduler、产品 dashboard、游标分页、长期保留/删除策略与真实报告存储后端仍待接入"
+
+  - capability: ai_evaluation_archive_composition
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/apps/family_api/production_evaluation_archive_wiring.py
+      - tests/apps/family_api/test_production_evaluation_archive_wiring.py
+      - governance/ADR/ADR-0103-production-evaluation-archive-composition.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "staging/production runtime 只接受显式 async_sessionmaker，每次归档使用新 SQL session/transaction"
+      - "成功归档提交、重复 report_ref 幂等回读；环境边界和 metadata-only archive 通过测试"
+    reason: "让测试、staging、production 使用同一 benchmark report archive 行为，避免生产功能缩水"
+    known_gaps:
+      - "scheduler、按模态/语言切片 API、长期保留/删除策略仍待部署环境接入"
+
+  - capability: ai_evaluation_slice_archive
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/evaluation/slice_archive.py
+      - database/migrations/versions/0035_ai_benchmark_report_slices.py
+      - backend/apps/family_api/production_evaluation_archive_wiring.py
+      - tests/intelligence/evaluation/test_slice_archive.py
+      - tests/apps/family_api/test_production_evaluation_archive_wiring.py
+      - governance/ADR/ADR-0105-multimodal-slice-archive.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "slice archive 以 report_ref + dimension + value 唯一保存 dataset fingerprint、case count、slice report ref 与 bounded aggregate payload"
+      - "父报告与 slices 在 production composition root 同一 SQL transaction 提交；重复归档幂等，冲突拒绝"
+      - "查询支持 report_ref/dimension/value 有界过滤，不返回媒体、prompt、模型原文或凭据"
+    reason: "让 modality/locale/age_band slice 结果可重启回读并纳入发布审计"
+    known_gaps:
+      - "dashboard、审计落库、scheduler 与长期保留/删除策略仍待部署环境接入"
+
+  - capability: ai_evaluation_authorized_query_api
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/evaluation/query.py
+      - backend/apps/family_api/evaluation_query_api.py
+      - backend/apps/family_api/operator_request_context.py
+      - backend/apps/family_api/dev_operator_query_wiring.py
+      - backend/apps/family_api/evaluation_query_wiring.py
+      - backend/apps/family_api/main.py
+      - tests/intelligence/evaluation/test_query.py
+      - tests/apps/family_api/test_evaluation_query_api.py
+      - tests/apps/family_api/test_dev_operator_query_wiring.py
+      - governance/ADR/ADR-0106-authorized-evaluation-query-api.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "查询服务要求 staging/production 环境的外部 OperatorIdentityPort 与 ai.evaluation.read scope；HTTP route 统一要求 request bearer"
+      - "Family API 内部端点默认 503 fail-closed，缺少 scope 返回 403；report/slice 查询均有 50/100 上限"
+      - "响应只暴露 archive 已校验的聚合元数据，不接受 family/tenant 参数且不返回 prompt/output/media/credential"
+    reason: "为评测归档提供可审计、不可越权的运营读取边界，不把评测证据暴露为家庭业务数据"
+    known_gaps:
+      - "真实 operator identity/mTLS、审计事件持久化、dashboard、游标分页与长期保留/删除策略仍待部署环境接入；共享 request context 与 HTTP composition helper 已完成"
+
+  - capability: platform_mtls_transport
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/platform/security
+      - backend/platform/security/mtls.py
+      - tests/platform/security/test_mtls.py
+      - governance/ADR/ADR-0107-explicit-mtls-transport.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "MtlsClientConfig 要求绝对路径、CA bundle、客户端证书和私钥均存在，并拒绝非正数 timeout"
+      - "同步/异步 httpx client 均显式注入 verify、cert 和 timeout；组合根拥有 client 生命周期"
+      - "HttpProviderCredentialPort 提供 metadata-only lease revocation-status 查询；HTTP Gateway 工厂仅在 check_credential_revocation=true 时绑定外呼前检查"
+    reason: "为外部身份、密钥服务和部署平台提供统一可验证的 mTLS transport，不把证书发现或 secret 生命周期下沉到领域"
+    known_gaps:
+      - "真实证书轮换/撤销、KMS/Secret Manager 托管、revocation-status endpoint 与部署演练仍待环境接入"
 
   - capability: governed_tool_runtime
     disposition: REIMPLEMENT
@@ -980,8 +1373,531 @@ entries:
       - "tests/intelligence/tool_runtime/test_runtime.py 覆盖成功 pending action、Agent 动静态白名单、租约 TTL/缺失和动作名边界"
     reason: "为 Agent Runtime 提供可组合且 provider-neutral 的工具执行边界，保证所有工具输出必须经过 Human Gate/Named Action"
     known_gaps:
-      - "当前为进程内工具目录与执行适配器；尚未接入 durable tool catalog、租约持久化、队列 worker 和业务域 Named Action consumer"
+      - "当前为进程内工具目录与执行适配器；尚未接入 durable tool catalog、租约持久化和完整队列调度"
       - "工具输入 schema 的深度校验与审计 trace 需在生产组合根接线时补齐"
+
+  - capability: accepted_named_action_delivery_worker
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/tool_runtime/accepted_delivery.py
+      - backend/intelligence/tool_runtime/accepted_worker.py
+      - database/migrations/versions/0024_ai_accepted_action_delivery.py
+      - tests/intelligence/tool_runtime/test_accepted_delivery.py
+      - tests/intelligence/tool_runtime/test_accepted_worker.py
+      - tests/intelligence/tool_runtime/test_accepted_worker_sql_takeover.py
+      - tests/intelligence/human_gate/test_queue_read.py
+      - governance/ADR/ADR-0077-fgcn-accepted-action-adapter.md
+      - governance/ADR/ADR-0078-accepted-action-durable-delivery-worker.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "accepted Named Action 的 request_id/task_id/action_name/tenant/family 及 attempts/status/result_ref 持久化到 metadata-only ledger"
+      - "worker 先 claim Human Gate 再 dispatch，成功后才清理 claim；崩溃窗口依靠领域 request 幂等和 durable receipt 安全重放"
+      - "未注册 action 等 dispatcher 错误进入 DEAD_LETTERED；瞬时错误保留 claim lease 等待接管，action payload 不复制到 delivery ledger"
+      - "tests/intelligence/tool_runtime/test_accepted_delivery.py 与 test_accepted_worker.py 覆盖跨 session 重启、幂等回放、死信终态和 claim 顺序"
+    reason: "Human Gate 接受后的 Named Action 需要可重启、可审计的执行尝试与终态边界，不能只依赖进程内计数"
+    known_gaps:
+      - "当前 worker 已提供 bounded run_once queue poll，持续调度、durable lease takeover 压测和生产 DLQ 运维仍需部署级接线"
+      - "FGCN assignment 与 Blueprint proposal handler 已注册；更多业务 action 仍必须由业务域显式实现，不得由通用 worker 直接执行"
+
+  - capability: fgcn_blueprint_proposal_consumer
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/domains/service/fgcn/blueprint_proposal.py
+      - database/migrations/versions/0025_service_blueprint_proposals.py
+      - tests/domains/service/fgcn/test_blueprint_proposal.py
+      - governance/ADR/ADR-0079-fgcn-blueprint-proposal-consumer.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "PROPOSE_SERVICE_BLUEPRINT accepted-action handler 只落人工确认提案，不打开 ServiceCase 或触发外部交付"
+      - "family_service_blueprint_proposals 按 tenant/request_id 幂等，保存 scope、provenance、evidence refs 和人工 actor"
+      - "跨 session 回读与 DRAFT-only/replay 测试通过；不保存模型原文、媒体字节或家庭/儿童评分"
+    reason: "让 Intervention Blueprint recommendation 在 Human Gate 后有真实业务域落点，避免 accepted action 无 handler 进入死信"
+    known_gaps:
+      - "OPEN_SERVICE_CASE 仍需独立的 Growth intent/consent/entry dependency 闸门，当前不自动执行"
+
+  - capability: fgcn_accepted_action_runtime_composition
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/apps/family_api/accepted_action_wiring.py
+      - tests/apps/family_api/test_accepted_action_wiring.py
+      - governance/ADR/ADR-0080-fgcn-accepted-action-runtime-composition.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "应用组合根按同一 SQL session 组装 Human Gate、delivery ledger、FGCN repository、Blueprint proposal store 与 accepted-action scheduler"
+      - "队列以 Human Gate accepted candidate 为源，并过滤 delivery ledger 的 SUCCEEDED/DEAD_LETTERED 终态"
+      - "运行时提供有界 run_until_idle 与 metadata-only dead-letter 查询，staging/production 仅替换显式依赖"
+      - "tests/apps/family_api/test_accepted_action_wiring.py 覆盖完成过滤、worker identity 与 attempts 边界"
+    reason: "把可测试的 accepted-action 组件落到应用组合根，避免生产接线时出现能力缩减或重复轮询"
+    known_gaps:
+      - "仍需部署级 scheduler、worker authentication、provider admission 与 DLQ 运维告警接线"
+
+  - capability: governed_multimodal_gateway_composition
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/model_gateway/composition.py
+      - backend/intelligence/model_gateway/routing.py
+      - backend/intelligence/experience/multimodal_routing.py
+      - backend/intelligence/experience/multimodal_application.py
+      - backend/intelligence/experience/multimodal_generation.py
+      - backend/apps/family_api/production_experience_wiring.py
+      - backend/apps/family_api/trusted_experience_scope.py
+      - tests/intelligence/model_gateway/test_composition.py
+      - tests/intelligence/model_gateway/test_routing_and_attempts.py
+      - tests/intelligence/experience/test_multimodal_application.py
+      - tests/intelligence/experience/test_multimodal_generation.py
+      - tests/intelligence/experience/test_multimodal_routing.py
+      - tests/intelligence/experience/test_api_contract.py
+      - tests/apps/family_api/test_production_experience_wiring.py
+      - governance/ADR/ADR-0081-governed-multimodal-gateway-composition.md
+      - governance/ADR/ADR-0118-multimodal-route-gateway-consistency.md
+      - governance/ADR/ADR-0119-multimodal-http-request-auth-wiring.md
+      - governance/ADR/ADR-0120-durable-context-broker-production-factory.md
+      - governance/ADR/ADR-0141-governed-multimodal-failover.md
+      - governance/ADR/ADR-0142-pre-call-model-budget-and-durable-runtime-ledgers.md
+      - backend/intelligence/context_engine/sql_store.py
+      - database/migrations/versions/0036_ai_context_engine.py
+      - backend/intelligence/model_gateway/budget.py
+      - database/migrations/versions/0044_ai_model_budget_reservations.py
+      - backend/intelligence/experience/release_set.py
+      - backend/intelligence/experience/release_set_persistence.py
+      - backend/intelligence/experience/release_set_deployment.py
+      - backend/intelligence/experience/runtime_release_binding.py
+      - database/migrations/versions/0045_ai_experience_bundle_runtime_policies.py
+      - database/migrations/versions/0046_ai_family_experience_release_sets.py
+      - database/migrations/versions/0047_ai_experience_release_set_deployments.py
+      - database/migrations/versions/0048_ai_runtime_release_evidence.py
+      - backend/intelligence/experience/release_set_control.py
+      - database/migrations/versions/0049_ai_release_set_signed_controls.py
+      - backend/intelligence/experience/invocation_fence.py
+      - backend/intelligence/model_gateway/release_fence.py
+      - database/migrations/versions/0050_ai_release_projection_invocation_fence.py
+      - database/migrations/versions/0051_ai_release_transition_state_machine.py
+      - backend/intelligence/experience/execution_materials.py
+      - database/migrations/versions/0052_ai_execution_materials.py
+      - backend/intelligence/experience/release_set_reconciliation.py
+      - database/migrations/versions/0053_ai_release_transition_reconciliation.py
+      - backend/apps/family_api/family_experience_release_set_wiring.py
+      - backend/intelligence/experience/http_release_set_deployment.py
+      - tests/intelligence/model_gateway/test_budget.py
+      - tests/intelligence/model_gateway/test_budget_gateway.py
+      - tests/intelligence/experience/test_release_set.py
+      - tests/intelligence/experience/test_release_set_deployment.py
+      - tests/intelligence/experience/test_release_set_deployment_postgres.py
+      - tests/intelligence/experience/test_runtime_release_binding.py
+      - tests/intelligence/experience/test_release_set_control.py
+      - tests/intelligence/experience/test_execution_materials.py
+      - tests/intelligence/experience/test_release_set_reconciliation.py
+      - governance/ADR/ADR-0144-atomic-ai-release-set-runtime-binding.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "显式 provider_ids、ProviderRegistry callable status/environment 与 credential/base URL binding 在启动组装阶段校验"
+      - "未批准 provider 在读取凭据前被 POLICY_REJECTED；批准 provider 缺凭据返回 CREDENTIAL_MISSING，不降级 FakeProvider"
+      - "真实 adapter 仍通过统一 ModelGateway 执行 data class admission、Safety、Attempt、schema、Provenance 与超时策略；生产 Multimodal Draft 已提供 SQL request-auth wiring 与路由/Gateway 一致性启动闸门"
+      - "SqlContextBrokerFactory/0036 将 ContextBroker 以 session-per-operation durable adapter 接入生产组合根；快照与 observation 的 scope/consent/retention 校验在进程重启后保持"
+      - "家庭多模态应用将首选/备用顺序接入 RoutingModelGateway；仅基础设施错误切换，每个 provider 独立准入并分别记录 Attempt，备用 Draft 可幂等回放"
+      - "HTTP modality 声明必须与实际 media inputs 一致，provider 媒体上限按条目数而不是模态类别数执行"
+      - "路由与预算复用服务端规范化 token 估算；客户端 estimated_input_tokens 仅保留协议兼容，不参与路由或幂等指纹"
+      - "Model Gateway 按服务端规范化输入估算并在外呼前原子预留 tenant 日预算；成功按 usage 核销，失败或 usage 缺失按完整预留额记账，fallback 每次尝试独立计费"
+      - "生产 Attempt、SafetyDecision 与 Telemetry 使用 session-per-call 短事务，调用前证据和失败结论不随草稿事务回滚"
+      - "原子 ReleaseSet 绑定首选/备用 Bundle、Prompt/Schema/Safety/Knowledge refs 及 route/rate/budget 内容摘要；ACTIVE/ROLLBACK receipt 通过 SQL resolver 授权运行"
+      - "ReleaseSet/Bundle/deployment receipt 引用传播到 Budget Reservation、Attempt 与 Provenance；test synthetic runtime 使用同一发布绑定校验，仅替换 fake adapter 与内存账本"
+      - "Prompt Registry 解析出的已发布 template 通过 PromptExecutionPlan 逐次进入 OpenAI-compatible 请求；release-bound request 缺少执行计划时在外呼前拒绝"
+      - "签名 ReleaseSet control 逐项绑定 source/target、phase、rollout、scope、runtime digest 与 expected effective sequence；部署 service 回读 control 后才允许外部端口调用"
+      - "0050 活动发布投影以 scope 为主键保存单调 deployment sequence；Gateway 在 adapter I/O 前持久化幂等 fence claim，并在发布已变化时拒绝出网、释放未消费预算"
+      - "0051 在任何发布外部副作用前独立提交 PREPARED transition；同 scope 并发发布只能一个出网，ACK 后 receipt、active projection 与 COMMITTED 状态同事务落库；未知外部结果锁定 scope 并仅允许同幂等键恢复"
+      - "真实 PostgreSQL 并发测试使用两个独立 session/coordinator 竞争同一 scope，验证只有一个调用越过外部 I/O fence，活动投影以 deployment sequence 1 原子提交"
+      - "HTTP ReleaseSet adapter 只发送 metadata-only manifest，并把 transition/control/expected sequence 同时放入 header 与 body；外部 ACK 必须逐项回显 fencing tuple 才可提交"
+      - "0052 持久化内容寻址的已审核 System Policy 与 SHARED Knowledge；运行时按 Prompt refs、use case、agent、发布状态和生效窗口解析正文，摘要或内容漂移在模型出网前失败关闭"
+      - "OpenAI-compatible adapter 只接收服务端解析的 PromptExecutionPlan，并携带已审核策略正文、知识来源/许可/证据等级及材料摘要；客户端 payload 不能注入执行材料"
+      - "0053 为 PREPARED/UNKNOWN/ACKNOWLEDGED transition 增加 bounded lease、attempt 与 backoff；reconciler 只消费既有真人签名 control，APPLIED 必须精确回显 fencing tuple，PENDING/ABSENT/FAILED 不会自动解锁或重放发布"
+      - "tests/intelligence/model_gateway/test_composition.py 覆盖成功组装、未批准拒绝、凭据缺失与 provider id 边界"
+    reason: "为可替换多模态模型提供唯一、可审计、默认拒绝的生产组合入口，避免供应商绑定和配置漂移"
+    known_gaps:
+      - "当前默认 registry 仍无通过第16条合规审查的外部供应商；真实供应商上线需法务、安全、数据区域与删除承诺证据"
+      - "ReleaseSet 已绑定 runtime policy、获批 Prompt/System Policy/SHARED Knowledge、签名部署 control、pre-external transition claim、HTTP fencing/observation adapter、活动投影 CAS、invoke 前 claim-time fencing 与 UNKNOWN/ACKNOWLEDGED 自动对账；尚需真实发布平台 endpoint 对接与生产 canary 控制面"
+
+  - capability: model_gateway_credential_lease
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/model_gateway/credentials.py
+      - backend/intelligence/model_gateway/composition.py
+      - backend/intelligence/model_gateway/providers/openai_compatible.py
+      - tests/intelligence/model_gateway/test_composition.py
+      - tests/intelligence/model_gateway/test_credentials.py
+      - governance/ADR/ADR-0100-model-gateway-credential-lease.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "CredentialLease 强制 provider、lease_id、timezone-aware expires_at、非空 secret 与 revoked=false；secret 使用 repr=False 且不进入任何运行记录；provider 外呼前还校验租约覆盖请求 deadline"
+      - "组合工厂支持显式 ProviderCredentialPort 与 HttpProviderCredentialPort，批准 provider 在解析租约前完成 registry admission；租约 provider mismatch 与过期均拒绝"
+      - "SecretManagerCredentialPort 以 metadata-first 顺序解析 provider-scoped secret reference；metadata provider mismatch、revoked/expired 状态、空 secret 或 secret reader 异常均 fail-closed，且 revoked/expired 会在读取 secret 前拒绝；测试验证 secret 不进入 repr/异常文本"
+      - "HTTP 组合工厂支持注入 mTLS/CA 配置的 httpx client；可显式绑定 metadata-only revocation-status 查询到 provider 外呼前 revocation checker，sync checker 在线程池中执行；测试覆盖无 API-key 环境变量的外部租约组装、平台/Token 错误、revoked lease、非法撤销响应和 secret 不泄露"
+    reason: "为真实 key service、mTLS、轮换与撤销保留 provider-neutral 生产边界，避免将环境变量读取扩散到业务代码"
+    known_gaps:
+      - "SecretManagerCredentialPort 的 provider-neutral adapter 已建立；真实 KMS/Secret Manager endpoint、rotation/revocation 运维证据、泄露检测和生产演练仍待接入；mTLS transport config 已建立"
+
+  - capability: ai_release_human_control
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/evaluation/release_control.py
+      - backend/intelligence/evaluation/operator_identity.py
+      - database/migrations/versions/0031_ai_release_controls.py
+      - tests/intelligence/evaluation/test_release_control.py
+      - tests/intelligence/evaluation/test_operator_identity.py
+      - governance/ADR/ADR-0090-ai-release-human-control.md
+      - governance/ADR/ADR-0095-operator-identity-token-boundary.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "只允许真人 actor 对 ADMITTED 决策记录 APPROVAL，AI actor、BLOCKED 决策和同候选回滚均 fail-closed"
+      - "APPROVAL/ROLLBACK 事件以 decision fingerprint、环境、责任人、原因、外部签名摘要和幂等键 append-only 持久化"
+      - "InMemory/SQL adapter 均要求注入签名 verifier，支持幂等重放与冲突拒绝；事务由组合根提交且不触发部署副作用"
+      - "OperatorIdentityPort 与受控 HTTP identity/token adapter 仅接受显式注入的 bootstrap token，校验环境与 ai.release.deploy scope，不读环境变量、不持久化短期 token；4 项 adapter 测试通过"
+    reason: "将评测准入与人工发布授权、回滚控制明确分层，补齐生产同构的治理边界"
+    known_gaps:
+      - "真实 operator identity/key service、production_release_wiring、灰度部署平台和自动回滚执行器仍需部署环境接线与轮换/撤销运维验收"
+
+  - capability: ai_release_candidate_catalog
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/evaluation/release_catalog.py
+      - backend/intelligence/experience/release_bundle.py
+      - backend/intelligence/experience/release_bundle_persistence.py
+      - database/migrations/versions/0032_ai_release_candidates.py
+      - database/migrations/versions/0040_ai_family_experience_release_bundles.py
+      - tests/intelligence/evaluation/test_release_catalog.py
+      - tests/intelligence/experience/test_release_bundle.py
+      - tests/intelligence/experience/test_release_bundle_runtime.py
+      - governance/ADR/ADR-0092-ai-release-candidate-catalog.md
+      - governance/ADR/ADR-0135-family-experience-release-bundle.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "候选目录保存 candidate/provider/model/version/report_ref 不可变元数据，状态按 BLOCKED/ADMITTED/APPROVED/ROLLED_BACK 投影"
+      - "APPROVED 与 ROLLED_BACK 必须引用匹配的 ReleaseControlEvent；批准前回滚、未批准目标和决策不匹配均 fail-closed"
+      - "InMemory/SQL catalog 均支持重复注册幂等、元数据冲突拒绝、跨 session 回读和事务由调用方提交"
+      - "FamilyExperienceReleaseBundle 以内容摘要绑定已发布 Prompt/Schema/Safety/Knowledge、Provider/Model、评测决策和签名人工审批，任何漂移 fail-closed"
+      - "Bundle 独立 SQL Store 支持跨 session 回读、相同内容幂等及同候选资产漂移冲突拒绝；不保存 Prompt 原文、原始签名或家庭数据"
+      - "SessionPerCallFamilyExperienceReleaseBundleReader 为长生命周期部署 runtime 每次打开独立 SQL session，避免持有启动期会话"
+    reason: "将评测决策、人工控制和候选状态查询分层，为后续灰度/回滚平台接线保留稳定边界"
+    known_gaps:
+      - "家庭体验发布包已持久化并传入专用 provider-neutral 部署端口；真实部署/灰度平台 adapter 尚未接线"
+
+  - capability: ai_release_deployment_port
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/evaluation/deployment.py
+      - backend/intelligence/experience/release_bundle_deployment.py
+      - database/migrations/versions/0033_ai_release_deployment_receipts.py
+      - tests/intelligence/evaluation/test_deployment.py
+      - tests/intelligence/experience/test_release_bundle_runtime.py
+      - governance/ADR/ADR-0093-provider-neutral-deployment-port.md
+      - governance/ADR/ADR-0135-family-experience-release-bundle.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "ReleaseDeploymentService 只接受 APPROVED candidate、匹配签名控制事件和真人 actor，灰度比例与阶段显式校验"
+      - "DeploymentPort 不读取模型凭据或 provider SDK；InMemory/SQL receipt ledger 在端口调用前按幂等键重放"
+      - "测试覆盖 canary/active receipt、AI/未批准拒绝、端口只调用一次和 SQL 跨读取"
+      - "FamilyExperienceDeploymentPort 接收完整 Bundle，缺包、Candidate/Decision/Model/report 漂移或审批 control 不一致时在外部调用前拒绝"
+    reason: "为后续灰度/部署平台提供独立 provider-neutral 边界，避免 AI Runtime 承担部署副作用"
+    known_gaps:
+      - "真实 Bundle-aware 部署平台 adapter、权限/超时/补偿和灰度观测仍需生产组合根接线"
+
+  - capability: ai_release_http_deployment_adapter
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/evaluation/http_deployment.py
+      - backend/intelligence/experience/http_release_bundle_deployment.py
+      - tests/intelligence/evaluation/test_http_deployment.py
+      - tests/apps/family_api/test_family_experience_release_wiring.py
+      - governance/ADR/ADR-0094-http-deployment-adapter-boundary.md
+      - governance/ADR/ADR-0136-family-experience-bundle-deployment-composition.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "HttpDeploymentPort 显式注入 base_url/token_provider/httpx client，test 使用 MockTransport 验证相同 HTTP 契约"
+      - "请求只发送候选发布元数据、control id、环境和幂等键；显式校验 timeout、编码 candidate path，并将 token source 异常、非 2xx、超时、网络和 malformed response 映射稳定错误码"
+      - "HttpFamilyExperienceDeploymentPort 复用相同 transport 并发送完整 metadata-only Bundle，不发送 Prompt 原文、原始签名、token 或家庭数据"
+    reason: "为真实部署平台提供可替换 HTTP adapter，同时隔离凭据和家庭数据"
+    known_gaps:
+      - "真实 Bundle-aware 平台权限、TLS、限流、补偿和灰度观测仍需部署环境提供"
+
+  - capability: ai_release_deployment_telemetry
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/evaluation/deployment.py
+      - tests/intelligence/evaluation/test_deployment.py
+      - governance/ADR/ADR-0096-release-deployment-telemetry.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "ReleaseDeploymentService 可显式注入 TelemetrySink，在端口调用前后记录 provider/model/version、环境、阶段和稳定错误码"
+      - "trace id 由候选与环境摘要派生，幂等 receipt 重放不产生外部副作用，不记录签名、幂等键或家庭 payload"
+      - "部署成功和平台错误均有 InMemoryTelemetrySink 验证"
+    reason: "把发布灰度操作纳入统一 metadata-only 观测边界，支持生产告警和审计追踪"
+    known_gaps:
+      - "collector、保留/删除 worker、告警和真实灰度平台指标仍需部署环境接入"
+
+  - capability: ai_family_experience_canary_supervision
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/experience/canary_supervision.py
+      - backend/intelligence/experience/http_canary_observation.py
+      - backend/apps/family_api/family_experience_canary_wiring.py
+      - backend/intelligence/experience/canary_alerts.py
+      - backend/intelligence/experience/canary_scheduler.py
+      - backend/apps/family_api/family_experience_canary_scheduler_wiring.py
+      - database/migrations/versions/0041_ai_canary_assessments.py
+      - database/migrations/versions/0042_ai_canary_alerts.py
+      - database/migrations/versions/0043_ai_canary_jobs.py
+      - tests/intelligence/experience/test_canary_supervision.py
+      - tests/intelligence/experience/test_http_canary_observation.py
+      - tests/apps/family_api/test_family_experience_canary_wiring.py
+      - tests/intelligence/experience/test_canary_alerts.py
+      - tests/intelligence/experience/test_canary_scheduler.py
+      - tests/apps/family_api/test_family_experience_canary_scheduler_wiring.py
+      - governance/ADR/ADR-0137-preauthorized-canary-rollback.md
+      - governance/ADR/ADR-0138-canary-alert-human-acknowledgement.md
+      - governance/ADR/ADR-0139-durable-canary-supervision-scheduler.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "安全/未成年人安全违规立即 breach；错误率与 P95 延迟在达到最小样本后按版本化 policy 判定"
+      - "assessment 将 scope、时间窗、聚合指标、policy、health/reasons 完整内容寻址；SQL ledger 支持跨 session 回读、幂等重放及相同 observation/policy 漂移拒绝"
+      - "协调器只从经 verifier 写入的 SQL control ledger 读取 TTL 内真人 ROLLBACK control；缺失、AI actor、过期或 scope 漂移均在外呼前拒绝"
+      - "HttpCanaryObservationPort 使用显式 token/client/mTLS 边界，不传家庭数据并对平台/schema/token 错误 fail-closed"
+      - "FamilyExperienceCanaryRuntime 在 development/test/staging/production 复用同一安全 breach→SQL assessment→预授权 Bundle rollback 路径，跨环境在观测外呼前拒绝"
+      - "CanaryAlert SQL ledger 区分 rollback executed/blocked，同 assessment 结果不可漂移；仅真人可幂等确认且确认不产生 ReleaseControl"
+      - "CanaryJob SQL ledger 以短事务租约实现 worker 抢占/超时接管；有界 tick 在四环境复用同一重试、重排期和终态契约"
+    reason: "把 canary 观测、可审计 SLO 判定与人工授权回滚分层，形成不越过 R9 的灰度安全闭环"
+    known_gaps:
+      - "外部定时触发器、真实观测/paging endpoint 和 PostgreSQL 多 worker 并发演练尚未接入"
+
+  - capability: ai_release_production_composition
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/apps/family_api/production_release_wiring.py
+      - backend/apps/family_api/family_experience_release_wiring.py
+      - tests/apps/family_api/test_production_release_wiring.py
+      - tests/apps/family_api/test_family_experience_release_wiring.py
+      - governance/ADR/ADR-0098-production-release-composition-root.md
+      - governance/ADR/ADR-0136-family-experience-bundle-deployment-composition.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "ProductionReleaseRuntime 只接受 staging/production，每次操作从 OperatorIdentityPort 解析真人并强制 ai.release.deploy scope"
+      - "build_http_production_release_runtime 显式接入 identity/token/deployment adapter、URL、bootstrap token source、audience、HTTP client、receipt 与 telemetry"
+      - "测试覆盖身份派生 actor、缺 scope 在端口调用前失败及非生产环境拒绝"
+      - "FamilyExperienceReleaseRuntime 在 development/test/staging/production 复用同一 identity→scoped token→Bundle gate→HTTP canary→receipt 路径，仅替换显式基础设施与数据"
+    reason: "把发布控制的身份、权限、外部副作用与观测在应用组合根显式收敛，保证测试/预发布/生产同一功能路径"
+    known_gaps:
+      - "真实 Bundle-aware 部署仍需 mTLS、key rotation/revocation、PostgreSQL receipt、scheduler、平台权限和演练证据"
+
+  - capability: ai_telemetry_retention_composition
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/apps/family_api/production_telemetry_retention_wiring.py
+      - tests/apps/family_api/test_production_telemetry_retention_wiring.py
+      - governance/ADR/ADR-0099-production-telemetry-retention-composition.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "ProductionTelemetryRetentionRuntime 只接受 staging/production，每次 bounded run 使用独立 SQL session/事务"
+      - "强制注入 TelemetryDeletionAuditSink factory，删除和 metadata-only receipt 在同一事务内完成，失败可回滚"
+      - "测试覆盖过期批量删除、audit 回执、数据保留与环境/批次边界"
+    reason: "把 telemetry retention 从孤立 worker 提升为与生产 outbox 同形状的显式应用组合根"
+    known_gaps:
+      - "生产仍需 durable deletion-proof 表、scheduler、告警、PostgreSQL 多 worker 并发压测和保留策略审批"
+
+  - capability: ai_engagement_achievement_human_gate_landing
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/experience/engagement.py
+      - backend/intelligence/experience/engagement_persistence.py
+      - backend/intelligence/experience/engagement_review.py
+      - backend/apps/family_api/production_engagement_wiring.py
+      - backend/apps/family_api/main.py
+      - backend/apps/family_api/trusted_experience_scope.py
+      - backend/platform/identity/trusted_context.py
+      - backend/intelligence/experience/engagement_api.py
+      - backend/intelligence/experience/synthetic_engagement_runtime.py
+      - backend/intelligence/experience/accepted_achievement.py
+      - backend/intelligence/experience/achievement.py
+      - backend/intelligence/experience/achievement_persistence.py
+      - tests/intelligence/experience/test_accepted_achievement.py
+      - tests/intelligence/experience/test_engagement.py
+      - tests/intelligence/experience/test_engagement_persistence.py
+      - tests/intelligence/experience/test_engagement_review.py
+      - tests/intelligence/experience/test_engagement_achievement_postgres_e2e.py
+      - tests/apps/family_api/test_production_engagement_wiring.py
+      - tests/intelligence/experience/test_engagement_api.py
+      - tests/apps/family_api/test_engagement_router_mount.py
+      - tests/intelligence/experience/test_synthetic_engagement_runtime.py
+      - tests/apps/family_api/test_sqlalchemy_consent_snapshot_resolver.py
+      - tests/apps/family_api/test_sqlalchemy_bearer_principal_resolver.py
+      - tests/apps/family_api/test_accepted_action_wiring.py
+      - tests/platform/identity/test_trusted_context.py
+      - governance/ADR/ADR-0082-ai-achievement-human-gated-landing.md
+      - governance/ADR/ADR-0145-engagement-draft-human-gate-envelope.md
+      - database/migrations/versions/0054_ai_engagement_draft_reviews.py
+      - governance/ADR/ADR-0108-engagement-authorization-recheck.md
+      - governance/ADR/ADR-0109-engagement-server-event-reader.md
+      - governance/ADR/ADR-0110-production-engagement-runtime-composition.md
+      - governance/ADR/ADR-0111-authenticated-engagement-scope-adapter.md
+      - governance/ADR/ADR-0112-engagement-draft-http-boundary.md
+      - governance/ADR/ADR-0113-synthetic-engagement-parity-runtime.md
+      - governance/ADR/ADR-0114-sqlalchemy-consent-snapshot-resolver.md
+      - governance/ADR/ADR-0115-sqlalchemy-request-auth-composition.md
+      - governance/ADR/ADR-0116-http-request-auth-engagement-wiring.md
+      - governance/ADR/ADR-0121-engagement-context-snapshot-verification.md
+      - governance/ADR/ADR-0122-auth-identity-session-introspection-port.md
+      - backend/platform/identity/session_port.py
+      - backend/apps/family_api/trusted_experience_scope.py
+      - backend/intelligence/context_engine/sql_store.py
+      - tests/apps/family_api/test_production_engagement_wiring.py
+      - tests/apps/family_api/test_sqlalchemy_bearer_principal_resolver.py
+    status: MIGRATED_TESTED
+    evidence:
+      - "EngagementDraft 记录服务端解析的 ExperienceScope；achievement candidate 必须引用本次授权的真实 ExperienceEvent"
+      - "EngagementDraftService 在 Model Gateway 调用前重新校验授权有效期/consent，过期边界证明 provider invocation 为零"
+      - "EngagementDraftApplication 只接受 event_ids，由注入的 EngagementEventReader 按 ExperienceScope 返回真实事件；SqlAlchemyEngagementEventReader 复用 Experience Outbox 并执行删除/范围过滤，缺失/非法事件在 Gateway 前拒绝"
+      - "ProductionEngagementRuntimeResolver 将真实 ExperienceScope、SQL event reader、Model Gateway 与 Attempt/Safety/Telemetry sink 绑定到同一请求级 UoW；测试覆盖生产组合根读取事件并持久化审计"
+      - "AuthenticatedEngagementScopeResolver 复用 principal、trusted tenant/family binding 与 ConsentGate，将已授权 ContextScope 转为 ExperienceScope；撤回/缺失 consent 在 Gateway 前 fail-closed"
+      - "Engagement Draft HTTP route 只接受 request_id/event_ids/payload，family_api 始终挂载但无 runtime 时 503；测试覆盖 OpenAPI 挂载、服务端事件读取、DRAFT 响应、scope/provider 控制字段拒绝"
+      - "SyntheticEngagementRuntimeResolver 仅由 dev_wiring 在 dev/test 安装，使用同一 EngagementDraftApplication 和 Model Gateway 契约生成 SYNTHETIC DRAFT，测试环境保持生产功能 parity"
+      - "SqlAlchemyConsentSnapshotResolver 与 SqlAlchemyFamilySubjectIdsResolver 从 canonical persons/consents 表读取主体与 consent，生成稳定 consent version；缺失 birth date/非法 rows fail-closed，测试覆盖 SQLite 读取与空授权"
+      - "SqlAlchemyBearerPrincipalResolver 对 bearer token 只存/查 SHA-256 摘要并绑定 family；SqlAlchemyTrustedTenantScopeStoreFactory 为 trusted Account→Tenant→Family 查询提供短生命周期 session，组合 resolver 通过 SQLite 合约验证跨链路授权"
+      - "install_sql_engagement_runtime_wiring 按 HTTP 请求构造 SQL identity/consent resolver 与 ProductionEngagementRuntimeResolver，读取 Authorization/追踪头且不缓存身份；缺失 token 通过 API 403 fail-closed"
+      - "ProductionEngagementRuntime 可显式复核 ContextBroker snapshot_ref；ExperienceScope 投影为 ContextScope 后执行 tenant/family/subject/purpose/consent 边界，provider 外呼前失败即终止"
+      - "HttpIdentitySessionPort.introspect 与 HttpIdentityPrincipalResolver 提供 auth_identity 实时会话校验，不复制 token 表；family 绑定/过期在 scope 组合前 fail-closed"
+      - "SQL Context/Engagement scope resolver 暴露 request principal factory，production wiring 可注入 HTTP introspection，同时保留 SQL bearer fallback 与 dev/test parity"
+      - "candidate 只能生成 DRAFT 的 PUBLISH_EXPERIENCE_ACHIEVEMENT Named Action，不能直接创建 Achievement"
+      - "EngagementDraft review envelope 持久化完整多主体 scope、真实事件 ids、模型 output/provenance、TTL/deletion binding 与稳定摘要；相同请求幂等重放、篡改和跨 scope 回读 fail-closed"
+      - "候选提交 HTTP 只接受空 body、服务端 draft_id/candidate_id 与 Idempotency-Key；生产 runtime 重新读取 Experience Outbox、写未成年人读取审计并创建 HumanTask"
+      - "人工决策 HTTP 使用 bearer→account→active OWNER_GUARDIAN/GUARDIAN membership 解析可信 reviewer；ACCEPT 只产生 NamedActionRequest，accepted worker 后续同事务投影 achievement/notification/analytics"
+      - "accepted worker 执行前重新加载 immutable review envelope、回读真实 ExperienceEvent 并按原始 candidate 重建 action；正文、候选、scope 或 provenance 发生变化即 fail-closed"
+      - "单链测试覆盖 persisted draft→evidence recheck→HumanTask→Guardian ACCEPT→accepted worker→achievement/notification/analytics"
+      - "真实 PostgreSQL + HTTP 测试在 fresh Alembic head 数据库验证 Draft→HumanTask→ACCEPT→worker→achievement/notification/analytics，未复用 metadata.create_all 或缓存产物"
+      - "人类接受后 handler 才写入既有 ai_achievement_projections，保留 scope/provenance/evidence/idempotency 并支持 SQL commit"
+      - "tests/intelligence/experience/test_accepted_achievement.py 覆盖 candidate→Human Gate→projection、scope 篡改、缺 scope 和 SQL 回读"
+    reason: "把 Engagement AI 输出真正接入家庭成就闭环，同时维持 AI draft、人工闸门和 read-model-only 边界"
+    known_gaps:
+      - "仍需 accepted worker 执行时实时复核当前 consent/deletion，补真实 bearer identity 的 PostgreSQL HTTP 并发 E2E 与 draft retention deletion worker"
+      - "通知 push delivery 与 analytics 产品指标治理仍由部署和产品运营接入"
+
+  - capability: ai_experience_feedback_projections
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/experience/projections.py
+      - backend/intelligence/experience/achievement_consumer.py
+      - backend/intelligence/experience/feedback_api.py
+      - backend/intelligence/experience/feedback_read.py
+      - backend/apps/family_api/experience_wiring.py
+      - backend/apps/family_api/main.py
+      - database/migrations/versions/0028_ai_achievement_occurrences.py
+      - database/migrations/versions/0029_ai_experience_feedback_projections.py
+      - tests/intelligence/experience/test_projections.py
+      - tests/intelligence/experience/test_achievement_consumer.py
+      - tests/apps/family_api/test_experience_feedback_api.py
+      - frontend/mobile/lib/family/feedback-api-contracts.ts
+      - frontend/mobile/tests/feedback-api-contracts.test.ts
+      - frontend/mobile/tests/feedback-api-client.test.ts
+      - frontend/mobile/app/ui/UI-05.tsx
+      - frontend/mobile/tests/ui05-companion-baseline.test.ts
+      - backend/intelligence/experience/run_http.py
+      - backend/intelligence/experience/sql_run_ledger.py
+      - backend/intelligence/experience/async_ledger_bridge.py
+      - backend/intelligence/experience/multimodal_context_application.py
+      - backend/intelligence/experience/api.py
+      - tests/intelligence/experience/test_run_http.py
+      - tests/intelligence/experience/test_sql_run_ledger.py
+      - tests/intelligence/experience/test_multimodal_context_application.py
+      - governance/ADR/ADR-0130-feedback-preference-context.md
+      - backend/intelligence/experience/contract_binding.py
+      - backend/intelligence/experience/standard_contracts.py
+      - backend/intelligence/experience/standard_assets.py
+      - backend/intelligence/experience/standard_asset_registration.py
+      - backend/intelligence/experience/sql_contract_binding.py
+      - tests/intelligence/experience/test_contract_binding.py
+      - tests/intelligence/experience/test_standard_contracts.py
+      - tests/intelligence/experience/test_standard_assets.py
+      - tests/intelligence/experience/test_standard_asset_registration.py
+      - tests/apps/family_api/test_production_experience_wiring.py
+      - governance/ADR/ADR-0132-multimodal-prompt-schema-binding.md
+      - governance/ADR/ADR-0133-family-experience-standard-assets.md
+      - governance/ADR/ADR-0086-repeatable-achievement-feedback-projections.md
+      - governance/ADR/ADR-0087-shared-experience-scope-authority.md
+      - governance/ADR/ADR-0088-achievement-notification-read-state.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "成就 occurrence_id 使 evidence-distinct AI moments 可重复且按 scope/key/occurrence 幂等"
+      - "consumer 在同一 outbox 事务内更新站内通知 inbox 与 scope-local analytics"
+      - "analytics 以 metadata-only record ledger 去重，通知按 achievement_id 幂等，不存原始 payload"
+      - "测试覆盖跨 scope 隔离、重复消费、通知和事件/成就计数"
+      - "FeedbackPreferenceSnapshot 在内存/SQL Ledger 统一聚合有界信号，并以服务端值绑定到多模态生成 Prompt"
+    reason: "把 AI 成就输出转为可持续的家庭反馈闭环，同时维持非比较、只读和人工闸门约束"
+    known_gaps:
+      - "push provider、retention/deletion worker、analytics dashboard 与产品指标审批仍未接入；生产部署需使用 shared scope resolver；已读操作只收敛通知 read model"
+      - "反馈偏好上下文仅聚合三类反馈信号，不携带原始理由，尚未提供时间衰减或标签化偏好"
+
+  - capability: durable_experience_outbox_runtime
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/apps/family_api/production_experience_outbox_wiring.py
+      - backend/intelligence/experience/outbox_worker.py
+      - backend/intelligence/experience/persistence.py
+      - backend/intelligence/experience/operations_audit_persistence.py
+      - backend/intelligence/evaluation/request_operator_identity.py
+      - backend/intelligence/evaluation/operator_identity.py
+      - backend/apps/family_api/operator_request_context.py
+      - backend/intelligence/experience/dead_letter.py
+      - database/migrations/versions/0027_experience_outbox_dead_letters.py
+      - database/migrations/versions/0026_experience_outbox_delivery_attempts.py
+      - database/migrations/versions/0037_ai_experience_operations_audit.py
+      - tests/apps/family_api/test_production_experience_outbox_wiring.py
+      - tests/intelligence/experience/test_operations_audit_persistence.py
+      - tests/intelligence/evaluation/test_request_operator_identity.py
+      - tests/apps/family_api/test_dev_operator_query_wiring.py
+      - governance/ADR/ADR-0083-durable-experience-outbox-runtime.md
+      - governance/ADR/ADR-0084-experience-outbox-lease-takeover.md
+      - governance/ADR/ADR-0085-sql-experience-dead-letter-sink.md
+      - governance/ADR/ADR-0128-experience-operations-audit-persistence.md
+      - governance/ADR/ADR-0129-request-bound-operator-identity.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "每次 bounded poll 使用全新 SQL session，并以同一事务组装 outbox、consumer、DLQ 与 durable attempt ledger"
+      - "attempts/status/last_error/timestamps 写入 metadata-only ledger，原始家庭 payload 不复制到 DLQ 元数据"
+      - "staging 与 production 复用同一 runtime；worker 重启后 attempt 编号继续递增，成功/死信终态可查询"
+      - "tests/apps/family_api/test_production_experience_outbox_wiring.py 覆盖重启恢复、死信元数据和环境边界"
+      - "SqlAlchemyExperienceOperationsAuditSink 与 Alembic 0037 持久化 operator allow/deny/identity-error metadata；caller-owned sink 只 add+flush，session-factory sink 在查询返回前完成独立短事务"
+      - "tests/intelligence/experience/test_operations_audit_persistence.py 覆盖 SQLite 回读、过滤、时区/结果校验、bounded read 与 AsyncSession composition helper"
+      - "运维 HTTP 路由强制请求 bearer；HttpRequestOperatorIdentityPort 只向 auth_identity 转发短生命周期凭据，request context 在响应后清理且不进入审计"
+    reason: "将 Experience 事件投递从进程内计数提升为可恢复、可审计且不泄露 payload 的生产运行时"
+    known_gaps:
+      - "仍需部署级 recurring scheduler、DLQ alerting/retention，以及 PostgreSQL 多 worker 并发压测"
+
+  - capability: product_management_ipd_contracts
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/product_management
+      - tests/intelligence/test_ipd_contracts.py
+      - governance/ADR/ADR-0035-ipd-product-operating-model.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "ProductCharter、ProductRequirement、GateRecord 和 IPD 阶段顺序契约已实现为不可变值对象"
+      - "tests/intelligence/test_ipd_contracts.py 覆盖阶段闸门顺序、非 GO/跳阶段拒绝、需求绑定与验收证据约束"
+    reason: "将 IPD 产品包与阶段闸门作为 AI/产品治理契约登记；不拥有家庭、成长、服务或商业业务事实"
+    known_gaps:
+      - "当前仅为进程内契约，无持久化 ProductCharter、运营审批工作流、版本发布与 family_api 运行时接线"
 
 # ============ 待人工裁决清单（disposition = REVIEW_REQUIRED 的完整索引） ============
 review_required_index:
