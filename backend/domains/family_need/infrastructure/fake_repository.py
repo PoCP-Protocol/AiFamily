@@ -10,7 +10,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..application.ports import NeedEvent
-from ..domain.entities import FamilyNeed, NeedProfile, NeedSignal, SolutionDraft
+from ..domain.entities import (
+    AssignmentPlan,
+    FamilyConfirmedOutcome,
+    FamilyNeed,
+    NeedProfile,
+    NeedSignal,
+    SolutionDraft,
+)
 from ..domain.errors import FamilyNeedConflictError, FamilyNeedForbiddenError
 from ..domain.policies import assert_context, assert_subjects_in_family
 from ..domain.value_objects import (
@@ -31,6 +38,8 @@ class FakeFamilyNeedRepository:
     profiles: dict[str, NeedProfile] = field(default_factory=dict)
     solution_drafts: dict[str, SolutionDraft] = field(default_factory=dict)
     events: list[NeedEvent] = field(default_factory=list)
+    outcomes: dict[str, FamilyConfirmedOutcome] = field(default_factory=dict)
+    assignment_plans: dict[str, AssignmentPlan] = field(default_factory=dict)
 
     @staticmethod
     def _visible(context: NeedContext, *, tenant_id: str, family_id: str) -> bool:
@@ -124,6 +133,41 @@ class FakeFamilyNeedRepository:
         ):
             raise FamilyNeedConflictError("need_event_version_duplicate")
         self.events.append(event)
+
+    async def save_outcome(self, outcome: FamilyConfirmedOutcome) -> None:
+        assert_context(outcome.context)
+        existing = self.outcomes.get(outcome.outcome_id)
+        if existing is not None and existing.context != outcome.context:
+            raise FamilyNeedForbiddenError("outcome_tenant_scope_conflict")
+        self.outcomes[outcome.outcome_id] = outcome
+
+    async def get_outcomes_for_need(
+        self, *, tenant_id: str, family_id: str, need_id: str
+    ) -> tuple[FamilyConfirmedOutcome, ...]:
+        return tuple(
+            outcome
+            for outcome in self.outcomes.values()
+            if outcome.need_id == need_id
+            and self._visible(outcome.context, tenant_id=tenant_id, family_id=family_id)
+        )
+
+    async def save_assignment_plan(self, plan: AssignmentPlan) -> None:
+        existing = self.assignment_plans.get(plan.plan_id)
+        if existing is not None and (
+            existing.tenant_id != plan.tenant_id or existing.family_id != plan.family_id
+        ):
+            raise FamilyNeedForbiddenError("assignment_plan_tenant_scope_conflict")
+        self.assignment_plans[plan.plan_id] = plan
+
+    async def get_assignment_plan(
+        self, *, tenant_id: str, family_id: str, plan_id: str
+    ) -> AssignmentPlan | None:
+        value = self.assignment_plans.get(plan_id)
+        return (
+            value
+            if value is not None and value.tenant_id == tenant_id and value.family_id == family_id
+            else None
+        )
 
 
 @dataclass

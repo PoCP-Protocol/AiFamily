@@ -19,12 +19,14 @@ from .policies import (
     assert_emotional_gate_transition,
     assert_evidence_scope,
     assert_fact_writer,
+    assert_family_outcome_confirmer,
     assert_manage_actor,
     assert_solution_shape,
     assert_subjects_in_family,
     assert_transition,
     assert_version,
     assert_we_are_family_guards,
+    derive_intervention_tier,
 )
 from .value_objects import (
     AcceptanceCriterion,
@@ -32,6 +34,8 @@ from .value_objects import (
     DataClass,
     EmotionalGate,
     EvidenceRef,
+    FamilyOutcomeDecision,
+    InterventionTier,
     NeedCategory,
     NeedComplexity,
     NeedConstraint,
@@ -387,6 +391,13 @@ class NeedProfile:
     confirmed_by_actor_id: str | None = None
     version: int = 1
     created_at: datetime | None = None
+    # System-derived Triple-P-style support intensity (see
+    # `derive_intervention_tier`). This is always computed server-side from
+    # urgency/complexity/risk_level; it is never accepted from a client body,
+    # mirroring the existing "AI/system-derived fields cannot be supplied by
+    # the caller" boundary already enforced for other derived attributes in
+    # this context.
+    intervention_tier: InterventionTier = InterventionTier.LIGHT_GUIDANCE
 
     def __post_init__(self) -> None:
         assert_context(self.context)
@@ -398,6 +409,11 @@ class NeedProfile:
             raise FamilyNeedValidationError("high_risk_profile_requires_human_confirmation")
         if self.version < 1 or self.need_version < 1:
             raise FamilyNeedValidationError("need_profile_version_invalid")
+        expected_tier = derive_intervention_tier(
+            urgency=self.urgency, complexity=self.complexity, risk_level=self.risk_level
+        )
+        if self.intervention_tier is not expected_tier:
+            raise FamilyNeedValidationError("need_profile_intervention_tier_mismatch")
 
     @property
     def tenant_id(self) -> str:
@@ -451,6 +467,9 @@ class NeedProfile:
             constraints=tuple(constraints),
             confirmed_by_actor_id=confirmed_by_actor_id,
             created_at=utcnow(),
+            intervention_tier=derive_intervention_tier(
+                urgency=urgency, complexity=complexity, risk_level=risk_level
+            ),
         )
         return profile
 
@@ -486,6 +505,16 @@ class SolutionDraft:
     rejection_reason: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    # True only when the originating profile's `intervention_tier` is
+    # ENHANCED_SUPPORT (Triple P Level 5: maltreatment-risk or otherwise
+    # compounding-problem families). This is a "flagged, not auto-fulfilled"
+    # marker, not a status: the draft still goes through the ordinary
+    # DRAFT -> FAMILY_REVIEW -> APPROVED path, but an ENHANCED_SUPPORT draft
+    # must never be treated by any caller as safe to auto-fulfill purely
+    # because a supply reference resolved. Enforced structurally (see
+    # `SolutionDraft.propose`), not left to callers to remember.
+    requires_human_case_review: bool = False
+    human_case_review_note: str | None = None
 
     def __post_init__(self) -> None:
         assert_context(self.context)
@@ -505,6 +534,8 @@ class SolutionDraft:
             raise FamilyNeedValidationError("solution_cost_invalid")
         if self.sla_hours is not None and self.sla_hours < 0:
             raise FamilyNeedValidationError("solution_sla_invalid")
+        if self.requires_human_case_review and not self.human_case_review_note:
+            raise FamilyNeedValidationError("human_case_review_note_required")
 
     @property
     def tenant_id(self) -> str:
@@ -548,6 +579,7 @@ class SolutionDraft:
         if shape not in profile.preferred_shapes:
             raise FamilyNeedValidationError("solution_shape_not_in_need_profile")
         gate = emotional_gate or need.emotional_gate
+        requires_review = profile.intervention_tier is InterventionTier.ENHANCED_SUPPORT
         return cls(
             draft_id=draft_id or str(uuid4()),
             need_id=need.need_id,
@@ -564,6 +596,14 @@ class SolutionDraft:
             sla_hours=sla_hours,
             created_at=utcnow(),
             updated_at=utcnow(),
+            requires_human_case_review=requires_review,
+            human_case_review_note=(
+                "PENDING_HUMAN_CASE_REVIEW: intervention_tier=ENHANCED_SUPPORT "
+                "(Triple P Level 5) — this draft must not be auto-fulfilled; "
+                "a human operator must confirm before any booking/order proceeds."
+                if requires_review
+                else None
+            ),
         )
 
     @property
@@ -642,4 +682,147 @@ class SolutionDraft:
         return replace(self, status=SolutionDraftStatus.STALE, updated_at=utcnow())
 
 
-__all__ = ["FamilyNeed", "NeedProfile", "NeedSignal", "SolutionDraft", "ResourceGap"]
+@dataclass(frozen=True)
+class FamilyConfirmedOutcome:
+    """N6/N7: the family's own verdict on whether a delivered fulfilment
+    (a completed booking or a completed course) actually helped.
+
+    This is deliberately a separate aggregate from the N5 "delivery
+    happened" facts (`booking_service_record_id` / `course_completion_id`
+    joined to the journey via `booking-service-record:`/`course-completion:`
+    action facts). Those record that a service or course was *delivered*;
+    this records whether the family says it *helped* — the two must never be
+    conflated, per R9 (AI output/system delivery records never become the
+    family's own outcome fact).
+    """
+
+    outcome_id: str
+    context: NeedContext
+    need_id: str
+    fulfillment_ref: str
+    decision: FamilyOutcomeDecision
+    confirmed_by: str
+    confirmed_at: datetime
+    draft_id: str | None = None
+    family_note: str | None = None
+
+    def __post_init__(self) -> None:
+        assert_context(self.context)
+        assert_family_outcome_confirmer(self.context.actor_type)
+        if not self.outcome_id.strip():
+            raise FamilyNeedValidationError("family_confirmed_outcome_id_required")
+        if not self.need_id.strip():
+            raise FamilyNeedValidationError("family_confirmed_outcome_need_required")
+        if not self.fulfillment_ref.strip():
+            raise FamilyNeedValidationError("family_confirmed_outcome_fulfillment_ref_required")
+        if not self.confirmed_by.strip():
+            raise FamilyNeedValidationError("family_confirmed_outcome_confirmer_required")
+
+    @property
+    def tenant_id(self) -> str:
+        return self.context.tenant_id
+
+    @property
+    def family_id(self) -> str:
+        return self.context.family_id
+
+    @classmethod
+    def confirm(
+        cls,
+        *,
+        context: NeedContext,
+        need_id: str,
+        fulfillment_ref: str,
+        decision: FamilyOutcomeDecision,
+        confirmed_by: str,
+        draft_id: str | None = None,
+        family_note: str | None = None,
+        outcome_id: str | None = None,
+        confirmed_at: datetime | None = None,
+    ) -> FamilyConfirmedOutcome:
+        return cls(
+            outcome_id=outcome_id or str(uuid4()),
+            context=context,
+            need_id=need_id,
+            draft_id=draft_id,
+            fulfillment_ref=fulfillment_ref,
+            decision=decision,
+            confirmed_by=confirmed_by,
+            confirmed_at=confirmed_at or utcnow(),
+            family_note=family_note.strip() if family_note and family_note.strip() else None,
+        )
+
+
+@dataclass(frozen=True)
+class AssignmentPlan:
+    """N4: the fact that a confirmed draft's components were assigned to
+    specific resources, and on what authority.
+
+    This aggregate deliberately records only the assignment decision itself
+    — it does not recompute or duplicate resource capacity checking (that
+    remains `SupplyReferencePort.check_resource_capacity`'s job). Before this
+    existed, "which resources this need was matched to" lived only inside
+    `fulfil_confirmed_draft`'s call arguments and was never itself a
+    queryable fact. `authorization_basis` names, in plain text, the family
+    action that authorized this assignment (e.g.
+    ``family_confirmed_draft:{draft_id}``) so a reader never has to guess
+    whether an AI decided this on its own — it did not (see
+    `FamilyNeedApplicationService.create_assignment_plan`, which is only ever
+    called after the family's own draft approval).
+    """
+
+    plan_id: str
+    tenant_id: str
+    family_id: str
+    need_id: str
+    draft_id: str
+    component_refs: tuple[SolutionComponentRef, ...]
+    authorization_basis: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        if not self.plan_id.strip():
+            raise FamilyNeedValidationError("assignment_plan_id_required")
+        if not self.tenant_id.strip() or not self.family_id.strip():
+            raise FamilyNeedValidationError("assignment_plan_scope_required")
+        if not self.need_id.strip() or not self.draft_id.strip():
+            raise FamilyNeedValidationError("assignment_plan_identity_required")
+        if not self.component_refs:
+            raise FamilyNeedValidationError("assignment_plan_components_required")
+        if not self.authorization_basis.strip():
+            raise FamilyNeedValidationError("assignment_plan_authorization_basis_required")
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        tenant_id: str,
+        family_id: str,
+        need_id: str,
+        draft_id: str,
+        component_refs: tuple[SolutionComponentRef, ...],
+        authorization_basis: str,
+        plan_id: str | None = None,
+        created_at: datetime | None = None,
+    ) -> AssignmentPlan:
+        return cls(
+            plan_id=plan_id or str(uuid4()),
+            tenant_id=tenant_id,
+            family_id=family_id,
+            need_id=need_id,
+            draft_id=draft_id,
+            component_refs=tuple(component_refs),
+            authorization_basis=authorization_basis,
+            created_at=created_at or utcnow(),
+        )
+
+
+__all__ = [
+    "AssignmentPlan",
+    "FamilyConfirmedOutcome",
+    "FamilyNeed",
+    "NeedProfile",
+    "NeedSignal",
+    "SolutionDraft",
+    "ResourceGap",
+]

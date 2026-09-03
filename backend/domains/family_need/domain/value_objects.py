@@ -77,6 +77,35 @@ class DataClass(StrEnum):
     MINOR_PERSONAL_DATA = "MINOR_PERSONAL_DATA"
 
 
+class InterventionTier(StrEnum):
+    """Five-level graduated support intensity, modelled on the Triple P
+    Positive Parenting Program's public tier structure (triplep.net):
+
+    - Level 1 "Universal Triple P": general population media/self-help
+      content, no direct contact required.
+    - Level 2 "Selected Triple P": brief, light-touch guidance (a seminar or
+      a short individual conversation) for a specific concern.
+    - Level 3 "Primary Care Triple P": brief individual consultation or a
+      short (around two-hour) discussion group for a discrete problem.
+    - Level 4 "Standard/Group Triple P": intensive, multi-session individual
+      or group training for more severe behavioural problems.
+    - Level 5 "Enhanced Triple P": the most intensive tier, for families
+      facing additional risk (e.g. maltreatment risk) or compounding
+      problems, and requiring active practitioner involvement.
+
+    Names below use plain English rather than "Level N" so a reader does not
+    need the Triple P reference to guess the ordering, but the mapping to the
+    original five levels is fixed and must not be changed independently of
+    Triple P's own structure.
+    """
+
+    UNIVERSAL = "UNIVERSAL"  # Triple P Level 1
+    LIGHT_GUIDANCE = "LIGHT_GUIDANCE"  # Triple P Level 2
+    STANDARD_SELECTIVE = "STANDARD_SELECTIVE"  # Triple P Level 3
+    INTENSIVE_SELECTIVE = "INTENSIVE_SELECTIVE"  # Triple P Level 4
+    ENHANCED_SUPPORT = "ENHANCED_SUPPORT"  # Triple P Level 5
+
+
 class SupplyShape(StrEnum):
     PRODUCT = "PRODUCT"
     SERVICE = "SERVICE"
@@ -126,6 +155,17 @@ class ActorType(StrEnum):
     PROVIDER = "PROVIDER"
     SYSTEM = "SYSTEM"
     AI = "AI"
+
+
+class FamilyOutcomeDecision(StrEnum):
+    """N6/N7: the family's own verdict on whether a delivered service/course
+    actually helped. Never inferred by AI or asserted by the system — see
+    `FamilyConfirmedOutcome` and `assert_family_outcome_confirmer` (R9: AI
+    output never becomes a family-authoritative fact)."""
+
+    HELPED = "HELPED"
+    PARTIALLY_HELPED = "PARTIALLY_HELPED"
+    DID_NOT_HELP = "DID_NOT_HELP"
 
 
 @dataclass(frozen=True)

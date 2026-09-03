@@ -10,7 +10,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 
-from ..domain.entities import FamilyNeed, NeedProfile, NeedSignal, SolutionDraft
+from ..domain.entities import (
+    AssignmentPlan,
+    FamilyConfirmedOutcome,
+    FamilyNeed,
+    NeedProfile,
+    NeedSignal,
+    SolutionDraft,
+)
 from ..domain.value_objects import (
     ActorType,
     DataClass,
@@ -125,6 +132,18 @@ class FamilyNeedRepositoryPort(Protocol):
     ) -> SolutionDraft | None: ...
 
     async def append_event(self, event: NeedEvent) -> None: ...
+
+    async def save_outcome(self, outcome: FamilyConfirmedOutcome) -> None: ...
+
+    async def get_outcomes_for_need(
+        self, *, tenant_id: str, family_id: str, need_id: str
+    ) -> tuple[FamilyConfirmedOutcome, ...]: ...
+
+    async def save_assignment_plan(self, plan: AssignmentPlan) -> None: ...
+
+    async def get_assignment_plan(
+        self, *, tenant_id: str, family_id: str, plan_id: str
+    ) -> AssignmentPlan | None: ...
 
 
 class FamilyNeedPolicyPort(Protocol):

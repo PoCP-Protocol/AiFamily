@@ -14,14 +14,27 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Protocol
 
-from ..domain.entities import FamilyNeed, NeedProfile, NeedSignal, SolutionDraft
+from ..domain.entities import (
+    AssignmentPlan,
+    FamilyConfirmedOutcome,
+    FamilyNeed,
+    NeedProfile,
+    NeedSignal,
+    SolutionDraft,
+)
 from ..domain.errors import (
     FamilyNeedConflictError,
     FamilyNeedForbiddenError,
     FamilyNeedValidationError,
 )
-from ..domain.policies import assert_family_scope, assert_subjects_in_family
+from ..domain.policies import (
+    assert_family_outcome_confirmer,
+    assert_family_scope,
+    assert_subjects_in_family,
+)
 from ..domain.value_objects import (
+    FamilyOutcomeDecision,
+    InterventionTier,
     NeedCategory,
     NeedComplexity,
     NeedContext,
@@ -32,6 +45,7 @@ from ..domain.value_objects import (
     ResourceGapReason,
     RiskLevel,
     SolutionComponentRef,
+    SupplyShape,
 )
 from .ports import (
     FamilyNeedPolicyPort,
@@ -43,6 +57,17 @@ from .ports import (
     NeedSignalInput,
     SolutionDraftInput,
     SupplyReferencePort,
+)
+
+# Triple P Levels 3-5 (STANDARD_SELECTIVE, INTENSIVE_SELECTIVE,
+# ENHANCED_SUPPORT): a real person, not self-help content, is the
+# proportionate response from here up.
+_SERVICE_REQUIRED_TIERS = frozenset(
+    {
+        InterventionTier.STANDARD_SELECTIVE,
+        InterventionTier.INTENSIVE_SELECTIVE,
+        InterventionTier.ENHANCED_SUPPORT,
+    }
 )
 
 
@@ -115,6 +140,7 @@ class FamilyNeedApplicationService:
         self._clarification_replays: dict[tuple[str, str, str], tuple[str, FamilyNeed]] = {}
         self._profile_replays: dict[tuple[str, str, str], tuple[str, NeedProfile]] = {}
         self._solution_replays: dict[tuple[str, str, str], tuple[str, SolutionDraftResult]] = {}
+        self._outcome_replays: dict[tuple[str, str, str], tuple[str, FamilyConfirmedOutcome]] = {}
 
     async def clarify_need(self, command: NeedClarificationInput) -> FamilyNeed:
         """Confirm an explicit need and return its aggregate for domain callers."""
@@ -255,6 +281,18 @@ class FamilyNeedApplicationService:
         if profile.version != command.expected_profile_version:
             raise FamilyNeedConflictError("need_profile_version_stale")
 
+        # Triple-P-style intensity gate: STANDARD_SELECTIVE and above (Level 3+)
+        # is, by definition, a level where a self-help/product interaction is
+        # no longer proportionate — it requires a real person (SERVICE). A
+        # PRODUCT-shaped draft request at this tier is rejected rather than
+        # silently matched, so "what strength of support" actually constrains
+        # "what supply gets matched" instead of being informational only.
+        if (
+            profile.intervention_tier in _SERVICE_REQUIRED_TIERS
+            and command.shape is not SupplyShape.SERVICE
+        ):
+            raise FamilyNeedValidationError("intervention_tier_requires_service_shape")
+
         if self._supply_port is None:
             gap = ResourceGap.now(
                 command.need_id,
@@ -350,6 +388,100 @@ class FamilyNeedApplicationService:
         if key is not None:
             self._solution_replays[key] = (fingerprint, result)
         return result
+
+    async def confirm_outcome(
+        self,
+        *,
+        context: NeedContext,
+        need_id: str,
+        fulfillment_ref: str,
+        decision: FamilyOutcomeDecision,
+        draft_id: str | None = None,
+        family_note: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> FamilyConfirmedOutcome:
+        """N6/N7: the family, and only the family, confirms whether a
+        delivered service/course actually helped.
+
+        This is the single most important gate this method enforces: an AI or
+        SYSTEM actor attempting to call this must be rejected outright (R9 —
+        AI output never becomes a family-authoritative fact). The ordinary
+        `_authorize` tenant/subject/consent checks below do not by themselves
+        stop an AI actor from confirming an outcome, so
+        `assert_family_outcome_confirmer` is called explicitly and first.
+        """
+
+        assert_family_outcome_confirmer(context.actor_type)
+        need = await self._required_need(context, need_id)
+        subject_ids = context.subject_person_ids or need.context.subject_person_ids
+        authorization_context = replace(context, subject_person_ids=tuple(subject_ids))
+        actor_id = await self._authorize(authorization_context, subject_ids)
+        assert_family_scope(need.context, authorization_context)
+        if not fulfillment_ref.strip():
+            raise FamilyNeedValidationError("family_confirmed_outcome_fulfillment_ref_required")
+
+        key = self._replay_key(context, idempotency_key)
+        fingerprint = _outcome_fingerprint(
+            need_id=need_id,
+            fulfillment_ref=fulfillment_ref,
+            decision=decision,
+            draft_id=draft_id,
+            family_note=family_note,
+        )
+        if key is not None:
+            previous = self._outcome_replays.get(key)
+            if previous is not None:
+                if previous[0] != fingerprint:
+                    raise FamilyNeedConflictError("family_need_idempotency_payload_mismatch")
+                return previous[1]
+
+        outcome = FamilyConfirmedOutcome.confirm(
+            context=context,
+            need_id=need_id,
+            draft_id=draft_id,
+            fulfillment_ref=fulfillment_ref,
+            decision=decision,
+            confirmed_by=actor_id,
+            family_note=family_note,
+        )
+        await self._repository.save_outcome(outcome)
+        await self._publish(
+            self._event_for(
+                "family_need.outcome_confirmed",
+                outcome.outcome_id,
+                context,
+                1,
+                subject_ids=need.subject_person_ids,
+                idempotency_key=idempotency_key,
+            )
+        )
+        if key is not None:
+            self._outcome_replays[key] = (fingerprint, outcome)
+        return outcome
+
+    async def create_assignment_plan(
+        self, *, context: NeedContext, draft: SolutionDraft
+    ) -> AssignmentPlan:
+        """N4: turn "the family approved this draft" into a queryable
+        assignment-decision fact, before anything is pushed to commerce or
+        service_booking.
+
+        `authorization_basis` names the family's own approval action, not an
+        AI inference — `draft.approve()` already required a human actor
+        (see `SolutionDraft.approve`), so this is never called on a
+        system/AI-decided draft.
+        """
+
+        plan = AssignmentPlan.create(
+            tenant_id=context.tenant_id,
+            family_id=context.family_id,
+            need_id=draft.need_id,
+            draft_id=draft.draft_id,
+            component_refs=draft.components,
+            authorization_basis=f"family_confirmed_draft:{draft.draft_id}",
+        )
+        await self._repository.save_assignment_plan(plan)
+        return plan
 
     async def resource_gap(
         self, *, context, need_id: str, reason: ResourceGapReason, detail: str
@@ -597,6 +729,25 @@ def _solution_fingerprint(command: SolutionDraftInput) -> str:
                 for item in command.component_refs
             ],
             "commercial_intent": command.commercial_intent,
+        }
+    )
+
+
+def _outcome_fingerprint(
+    *,
+    need_id: str,
+    fulfillment_ref: str,
+    decision: FamilyOutcomeDecision,
+    draft_id: str | None,
+    family_note: str | None,
+) -> str:
+    return _hash_payload(
+        {
+            "need_id": need_id,
+            "fulfillment_ref": fulfillment_ref,
+            "decision": str(decision),
+            "draft_id": draft_id,
+            "family_note": family_note,
         }
     )
 
