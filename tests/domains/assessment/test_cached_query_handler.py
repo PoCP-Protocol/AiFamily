@@ -14,9 +14,15 @@ import pytest
 from backend.domains.assessment.application.commands import (
     AssessmentCommandHandler,
     MutationMeta,
+    SaveAssessmentResponseCommand,
     StartAssessmentCommand,
+    SubmitAssessmentCommand,
 )
-from backend.domains.assessment.application.queries import GetUi02ProjectionQuery
+from backend.domains.assessment.application.queries import (
+    GetUi02ProjectionQuery,
+    GetUi03ProjectionQuery,
+)
+from backend.domains.assessment.domain.errors import AssessmentForbiddenError
 from backend.domains.assessment.infrastructure.cached_query_handler import (
     CachedAssessmentQueryHandler,
 )
@@ -121,6 +127,76 @@ class TestCachedQueryHandler:
         assert (
             counting_repo.load_assessable_subjects_call_count == 2
         )  # different cache keys, both miss
+
+    async def test_ui02_cache_hit_rechecks_consent_and_records_read(self, repo, cache):
+        handler = CachedAssessmentQueryHandler(
+            repo, DeterministicInterpretationAdapter(), cache, ttl_seconds=30
+        )
+        query = GetUi02ProjectionQuery(repo._test_family_id, TENANT_ID, "actor-1")
+
+        first = await handler.get_ui02_projection(query)
+        assert first["subjects"][0]["availability"] == "AVAILABLE"
+        assert len(repo.read_audit_events) == 1
+
+        repo.consents.remove((repo._test_family_id, repo._test_child_id, "ASSESSMENT"))
+        second = await handler.get_ui02_projection(query)
+
+        assert second["subjects"][0]["availability"] == "CONSENT_REQUIRED"
+        assert len(repo.read_audit_events) == 2
+
+    async def test_ui03_cache_hit_rejects_withdrawn_consent(self, repo, cache):
+        command_handler = AssessmentCommandHandler(repo)
+        start = await command_handler.start(
+            StartAssessmentCommand(
+                repo._test_family_id,
+                TENANT_ID,
+                "actor-1",
+                repo._test_child_id,
+                None,
+                _meta("cache-ui03-start"),
+            )
+        )
+        session_id = start["session"]["assessment_session_id"]
+        await command_handler.save_response(
+            SaveAssessmentResponseCommand(
+                repo._test_family_id,
+                TENANT_ID,
+                "actor-1",
+                session_id,
+                "FOCUS",
+                "SINGLE_CHOICE",
+                "COMMUNICATION",
+                _meta("cache-ui03-response"),
+            )
+        )
+        await command_handler.submit(
+            SubmitAssessmentCommand(
+                repo._test_family_id,
+                TENANT_ID,
+                "actor-1",
+                session_id,
+                _meta("cache-ui03-submit"),
+            )
+        )
+        repo.seed_need_type(
+            "COMMUNICATION",
+            "NEED_PARENT_CHILD_COMMUNICATION",
+            "亲子沟通支持",
+            "先从倾听开始",
+            ["LISTENING_COACH"],
+        )
+        handler = CachedAssessmentQueryHandler(
+            repo, DeterministicInterpretationAdapter(), cache, ttl_seconds=30
+        )
+        query = GetUi03ProjectionQuery(repo._test_family_id, TENANT_ID, "actor-1")
+
+        first = await handler.get_ui03_projection(query)
+        assert first["availability"] == "READY"
+        repo.consents.remove((repo._test_family_id, repo._test_child_id, "ASSESSMENT"))
+
+        with pytest.raises(AssessmentForbiddenError) as exc:
+            await handler.get_ui03_projection(query)
+        assert exc.value.code == "assessment_subject_or_consent_unavailable"
 
     async def test_stale_cache_does_not_reflect_writes_within_ttl_window(self, repo, cache):
         """Documents the accepted tradeoff: a write inside the TTL window is

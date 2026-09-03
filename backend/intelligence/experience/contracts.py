@@ -60,7 +60,10 @@ class ExperienceEventType(StrEnum):
     CONTENT_SELECTED = "content_selected"
     ACTION_PROPOSAL_SHOWN = "action_proposal_shown"
     ACTION_STARTED = "action_started"
+    ACTION_RESUMED = "action_resumed"
     ACTION_COMPLETED = "action_completed"
+    ACTION_PARTIAL = "action_partial"
+    ACTION_NOT_COMPLETED = "action_not_completed"
     ACTION_SKIPPED = "action_skipped"
     ACTION_PAUSED = "action_paused"
     FEEDBACK_SUBMITTED = "feedback_submitted"
@@ -100,6 +103,7 @@ class FeedbackTargetType(StrEnum):
     EVENT = "experience_event"
     RECOMMENDATION = "recommendation_decision"
     ACTION_PROPOSAL = "action_proposal"
+    ACHIEVEMENT = "achievement"
 
 
 class ExperienceModality(StrEnum):

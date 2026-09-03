@@ -344,6 +344,7 @@ PRODUCTION                0
 | `backend/platform/audit` | 平台内核：AuditRecorder（R6 载体） | 有代码 + `tests/platform/audit/test_recorder.py` |
 | `backend/platform/idempotency` | 平台内核：IdempotencyKey / Store | 有代码 + `tests/platform/idempotency/test_keys.py` |
 | `backend/platform/persistence` | 平台内核：UnitOfWork / SqlAlchemyUnitOfWork | 有代码 + `tests/platform/persistence/test_unit_of_work.py` |
+| `backend/platform/security` | 平台内核：显式 mTLS CA/client certificate transport | 有代码 + `tests/platform/security/test_mtls.py` |
 | `backend/packages/contracts` | 跨域共享原语（`Provenance` / `evidence`），被 4 个域以 `backend.packages.contracts.*` 绝对包路径导入 | `MIGRATED_PENDING_REVIEW`。manifest 原写 target = `backend/platform/persistence`，2026-08-29 已对齐为实际路径 |
 | `backend/apps/family_api` | FastAPI 运行时入口 | 真实可运行，仅 `/health` `/ready` + `tests/apps/family_api/test_routes.py` |
 | `backend/intelligence/design_copilot` | AI 侧占位 | `MIGRATED_STRUCTURE_ONLY`：`ProductCompiler` / `DesignSimulator` 每个方法都是 `NotImplementedError`，零调用方、零测试。见 `CURRENT_AI_MAP.md` |

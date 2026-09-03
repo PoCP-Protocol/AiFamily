@@ -5,33 +5,41 @@ import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, Vi
 
 import { FamilyRefreshControl } from "@/components/family/family-refresh-control";
 import { AssessmentBannerArt, RecommendationArt } from "@/components/family/home-illustrations";
+import { AchievementRail } from "@/components/family/achievement-rail";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { UI01_HOME_TARGETS } from "@/lib/family/ui01-home-entry-map";
 import { createMobileRequestId, familyApi } from "@/lib/family/family-api-client";
+import {
+  normalizeAchievementFeedback,
+  normalizeAchievementNotifications,
+  type FamilyAchievementNotificationsResponse,
+} from "@/lib/family/feedback-api-contracts";
+import type { FamilyAchievementProjection } from "@/lib/family/achievement-contracts";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
 import { useFamilyMobile } from "@/lib/family/family-state";
+import { productRoute, routeForUi } from "@/lib/navigation/family-routes";
 
 const REC_ART_KINDS = ["live", "course", "case"] as const;
 const SHOW_UI01_GROWTH_HELP_PANEL = false;
-const CHALLENGE_CAMP_TARGET = "/ui/UI-14?productRef=PRODUCT_PARENT_CHILD_CAMP" as Href;
+const CHALLENGE_CAMP_TARGET = productRoute("PRODUCT_PARENT_CHILD_CAMP");
 
 type HomeIcon = "heart.fill" | "gift.fill" | "calendar.fill" | "photo.fill" | "video.fill" | "headphones.fill" | "checkmark.circle.fill" | "book.fill";
 
 const QUICK_ENTRIES: readonly { featureId: string; label: string; icon: HomeIcon; color: string; target: Href }[] = [
-  { featureId: "ai_diagnostic", label: "AI诊断", icon: "heart.fill", color: "#35B9D7", target: `/ui/${UI01_HOME_TARGETS.aiInterpretation}` as Href },
+  { featureId: "ai_diagnostic", label: "AI诊断", icon: "heart.fill", color: "#35B9D7", target: routeForUi(UI01_HOME_TARGETS.aiInterpretation) },
   { featureId: "challenge_camp", label: "21天挑战营", icon: "gift.fill", color: "#F06863", target: CHALLENGE_CAMP_TARGET },
-  { featureId: "plan_90", label: "90天成长计划", icon: "calendar.fill", color: "#36A866", target: `/ui/${UI01_HOME_TARGETS.plan90}` as Href },
-  { featureId: "growth_cases", label: "成长案例", icon: "photo.fill", color: "#F0A337", target: `/ui/${UI01_HOME_TARGETS.growthStories}` as Href },
-  { featureId: "expert_live", label: "专家直播", icon: "video.fill", color: "#55A6E9", target: `/ui/${UI01_HOME_TARGETS.expertLive}` as Href },
-  { featureId: "family_advisor", label: "家庭顾问", icon: "headphones.fill", color: "#EC725D", target: `/ui/${UI01_HOME_TARGETS.familyAdvisor}` as Href },
+  { featureId: "plan_90", label: "90天成长计划", icon: "calendar.fill", color: "#36A866", target: routeForUi(UI01_HOME_TARGETS.plan90) },
+  { featureId: "growth_cases", label: "成长案例", icon: "photo.fill", color: "#F0A337", target: routeForUi(UI01_HOME_TARGETS.growthStories) },
+  { featureId: "expert_live", label: "专家直播", icon: "video.fill", color: "#55A6E9", target: routeForUi(UI01_HOME_TARGETS.expertLive) },
+  { featureId: "family_advisor", label: "家庭顾问", icon: "headphones.fill", color: "#EC725D", target: routeForUi(UI01_HOME_TARGETS.familyAdvisor) },
 ];
 
 const RECOMMENDATIONS: readonly { title: string; target: Href }[] = [
-  { title: "妈妈总问我：为什么？", target: `/ui/${UI01_HOME_TARGETS.recommendations}` as Href },
-  { title: "高效学习习惯养成课", target: `/ui/${UI01_HOME_TARGETS.recommendations}` as Href },
-  { title: "从紧张冲突到亲子和谐", target: `/ui/${UI01_HOME_TARGETS.recommendations}` as Href },
+  { title: "妈妈总问我：为什么？", target: routeForUi(UI01_HOME_TARGETS.recommendations) },
+  { title: "高效学习习惯养成课", target: routeForUi(UI01_HOME_TARGETS.recommendations) },
+  { title: "从紧张冲突到亲子和谐", target: routeForUi(UI01_HOME_TARGETS.recommendations) },
 ];
 
 type HomeAvailability = "AVAILABLE" | "POLICY_BLOCKED" | "SUPPLY_UNAVAILABLE" | "NOT_CONFIGURED";
@@ -86,6 +94,11 @@ export default function TodayScreen() {
   const [home, setHome] = useState<RemoteHome | null>(null);
   const [homeLoading, setHomeLoading] = useState(false);
   const [homeError, setHomeError] = useState<string | null>(null);
+  const [achievementProjection, setAchievementProjection] = useState<FamilyAchievementProjection | null>(null);
+  const [achievementNotifications, setAchievementNotifications] = useState<FamilyAchievementNotificationsResponse["unread"]>([]);
+  const [achievementLoading, setAchievementLoading] = useState(false);
+  const [achievementError, setAchievementError] = useState<string | null>(null);
+  const achievementLoadSequence = useRef(0);
   const [growthHelpOpen, setGrowthHelpOpen] = useState(false);
   const [growthHelpSubjectId, setGrowthHelpSubjectId] = useState<string | null>(null);
   const [growthHelpText, setGrowthHelpText] = useState("");
@@ -118,6 +131,40 @@ export default function TodayScreen() {
 
   useEffect(() => { void loadHome(); }, [loadHome]);
 
+  const loadAchievements = useCallback(async () => {
+    const loadSequence = ++achievementLoadSequence.current;
+    if (session.status !== "connected" || !session.token || !session.selectedFamily) {
+      setAchievementProjection(null);
+      setAchievementNotifications([]);
+      setAchievementLoading(false);
+      return;
+    }
+    const familyId = session.selectedFamily.family_id;
+    setAchievementLoading(true);
+    setAchievementError(null);
+    try {
+      const [rawAchievements, rawNotifications] = await Promise.all([
+        familyApi.getFamilyAchievements(session.token, familyId),
+        familyApi.getFamilyAchievementNotifications(session.token, familyId),
+      ]);
+      const projection = normalizeAchievementFeedback(rawAchievements);
+      const notifications = normalizeAchievementNotifications(rawNotifications);
+      if (projection.familyId !== familyId || (notifications.family_id && notifications.family_id !== familyId)) {
+        throw new Error("achievement_projection_scope_mismatch");
+      }
+      if (loadSequence !== achievementLoadSequence.current) return;
+      setAchievementProjection(projection);
+      setAchievementNotifications(notifications.unread);
+    } catch {
+      if (loadSequence !== achievementLoadSequence.current) return;
+      setAchievementError("成长成就暂时无法同步，请检查网络后重试。");
+    } finally {
+      if (loadSequence === achievementLoadSequence.current) setAchievementLoading(false);
+    }
+  }, [session.selectedFamily, session.status, session.token]);
+
+  useEffect(() => { void loadAchievements(); }, [loadAchievements]);
+
   useEffect(() => {
     const available = home?.growth_help.subjects.filter((subject) => subject.availability === "AVAILABLE") ?? [];
     setGrowthHelpSubjectId((current) => {
@@ -139,6 +186,23 @@ export default function TodayScreen() {
   const recommendationItems = home ? home.recommendations : RECOMMENDATIONS.map((item, index) => ({ recommendation_id: `local-${index}`, title: item.title, source_type: "PRODUCT_OFFERING" as const, target_ui: "UI-13" }));
 
   const open = (target: Href) => router.push(target);
+
+  const openAchievements = (achievementId?: string) => {
+    if (session.status === "connected" && session.token && session.selectedFamily && achievementNotifications.length > 0) {
+      const familyId = session.selectedFamily.family_id;
+      const pending = achievementNotifications;
+      setAchievementNotifications([]);
+      void Promise.allSettled(
+        pending.map((notification) => familyApi.markFamilyAchievementNotificationRead(
+          session.token!,
+          familyId,
+          notification.notification_id,
+          createMobileRequestId(`ui01-achievement-read-${achievementId ?? "rail"}`),
+        )),
+      );
+    }
+    open(routeForUi("UI-29"));
+  };
 
   const submitGrowthHelp = async () => {
     if (session.status !== "connected" || !session.token || !session.selectedFamily || !growthHelpSubjectId || !growthHelpText.trim()) return;
@@ -229,20 +293,25 @@ export default function TodayScreen() {
             <View style={styles.topBar}>
               <Text style={[styles.platformTitle, { color: colors.text }]}>家庭成长平台</Text>
               <View style={styles.topActions}>
-                <Pressable accessibilityRole="button" accessibilityLabel="更多与家庭档案" onPress={() => open("/ui/UI-34" as Href)}><IconSymbol name="ellipsis" size={25} color={colors.text} /></Pressable>
-                <Pressable accessibilityRole="button" accessibilityLabel="查看家庭上下文" onPress={() => open("/ui/UI-34" as Href)}><IconSymbol name="eye.fill" size={22} color={colors.text} /></Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel="更多与家庭档案" onPress={() => open(routeForUi("UI-34"))}><IconSymbol name="ellipsis" size={25} color={colors.text} /></Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel="查看家庭上下文" onPress={() => open(routeForUi("UI-34"))}><IconSymbol name="eye.fill" size={22} color={colors.text} /></Pressable>
               </View>
             </View>
 
             <View style={styles.welcomeRow}>
               <Text style={[styles.welcome, { color: colors.text }]}>{greeting}{home?.family.display_name ? `，${home.family.display_name}` : ""}{"\n"}今天也一起陪孩子成长 ☀</Text>
-              <Pressable disabled={home?.notification?.state === "NOT_CONFIGURED"} accessibilityRole="button" accessibilityLabel={home?.notification?.state === "NOT_CONFIGURED" ? "提醒功能尚未配置" : "提醒"} onPress={() => open("/ui/UI-34" as Href)} style={home?.notification?.state === "NOT_CONFIGURED" ? styles.disabled : undefined}><IconSymbol name="bell.fill" size={25} color={colors.text} /></Pressable>
+              <Pressable disabled={home?.notification?.state === "NOT_CONFIGURED"} accessibilityRole="button" accessibilityLabel={home?.notification?.state === "NOT_CONFIGURED" ? "提醒功能尚未配置" : "提醒"} onPress={() => open(routeForUi("UI-34"))} style={home?.notification?.state === "NOT_CONFIGURED" ? styles.disabled : undefined}><IconSymbol name="bell.fill" size={25} color={colors.text} /></Pressable>
             </View>
 
             {homeLoading ? <View style={styles.statusPanel}><ActivityIndicator color={colors.tint} /><Text style={[styles.statusText, { color: colors.muted }]}>正在同步家庭首页</Text></View> : null}
             {homeError ? <Pressable accessibilityRole="button" accessibilityLabel="重试同步首页" onPress={() => void loadHome()} style={[styles.statusPanel, { borderColor: colors.border }]}><Text style={[styles.statusText, { color: colors.error }]}>{homeError}</Text><Text style={[styles.retryText, { color: colors.tint }]}>点击重试</Text></Pressable> : null}
 
-            <Pressable disabled={home?.assessment_campaign.state === "POLICY_BLOCKED"} accessibilityRole="button" accessibilityLabel="免费家庭测评" onPress={() => open(`/ui/${UI01_HOME_TARGETS.freeAssessment}` as Href)} style={({ pressed }) => [home?.assessment_campaign.state === "POLICY_BLOCKED" && styles.disabled, pressed && styles.pressed]}>
+            {achievementLoading ? <View style={styles.statusPanel}><ActivityIndicator color={colors.tint} /><Text style={[styles.statusText, { color: colors.muted }]}>正在同步家庭成就</Text></View> : null}
+            {achievementError ? <Pressable accessibilityRole="button" accessibilityLabel="重试同步家庭成就" onPress={() => void loadAchievements()} style={[styles.statusPanel, { borderColor: colors.border }]}><Text style={[styles.statusText, { color: colors.error }]}>{achievementError}</Text><Text style={[styles.retryText, { color: colors.tint }]}>点击重试</Text></Pressable> : null}
+            {achievementNotifications.length > 0 ? <Pressable accessibilityRole="button" accessibilityLabel={`查看 ${achievementNotifications.length} 条新成就提醒`} onPress={() => openAchievements()} style={[styles.achievementNotice, { backgroundColor: `${colors.primary}10`, borderColor: `${colors.primary}30` }]}><IconSymbol name="bell.fill" size={18} color={colors.primary} /><Text style={[styles.achievementNoticeText, { color: colors.text }]}>你有 {achievementNotifications.length} 条新的家庭成就提醒</Text><IconSymbol name="chevron.right" size={16} color={colors.muted} /></Pressable> : null}
+            {achievementProjection ? <AchievementRail projection={achievementProjection} onOpenAchievement={(achievementId) => openAchievements(achievementId)} onContinue={() => open(routeForUi(UI01_HOME_TARGETS.dailyTasks))} /> : null}
+
+            <Pressable disabled={home?.assessment_campaign.state === "POLICY_BLOCKED"} accessibilityRole="button" accessibilityLabel="免费家庭测评" onPress={() => open(routeForUi(UI01_HOME_TARGETS.freeAssessment))} style={({ pressed }) => [home?.assessment_campaign.state === "POLICY_BLOCKED" && styles.disabled, pressed && styles.pressed]}>
               <AssessmentBannerArt />
             </Pressable>
 
@@ -294,19 +363,19 @@ export default function TodayScreen() {
                   <Text style={[styles.growthHelpResultText, { color: colors.muted }]}>{growthRecommendation.why_now}</Text>
                   {growthRecommendation.candidates.map((candidate) => <View key={candidate.offer_ref} style={styles.candidateRow}><Text style={[styles.candidateTitle, { color: colors.text }]}>{offerLabel(candidate.offer_ref)}</Text><Text style={[styles.growthHelpResultText, { color: colors.muted }]}>{candidate.why_this}</Text>{candidate.limitations.map((item) => <Text key={item} style={[styles.candidateLimit, { color: colors.muted }]}>边界：{item}</Text>)}</View>)}
                   {!growthDecision ? <View style={styles.decisionActions}>{growthRecommendation.recommended_offer_refs.some((offerRef) => offerRef !== "resource:v1:no_action") ? <Pressable disabled={growthHelpAdvancing} accessibilityRole="button" accessibilityLabel="接受建议并开始" onPress={() => void decideGrowthHelp("ACCEPT_RECOMMENDATION")} style={[styles.growthHelpSubmit, { backgroundColor: colors.tint }]}><Text style={styles.growthHelpSubmitText}>接受建议并开始</Text></Pressable> : null}<Pressable disabled={growthHelpAdvancing} accessibilityRole="button" accessibilityLabel="今晚先不安排" onPress={() => void decideGrowthHelp("DISMISS")} style={[styles.growthHelpSecondary, { borderColor: colors.border }]}><Text style={[styles.growthHelpSecondaryText, { color: colors.text }]}>今晚先不安排</Text></Pressable></View> : null}
-                  {growthDecision ? <View style={[styles.decisionReceipt, { backgroundColor: growthDecision.outcome === "SERVICE_STARTED" ? "#EAF8F3" : "#F1F5F9" }]}><Text style={[styles.growthHelpResultTitle, { color: growthDecision.outcome === "SERVICE_STARTED" ? colors.success : colors.text }]}>{growthDecision.outcome === "SERVICE_STARTED" ? "服务已启动" : growthDecision.outcome === "NO_ACTION" ? "已记录：今晚先不安排" : "服务状态已更新"}</Text><Text style={[styles.growthHelpResultText, { color: colors.muted }]}>{growthDecision.outcome === "SERVICE_STARTED" ? "系统已保存可追溯服务回执，稍后可以反馈是否有帮助。" : "没有创建下游成长任务或效果结论。"}</Text>{growthDecision.outcome === "SERVICE_STARTED" && growthDecision.executed_resource_type === "AI_COACH" ? <Pressable accessibilityRole="button" accessibilityLabel="进入AI成长陪伴" onPress={() => open("/ui/UI-05" as Href)}><Text style={[styles.growthHelpNext, { color: colors.tint }]}>进入 AI 成长陪伴 →</Text></Pressable> : null}</View> : null}
+                  {growthDecision ? <View style={[styles.decisionReceipt, { backgroundColor: growthDecision.outcome === "SERVICE_STARTED" ? "#EAF8F3" : "#F1F5F9" }]}><Text style={[styles.growthHelpResultTitle, { color: growthDecision.outcome === "SERVICE_STARTED" ? colors.success : colors.text }]}>{growthDecision.outcome === "SERVICE_STARTED" ? "服务已启动" : growthDecision.outcome === "NO_ACTION" ? "已记录：今晚先不安排" : "服务状态已更新"}</Text><Text style={[styles.growthHelpResultText, { color: colors.muted }]}>{growthDecision.outcome === "SERVICE_STARTED" ? "系统已保存可追溯服务回执，稍后可以反馈是否有帮助。" : "没有创建下游成长任务或效果结论。"}</Text>{growthDecision.outcome === "SERVICE_STARTED" && growthDecision.executed_resource_type === "AI_COACH" ? <Pressable accessibilityRole="button" accessibilityLabel="进入AI成长陪伴" onPress={() => open(routeForUi("UI-05"))}><Text style={[styles.growthHelpNext, { color: colors.tint }]}>进入 AI 成长陪伴 →</Text></Pressable> : null}</View> : null}
                 </View> : null}
               </View> : null}
             </View> : null}
 
-            {home?.journey ? <Pressable accessibilityRole="button" accessibilityLabel="查看当前90天成长旅程" onPress={() => open(`/ui/${UI01_HOME_TARGETS.plan90}` as Href)} style={[styles.journeyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}><Text style={[styles.journeyTitle, { color: colors.text }]}>{home.journey.title}</Text><Text style={[styles.journeyMeta, { color: colors.muted }]}>第 {home.journey.current_day}/{home.journey.total_days} 天 · {home.journey.current_phase}</Text></Pressable> : null}
-            {home?.primary_action ? <Pressable accessibilityRole="button" accessibilityLabel="今晚一件事" onPress={() => open(`/ui/${UI01_HOME_TARGETS.dailyTasks}` as Href)} style={[styles.primaryAction, { backgroundColor: `${colors.tint}10`, borderColor: `${colors.tint}40` }]}><Text style={[styles.primaryEyebrow, { color: colors.tint }]}>今晚一件事</Text><Text style={[styles.primaryText, { color: colors.text }]}>{home.primary_action.assignment_text}</Text></Pressable> : null}
+            {home?.journey ? <Pressable accessibilityRole="button" accessibilityLabel="查看当前90天成长旅程" onPress={() => open(routeForUi(UI01_HOME_TARGETS.plan90))} style={[styles.journeyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}><Text style={[styles.journeyTitle, { color: colors.text }]}>{home.journey.title}</Text><Text style={[styles.journeyMeta, { color: colors.muted }]}>第 {home.journey.current_day}/{home.journey.total_days} 天 · {home.journey.current_phase}</Text></Pressable> : null}
+            {home?.primary_action ? <Pressable accessibilityRole="button" accessibilityLabel="今晚一件事" onPress={() => open(routeForUi(UI01_HOME_TARGETS.dailyTasks))} style={[styles.primaryAction, { backgroundColor: `${colors.tint}10`, borderColor: `${colors.tint}40` }]}><Text style={[styles.primaryEyebrow, { color: colors.tint }]}>今晚一件事</Text><Text style={[styles.primaryText, { color: colors.text }]}>{home.primary_action.assignment_text}</Text></Pressable> : null}
 
-            <SectionTitle title="今日成长任务" action="查看全部" onPress={() => open(`/ui/${UI01_HOME_TARGETS.dailyTasks}` as Href)} colors={colors} />
+            <SectionTitle title="今日成长任务" action="查看全部" onPress={() => open(routeForUi(UI01_HOME_TARGETS.dailyTasks))} colors={colors} />
             <View style={[styles.taskList, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               {home && tasks.length === 0 ? <View style={styles.emptyRow}><Text style={[styles.statusText, { color: colors.muted }]}>今天还没有安排成长行动，可以从测评或成长计划开始。</Text></View> : null}
               {tasks.map((task, index) => (
-                <Pressable key={task.label} accessibilityRole="button" accessibilityLabel={task.label} onPress={() => open(`/ui/${UI01_HOME_TARGETS.dailyTasks}` as Href)} style={({ pressed }) => [styles.taskRow, index < tasks.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }, pressed && styles.pressed]}>
+                <Pressable key={task.label} accessibilityRole="button" accessibilityLabel={task.label} onPress={() => open(routeForUi(UI01_HOME_TARGETS.dailyTasks))} style={({ pressed }) => [styles.taskRow, index < tasks.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }, pressed && styles.pressed]}>
                   <IconSymbol name={task.icon} size={21} color={task.color} />
                   <Text style={[styles.taskLabel, { color: colors.text }]}>{task.label}</Text>
                   {task.done ? <IconSymbol name="checkmark.circle.fill" size={22} color="#32B276" /> : <Text style={[styles.completePill, { color: colors.tint, borderColor: `${colors.tint}55` }]}>去完成</Text>}
@@ -314,11 +383,11 @@ export default function TodayScreen() {
               ))}
             </View>
 
-            <SectionTitle title="推荐内容/服务" action="更多" onPress={() => open(`/ui/${UI01_HOME_TARGETS.recommendations}` as Href)} colors={colors} />
+            <SectionTitle title="推荐内容/服务" action="更多" onPress={() => open(routeForUi(UI01_HOME_TARGETS.recommendations))} colors={colors} />
             <View style={styles.recommendationRow}>
               {home && recommendationItems.length === 0 ? <View style={[styles.emptyRecommendation, { backgroundColor: colors.surface, borderColor: colors.border }]}><Text style={[styles.statusText, { color: colors.muted }]}>当前没有已审核上架的内容或服务。</Text></View> : null}
               {recommendationItems.map((item, index) => (
-                <Pressable key={item.recommendation_id} accessibilityRole="button" accessibilityLabel={`查看${item.title}`} onPress={() => open((item.target_ui === "UI-19" ? "/ui/UI-19" : "/ui/UI-13") as Href)} style={({ pressed }) => [styles.recommendationCard, pressed && styles.pressed]}>
+                <Pressable key={item.recommendation_id} accessibilityRole="button" accessibilityLabel={`查看${item.title}`} onPress={() => open(routeForUi(item.target_ui === "UI-19" ? "UI-19" : "UI-13"))} style={({ pressed }) => [styles.recommendationCard, pressed && styles.pressed]}>
                   <RecommendationArt kind={REC_ART_KINDS[index % 3]} />
                   <View style={styles.recommendationCaption}><Text numberOfLines={2} style={styles.recommendationTitle}>{item.title}</Text></View>
                 </Pressable>
@@ -406,6 +475,8 @@ const styles = StyleSheet.create({
   statusPanel: { minHeight: 48, borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9 },
   statusText: { fontSize: 13, lineHeight: 19, fontWeight: "600", textAlign: "center" },
   retryText: { fontSize: 13, fontWeight: "800" },
+  achievementNotice: { minHeight: 46, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
+  achievementNoticeText: { flex: 1, fontSize: 13, lineHeight: 19, fontWeight: "800" },
   journeyCard: { borderWidth: 1, borderRadius: 14, padding: 13, gap: 3 },
   journeyTitle: { fontSize: 16, lineHeight: 22, fontWeight: "900" },
   journeyMeta: { fontSize: 12, lineHeight: 17, fontWeight: "700" },

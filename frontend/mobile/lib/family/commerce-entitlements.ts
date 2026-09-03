@@ -103,11 +103,18 @@ export function commerceProductsForDisplay(remoteProducts: readonly FamilyApiCom
   const inheritedProducts = EXISTING_COMMERCE_PRESENTATION.map((inherited) => {
     const product = remoteByRef.get(inherited.productRef);
     if (!product) return inherited;
+    const attributes = product.attributes ?? {};
     return {
       ...inherited,
       productRef: product.product_ref,
       productVersion: product.product_version,
       title: product.title,
+      subtitle: stringAttribute(attributes.subtitle, inherited.subtitle),
+      audience: stringAttribute(attributes.audience, inherited.audience),
+      delivery: stringArrayAttribute(attributes.delivery, inherited.delivery),
+      familyPriceLabel: stringAttribute(attributes.family_price_label, inherited.familyPriceLabel),
+      memberPriceLabel: stringAttribute(attributes.member_price_label, inherited.memberPriceLabel),
+      category: categoryAttribute(attributes.category, inherited.category),
       source: "FAMILY_API" as const,
       fixtureOnly: product.fixture_only,
     };
@@ -120,10 +127,28 @@ export function commerceProductsForDisplay(remoteProducts: readonly FamilyApiCom
       productRef: product.product_ref,
       productVersion: product.product_version,
       title: product.title,
+      subtitle: stringAttribute(product.attributes?.subtitle, "家庭成长支持方案"),
+      audience: stringAttribute(product.attributes?.audience, "希望获得家庭成长支持的家庭"),
+      delivery: stringArrayAttribute(product.attributes?.delivery, ["家庭说明", "行动练习"]),
+      familyPriceLabel: stringAttribute(product.attributes?.family_price_label, "家庭意向待确认"),
+      memberPriceLabel: stringAttribute(product.attributes?.member_price_label, "会员权益可查看"),
+      category: categoryAttribute(product.attributes?.category, "TOOL"),
       source: "FAMILY_API" as const,
       fixtureOnly: product.fixture_only,
     }));
   return [...inheritedProducts, ...additionalProducts];
+}
+
+function stringAttribute(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function stringArrayAttribute(value: unknown, fallback: readonly string[]): readonly string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : fallback;
+}
+
+function categoryAttribute(value: unknown, fallback: CommerceCategory): CommerceCategory {
+  return value === "COURSE" || value === "ASSESSMENT" || value === "TOOL" ? value : fallback;
 }
 
 export interface CommerceIntentDraft {

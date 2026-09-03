@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aifamily.invalid/contracts/locale-context.schema.json",
+  "title": "AiFamily Locale Context",
+  "description": "Explicit language envelope shared by TypeScript clients and Python runtimes.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "user_locale": { "$ref": "#/$defs/locale" },
+    "content_locale": { "$ref": "#/$defs/locale" },
+    "model_locale": { "$ref": "#/$defs/locale" },
+    "policy_locale": { "$ref": "#/$defs/locale" },
+    "fallback_locales": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/locale" }
+    }
+  },
+  "required": [
+    "user_locale",
+    "content_locale",
+    "model_locale",
+    "policy_locale",
+    "fallback_locales"
+  ],
+  "$defs": {
+    "locale": {
+      "type": "string",
+      "pattern": "^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$"
+    }
+  }
+}

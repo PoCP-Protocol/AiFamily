@@ -129,6 +129,34 @@ async def test_sql_ledger_interactions_are_append_only_and_replayable(session_fa
         assert snapshot.deletion_state == "active"
 
 
+
+@pytest.mark.asyncio
+async def test_sql_feedback_preferences_are_scope_local(session_factory) -> None:
+    async with session_factory() as session:
+        await _create(session)
+        ledger = SqlAlchemyExperienceRunLedger(session)
+        async with session.begin():
+            await ledger.append_interaction(
+                scope=_scope(),
+                run_id="run-sql-1",
+                interaction_type=InteractionType.FEEDBACK,
+                payload={"signal": "not_helpful", "reason": "节奏太快"},
+                idempotency_key="feedback-pref-1",
+            )
+            await ledger.append_interaction(
+                scope=_scope(),
+                run_id="run-sql-1",
+                interaction_type=InteractionType.FEEDBACK,
+                payload={"signal": "request_human"},
+                idempotency_key="feedback-pref-2",
+            )
+        preferences = await ledger.feedback_preferences(scope=_scope())
+        assert preferences.helpful_count == 0
+        assert preferences.not_helpful_count == 1
+        assert preferences.request_human_count == 1
+        assert preferences.sample_size == 2
+
+
 @pytest.mark.asyncio
 async def test_sql_feedback_references_use_the_shared_evaluation_contract(session_factory) -> None:
     async with session_factory() as session:

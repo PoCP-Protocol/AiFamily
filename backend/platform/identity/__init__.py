@@ -14,6 +14,14 @@ from backend.platform.identity.directory import (
     InMemoryTenantDirectory,
     TenantDirectory,
 )
+from backend.platform.identity.session_port import (
+    HttpIdentitySessionPort,
+    IdentitySessionError,
+    IdentitySessionPort,
+    IssuedIdentitySession,
+    SessionBootstrapTokenSource,
+    VerifiedIdentitySession,
+)
 from backend.platform.identity.trusted_context import (
     InMemoryTrustedTenantScopeStore,
     SqlAlchemyTrustedTenantScopeStore,
@@ -43,4 +51,10 @@ __all__ = [
     "TrustedTenantScopeStore",
     "InMemoryTrustedTenantScopeStore",
     "SqlAlchemyTrustedTenantScopeStore",
+    "HttpIdentitySessionPort",
+    "IdentitySessionError",
+    "IdentitySessionPort",
+    "IssuedIdentitySession",
+    "SessionBootstrapTokenSource",
+    "VerifiedIdentitySession",
 ]

@@ -23,6 +23,7 @@ from .contracts import (
     CaseStatus,
     ContributionQualityState,
     GateServiceScope,
+    MutationIdempotencyRecord,
     ServiceCase,
     ServiceContribution,
     ServiceDelivery,
@@ -31,6 +32,7 @@ from .contracts import (
     TaskQualityState,
     TaskStatus,
 )
+from .idempotency import effective_mutation_key, mutation_request_hash
 
 
 class FGCNQualityContributionRepository(Protocol):
@@ -49,6 +51,25 @@ class FGCNQualityContributionRepository(Protocol):
     async def save_quality_review(self, review: TaskQualityReview) -> None: ...
 
     async def save_contribution(self, contribution: ServiceContribution) -> None: ...
+
+    async def claim_mutation(
+        self,
+        *,
+        scope: GateServiceScope,
+        action_name: str,
+        idempotency_key: str,
+        request_hash: str,
+    ) -> MutationIdempotencyRecord: ...
+
+    async def complete_mutation(
+        self,
+        *,
+        scope: GateServiceScope,
+        action_name: str,
+        idempotency_key: str,
+        request_hash: str,
+        resource_id: str,
+    ) -> None: ...
 
     async def flush_audit(self, recorder: AuditRecorder) -> int: ...
 
@@ -110,6 +131,7 @@ async def verify_service_delivery(
     recorder: AuditRecorder,
     quality_state: TaskQualityState | str = TaskQualityState.PASSED,
     reviewed_at: datetime | None = None,
+    idempotency_key: str | None = None,
 ) -> TaskQualityReview:
     """Pass one delivered task through an independent human quality review."""
 
@@ -161,7 +183,46 @@ async def verify_service_delivery(
         reviewed_at=reviewed_at or datetime.now(UTC),
         locale=delivery.locale,
     )
+    key = effective_mutation_key(idempotency_key, review.quality_review_id)
+    request_hash = mutation_request_hash(
+        "VERIFY_SERVICE_DELIVERY",
+        scope,
+        {
+            "quality_review_id": review.quality_review_id,
+            "task_id": review.task_id,
+            "reviewer_ref": review.reviewer_ref,
+            "quality_state": review.quality_state.value,
+            "review_note": review.review_note,
+        },
+    )
+    claim = await repo.claim_mutation(
+        scope=scope,
+        action_name="VERIFY_SERVICE_DELIVERY",
+        idempotency_key=key,
+        request_hash=request_hash,
+    )
+    if not claim.is_new:
+        if claim.resource_id != review.quality_review_id:
+            raise ServiceConflictError("fgcn_quality_review_idempotency_replay_mismatch")
+        existing = await repo.load_quality_review(review.quality_review_id)
+        if not _quality_replay_matches(
+            existing,
+            quality_review_id=review.quality_review_id,
+            task_id=review.task_id,
+            reviewer_ref=review.reviewer_ref,
+            quality_state=review.quality_state,
+            review_note=review.review_note,
+        ):
+            raise ServiceConflictError("fgcn_quality_review_idempotency_replay_mismatch")
+        return existing
     await repo.save_quality_review(review)
+    await repo.complete_mutation(
+        scope=scope,
+        action_name="VERIFY_SERVICE_DELIVERY",
+        idempotency_key=key,
+        request_hash=request_hash,
+        resource_id=review.quality_review_id,
+    )
     recorder.record(
         AuditEvent(
             actor_id=reviewer,
@@ -212,6 +273,7 @@ async def record_service_contribution(
     completed_at: datetime,
     scope: GateServiceScope,
     recorder: AuditRecorder,
+    idempotency_key: str | None = None,
 ) -> ServiceContribution:
     """Turn one verified delivery into one auditable contribution fact."""
 
@@ -224,6 +286,8 @@ async def record_service_contribution(
     )
     if task.responsible_ref != provider:
         raise ServiceForbiddenError("fgcn_contribution_provider_mismatch")
+    if role_key != task.role_key:
+        raise ServiceForbiddenError("fgcn_contribution_role_mismatch")
     if task.status is not TaskStatus.VERIFIED:
         raise ServiceConflictError("fgcn_contribution_requires_verified_task")
     delivery = await repo.load_delivery(task_id)
@@ -250,7 +314,42 @@ async def record_service_contribution(
             return existing
         raise ServiceConflictError("fgcn_contribution_idempotency_replay_mismatch")
 
+    key = effective_mutation_key(idempotency_key, contribution.contribution_id)
+    request_hash = mutation_request_hash(
+        "RECORD_SERVICE_CONTRIBUTION",
+        scope,
+        {
+            "contribution_id": contribution.contribution_id,
+            "task_id": contribution.task_id,
+            "delivery_id": contribution.delivery_id,
+            "provider_ref": contribution.provider_ref,
+            "role_key": contribution.role_key,
+            "started_at": contribution.started_at.astimezone(UTC).isoformat(),
+            "completed_at": contribution.completed_at.astimezone(UTC).isoformat(),
+        },
+    )
+    claim = await repo.claim_mutation(
+        scope=scope,
+        action_name="RECORD_SERVICE_CONTRIBUTION",
+        idempotency_key=key,
+        request_hash=request_hash,
+    )
+    if not claim.is_new:
+        if claim.resource_id != contribution.contribution_id:
+            raise ServiceConflictError("fgcn_contribution_idempotency_replay_mismatch")
+        existing = await repo.load_contribution(contribution.contribution_id)
+        if _contribution_replay_matches(existing, contribution):
+            return existing
+        raise ServiceConflictError("fgcn_contribution_idempotency_replay_mismatch")
+
     await repo.save_contribution(contribution)
+    await repo.complete_mutation(
+        scope=scope,
+        action_name="RECORD_SERVICE_CONTRIBUTION",
+        idempotency_key=key,
+        request_hash=request_hash,
+        resource_id=contribution.contribution_id,
+    )
     recorder.record(
         AuditEvent(
             actor_id=provider,

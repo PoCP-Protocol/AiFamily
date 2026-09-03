@@ -14,6 +14,16 @@ from backend.intelligence.experience.api import (
     get_multimodal_draft_runtime_resolver,
 )
 from backend.intelligence.experience.api import router as experience_router
+from backend.intelligence.experience.engagement_api import (
+    EngagementDraftRuntimeResolver,
+    get_engagement_draft_runtime_resolver,
+)
+from backend.intelligence.experience.engagement_api import router as engagement_router
+from backend.intelligence.experience.feedback_api import (
+    AchievementFeedbackRuntimeResolver,
+    get_feedback_runtime_resolver,
+)
+from backend.intelligence.experience.feedback_api import router as feedback_router
 from backend.intelligence.experience.synthetic_runtime import SyntheticRuntimeResolver
 
 
@@ -21,6 +31,34 @@ def mount_experience_router(application: FastAPI) -> None:
     """Mount the production-shaped experience API exactly once at the root."""
 
     application.include_router(experience_router)
+    application.include_router(feedback_router)
+    application.include_router(engagement_router)
+
+
+def install_engagement_runtime_resolver(
+    application: FastAPI,
+    resolver: EngagementDraftRuntimeResolver,
+) -> None:
+    """Install an explicit authenticated Engagement runtime resolver."""
+
+    if not callable(getattr(resolver, "resolve", None)):
+        raise TypeError("engagement runtime resolver must implement resolve(family_id)")
+    application.dependency_overrides[get_engagement_draft_runtime_resolver] = (
+        lambda resolver=resolver: resolver
+    )
+
+
+def install_feedback_runtime_resolver(
+    application: FastAPI,
+    resolver: AchievementFeedbackRuntimeResolver,
+) -> None:
+    """Install an explicit authenticated feedback read resolver."""
+
+    if not callable(getattr(resolver, "resolve", None)):
+        raise TypeError("feedback runtime resolver must implement resolve(family_id)")
+    application.dependency_overrides[get_feedback_runtime_resolver] = (
+        lambda resolver=resolver: resolver
+    )
 
 
 def install_experience_runtime_resolver(
@@ -74,7 +112,9 @@ def install_synthetic_experience_runtime(
 
 
 __all__ = [
+    "install_engagement_runtime_resolver",
     "install_experience_runtime_resolver",
+    "install_feedback_runtime_resolver",
     "install_synthetic_experience_runtime",
     "mount_experience_router",
 ]

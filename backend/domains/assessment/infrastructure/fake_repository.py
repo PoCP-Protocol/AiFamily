@@ -13,6 +13,8 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from backend.platform.audit import AuditActionKind, AuditEvent
+
 from ..domain.entities import AssessmentResponse, AssessmentSession, GrowthHypothesisEvidence
 from ..domain.errors import (
     AssessmentConflictError,
@@ -75,6 +77,7 @@ class FakeAssessmentRepository:
         default_factory=dict
     )  # (tenant,family,action,key) -> {request_hash, response_body}
     audit_log: list[dict] = field(default_factory=list)
+    read_audit_events: list[AuditEvent] = field(default_factory=list)
     outbox: list[dict] = field(default_factory=list)
     growth_intents: dict[str, dict] = field(default_factory=dict)  # source_ref -> intent
     hypothesis_decisions: dict[tuple[str, str, str, str], dict] = field(default_factory=dict)
@@ -264,6 +267,45 @@ class FakeAssessmentRepository:
     async def tenant_allows_page(self, tenant_id: str, page_id: str) -> bool:
         return page_id in self.tenant_allowed_pages.get(tenant_id, set())
 
+    async def subject_has_active_consent(
+        self, family_id: str, subject_person_id: str, purpose: str
+    ) -> bool:
+        return (family_id, subject_person_id, purpose) in self.consents
+
+    async def record_read_access(
+        self,
+        *,
+        tenant_id: str,
+        family_id: str,
+        actor_id: str,
+        action: str,
+        resource_type: str,
+        resource_id: str,
+        subject_person_id: str,
+        accessed_fields: tuple[str, ...],
+        access_purpose: str,
+        reason: str,
+        correlation_id: str,
+        approval_ref: str,
+    ) -> None:
+        self.read_audit_events.append(
+            AuditEvent(
+                actor_id=actor_id,
+                tenant_id=tenant_id,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                reason=reason,
+                correlation_id=correlation_id,
+                action_kind=AuditActionKind.READ,
+                subject_person_id=subject_person_id,
+                subject_is_minor=True,
+                accessed_fields=accessed_fields,
+                access_purpose=access_purpose,
+                approval_ref=approval_ref,
+            )
+        )
+
     async def lock_operation(
         self, tenant_id: str, family_id: str, action: str, idempotency_key: str
     ) -> None:
@@ -335,6 +377,7 @@ class FakeAssessmentRepository:
             for session in self.sessions.values()
             if session.family_id == family_id
             and session.status == AssessmentSessionStatus.SUBMITTED
+            and (family_id, session.subject_person_id, "ASSESSMENT") in self.consents
             and (session_id is None or session.assessment_session_id == session_id)
         ]
         if not candidates:

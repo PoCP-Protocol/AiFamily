@@ -10,6 +10,7 @@ import {
   normalizeLocale,
 } from "../lib/platform-capabilities/health-view-model";
 import type { CapabilityRuntimeContext } from "../lib/platform-capabilities/contracts";
+import type { CapabilityRegistry } from "../lib/platform-capabilities/registry";
 
 const context = (platform: CapabilityRuntimeContext["platform"], locale = "zh-CN"): CapabilityRuntimeContext => ({
   platform,
@@ -53,6 +54,17 @@ describe("platform capability health view model", () => {
       retryable: false,
       errorCode: "CAPABILITY_UNAVAILABLE",
     });
+  });
+
+  it("returns retryable not-configured cards when the health probe itself fails", async () => {
+    const registry = createPlatformCapabilityRegistry(context("IOS"), { synthetic: false });
+    const probeFailure = {
+      ...registry,
+      statusSnapshot: async () => { throw new Error("probe unavailable"); },
+    } as unknown as CapabilityRegistry;
+    const cards = await buildCapabilityHealthCards(probeFailure);
+    expect(cards).toHaveLength(6);
+    expect(cards.every((card) => card.status === "NOT_CONFIGURED" && card.retryable && card.fallback)).toBe(true);
   });
 
   it("preserves retryability and side-effect metadata without embedding business rules", () => {

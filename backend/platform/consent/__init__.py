@@ -11,6 +11,21 @@ REPOSITORY_CONSTITUTION.md's disposition explicitly keeps in force.
 from __future__ import annotations
 
 from backend.platform.consent.gate import ConsentGate
-from backend.platform.consent.models import ConsentGrant, ConsentPurpose, ConsentStatus
+from backend.platform.consent.models import (
+    GUARDIAN_CONSENT_AGE_THRESHOLD,
+    ConsentGrant,
+    ConsentPurpose,
+    ConsentStatus,
+    GuardianRelation,
+    SubjectAge,
+)
 
-__all__ = ["ConsentGate", "ConsentGrant", "ConsentPurpose", "ConsentStatus"]
+__all__ = [
+    "GUARDIAN_CONSENT_AGE_THRESHOLD",
+    "ConsentGate",
+    "ConsentGrant",
+    "ConsentPurpose",
+    "ConsentStatus",
+    "GuardianRelation",
+    "SubjectAge",
+]

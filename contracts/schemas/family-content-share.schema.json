@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aifamily.invalid/contracts/family-content-share.schema.json",
+  "title": "AiFamily FamilyContentShare",
+  "description": "Private, reviewed and same-family share of media or evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "share_id": { "type": "string", "minLength": 1 },
+    "tenant_id": { "type": "string", "minLength": 1 },
+    "family_id": { "type": "string", "minLength": 1 },
+    "recipient_family_id": { "type": "string", "minLength": 1 },
+    "source_ref": { "type": "string", "minLength": 1 },
+    "source_type": { "type": "string", "enum": ["MEDIA_ASSET", "MEDIA_EVIDENCE"] },
+    "subject_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true },
+    "requested_by_role": { "type": "string", "enum": ["GUARDIAN", "ADULT_CREATOR"] },
+    "purpose": { "const": "family_sharing" },
+    "consent": { "$ref": "#/$defs/consent" },
+    "audience": { "type": "string", "enum": ["FAMILY_MEMBERS", "INVITED_FAMILY_ADULTS"] },
+    "recipient_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+      "moderation_status": { "const": "APPROVED" },
+    "moderation_ref": { "type": "string", "minLength": 1 },
+    "child_safe_review": { "const": true },
+    "commercial_context": { "const": "NONE" },
+    "visibility": { "const": "FAMILY_PRIVATE" },
+    "retention": { "$ref": "#/$defs/retention" },
+    "deletion": { "$ref": "#/$defs/deletion" },
+    "idempotency_key": { "type": "string", "minLength": 1 },
+    "correlation_id": { "type": "string", "minLength": 1 },
+    "causation_id": { "type": "string", "minLength": 1 }
+  },
+  "required": ["share_id", "tenant_id", "family_id", "recipient_family_id", "source_ref", "source_type", "subject_ids", "requested_by_role", "purpose", "consent", "audience", "recipient_ids", "moderation_status", "moderation_ref", "child_safe_review", "commercial_context", "visibility", "retention", "deletion", "idempotency_key", "correlation_id", "causation_id"],
+  "allOf": [
+    { "if": { "properties": { "audience": { "const": "INVITED_FAMILY_ADULTS" } } }, "then": { "properties": { "recipient_ids": { "minItems": 1 } } } }
+  ],
+  "$defs": {
+    "consent": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "consent_version": { "type": "string", "minLength": 1 }, "status": { "const": "GRANTED" }, "effective_from": { "type": "string", "format": "date-time" }, "effective_to": { "type": ["string", "null"], "format": "date-time" }, "purpose": { "const": "family_sharing" } },
+      "required": ["consent_version", "status", "effective_from", "effective_to", "purpose"]
+    },
+    "retention": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "expires_at": { "type": "string", "format": "date-time" }, "on_expiry": { "const": "DELETE" } },
+      "required": ["expires_at", "on_expiry"]
+    },
+    "deletion": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "deletion_id": { "type": "string", "minLength": 1 }, "source_deletion_id": { "type": "string", "minLength": 1 }, "cascade_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true } },
+      "required": ["deletion_id", "source_deletion_id", "cascade_ids"]
+    }
+  }
+}

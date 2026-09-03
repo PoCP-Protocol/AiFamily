@@ -5,10 +5,13 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from backend.apps.family_api.trusted_experience_scope import (
+    AuthenticatedEngagementScopeResolver,
     AuthenticatedExperienceScopeResolver,
     AuthenticatedPrincipal,
     ConsentSnapshot,
     ExperienceScopeError,
+    HttpIdentityPrincipalResolver,
+    build_http_identity_principal_resolver_factory,
 )
 from backend.intelligence.context_engine.contracts import DataClass
 from backend.platform.consent.models import (
@@ -19,6 +22,7 @@ from backend.platform.consent.models import (
     SubjectAge,
 )
 from backend.platform.identity.context import TenantContext, TenantStatus
+from backend.platform.identity.session_port import VerifiedIdentitySession
 from backend.platform.identity.trusted_context import (
     InMemoryTrustedTenantScopeStore,
     TenantBindingStatus,
@@ -127,6 +131,20 @@ async def test_scope_resolver_denies_unknown_family_before_context_creation() ->
         await _resolver(grants=(_grant("child-1"),)).resolve("other-family")
 
 
+@pytest.mark.asyncio
+async def test_engagement_scope_adapter_reuses_authenticated_consent_chain() -> None:
+    adapter = AuthenticatedEngagementScopeResolver(_resolver(grants=(_grant("child-1"),)))
+    resolved = await adapter("family-1")
+
+    assert resolved.family_id == "family-1"
+    assert resolved.global_id.endswith(":consent.v1")
+    assert resolved.deletion_ref.deletion_id == "delete:tenant-1:family-1"
+    assert resolved.deletion_ref.retention_policy == "consent-bound"
+    assert resolved.content_locale == "zh-CN"
+    assert resolved.model_locale == "zh-CN"
+    assert resolved.policy_locale == "zh-CN"
+
+
 def test_consent_snapshot_is_immutable_after_construction() -> None:
     grants = {"child-1": (_grant("child-1"),)}
     snapshot = ConsentSnapshot(
@@ -139,3 +157,49 @@ def test_consent_snapshot_is_immutable_after_construction() -> None:
     assert snapshot.grants_for("child-1")
     with pytest.raises(TypeError):
         snapshot.grants_by_subject["child-2"] = ()  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+async def test_http_identity_principal_resolver_binds_introspected_family() -> None:
+    class _Port:
+        async def introspect(self, *, access_token: str) -> VerifiedIdentitySession:
+            assert access_token == "token-1"
+            return VerifiedIdentitySession(
+                session_id="session-1",
+                account_id="account-1",
+                family_id="family-1",
+                expires_at=datetime.now(UTC) + timedelta(minutes=5),
+            )
+
+    principal = await HttpIdentityPrincipalResolver(
+        session_port=_Port(),
+        authorization="Bearer token-1",
+        family_id="family-1",
+    )()
+
+    assert principal.account_id == "account-1"
+    assert principal.correlation_id == "identity-session:session-1"
+
+
+@pytest.mark.asyncio
+async def test_http_identity_principal_resolver_fails_closed_on_family_mismatch() -> None:
+    class _Port:
+        async def introspect(self, *, access_token: str) -> VerifiedIdentitySession:
+            return VerifiedIdentitySession(
+                session_id="session-1",
+                account_id="account-1",
+                family_id="family-other",
+                expires_at=datetime.now(UTC) + timedelta(minutes=5),
+            )
+
+    with pytest.raises(ExperienceScopeError, match="AUTHENTICATED_PRINCIPAL_UNAVAILABLE"):
+        await HttpIdentityPrincipalResolver(
+            session_port=_Port(),
+            authorization="Bearer token-1",
+            family_id="family-1",
+        )()
+
+
+def test_http_identity_principal_factory_rejects_missing_introspection_port() -> None:
+    with pytest.raises(TypeError, match="introspect"):
+        build_http_identity_principal_resolver_factory(object())  # type: ignore[arg-type]

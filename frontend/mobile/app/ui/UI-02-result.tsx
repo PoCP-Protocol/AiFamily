@@ -1,4 +1,3 @@
-import type { Href } from "expo-router";
 import { Stack, router } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
@@ -8,6 +7,7 @@ import { useColors } from "@/hooks/use-colors";
 import { getGrowthFocus } from "@/lib/family/core-growth";
 import { useFamilyMobile } from "@/lib/family/family-state";
 import { buildUi02AssessmentResultSummary } from "@/lib/family/ui02-assessment-design";
+import { routeForUi } from "@/lib/navigation/family-routes";
 
 export default function FamilyAssessmentResultScreen() {
   const colors = useColors();
@@ -131,12 +131,12 @@ export default function FamilyAssessmentResultScreen() {
           <Text style={[styles.statusText, { color: colors.text }]}>{assessmentSyncState === "synced" ? "已保存到家庭测评记录" : "已保存在本机，连接家庭后可同步"}</Text>
         </View>
 
-        <Pressable onPress={() => router.push("/ui/UI-03" as Href)} style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.tint }, pressed && styles.pressed]}>
+        <Pressable onPress={() => router.push(routeForUi("UI-03"))} style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.tint }, pressed && styles.pressed]}>
           <IconSymbol name="star.fill" size={18} color="#FFFFFF" />
-          <Text style={styles.primaryButtonText}>进入 AI 成长综合解读</Text>
+          <Text style={styles.primaryButtonText}>升级到 AI 成长诊断，看更完整的分析</Text>
         </Pressable>
         <Text style={[styles.nextStepHint, { color: colors.muted }]}>下一步，AI 会基于本次家庭自查整理支持假设；你可以先阅读，再决定是否继续。</Text>
-        <Pressable onPress={() => router.replace("/ui/UI-02" as Href)} style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}>
+        <Pressable onPress={() => router.replace(routeForUi("UI-02"))} style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}>
           <Text style={[styles.linkButtonText, { color: colors.muted }]}>返回调整免费测评</Text>
         </Pressable>
       </ScrollView>

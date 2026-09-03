@@ -28,20 +28,41 @@ Public surface is deliberately small: build a `ModelGateway`, call
 
 from __future__ import annotations
 
+from backend.intelligence.model_gateway.attempt_persistence import (
+    AttemptPersistenceBase,
+    ModelAttemptRow,
+    SessionPerCallAttemptSink,
+    SqlAlchemyAttemptSink,
+)
 from backend.intelligence.model_gateway.attempts import (
     AttemptOutcome,
     AttemptSink,
     InMemoryAttemptSink,
     NullAttemptSink,
 )
+from backend.intelligence.model_gateway.composition import (
+    build_http_openai_compatible_gateway_from_registry,
+    build_openai_compatible_gateway_from_registry,
+    build_secret_manager_openai_compatible_gateway_from_registry,
+)
 from backend.intelligence.model_gateway.contracts import (
     AiProvenance,
     DataClass,
     MediaInput,
     ModelDraft,
+    ModelReleaseBinding,
     PolicyContext,
+    PromptExecutionPlan,
     StructuredRequest,
     TokenUsage,
+)
+from backend.intelligence.model_gateway.credentials import (
+    CredentialLease,
+    CredentialLeaseMetadata,
+    CredentialRevocationChecker,
+    HttpProviderCredentialPort,
+    ProviderCredentialPort,
+    SecretManagerCredentialPort,
 )
 from backend.intelligence.model_gateway.errors import (
     INFRA_FAILURE_KINDS,
@@ -52,6 +73,18 @@ from backend.intelligence.model_gateway.gateway import (
     GATEWAY_POLICY,
     ModelGateway,
     build_gateway,
+)
+from backend.intelligence.model_gateway.provenance import (
+    InMemoryModelDraftRegistry,
+    ModelDraftIdentity,
+    ModelDraftNotFound,
+    ModelDraftRegistryBase,
+    ModelDraftRegistryError,
+    ModelDraftRegistryPort,
+    ModelDraftRow,
+    ModelDraftScope,
+    SqlAlchemyModelDraftRegistry,
+    StoredModelDraft,
 )
 from backend.intelligence.model_gateway.provider_registry import (
     ProviderRecord,
@@ -64,7 +97,9 @@ from backend.intelligence.model_gateway.providers.fake import FakeProvider
 from backend.intelligence.model_gateway.providers.openai_compatible import (
     OpenAICompatibleProvider,
     build_openai_compatible_provider,
+    build_openai_compatible_provider_from_lease,
 )
+from backend.intelligence.model_gateway.usage import CostRate, UsageSummary, aggregate_attempts
 
 __all__ = [
     "GATEWAY_POLICY",
@@ -72,25 +107,54 @@ __all__ = [
     "AiProvenance",
     "AttemptOutcome",
     "AttemptSink",
+    "AttemptPersistenceBase",
+    "ModelAttemptRow",
+    "SessionPerCallAttemptSink",
+    "SqlAlchemyAttemptSink",
     "DataClass",
     "FailureKind",
     "FakeProvider",
     "InMemoryAttemptSink",
     "ModelDraft",
+    "InMemoryModelDraftRegistry",
+    "ModelDraftIdentity",
+    "ModelDraftNotFound",
+    "ModelDraftRegistryBase",
+    "ModelDraftRegistryError",
+    "ModelDraftRegistryPort",
+    "ModelDraftRow",
+    "ModelDraftScope",
     "MediaInput",
+    "ModelReleaseBinding",
     "ModelGateway",
     "ModelGatewayError",
     "NullAttemptSink",
     "OpenAICompatibleProvider",
     "PolicyContext",
+    "PromptExecutionPlan",
     "ProviderAdapter",
     "ProviderRecord",
     "ProviderRegistry",
     "ProviderResponse",
     "ProviderStatus",
     "StructuredRequest",
+    "SqlAlchemyModelDraftRegistry",
+    "StoredModelDraft",
     "TokenUsage",
+    "CostRate",
+    "UsageSummary",
+    "aggregate_attempts",
     "build_gateway",
+    "build_openai_compatible_gateway_from_registry",
+    "build_http_openai_compatible_gateway_from_registry",
+    "build_secret_manager_openai_compatible_gateway_from_registry",
     "build_openai_compatible_provider",
+    "build_openai_compatible_provider_from_lease",
+    "CredentialLease",
+    "CredentialLeaseMetadata",
+    "CredentialRevocationChecker",
+    "ProviderCredentialPort",
+    "HttpProviderCredentialPort",
+    "SecretManagerCredentialPort",
     "load_provider_registry",
 ]

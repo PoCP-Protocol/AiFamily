@@ -80,7 +80,7 @@ AI Runtime 不是挂在业务旁边的一个方框，而是与业务域**并列�
 ### 3.3 对数据架构 (DATA_ARCHITECTURE.md)
 数据模型的第一目标是**让 AI 能推理**，不是让表单能保存：
 - 证据(Evidence)、假设(Hypothesis)、上下文快照(Context Snapshot)、时序(T0→T1→T2→T3)是一等实体，不是附属字段。
-- Family Context 与 Family Growth Graph 是 AI 原生的**地基**，不是可选增强——它们正是判据2和判据4的载体。源仓库审计已确认这两项目前完全空白(`FamilyMemoryDialogueRuntime` 未接入任何调用方，embedding/pgvector 不存在)，因此它们是新建，不是优化。
+- Family Context 与 Family Growth Graph 是 AI 原生的**地基**，不是可选增强——它们正是判据2和判据4的载体。源仓库审计确认两项曾完全空白；当前 AiFamily 已有 Context SQL durable adapter 与 Growth Graph 0023 只读投影实验接缝，但全域事件接入、生产权限和长期评测仍未完成，因此仍按“新建能力”治理，不把实验接缝误读为生产能力。
 - 每条 AI 生成记录必须带 provenance 字段与 `status: DRAFT/PROPOSED` 初始态，且无任何代码路径可自动置为 VALIDATED/APPROVED。
 
 ### 3.4 对业务架构与场景流程

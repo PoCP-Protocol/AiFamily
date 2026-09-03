@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 PY := uv run --python 3.12
 
-.PHONY: help setup test arch lint fmt fmt-check check db-up db-down db-migrate test-pg
+.PHONY: help setup test arch lint fmt check db-up db-down db-migrate test-pg
 
 COMPOSE := docker compose -f docker-compose.dev.yml
 # The host port lives in docker-compose.dev.yml; this must match it. Kept as one
@@ -27,14 +27,7 @@ lint: ## ruff 检查
 fmt: ## ruff 格式化
 	$(PY) -m ruff format .
 
-fmt-check: ## ruff 格式化差异检查（只读，不改文件）
-	$(PY) -m ruff format --check .
-
-# ADR-0009：全量 sweep 未完成前，CI 的格式检查是**警告级**。这里刻意与 CI 保持
-# 一致 —— 若 `make check` 因格式差异而失败，本地就比 CI 更严，开发者会学会忽略
-# `make check`，那比没有这个 target 更糟。sweep 收尾时把 fmt-check 加进下面的
-# 依赖列表，并同步删掉 ci.yml 里那个 `|| true`。
-check: lint test ## lint + test，CI 等价物（格式检查见 fmt-check，暂不阻断）
+check: lint test ## lint + test，CI 等价物
 
 db-up: ## 起一次性开发 Postgres（等到 healthy）
 	$(COMPOSE) up -d --wait

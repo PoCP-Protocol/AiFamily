@@ -109,7 +109,11 @@ async def test_multimodal_application_uses_durable_sql_context_before_route(tmp_
         context = AsyncSqlContextBroker(session_factory)
         await context.append(_observation(scope))
         routed = _RecordingRouted()
-        service = ContextBoundMultimodalExperienceService(context=context, routed=routed)  # type: ignore[arg-type]
+        service = ContextBoundMultimodalExperienceService(
+            context=context,
+            routed=routed,
+            clock=lambda: NOW,
+        )  # type: ignore[arg-type]
 
         result = await service.generate_draft(_command(scope))
 

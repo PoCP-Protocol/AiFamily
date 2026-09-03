@@ -10,7 +10,13 @@ from backend.apps.family_api.experience_wiring import (
     mount_experience_router,
 )
 from backend.intelligence.experience.api import get_multimodal_draft_runtime_resolver
+from backend.intelligence.experience.standard_assets import (
+    build_family_experience_assets,
+    family_experience_output_schema,
+)
 from backend.intelligence.experience.synthetic_runtime import SyntheticRuntimeResolver
+
+_ASSETS = build_family_experience_assets()
 
 
 class _ExplicitResolver:
@@ -21,16 +27,20 @@ class _ExplicitResolver:
 def _payload(run_id: str) -> dict[str, object]:
     return {
         "run_id": run_id,
-        "prompt_version": "prompt.v1",
-        "schema_version": "schema.v1",
+        "prompt_version": _ASSETS.prompt.version,
+        "schema_version": _ASSETS.schema.version,
         "payload": {"media_ref": "fixture:image-001"},
-        "output_schema": {
-            "type": "object",
-            "required": ["headline"],
-            "properties": {"headline": {"type": "string"}},
-        },
+        "output_schema": family_experience_output_schema(),
         "modalities": ["TEXT", "IMAGE"],
         "estimated_input_tokens": 128,
+        "media_inputs": [
+            {
+                "media_type": "IMAGE",
+                "uri": "media:fixture:wiring-001",
+                "mime_type": "image/jpeg",
+                "sha256": "a" * 64,
+            }
+        ],
     }
 
 

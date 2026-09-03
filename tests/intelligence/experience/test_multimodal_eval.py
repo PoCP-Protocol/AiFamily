@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -111,6 +112,53 @@ def test_runner_aggregates_provider_model_version_without_media() -> None:
     assert projection["report_ref"] == report.report_ref
     assert projection["release_gate"] == {"status": "ELIGIBLE", "reasons": []}
     assert projection["education_outcome_status"] == "NOT_MEASURED"
+
+
+def test_runner_evaluates_feedback_context_without_recording_raw_feedback() -> None:
+    steady = {
+        "signal_counts": {"helpful": 2, "not_helpful": 0, "request_human": 0},
+        "sample_size": 2,
+    }
+    slower = {
+        "signal_counts": {"helpful": 0, "not_helpful": 2, "request_human": 0},
+        "sample_size": 2,
+    }
+    cases = (
+        _case(case_id="case-steady", expected_output={"answer": "steady"}),
+        _case(case_id="case-slower", expected_output={"answer": "slower"}),
+    )
+    cases = tuple(
+        replace(case, feedback_context=context)
+        for case, context in zip(cases, (steady, slower), strict=True)
+    )
+
+    def adapter(case: GoldCase) -> MultimodalAdapterResult:
+        context = case.feedback_context or {}
+        counts = context["signal_counts"]
+        answer = "slower" if counts["not_helpful"] else "steady"
+        return _result(case, output={"answer": answer})
+
+    report = MultimodalEvalRunner().run(cases, {"qwen": adapter})
+    summary = report.by_provider()[("qwen", "qwen-omni", "2026-08")]
+    assert summary.passed_cases == 2
+    assert summary.quality_score == 1.0
+
+
+def test_gold_case_rejects_unbounded_feedback_context() -> None:
+    with pytest.raises(MultimodalEvalError, match="feedback_context sample size"):
+        GoldCase(
+            case_id="invalid-feedback",
+            version="gold.v1",
+            fixture_kind="synthetic",
+            modalities=("text",),
+            locale="zh-CN",
+            safety_labels=("safe",),
+            expected_schema={"type": "object"},
+            feedback_context={
+                "signal_counts": {"helpful": 1, "not_helpful": 0, "request_human": 0},
+                "sample_size": 99,
+            },
+        )
 
 
 def test_release_gate_blocks_failed_contracts_and_enforces_limits() -> None:

@@ -25,11 +25,13 @@ from backend.domains.membership.api.dependencies import (
     get_actor_context,
     get_audit_recorder,
     get_repository,
+    get_tenant_directory,
 )
 from backend.domains.membership.application.context import ActionContext
 from backend.domains.membership.infrastructure.fake_repository import FakeMembershipRepository
 from backend.platform.audit.recorder import AuditRecorder
-from backend.platform.identity.context import ActorContext, ActorType
+from backend.platform.identity.context import ActorContext, ActorType, TenantStatus
+from backend.platform.identity.directory import InMemoryTenantDirectory
 from tests.domains.membership.helpers import FAMILY, GUARDIAN, TENANT, seed_catalogue
 
 FOREIGN_FAMILY = "family-999"
@@ -71,6 +73,11 @@ class Harness:
         app.dependency_overrides[get_action_context] = lambda: self.ctx
         app.dependency_overrides[get_actor_context] = lambda: self.actor
         app.dependency_overrides[get_audit_recorder] = lambda: self.recorder
+        # Production has no tenant store, so the default directory denies
+        # everything. These tests exercise the routes, not tenant lifecycle.
+        app.dependency_overrides[get_tenant_directory] = lambda: InMemoryTenantDirectory(
+            {TENANT: TenantStatus.ACTIVE}
+        )
         self.client = TestClient(app)
 
 
@@ -226,9 +233,7 @@ async def test_idempotent_replay_returns_the_same_entity(harness: Harness) -> No
     first = harness.client.post("/membership/subscriptions", json=payload)
     second = harness.client.post("/membership/subscriptions", json=payload)
     assert first.status_code == second.status_code == 200
-    assert (
-        first.json()["membership_subscription_id"] == second.json()["membership_subscription_id"]
-    )
+    assert first.json()["membership_subscription_id"] == second.json()["membership_subscription_id"]
     assert len(await harness.repo.list_subscriptions(TENANT, FAMILY)) == 1
 
 

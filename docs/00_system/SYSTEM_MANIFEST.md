@@ -113,6 +113,7 @@ Program Status    docs/00_system/CURRENT_PROGRAM_STATUS.md
 | `governance/REPOSITORY_CONSTITUTION.md` | 14 条工程宪章（R1–R14），最高工程约束 |
 | `governance/DOMAIN_REGISTRY.yaml` | 每个 Domain 的唯一正式实现位置（R2 执行） |
 | `governance/MIGRATION_MANIFEST.yaml` | 每项能力的迁移处置（R3 执行：无登记不得入仓） |
+| `governance/AI_USE_CASE_REGISTRY.yaml` | AI 用例、Agent、Tool、输出和人工闸门的机器可执行治理登记 |
 | `governance/ADR/` | 架构决策记录 |
 
 ### 5.3 约束级文档（优先于分项设计）

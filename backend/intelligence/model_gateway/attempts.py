@@ -24,10 +24,13 @@ audit table; this package must not reach into a domain repository to write it
 
 from __future__ import annotations
 
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal, Protocol
 from uuid import uuid4
+
+from backend.intelligence.model_gateway.contracts import TokenUsage
 
 AttemptStatus = Literal["STARTED", "SUCCESS", "FAILURE"]
 
@@ -41,6 +44,9 @@ class AttemptOutcome:
     failure_kind: str | None = None
     model: str | None = None
     model_version: str | None = None
+    token_usage: TokenUsage | None = None
+    tenant_id: str | None = None
+    family_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -67,6 +73,15 @@ class AttemptRecord:
     failure_kind: str | None = None
     model: str | None = None
     model_version: str | None = None
+    token_usage: TokenUsage | None = None
+    tenant_id: str | None = None
+    family_id: str | None = None
+    release_set_id: str | None = None
+    bundle_id: str | None = None
+    deployment_receipt_id: str | None = None
+    deployment_sequence: int | None = None
+    runtime_config_digest: str | None = None
+    control_id: str | None = None
 
     @property
     def is_unaccounted(self) -> bool:
@@ -91,12 +106,26 @@ class AttemptSink(Protocol):
         route_sequence: int,
         request_id: str | None,
         session_id: str | None,
-    ) -> str | None:
-        """Record an attempt as STARTED and return its handle (or `None` on failure)."""
+        tenant_id: str | None = None,
+        family_id: str | None = None,
+        release_set_id: str | None = None,
+        bundle_id: str | None = None,
+        deployment_receipt_id: str | None = None,
+        deployment_sequence: int | None = None,
+        runtime_config_digest: str | None = None,
+        control_id: str | None = None,
+    ) -> str | None | Awaitable[str | None]:
+        """Record STARTED and return its handle.
+
+        Async durable sinks may return an awaitable; the gateway awaits it while
+        preserving synchronous in-memory implementations for tests.
+        """
         ...
 
-    def finish(self, attempt_id: str | None, outcome: AttemptOutcome) -> None:
-        """Close out an attempt. A `None` handle is a no-op, not an error."""
+    def finish(
+        self, attempt_id: str | None, outcome: AttemptOutcome
+    ) -> None | Awaitable[None]:
+        """Close out an attempt; a `None` handle is a no-op."""
         ...
 
 
@@ -122,6 +151,14 @@ class InMemoryAttemptSink:
         route_sequence: int,
         request_id: str | None,
         session_id: str | None,
+        tenant_id: str | None = None,
+        family_id: str | None = None,
+        release_set_id: str | None = None,
+        bundle_id: str | None = None,
+        deployment_receipt_id: str | None = None,
+        deployment_sequence: int | None = None,
+        runtime_config_digest: str | None = None,
+        control_id: str | None = None,
     ) -> str | None:
         attempt_id = str(uuid4())
         self._records[attempt_id] = AttemptRecord(
@@ -135,6 +172,14 @@ class InMemoryAttemptSink:
             started_at=datetime.now(UTC),
             request_id=request_id,
             session_id=session_id,
+            tenant_id=tenant_id,
+            family_id=family_id,
+            release_set_id=release_set_id,
+            bundle_id=bundle_id,
+            deployment_receipt_id=deployment_receipt_id,
+            deployment_sequence=deployment_sequence,
+            runtime_config_digest=runtime_config_digest,
+            control_id=control_id,
         )
         self._order.append(attempt_id)
         return attempt_id
@@ -151,6 +196,7 @@ class InMemoryAttemptSink:
         record.failure_kind = outcome.failure_kind
         record.model = outcome.model
         record.model_version = outcome.model_version
+        record.token_usage = outcome.token_usage
 
     def all_attempts(self) -> tuple[AttemptRecord, ...]:
         return tuple(self._records[key] for key in self._order)
@@ -178,6 +224,14 @@ class NullAttemptSink:
         route_sequence: int,
         request_id: str | None,
         session_id: str | None,
+        tenant_id: str | None = None,
+        family_id: str | None = None,
+        release_set_id: str | None = None,
+        bundle_id: str | None = None,
+        deployment_receipt_id: str | None = None,
+        deployment_sequence: int | None = None,
+        runtime_config_digest: str | None = None,
+        control_id: str | None = None,
     ) -> str | None:
         return None
 

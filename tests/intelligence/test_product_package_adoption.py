@@ -142,21 +142,7 @@ def test_adoption_does_not_accept_provider_or_repository_and_supports_determinis
     current = datetime(2026, 8, 31, 12, 0, tzinfo=UTC)
     draft = _draft(
         expires_at=current + timedelta(hours=1),
-    )
-    # The draft generated_at is now, so make a deterministic future draft for
-    # this clock by constructing it directly with an older provenance.
-    draft = ProductPackageDraft(
-        package_id=draft.package_id,
-        product_id=draft.product_id,
-        version=draft.version,
-        output=draft.output,
-        evidence_refs=draft.evidence_refs,
-        assumptions=draft.assumptions,
-        next_validation=draft.next_validation,
-        owner=draft.owner,
-        expires_at=current + timedelta(hours=1),
-        model_attempt_ref=draft.model_attempt_ref,
-        provenance=_provenance(generated_at=current - timedelta(hours=1)),
+        generated_at=current - timedelta(hours=1),
     )
     command = _adopt(draft=draft, now=current)
     assert command.adopted_at == current

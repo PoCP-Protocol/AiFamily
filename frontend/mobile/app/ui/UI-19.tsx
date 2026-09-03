@@ -8,21 +8,22 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { familyApi } from "@/lib/family/family-api-client";
-import type { FamilyApiServiceSupplyProjection } from "@/lib/family/family-api-projections";
+import type { ServiceOfferingDto } from "@/lib/family/service-api-contracts";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
 import { serviceOfferingsForDisplay, SUPPORT_THEMES, type SupportOfferingPresentation, type SupportThemeId } from "@/lib/family/service-support";
 
 export default function TeacherZoneScreen() {
   const colors = useColors();
   const session = useFamilyApiSession();
-  const [projection, setProjection] = useState<FamilyApiServiceSupplyProjection | null>(null);
+  const [projection, setProjection] = useState<ServiceOfferingDto[] | null>(null);
   const [query, setQuery] = useState("");
   const [theme, setTheme] = useState<SupportThemeId>("ALL");
+  const legacyLiveSession: null = null;
 
   useEffect(() => {
     if (session.status !== "connected" || !session.token || !session.selectedFamily) return;
     let active = true;
-    familyApi.getServiceOfferings<FamilyApiServiceSupplyProjection>(session.token, session.selectedFamily.family_id, {})
+    familyApi.getServiceOfferings(session.token, session.selectedFamily.family_id)
       .then((result) => { if (active) setProjection(result); })
       .catch((error) => { console.error("UI-19 remote projection failed", error); });
     return () => { active = false; };
@@ -30,12 +31,12 @@ export default function TeacherZoneScreen() {
 
   const offerings = useMemo(() => {
     const value = query.trim().toLowerCase();
-    return serviceOfferingsForDisplay(projection?.offerings).filter((item) => {
+    return serviceOfferingsForDisplay(projection ?? undefined).filter((item) => {
       const matchesTheme = theme === "ALL" || item.theme === theme;
       const matchesQuery = !value || `${item.providerName}${item.title}${item.serviceType}${item.ageBand}`.toLowerCase().includes(value);
       return matchesTheme && matchesQuery;
     });
-  }, [projection?.offerings, query, theme]);
+  }, [projection, query, theme]);
 
   const openOffering = (item: SupportOfferingPresentation) => {
     router.push(`/ui/UI-20?offeringRef=${encodeURIComponent(item.offeringRef)}` as Href);
@@ -79,13 +80,13 @@ export default function TeacherZoneScreen() {
             </View>
 
 
-            {projection?.live_session ? (
+            {legacyLiveSession ? (
               <Pressable onPress={() => router.push("/ui/UI-20" as Href)} style={({ pressed }) => [styles.liveCard, { backgroundColor: "#FFF6F1", borderColor: "#F5C9B1" }, pressed && styles.pressed]}>
                 <View style={styles.liveIcon}><IconSymbol name="video.fill" size={23} color="#F28C45" /></View>
                 <View style={styles.liveCopy}>
-                  <Text style={styles.liveLabel}>{projection.live_session.status === "LIVE" ? "正在进行" : projection.live_session.status === "ENDED" ? "本场已结束" : "近期直播"}</Text>
-                  <Text style={[styles.liveTitle, { color: colors.text }]}>{projection.live_session.title}</Text>
-                  <Text style={[styles.liveText, { color: colors.muted }]}>{projection.live_session.host_display_name} · {projection.live_session.topic}</Text>
+                  <Text style={styles.liveLabel}>近期直播</Text>
+                  <Text style={[styles.liveTitle, { color: colors.text }]}>直播内容待发布</Text>
+                  <Text style={[styles.liveText, { color: colors.muted }]}>服务方 · 主题待确认</Text>
                 </View>
                 <IconSymbol name="chevron.right" size={20} color="#F28C45" />
               </Pressable>

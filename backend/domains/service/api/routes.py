@@ -153,6 +153,21 @@ async def get_service_offerings(
     return await queries.list_service_offerings(repo, tenant_id=ctx.tenant_id)
 
 
+@router.get(f"{_TEST_LOOP}/activities")
+async def get_activity_catalog(
+    family_id: str,
+    repo: ServiceRepositoryPort = Depends(get_repository),
+    ctx: ActionContext = Depends(get_action_context),
+    actor: ActorContext = Depends(get_actor_context),
+    engine: PolicyEngine = Depends(get_policy_engine),
+    recorder: AuditRecorder = Depends(get_audit_recorder),
+) -> Any:
+    """UI-22/UI-23 browsing; no registration or attendance side effect."""
+    _assert_path_family(family_id, ctx)
+    _authorize(engine, actor, "read_service_supply", recorder, ctx)
+    return await queries.list_activity_catalog(repo)
+
+
 @router.get(f"{_TEST_LOOP}/slots")
 async def get_service_slots(
     family_id: str,

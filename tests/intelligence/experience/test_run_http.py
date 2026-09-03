@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from backend.intelligence.experience.run_http import (
+    FeedbackPreferenceSnapshot,
     InMemoryExperienceRunLedger,
     InteractionType,
     RunHttpConflictError,
@@ -61,6 +62,54 @@ def test_create_and_interaction_retries_are_idempotent() -> None:
     assert repeated.status == "replayed"
     assert repeated.idempotency_replayed is True
     assert len(ledger.replay(scope=_scope(), run_id="run-1").entries) == 1
+
+
+def test_feedback_preferences_are_scope_local_and_exclude_deleted_runs() -> None:
+    ledger = _ledger()
+    _create(ledger)
+    ledger.record_feedback(
+        scope=_scope(), run_id="run-1", signal="helpful", idempotency_key="feedback-1"
+    )
+    ledger.record_feedback(
+        scope=_scope(), run_id="run-1", signal="request_human", idempotency_key="feedback-2"
+    )
+
+    other_scope = _scope(family_id="family-other")
+    ledger.create_draft(
+        scope=other_scope,
+        run_id="run-other",
+        request_ref="request-other",
+        draft_payload={"status": "DRAFT", "headline": "另一家庭"},
+        idempotency_key="create-other",
+    )
+    ledger.record_feedback(
+        scope=other_scope,
+        run_id="run-other",
+        signal="not_helpful",
+        idempotency_key="feedback-other",
+    )
+
+    snapshot = ledger.feedback_preferences(scope=_scope())
+    assert snapshot.helpful_count == 1
+    assert snapshot.not_helpful_count == 0
+    assert snapshot.request_human_count == 1
+    assert snapshot.sample_size == 2
+    assert snapshot.to_prompt_context() == {
+        "signal_counts": {"helpful": 1, "not_helpful": 0, "request_human": 1},
+        "sample_size": 2,
+    }
+
+    ledger.delete(
+        scope=_scope(), run_id="run-1", deletion_ref="delete:run-1", idempotency_key="delete-1"
+    )
+    assert ledger.feedback_preferences(scope=_scope()) == FeedbackPreferenceSnapshot(
+        scope=_scope()
+    )
+
+
+def test_feedback_preference_snapshot_rejects_invalid_counts() -> None:
+    with pytest.raises(RunHttpError, match="FEEDBACK_PREFERENCE_COUNT_INVALID"):
+        FeedbackPreferenceSnapshot(scope=_scope(), helpful_count=-1)
 
 
 def test_preflight_reserves_before_gateway_and_finalize_replays_response() -> None:

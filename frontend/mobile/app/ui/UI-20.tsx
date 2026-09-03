@@ -8,7 +8,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { familyApi } from "@/lib/family/family-api-client";
-import type { FamilyApiServiceSlotsProjection, FamilyApiServiceSupplyProjection } from "@/lib/family/family-api-projections";
+import type { AvailabilitySlotDto, ServiceOfferingDto } from "@/lib/family/service-api-contracts";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
 import { channelLabel, serviceOfferingsForDisplay } from "@/lib/family/service-support";
 
@@ -16,30 +16,30 @@ export default function TeacherDetailScreen() {
   const colors = useColors();
   const session = useFamilyApiSession();
   const { offeringRef } = useLocalSearchParams<{ offeringRef?: string }>();
-  const [projection, setProjection] = useState<FamilyApiServiceSupplyProjection | null>(null);
-  const [slots, setSlots] = useState<FamilyApiServiceSlotsProjection | null>(null);
+  const [projection, setProjection] = useState<ServiceOfferingDto[] | null>(null);
+  const [slots, setSlots] = useState<AvailabilitySlotDto[] | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
 
   useEffect(() => {
     if (session.status !== "connected" || !session.token || !session.selectedFamily) return;
     let active = true;
-    familyApi.getServiceOfferings<FamilyApiServiceSupplyProjection>(session.token, session.selectedFamily.family_id, {})
+    familyApi.getServiceOfferings(session.token, session.selectedFamily.family_id)
       .then(async (result) => {
         if (!active) return;
         setProjection(result);
-        const selected = result.offerings.find((item) => item.service_offering_ref === offeringRef) ?? result.offerings[0];
+        const selected = result.find((item) => item.service_offering_ref === offeringRef) ?? result[0];
         if (!selected) return;
-        const slotResult = await familyApi.getServiceSlots<FamilyApiServiceSlotsProjection>(session.token!, session.selectedFamily!.family_id, selected.service_offering_ref, selected.version_no);
+        const slotResult = await familyApi.getServiceSlots(session.token!, session.selectedFamily!.family_id, selected.service_offering_id);
         if (!active) return;
         setSlots(slotResult);
-        setSelectedSlot(slotResult.slots.find((item) => item.status === "AVAILABLE")?.availability_slot_ref ?? null);
+        setSelectedSlot(slotResult.find((item) => item.status === "OPEN")?.availability_slot_ref ?? null);
       }).catch((error) => { console.error("UI-20 remote projection failed", error); });
     return () => { active = false; };
   }, [offeringRef, session.selectedFamily, session.status, session.token]);
 
-  const offerings = useMemo(() => serviceOfferingsForDisplay(projection?.offerings), [projection?.offerings]);
+  const offerings = useMemo(() => serviceOfferingsForDisplay(projection ?? undefined), [projection]);
   const offering = offerings.find((item) => item.offeringRef === offeringRef) ?? offerings[0];
-  const slotRows = slots?.slots ?? [];
+  const slotRows = slots ?? [];
 
   return (
     <ScreenContainer edges={["left", "right", "bottom"]}>

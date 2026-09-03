@@ -66,7 +66,11 @@ class RoutedMultimodalExperienceService:
         self._assert_command_matches_route(command, route_request)
         route = self._router.route(route_request)
         routed_command = replace(command, provider_id=route.selected.provider_id)
-        experience = await self._generation.generate_draft(routed_command, run=run)
+        experience = await self._generation.generate_draft(
+            routed_command,
+            run=run,
+            fallback_provider_ids=route.fallback_provider_ids,
+        )
         return RoutedMultimodalExperienceDraft(route=route, experience=experience)
 
     @staticmethod
@@ -78,6 +82,11 @@ class RoutedMultimodalExperienceService:
             raise ValueError("command and route use_case must match")
         if command.data_class != route_request.data_class:
             raise ValueError("command and route data_class must match")
+        if len(command.media_inputs) != route_request.media_item_count:
+            raise ValueError("command media count and trusted route media count must match")
+        media_modalities = {item.media_type for item in command.media_inputs}
+        if not media_modalities.issubset(set(route_request.modalities)):
+            raise ValueError("command media types must be declared by the trusted route")
 
 
 __all__ = [

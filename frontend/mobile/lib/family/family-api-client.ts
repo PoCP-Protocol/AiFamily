@@ -1,3 +1,43 @@
+import type {
+  AssessmentMutationReceipt,
+  AssessmentResponseType,
+  GrowthHypothesisDecisionReceipt,
+  Ui02AssessmentProjection,
+  Ui03GrowthHypothesisProjection,
+} from "./assessment-api-contracts";
+import type {
+  AvailabilitySlotDto,
+  ServiceBookingReceipt,
+  ServiceCustomerProjection,
+  ServiceOfferingDto,
+  SubmitServiceBookingBody,
+} from "./service-api-contracts";
+import type {
+  GrowthPriorityProjection,
+  GrowthPriorityDecision,
+  JourneyPhaseDecision,
+  JourneyPlanProjection,
+  PlanPreviewProjection,
+} from "./growth-api-contracts";
+import {
+  isMultimodalDraftResponse,
+  isMultimodalRunInteractionResponse,
+  isMultimodalRunReplayResponse,
+  type MultimodalDraftRequest,
+  type MultimodalDraftResponse,
+  type MultimodalRunDecisionRequest,
+  type MultimodalRunFeedbackRequest,
+  type MultimodalRunHumanReviewRequest,
+  type MultimodalRunInteractionResponse,
+  type MultimodalRunReplayResponse,
+} from "./multimodal-api-contracts";
+import type {
+  FamilyAchievementFeedbackResponse,
+  FamilyAchievementNotificationReadResponse,
+  FamilyAchievementNotificationsResponse,
+  FamilyExperienceAnalyticsResponse,
+} from "./feedback-api-contracts";
+
 const DEFAULT_TIMEOUT_MS = 8_000;
 
 export interface FamilyApiRequestSnapshot {
@@ -79,7 +119,7 @@ export class FamilyApiError extends Error {
 }
 
 interface FamilyApiRequestOptions {
-  method?: "GET" | "POST";
+  method?: "DELETE" | "GET" | "POST";
   token?: string | null;
   body?: unknown;
   headers?: Record<string, string>;
@@ -230,24 +270,35 @@ export class FamilyApiClient {
     return this.request<T>(`/families/${familyId}/orchestration/test-loop/membership/customer-projection`, { token });
   }
 
-  getServiceOfferings<T>(token: string, familyId: string, filters: { serviceType?: string; ageBand?: string; availableOnly?: boolean } = {}) {
-    const query = new URLSearchParams({ page_id: "UI-19" });
-    if (filters.serviceType) query.set("service_type", filters.serviceType);
-    if (filters.ageBand) query.set("age_band", filters.ageBand);
-    if (filters.availableOnly !== undefined) query.set("available_only", String(filters.availableOnly));
-    return this.request<T>(`/families/${familyId}/orchestration/test-loop/services/offerings?${query.toString()}`, { token });
+  getServiceOfferings(token: string, familyId: string, _legacyFilters?: unknown) {
+    return this.request<ServiceOfferingDto[]>(`/families/${familyId}/orchestration/test-loop/services/offerings`, { token });
   }
 
-  getServiceSlots<T>(token: string, familyId: string, serviceOfferingRef: string, serviceOfferingVersion: number) {
-    const query = new URLSearchParams({
-      service_offering_ref: serviceOfferingRef,
-      service_offering_version: String(serviceOfferingVersion),
-    });
-    return this.request<T>(`/families/${familyId}/orchestration/test-loop/services/slots?${query.toString()}`, { token });
+  getActivityCatalog<T>(token: string, familyId: string) {
+    return this.request<T>(`/families/${familyId}/orchestration/test-loop/services/activities`, { token });
   }
 
-  submitServiceBooking<T>(token: string, familyId: string, body: { page_id: "UI-21"; service_offering_ref: string; service_offering_version: number; availability_slot_ref: string; attributes?: Record<string, unknown> }, idempotencyKey: string) {
-    return this.request<T>(`/families/${familyId}/orchestration/test-loop/services/booking-requests`, {
+  getServiceSlots(token: string, familyId: string, serviceOfferingId: string, _legacyVersion?: number) {
+    const query = new URLSearchParams({ service_offering_id: serviceOfferingId });
+    return this.request<AvailabilitySlotDto[]>(`/families/${familyId}/orchestration/test-loop/services/slots?${query.toString()}`, { token });
+  }
+
+  submitServiceBooking(
+    token: string,
+    familyId: string,
+    body: SubmitServiceBookingBody | {
+      page_id: "UI-21";
+      service_offering_ref: string;
+      service_offering_version: number;
+      availability_slot_ref: string;
+      attributes?: Record<string, unknown>;
+    },
+    idempotencyKey: string,
+  ) {
+    if (!("service_offering_id" in body)) {
+      throw new FamilyApiError("SERVICE Mobile 契约需要内部 offering/slot id", 0, "SERVICE_CONTRACT_MIGRATION_REQUIRED", body);
+    }
+    return this.request<ServiceBookingReceipt>(`/families/${familyId}/orchestration/test-loop/services/booking-requests`, {
       method: "POST",
       token,
       body,
@@ -259,8 +310,9 @@ export class FamilyApiClient {
     });
   }
 
-  getServiceCustomerProjection<T>(token: string, familyId: string) {
-    return this.request<T>(`/families/${familyId}/orchestration/test-loop/services/customer-projection`, { token });
+  async getServiceCustomerProjection(token: string, familyId: string) {
+    const projection = await this.request<Omit<ServiceCustomerProjection, "bookings"> & { bookings: Array<Omit<ServiceCustomerProjection["bookings"][number], "status">> }>(`/families/${familyId}/orchestration/test-loop/services/customer-projection`, { token });
+    return { ...projection, bookings: projection.bookings.map((item) => ({ ...item, status: item.booking_status })) } satisfies ServiceCustomerProjection;
   }
 
   recordDevFlowEvent<T>(token: string, familyId: string, body: { ui_id: string; command: string; selection?: string }, idempotencyKey: string) {
@@ -280,8 +332,8 @@ export class FamilyApiClient {
     return this.request<T>(`/families/${familyId}/growth/onboardings/${onboardingId}/report-explanation`, { token });
   }
 
-  getPlanPreview<T>(token: string, familyId: string, onboardingId: string) {
-    return this.request<T>(`/families/${familyId}/growth/onboardings/${onboardingId}/plan-preview`, { token });
+  getPlanPreview(token: string, familyId: string, onboardingId: string) {
+    return this.request<PlanPreviewProjection>(`/families/${familyId}/growth/onboardings/${onboardingId}/plan-preview`, { token });
   }
 
   refreshPlanPreview<T>(token: string, familyId: string, onboardingId: string, idempotencyKey: string) {
@@ -321,16 +373,16 @@ export class FamilyApiClient {
     return this.request<T>(`/families/${familyId}/growth/onboardings/${onboardingId}/family-review-readback`, { token });
   }
 
-  getJourneyPlan<T>(token: string, familyId: string) {
-    return this.request<T>(`/families/${familyId}/growth/journey-plan`, { token });
+  getJourneyPlan(token: string, familyId: string) {
+    return this.request<JourneyPlanProjection>(`/families/${familyId}/growth/journey-plan`, { token });
   }
 
-  getGrowthPriority<T>(token: string, familyId: string, onboardingId: string) {
-    return this.request<T>(`/families/${familyId}/growth/onboardings/${onboardingId}/priority`, { token });
+  getGrowthPriority(token: string, familyId: string, onboardingId: string) {
+    return this.request<GrowthPriorityProjection>(`/families/${familyId}/growth/onboardings/${onboardingId}/priority`, { token });
   }
 
-  createJourneyPlan<T>(token: string, familyId: string, onboardingId: string, priorityId: string, idempotencyKey: string) {
-    return this.request<T>(`/families/${familyId}/growth/onboardings/${onboardingId}/journey-plan`, {
+  createJourneyPlan(token: string, familyId: string, onboardingId: string, priorityId: string, idempotencyKey: string) {
+    return this.request<JourneyPlanProjection>(`/families/${familyId}/growth/onboardings/${onboardingId}/journey-plan`, {
       method: "POST",
       token,
       body: { priority_id: priorityId },
@@ -342,8 +394,8 @@ export class FamilyApiClient {
     });
   }
 
-  confirmJourneyPlan<T>(token: string, familyId: string, planId: string, idempotencyKey: string) {
-    return this.request<T>(`/families/${familyId}/growth/journey-plans/${planId}/confirm`, {
+  confirmJourneyPlan(token: string, familyId: string, planId: string, idempotencyKey: string) {
+    return this.request<JourneyPlanProjection>(`/families/${familyId}/growth/journey-plans/${planId}/confirm`, {
       method: "POST",
       token,
       body: {},
@@ -355,8 +407,8 @@ export class FamilyApiClient {
     });
   }
 
-  reviewJourneyPhase<T>(token: string, familyId: string, planId: string, decision: "CONTINUE" | "ADJUST" | "PAUSE" | "HUMAN_REVIEW_REQUIRED", idempotencyKey: string) {
-    return this.request<T>(`/families/${familyId}/growth/journey-plans/${planId}/phase-review`, {
+  reviewJourneyPhase(token: string, familyId: string, planId: string, decision: JourneyPhaseDecision, idempotencyKey: string) {
+    return this.request<JourneyPlanProjection>(`/families/${familyId}/growth/journey-plans/${planId}/phase-review`, {
       method: "POST",
       token,
       body: { decision },
@@ -387,33 +439,186 @@ export class FamilyApiClient {
     return this.request<T>(`/families/${familyId}/ui/01/home`, { token });
   }
 
-  getFamilyAssessment<T>(token: string, familyId: string) {
-    return this.request<T>(`/families/${familyId}/ui/02/assessment`, { token });
+  getFamilyAssessment(token: string, familyId: string) {
+    return this.request<Ui02AssessmentProjection>(`/families/${familyId}/ui/02/assessment`, { token });
   }
 
-  startFamilyAssessment<T>(token: string, familyId: string, body: { subject_person_id: string; tool_ref?: string }, idempotencyKey: string) {
-    return this.request<T>(`/families/${familyId}/assessments/sessions`, {
+  getFamilyAchievements(token: string, familyId: string) {
+    return this.request<FamilyAchievementFeedbackResponse>(
+      `/families/${familyId}/experience/achievements`,
+      { token },
+    );
+  }
+
+  getFamilyAchievementNotifications(token: string, familyId: string) {
+    return this.request<FamilyAchievementNotificationsResponse>(
+      `/families/${familyId}/experience/notifications`,
+      { token },
+    );
+  }
+
+  markFamilyAchievementNotificationRead(
+    token: string,
+    familyId: string,
+    notificationId: string,
+    idempotencyKey: string,
+  ) {
+    return this.request<FamilyAchievementNotificationReadResponse>(
+      `/families/${familyId}/experience/notifications/${encodeURIComponent(notificationId)}/read`,
+      {
+        method: "POST",
+        token,
+        headers: {
+          "idempotency-key": idempotencyKey,
+          "x-correlation-id": createMobileRequestId("family-mobile-notification-read"),
+          "x-source": "family-ai-mobile",
+        },
+      },
+    );
+  }
+
+  getFamilyExperienceAnalytics(token: string, familyId: string) {
+    return this.request<FamilyExperienceAnalyticsResponse>(
+      `/families/${familyId}/experience/analytics`,
+      { token },
+    );
+  }
+
+  confirmGrowthPriority(token: string, familyId: string, onboardingId: string, draftId: string, decision: GrowthPriorityDecision, idempotencyKey: string) {
+    return this.request<{ priority: GrowthPriorityProjection["active_priority"]; decision: GrowthPriorityDecision }>(`/families/${familyId}/growth/onboardings/${onboardingId}/priority/confirm`, {
+      method: "POST",
+      token,
+      body: { draft_id: draftId, decision },
+      headers: {
+        "idempotency-key": idempotencyKey,
+        "x-correlation-id": createMobileRequestId("family-mobile-priority-confirm"),
+        "x-source": "family-ai-mobile",
+      },
+    });
+  }
+
+  startFamilyAssessment(token: string, familyId: string, body: { subject_person_id: string; tool_ref?: string }, idempotencyKey: string) {
+    return this.request<AssessmentMutationReceipt>(`/families/${familyId}/assessments/sessions`, {
       method: "POST", token, body,
       headers: { "idempotency-key": idempotencyKey, "x-correlation-id": createMobileRequestId("ui02-start-assessment"), "x-source": "family-ai-mobile" },
     });
   }
 
-  saveFamilyAssessmentResponse<T>(token: string, familyId: string, sessionId: string, body: { item_ref: string; response_type: "SINGLE_CHOICE" | "TEXT" | "BOOLEAN"; response_value: string | boolean }, idempotencyKey: string) {
-    return this.request<T>(`/families/${familyId}/assessments/sessions/${sessionId}/responses`, {
+  saveFamilyAssessmentResponse(token: string, familyId: string, sessionId: string, body: { item_ref: string; response_type: AssessmentResponseType; response_value: string | boolean }, idempotencyKey: string) {
+    return this.request<AssessmentMutationReceipt>(`/families/${familyId}/assessments/sessions/${sessionId}/responses`, {
       method: "POST", token, body,
       headers: { "idempotency-key": idempotencyKey, "x-correlation-id": createMobileRequestId("ui02-save-response"), "x-source": "family-ai-mobile" },
     });
   }
 
-  submitFamilyAssessment<T>(token: string, familyId: string, sessionId: string, idempotencyKey: string) {
-    return this.request<T>(`/families/${familyId}/assessments/sessions/${sessionId}/submit`, {
+  submitFamilyAssessment(token: string, familyId: string, sessionId: string, idempotencyKey: string) {
+    return this.request<AssessmentMutationReceipt>(`/families/${familyId}/assessments/sessions/${sessionId}/submit`, {
       method: "POST", token, body: {},
       headers: { "idempotency-key": idempotencyKey, "x-correlation-id": createMobileRequestId("ui02-submit-assessment"), "x-source": "family-ai-mobile" },
     });
   }
 
-  getGrowthHypothesis<T>(token: string, familyId: string) {
-    return this.request<T>(`/families/${familyId}/ui/03/growth-hypothesis`, { token });
+  getGrowthHypothesis(token: string, familyId: string) {
+    return this.request<Ui03GrowthHypothesisProjection>(`/families/${familyId}/ui/03/growth-hypothesis`, { token });
+  }
+
+  /**
+   * Call the provider-neutral Experience API. Scope, consent and provider
+   * selection are deliberately absent from the request body and resolved by
+   * the server composition root. A malformed response fails closed before a
+   * screen can render model output.
+   */
+  async createMultimodalDraft(token: string, familyId: string, body: MultimodalDraftRequest, idempotencyKey: string) {
+    const payload = await this.request<unknown>(`/families/${familyId}/experience/multimodal/drafts`, {
+      method: "POST",
+      token,
+      body,
+      headers: {
+        "idempotency-key": idempotencyKey,
+        "x-correlation-id": createMobileRequestId("family-mobile-experience-draft"),
+        "x-source": "family-ai-mobile",
+      },
+    });
+    if (!isMultimodalDraftResponse(payload) || payload.scope.family_id !== familyId) {
+      throw new FamilyApiError("多模态草稿响应不符合安全契约", 502, "MULTIMODAL_DRAFT_INVALID_RESPONSE", payload);
+    }
+    return payload as MultimodalDraftResponse;
+  }
+
+  async decideMultimodalRun(token: string, familyId: string, runId: string, body: MultimodalRunDecisionRequest, idempotencyKey: string) {
+    return this.appendMultimodalRunInteraction<MultimodalRunDecisionRequest>(
+      token,
+      `/families/${familyId}/experience/multimodal/runs/${runId}/decisions`,
+      runId,
+      body,
+      idempotencyKey,
+      "family-mobile-experience-decision",
+    );
+  }
+
+  async recordMultimodalFeedback(token: string, familyId: string, runId: string, body: MultimodalRunFeedbackRequest, idempotencyKey: string) {
+    return this.appendMultimodalRunInteraction<MultimodalRunFeedbackRequest>(
+      token,
+      `/families/${familyId}/experience/multimodal/runs/${runId}/feedback`,
+      runId,
+      body,
+      idempotencyKey,
+      "family-mobile-experience-feedback",
+    );
+  }
+
+  async requestMultimodalHumanReview(token: string, familyId: string, runId: string, body: MultimodalRunHumanReviewRequest, idempotencyKey: string) {
+    return this.appendMultimodalRunInteraction<MultimodalRunHumanReviewRequest>(
+      token,
+      `/families/${familyId}/experience/multimodal/runs/${runId}/human-review`,
+      runId,
+      body,
+      idempotencyKey,
+      "family-mobile-experience-human-review",
+    );
+  }
+
+  async deleteMultimodalRun(token: string, familyId: string, runId: string, reason: string | undefined, idempotencyKey: string) {
+    const payload = await this.request<unknown>(`/families/${familyId}/experience/multimodal/runs/${runId}`, {
+      method: "DELETE",
+      token,
+      body: reason ? { reason } : undefined,
+      headers: {
+        "idempotency-key": idempotencyKey,
+        "x-correlation-id": createMobileRequestId("family-mobile-experience-delete"),
+        "x-source": "family-ai-mobile",
+      },
+    });
+    return this.assertMultimodalInteraction(payload, runId);
+  }
+
+  async replayMultimodalRun(token: string, familyId: string, runId: string) {
+    const payload = await this.request<unknown>(`/families/${familyId}/experience/multimodal/runs/${runId}/replay`, { token });
+    if (!isMultimodalRunReplayResponse(payload) || payload.run_id !== runId) {
+      throw new FamilyApiError("多模态回放响应不符合安全契约", 502, "MULTIMODAL_RUN_REPLAY_INVALID_RESPONSE", payload);
+    }
+    return payload as MultimodalRunReplayResponse;
+  }
+
+  private async appendMultimodalRunInteraction<TBody>(token: string, path: string, runId: string, body: TBody, idempotencyKey: string, correlationPrefix: string) {
+    const payload = await this.request<unknown>(path, {
+      method: "POST",
+      token,
+      body,
+      headers: {
+        "idempotency-key": idempotencyKey,
+        "x-correlation-id": createMobileRequestId(correlationPrefix),
+        "x-source": "family-ai-mobile",
+      },
+    });
+    return this.assertMultimodalInteraction(payload, runId);
+  }
+
+  private assertMultimodalInteraction(payload: unknown, expectedRunId: string): MultimodalRunInteractionResponse {
+    if (!isMultimodalRunInteractionResponse(payload) || payload.run_id !== expectedRunId) {
+      throw new FamilyApiError("多模态运行交互响应不符合安全契约", 502, "MULTIMODAL_RUN_INTERACTION_INVALID_RESPONSE", payload);
+    }
+    return payload;
   }
 
   generateGrowthHypothesis<T>(token: string, familyId: string, sessionId: string, idempotencyKey: string) {
@@ -423,8 +628,8 @@ export class FamilyApiClient {
     });
   }
 
-  decideGrowthHypothesis<T>(token: string, familyId: string, body: { assessment_session_id: string; hypothesis_ref: string; decision_type: "CONFIRM" | "DISMISS" }, idempotencyKey: string) {
-    return this.request<T>(`/families/${familyId}/growth-hypotheses/decisions`, {
+  decideGrowthHypothesis(token: string, familyId: string, body: { assessment_session_id: string; hypothesis_ref: string; decision_type: "CONFIRM" | "DISMISS" }, idempotencyKey: string) {
+    return this.request<GrowthHypothesisDecisionReceipt>(`/families/${familyId}/growth-hypotheses/decisions`, {
       method: "POST", token, body,
       headers: { "idempotency-key": idempotencyKey, "x-correlation-id": createMobileRequestId("ui03-hypothesis-decision"), "x-source": "family-ai-mobile" },
     });
@@ -498,9 +703,18 @@ function safeJson(raw: string) {
   }
 }
 
-function readErrorCode(payload: unknown) {
+export function readErrorCode(payload: unknown) {
   if (!payload || typeof payload !== "object") return null;
   const value = payload as Record<string, unknown>;
+  if (typeof value.detail === "string") return value.detail;
+  if (Array.isArray(value.detail)) {
+    const first = value.detail[0];
+    if (first && typeof first === "object") {
+      const issue = first as Record<string, unknown>;
+      if (typeof issue.type === "string") return `VALIDATION_${issue.type.toUpperCase()}`;
+      if (typeof issue.msg === "string") return "VALIDATION_ERROR";
+    }
+  }
   if (typeof value.message === "string") return value.message;
   if (typeof value.error === "string") return value.error;
   return null;

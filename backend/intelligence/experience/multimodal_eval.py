@@ -30,6 +30,7 @@ from backend.intelligence.model_gateway.validation import SchemaValidator
 FixtureKind = Literal["synthetic", "anonymous"]
 SafetyAction = Literal["allow", "refuse"]
 Modality = Literal["text", "image", "audio", "video"]
+AgeBand = Literal["EARLY_CHILDHOOD", "SCHOOL_AGE", "ADOLESCENT", "GUARDIAN", "UNKNOWN"]
 ReleaseGateStatus = Literal["ELIGIBLE", "BLOCKED"]
 
 _MODALITIES = frozenset({"text", "image", "audio", "video"})
@@ -71,12 +72,22 @@ class GoldCase:
     expected_refusal: bool = False
     media_refs: tuple[str, ...] = ()
     expected_output: Mapping[str, Any] | None = None
+    age_band: AgeBand = "UNKNOWN"
+    feedback_context: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not self.case_id or not self.version or not self.locale:
             raise MultimodalEvalError("case_id, version and locale are required")
         if self.fixture_kind not in {"synthetic", "anonymous"}:
             raise MultimodalEvalError("fixture_kind must be synthetic or anonymous")
+        if self.age_band not in {
+            "EARLY_CHILDHOOD",
+            "SCHOOL_AGE",
+            "ADOLESCENT",
+            "GUARDIAN",
+            "UNKNOWN",
+        }:
+            raise MultimodalEvalError("unsupported age band in gold case")
         if not self.modalities or len(set(self.modalities)) != len(self.modalities):
             raise MultimodalEvalError("modalities must contain at least one unique value")
         if not set(self.modalities).issubset(_MODALITIES):
@@ -90,6 +101,8 @@ class GoldCase:
         _assert_no_raw_media(self.expected_schema)
         if self.expected_output is not None:
             _assert_no_raw_media(self.expected_output)
+        if self.feedback_context is not None:
+            _validate_feedback_context(self.feedback_context)
 
 
 @dataclass(frozen=True, slots=True)
@@ -636,6 +649,31 @@ def _percentile(values: Sequence[int], quantile: float) -> int | None:
         return None
     index = max(0, min(len(values) - 1, int((len(values) * quantile + 0.999999) - 1)))
     return values[index]
+
+
+def _validate_feedback_context(value: Mapping[str, Any]) -> None:
+    """Validate the bounded feedback context accepted by offline cases."""
+
+    if set(value) != {"signal_counts", "sample_size"}:
+        raise MultimodalEvalError("feedback_context shape is invalid")
+    counts = value.get("signal_counts")
+    if not isinstance(counts, Mapping) or set(counts) != {
+        "helpful",
+        "not_helpful",
+        "request_human",
+    }:
+        raise MultimodalEvalError("feedback_context signal counts are invalid")
+    values = tuple(counts.values())
+    if any(isinstance(item, bool) or not isinstance(item, int) or item < 0 for item in values):
+        raise MultimodalEvalError("feedback_context signal counts are invalid")
+    sample_size = value.get("sample_size")
+    if (
+        isinstance(sample_size, bool)
+        or not isinstance(sample_size, int)
+        or sample_size != sum(values)
+        or sample_size > 10_000
+    ):
+        raise MultimodalEvalError("feedback_context sample size is invalid")
 
 
 def _assert_no_raw_media(value: Any, *, _path: str = "$") -> None:

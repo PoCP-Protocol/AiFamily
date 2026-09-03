@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.platform.identity.context import (
     ActorContext,
@@ -198,6 +198,24 @@ class SqlAlchemyTrustedTenantScopeStore(TrustedTenantScopeStore):
             return None
 
 
+@dataclass(frozen=True, slots=True)
+class SqlAlchemyTrustedTenantScopeStoreFactory(TrustedTenantScopeStore):
+    """Open a short-lived session for each trusted scope lookup."""
+
+    session_factory: async_sessionmaker[AsyncSession]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.session_factory, async_sessionmaker):
+            raise TypeError("session_factory must be an async_sessionmaker")
+
+    async def resolve(self, *, account_id: str, family_id: str) -> TrustedTenantScope | None:
+        async with self.session_factory() as session:
+            return await SqlAlchemyTrustedTenantScopeStore(session).resolve(
+                account_id=account_id,
+                family_id=family_id,
+            )
+
+
 class TrustedTenantScopeResolver:
     """Turn store misses and inactive links into one non-leaky API error."""
 
@@ -239,6 +257,7 @@ def _row_text(row: Mapping[str, object], field_name: str) -> str:
 __all__ = [
     "InMemoryTrustedTenantScopeStore",
     "SqlAlchemyTrustedTenantScopeStore",
+    "SqlAlchemyTrustedTenantScopeStoreFactory",
     "TenantBindingStatus",
     "TenantMembershipStatus",
     "TenantRole",

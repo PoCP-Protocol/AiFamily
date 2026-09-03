@@ -251,3 +251,178 @@ async def test_ai_actor_cannot_decide_a_persisted_task(session_factory):
                 now=NOW + timedelta(hours=1),
             )
         assert (await gate.get(task.task_id)).status is GateStatus.OPEN
+
+
+@pytest.mark.asyncio
+async def test_active_claim_rejects_competing_worker_and_expired_claim_is_takeover_safe(
+    session_factory,
+):
+    recorder = AuditRecorder()
+    async with session_factory() as session:
+        gate = SqlAlchemyHumanGate(session)
+        task = await gate.submit(_proposal(), recorder=recorder)
+        await gate.decide(
+            task.task_id,
+            actor_id="guardian-1",
+            actor_type=ActorType.GUARDIAN,
+            outcome=DecisionOutcome.ACCEPT,
+            recorder=recorder,
+            now=NOW + timedelta(hours=1),
+        )
+        await gate.flush_audit(recorder)
+        await gate.commit()
+
+    async with session_factory() as session:
+        gate = SqlAlchemyHumanGate(session)
+        with pytest.raises(HumanGateError, match="INVALID_CLAIM_OWNER"):
+            await gate.claim_accepted(
+                task.task_id,
+                claim_owner="AI:worker",
+                lease_ttl=timedelta(hours=2),
+                recorder=AuditRecorder(),
+                now=NOW + timedelta(hours=2),
+            )
+        claim = await gate.claim_accepted(
+            task.task_id,
+            claim_owner="worker-a",
+            lease_ttl=timedelta(hours=2),
+            recorder=recorder,
+            now=NOW + timedelta(hours=2),
+        )
+        assert claim.claim_owner == "worker-a"
+        assert claim.claim_expires_at == NOW + timedelta(hours=4)
+        await gate.flush_audit(recorder)
+        await gate.commit()
+
+    async with session_factory() as session:
+        gate = SqlAlchemyHumanGate(session)
+        with pytest.raises(HumanGateError, match="TASK_ALREADY_CLAIMED"):
+            await gate.claim_accepted(
+                task.task_id,
+                claim_owner="worker-b",
+                lease_ttl=timedelta(hours=2),
+                recorder=AuditRecorder(),
+                now=NOW + timedelta(hours=3),
+            )
+
+    async with session_factory() as session:
+        gate = SqlAlchemyHumanGate(session)
+        takeover = await gate.claim_accepted(
+            task.task_id,
+            claim_owner="worker-b",
+            lease_ttl=timedelta(hours=2),
+            recorder=recorder,
+            now=NOW + timedelta(hours=5),
+        )
+        assert takeover.claim_owner == "worker-b"
+        await gate.flush_audit(recorder)
+        await gate.commit()
+
+    async with session_factory() as session:
+        row = await session.get(HumanTaskRow, task.task_id)
+        assert row is not None
+        assert row.claim_owner == "worker-b"
+        events = await read_all_events(session, tenant_id="tenant-1")
+        assert [event.action for event in events] == [
+            "CREATE_HUMAN_TASK",
+            "DECIDE_HUMAN_TASK",
+            "CLAIM_HUMAN_TASK",
+            "CLAIM_HUMAN_TASK",
+        ]
+
+
+@pytest.mark.asyncio
+async def test_claim_completion_is_owner_and_expiry_bound(session_factory):
+    recorder = AuditRecorder()
+    async with session_factory() as session:
+        gate = SqlAlchemyHumanGate(session)
+        task = await gate.submit(_proposal(), recorder=recorder)
+        await gate.decide(
+            task.task_id,
+            actor_id="guardian-1",
+            actor_type=ActorType.GUARDIAN,
+            outcome=DecisionOutcome.ACCEPT,
+            recorder=recorder,
+            now=NOW + timedelta(hours=1),
+        )
+        await gate.flush_audit(recorder)
+        await gate.commit()
+
+    async with session_factory() as session:
+        gate = SqlAlchemyHumanGate(session)
+        await gate.claim_accepted(
+            task.task_id,
+            claim_owner="worker-a",
+            lease_ttl=timedelta(hours=1),
+            recorder=recorder,
+            now=NOW + timedelta(hours=2),
+        )
+        await gate.flush_audit(recorder)
+        await gate.commit()
+
+    async with session_factory() as session:
+        gate = SqlAlchemyHumanGate(session)
+        with pytest.raises(HumanGateError, match="CLAIM_NOT_OWNED"):
+            await gate.complete_claim(
+                task.task_id,
+                claim_owner="worker-b",
+                recorder=AuditRecorder(),
+                now=NOW + timedelta(hours=2, minutes=30),
+            )
+        with pytest.raises(HumanGateError, match="CLAIM_EXPIRED"):
+            await gate.complete_claim(
+                task.task_id,
+                claim_owner="worker-a",
+                recorder=AuditRecorder(),
+                now=NOW + timedelta(hours=4),
+            )
+        row = await session.get(HumanTaskRow, task.task_id)
+        assert row is not None
+        assert row.claim_owner == "worker-a"
+
+
+@pytest.mark.asyncio
+async def test_claim_audit_failure_does_not_persist_the_lease(session_factory):
+    recorder = AuditRecorder()
+    async with session_factory() as session:
+        gate = SqlAlchemyHumanGate(session)
+        task = await gate.submit(_proposal(), recorder=recorder)
+        await gate.decide(
+            task.task_id,
+            actor_id="guardian-1",
+            actor_type=ActorType.GUARDIAN,
+            outcome=DecisionOutcome.ACCEPT,
+            recorder=recorder,
+            now=NOW + timedelta(hours=1),
+        )
+        await gate.flush_audit(recorder)
+        await gate.commit()
+
+    class FailingRecorder(AuditRecorder):
+        async def flush(self, session):
+            raise RuntimeError("audit store unavailable")
+
+    async with session_factory() as session:
+        gate = SqlAlchemyHumanGate(session)
+        failing = FailingRecorder()
+        await gate.claim_accepted(
+            task.task_id,
+            claim_owner="worker-a",
+            lease_ttl=timedelta(hours=1),
+            recorder=failing,
+            now=NOW + timedelta(hours=2),
+        )
+        with pytest.raises(RuntimeError, match="audit store unavailable"):
+            await gate.flush_audit(failing)
+        await gate.rollback()
+
+    async with session_factory() as session:
+        row = await session.get(HumanTaskRow, task.task_id)
+        assert row is not None
+        assert row.claim_owner is None
+        assert row.claim_expires_at is None
+        events = await read_all_events(session, tenant_id="tenant-1")
+        assert [event.action for event in events] == [
+            "CREATE_HUMAN_TASK",
+            "DECIDE_HUMAN_TASK",
+        ]

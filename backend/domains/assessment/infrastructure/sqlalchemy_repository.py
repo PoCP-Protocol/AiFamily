@@ -19,6 +19,9 @@ import json
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from backend.platform.audit import AuditActionKind, AuditEvent
+from backend.platform.audit.store import persist_events
+
 from ..application.ports import AssessmentRepositoryPort
 from ..domain.entities import AssessmentResponse, AssessmentSession, GrowthHypothesisEvidence
 from ..domain.errors import (
@@ -428,6 +431,68 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
         allowed_pages = row.allowed_pages if row else None
         return page_id in (allowed_pages or [])
 
+    async def subject_has_active_consent(
+        self, family_id: str, subject_person_id: str, purpose: str
+    ) -> bool:
+        result = await self._connection.execute(
+            text(
+                """
+                select 1 from persons p
+                where p.person_id=:subject_id and p.family_id=:family_id
+                  and p.person_type='CHILD'
+                  and exists(
+                    select 1 from consents c
+                    where c.family_id=p.family_id and c.subject_person_id=p.person_id
+                      and c.purpose=:purpose and c.status='GRANTED'
+                  )
+                limit 1
+                """
+            ),
+            {"family_id": family_id, "subject_id": subject_person_id, "purpose": purpose},
+        )
+        return result.first() is not None
+
+    async def record_read_access(
+        self,
+        *,
+        tenant_id: str,
+        family_id: str,
+        actor_id: str,
+        action: str,
+        resource_type: str,
+        resource_id: str,
+        subject_person_id: str,
+        accessed_fields: tuple[str, ...],
+        access_purpose: str,
+        reason: str,
+        correlation_id: str,
+        approval_ref: str,
+    ) -> None:
+        """Persist a minor-data READ in the caller's transaction.
+
+        `AsyncConnection` is intentionally used here rather than opening a
+        second session: a read audit must commit or roll back with the query's
+        authorization and data access. `persist_events` only requires the
+        caller object to expose SQLAlchemy's `execute` method and never commits.
+        """
+
+        event = AuditEvent(
+            actor_id=actor_id,
+            tenant_id=tenant_id,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            reason=reason,
+            correlation_id=correlation_id,
+            action_kind=AuditActionKind.READ,
+            subject_person_id=subject_person_id,
+            subject_is_minor=True,
+            accessed_fields=accessed_fields,
+            access_purpose=access_purpose,
+            approval_ref=approval_ref,
+        )
+        await persist_events(self._connection, [event])  # type: ignore[arg-type]
+
     async def lock_operation(
         self, tenant_id: str, family_id: str, action: str, idempotency_key: str
     ) -> None:
@@ -591,6 +656,11 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
                      and nt.effective_from<=now() and (nt.effective_to is null or
                      nt.effective_to>now())
                 where s.family_id=:family_id and s.tenant_id=:tenant_id and s.status='SUBMITTED'
+                  and exists(
+                    select 1 from consents c
+                    where c.family_id=s.family_id and c.subject_person_id=s.subject_person_id
+                      and c.purpose='ASSESSMENT' and c.status='GRANTED'
+                  )
                   and (cast(:session_id as uuid) is null or s.assessment_session_id=cast(:session_id
                   as uuid))
                 group by s.assessment_session_id,s.subject_person_id,p.display_name,s.submitted_at,

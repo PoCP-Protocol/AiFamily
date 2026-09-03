@@ -6,8 +6,11 @@ describe("UI-29 至 UI-34 成果资产原图与边界契约", () => {
   it("保留成长成果的蓝色过程回顾、过程片段与家庭档案出口", () => {
     const ui29 = source("UI-29");
     for (const copy of ["成长成果", "本周成长慢谈", "我们正在练习的事", "过程里的片段", "查看家庭档案"]) expect(ui29).toContain(copy);
-    expect(ui29).toContain('router.push("/ui/UI-33" as Href)');
+    expect(ui29).toContain('router.push(routeForUi("UI-33"))');
     expect(ui29).toContain("过程记录不代表效果结论");
+    expect(ui29).toContain("familyApi.getFamilyAchievements");
+    expect(ui29).toContain("normalizeAchievementFeedback");
+    expect(ui29).toContain("<AchievementRail projection={achievementProjection}");
   });
   it("保留年度会员、我的服务、订单资产的投影与受控入口", () => {
     const ui30 = source("UI-30"); const ui31 = source("UI-31"); const ui32 = source("UI-32");
@@ -19,6 +22,9 @@ describe("UI-29 至 UI-34 成果资产原图与边界契约", () => {
     const ui33 = source("UI-33"); const ui34 = source("UI-34");
     expect(ui33).toContain("家庭成长时间线"); expect(ui33).toContain("不显示儿童身份资料、学校信息或诊断结论");
     expect(ui34).toContain("服务记录"); expect(ui34).toContain("不会自动联系、拨号、发送消息或创建工单");
+    expect(ui34).toContain("getFamilyAchievementNotifications");
+    expect(ui34).toContain("markFamilyAchievementNotificationRead");
+    expect(ui34).toContain("新的成就提醒");
     expect(ui34).toContain('router.push("/ui/UI-31" as Href)');
   });
   it("不恢复成绩、排名、自动支付或外部分享", () => {

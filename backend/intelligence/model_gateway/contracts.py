@@ -95,6 +95,123 @@ class PolicyContext:
 
 
 @dataclass(frozen=True, slots=True)
+class ModelReleaseBinding:
+    """Content-addressed deployment authorization carried to every model attempt."""
+
+    release_set_id: str
+    deployment_receipt_id: str
+    deployment_sequence: int
+    runtime_config_digest: str
+    control_id: str
+    provider_bundle_ids: tuple[tuple[str, str], ...]
+
+    def __post_init__(self) -> None:
+        required = (
+            self.release_set_id,
+            self.deployment_receipt_id,
+            self.runtime_config_digest,
+            self.control_id,
+        )
+        if not all(value.strip() for value in required):
+            raise ValueError("ModelReleaseBinding identity is required")
+        if self.deployment_sequence <= 0:
+            raise ValueError("ModelReleaseBinding deployment sequence must be positive")
+        if not self.provider_bundle_ids:
+            raise ValueError("ModelReleaseBinding provider bundles are required")
+        providers = []
+        for provider_id, bundle_id in self.provider_bundle_ids:
+            if not provider_id.strip() or not bundle_id.strip():
+                raise ValueError("ModelReleaseBinding provider bundle is invalid")
+            providers.append(provider_id)
+        if len(set(providers)) != len(providers):
+            raise ValueError("ModelReleaseBinding provider ids must be unique")
+
+    def bundle_id_for(self, provider_id: str) -> str:
+        for candidate, bundle_id in self.provider_bundle_ids:
+            if candidate == provider_id:
+                return bundle_id
+        raise ValueError("provider is not authorized by ModelReleaseBinding")
+
+
+@dataclass(frozen=True, slots=True)
+class KnowledgeExecutionPayload:
+    knowledge_ref: str
+    content: str
+    source_ref: str
+    license_ref: str
+    evidence_level: str
+    content_digest: str
+
+    def __post_init__(self) -> None:
+        if not all(
+            isinstance(value, str) and value.strip()
+            for value in (
+                self.knowledge_ref,
+                self.content,
+                self.source_ref,
+                self.license_ref,
+                self.evidence_level,
+                self.content_digest,
+            )
+        ):
+            raise ValueError("KnowledgeExecutionPayload reviewed fields are required")
+
+
+@dataclass(frozen=True, slots=True)
+class PromptExecutionPlan:
+    """Reviewed prompt content supplied by the server-owned contract registry."""
+
+    prompt_ref: str
+    prompt_version: str
+    template: str
+    system_policy_ref: str
+    safety_policy_version: str
+    knowledge_refs: tuple[str, ...]
+    asset_digest: str
+    system_policy: str = ""
+    system_policy_digest: str = ""
+    knowledge_materials: tuple[KnowledgeExecutionPayload, ...] = ()
+    material_digest: str = ""
+
+    def __post_init__(self) -> None:
+        required = (
+            self.prompt_ref,
+            self.prompt_version,
+            self.template,
+            self.system_policy_ref,
+            self.safety_policy_version,
+            self.asset_digest,
+        )
+        if not all(isinstance(value, str) and value.strip() for value in required):
+            raise ValueError("PromptExecutionPlan reviewed content is required")
+        if any(not ref.strip() for ref in self.knowledge_refs):
+            raise ValueError("PromptExecutionPlan knowledge refs cannot be blank")
+        if len(set(self.knowledge_refs)) != len(self.knowledge_refs):
+            raise ValueError("PromptExecutionPlan knowledge refs must be unique")
+        if self.knowledge_materials and tuple(
+            item.knowledge_ref for item in self.knowledge_materials
+        ) != self.knowledge_refs:
+            raise ValueError("PromptExecutionPlan knowledge material order mismatch")
+        has_any_material = bool(
+            self.system_policy
+            or self.system_policy_digest
+            or self.knowledge_materials
+            or self.material_digest
+        )
+        if has_any_material and not self.has_reviewed_materials:
+            raise ValueError("PromptExecutionPlan execution materials are incomplete")
+
+    @property
+    def has_reviewed_materials(self) -> bool:
+        return bool(
+            self.system_policy.strip()
+            and self.system_policy_digest.strip()
+            and self.material_digest.strip()
+            and len(self.knowledge_materials) == len(self.knowledge_refs)
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class StructuredRequest:
     """One structured-generation request.
 
@@ -116,6 +233,10 @@ class StructuredRequest:
     request_id: str | None = None
     session_id: str | None = None
     policy_context: PolicyContext = field(default_factory=PolicyContext)
+    tenant_id: str | None = None
+    family_id: str | None = None
+    release_binding: ModelReleaseBinding | None = None
+    prompt_execution_plan: PromptExecutionPlan | None = None
 
     def __post_init__(self) -> None:
         missing = [
@@ -139,6 +260,25 @@ class StructuredRequest:
                 "StructuredRequest.output_schema is required — without a schema the "
                 "gateway cannot fail closed on a malformed model response"
             )
+        if (self.tenant_id is None) != (self.family_id is None):
+            raise ValueError("StructuredRequest.tenant_id and family_id must be supplied together")
+        if self.tenant_id is not None and (
+            not self.tenant_id.strip() or not self.family_id or not self.family_id.strip()
+        ):
+            raise ValueError("StructuredRequest tenant/family scope values must be non-empty")
+        if self.prompt_execution_plan is not None:
+            if not isinstance(self.prompt_execution_plan, PromptExecutionPlan):
+                raise ValueError("StructuredRequest prompt execution plan is invalid")
+            if self.prompt_execution_plan.prompt_version != self.prompt_version:
+                raise ValueError("StructuredRequest prompt execution plan version mismatch")
+        if self.release_binding is not None and self.prompt_execution_plan is None:
+            raise ValueError("release-bound requests require a PromptExecutionPlan")
+        if (
+            self.release_binding is not None
+            and self.prompt_execution_plan is not None
+            and not self.prompt_execution_plan.has_reviewed_materials
+        ):
+            raise ValueError("release-bound requests require reviewed execution materials")
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +286,25 @@ class TokenUsage:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     total_tokens: int | None = None
+
+    def __post_init__(self) -> None:
+        values = {
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+        }
+        for name, value in values.items():
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
+                raise ValueError(f"TokenUsage.{name} must be a non-negative integer or None")
+            if value is not None and value < 0:
+                raise ValueError(f"TokenUsage.{name} must be a non-negative integer or None")
+        if (
+            self.total_tokens is not None
+            and self.prompt_tokens is not None
+            and self.completion_tokens is not None
+            and self.total_tokens < self.prompt_tokens + self.completion_tokens
+        ):
+            raise ValueError("TokenUsage.total_tokens cannot be below prompt + completion")
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +335,13 @@ class AiProvenance:
     use_case: str
     confidence: float | None = None
     token_usage: TokenUsage | None = None
+    release_set_id: str | None = None
+    bundle_id: str | None = None
+    deployment_receipt_id: str | None = None
+    runtime_config_digest: str | None = None
+    deployment_sequence: int | None = None
+    control_id: str | None = None
+    fence_claim_id: str | None = None
     generated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     REQUIRED_IDENTITY_FIELDS: ClassVar[tuple[str, ...]] = (
@@ -200,6 +366,23 @@ class AiProvenance:
             raise ValueError("AiProvenance.latency_ms must not be negative")
         if self.confidence is not None and not 0.0 <= self.confidence <= 1.0:
             raise ValueError("AiProvenance.confidence must lie in [0.0, 1.0] when reported")
+        release_refs = (
+            self.release_set_id,
+            self.bundle_id,
+            self.deployment_receipt_id,
+            self.runtime_config_digest,
+            self.control_id,
+            self.fence_claim_id,
+        )
+        has_release_evidence = any(release_refs) or self.deployment_sequence is not None
+        if has_release_evidence and (
+            self.deployment_sequence is None
+            or self.deployment_sequence <= 0
+            or not all(
+            isinstance(value, str) and value.strip() for value in release_refs
+            )
+        ):
+            raise ValueError("AiProvenance release binding must be complete or absent")
 
 
 @dataclass(frozen=True, slots=True)

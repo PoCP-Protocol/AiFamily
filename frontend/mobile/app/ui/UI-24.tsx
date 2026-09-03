@@ -9,7 +9,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { familyApi } from "@/lib/family/family-api-client";
-import type { FamilyApiServiceCustomerProjection, FamilyApiServiceSupplyProjection } from "@/lib/family/family-api-projections";
+import type { ServiceCustomerProjection, ServiceOfferingDto } from "@/lib/family/service-api-contracts";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
 import { useFamilyMobile } from "@/lib/family/family-state";
 import { channelLabel, serviceOfferingsForDisplay } from "@/lib/family/service-support";
@@ -18,8 +18,8 @@ export default function MyConsultationsAndActivitiesScreen() {
   const colors = useColors();
   const session = useFamilyApiSession();
   const state = useFamilyMobile();
-  const [supply, setSupply] = useState<FamilyApiServiceSupplyProjection | null>(null);
-  const [projection, setProjection] = useState<FamilyApiServiceCustomerProjection | null>(null);
+  const [supply, setSupply] = useState<ServiceOfferingDto[] | null>(null);
+  const [projection, setProjection] = useState<ServiceCustomerProjection | null>(null);
   const [loadState, setLoadState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -29,8 +29,8 @@ export default function MyConsultationsAndActivitiesScreen() {
     setLoadError(null);
     try {
       const [supplyResult, customerResult] = await Promise.all([
-        familyApi.getServiceOfferings<FamilyApiServiceSupplyProjection>(session.token, session.selectedFamily.family_id, {}),
-        familyApi.getServiceCustomerProjection<FamilyApiServiceCustomerProjection>(session.token, session.selectedFamily.family_id),
+        familyApi.getServiceOfferings(session.token, session.selectedFamily.family_id),
+        familyApi.getServiceCustomerProjection(session.token, session.selectedFamily.family_id),
       ]);
       setSupply(supplyResult);
       setProjection(customerResult);
@@ -43,13 +43,13 @@ export default function MyConsultationsAndActivitiesScreen() {
 
   useEffect(() => { void loadData(); }, [loadData]);
 
-  const offerings = useMemo(() => serviceOfferingsForDisplay(supply?.offerings), [supply?.offerings]);
+  const offerings = useMemo(() => serviceOfferingsForDisplay(supply ?? undefined), [supply]);
   const remoteBookings = projection?.bookings ?? [];
   const localDraft = state.consultationNeedDraft;
   const activityDraft = state.activityInterestDraft;
   const consultationCount = remoteBookings.length || (localDraft ? 1 : 0);
   const activityCount = activityDraft ? 1 : 0;
-  const recordCount = projection?.service_records.length ?? (localDraft?.serviceRecordId ? 1 : 0);
+  const recordCount = remoteBookings.filter((item) => item.booking_service_record_id).length || (localDraft?.serviceRecordId ? 1 : 0);
 
   return (
     <ScreenContainer edges={["left", "right", "bottom"]}>

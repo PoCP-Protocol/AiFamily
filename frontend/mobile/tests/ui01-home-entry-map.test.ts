@@ -47,10 +47,23 @@ describe("UI-01 original-home hotspot contract", () => {
   it("keeps UI-01 module actions wired to the intended later screens", () => {
     const homeSource = readFileSync(resolve(process.cwd(), "app/(tabs)/index.tsx"), "utf8");
 
-    expect(homeSource).toContain('const CHALLENGE_CAMP_TARGET = "/ui/UI-14?productRef=PRODUCT_PARENT_CHILD_CAMP" as Href;');
-    expect(homeSource).toContain('onPress={() => open(`/ui/${UI01_HOME_TARGETS.freeAssessment}` as Href)}');
-    expect(homeSource).toContain('onPress={() => open(`/ui/${UI01_HOME_TARGETS.dailyTasks}` as Href)}');
-    expect(homeSource).toContain('onPress={() => open(`/ui/${UI01_HOME_TARGETS.recommendations}` as Href)}');
-    expect(homeSource).toContain('open((item.target_ui === "UI-19" ? "/ui/UI-19" : "/ui/UI-13") as Href)');
+    expect(homeSource).toContain('const CHALLENGE_CAMP_TARGET = productRoute("PRODUCT_PARENT_CHILD_CAMP");');
+    expect(homeSource).toContain('open(routeForUi(UI01_HOME_TARGETS.freeAssessment))');
+    expect(homeSource).toContain('open(routeForUi(UI01_HOME_TARGETS.dailyTasks))');
+    expect(homeSource).toContain('open(routeForUi(UI01_HOME_TARGETS.recommendations))');
+    expect(homeSource).toContain('routeForUi(item.target_ui === "UI-19" ? "UI-19" : "UI-13")');
+  });
+
+  it("mounts the real achievement rail with notification consumption on UI-01", () => {
+    const homeSource = readFileSync(resolve(process.cwd(), "app/(tabs)/index.tsx"), "utf8");
+
+    expect(homeSource).toContain('import { AchievementRail } from "@/components/family/achievement-rail";');
+    expect(homeSource).toContain("familyApi.getFamilyAchievements");
+    expect(homeSource).toContain("familyApi.getFamilyAchievementNotifications");
+    expect(homeSource).toContain("normalizeAchievementFeedback");
+    expect(homeSource).toContain("normalizeAchievementNotifications");
+    expect(homeSource).toContain("markFamilyAchievementNotificationRead");
+    expect(homeSource).toContain("<AchievementRail projection={achievementProjection}");
+    expect(homeSource).toContain('routeForUi("UI-29")');
   });
 });

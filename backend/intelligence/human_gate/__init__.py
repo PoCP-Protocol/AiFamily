@@ -13,6 +13,7 @@ from backend.intelligence.human_gate.contracts import (
     GateStatus,
     HumanDecision,
     HumanTask,
+    HumanTaskClaim,
     NamedActionRequest,
 )
 from backend.intelligence.human_gate.errors import HumanGateError
@@ -22,6 +23,13 @@ from backend.intelligence.human_gate.persistence import (
     HumanGateBase,
     HumanTaskRow,
     SqlAlchemyHumanGate,
+)
+from backend.intelligence.human_gate.tool_action_consumer import (
+    SqlAlchemyToolActionHumanGateConsumer,
+)
+from backend.intelligence.human_gate.tool_action_inbox import (
+    HumanGateSubmitPort,
+    ToolActionHumanGateInbox,
 )
 
 __all__ = [
@@ -33,10 +41,14 @@ __all__ = [
     "HumanDecision",
     "HumanGateError",
     "HumanTask",
+    "HumanTaskClaim",
     "InMemoryHumanGate",
     "HUMAN_TASKS_TABLE",
     "HumanGateBase",
     "HumanTaskRow",
     "SqlAlchemyHumanGate",
     "NamedActionRequest",
+    "HumanGateSubmitPort",
+    "ToolActionHumanGateInbox",
+    "SqlAlchemyToolActionHumanGateConsumer",
 ]

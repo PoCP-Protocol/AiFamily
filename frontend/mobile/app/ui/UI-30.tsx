@@ -1,4 +1,3 @@
-import type { Href } from "expo-router";
 import { router, Stack } from "expo-router";
 import { useEffect, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
@@ -13,6 +12,7 @@ import type {
   FamilyApiMembershipPlansProjection,
   FamilyApiMembershipProjection,
 } from "@/lib/family/family-api-projections";
+import { routeForUi } from "@/lib/navigation/family-routes";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
 import { useFamilyMobile } from "@/lib/family/family-state";
 
@@ -87,7 +87,7 @@ export default function AnnualCompanionScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <Pressable onPress={() => router.push(`/ui/${item.target}` as Href)} style={({ pressed }) => [styles.link, { backgroundColor: colors.surface, borderColor: colors.border }, pressed && styles.pressed]}>
+          <Pressable onPress={() => router.push(routeForUi(item.target))} style={({ pressed }) => [styles.link, { backgroundColor: colors.surface, borderColor: colors.border }, pressed && styles.pressed]}>
             <View style={styles.linkIcon}><IconSymbol name={item.icon} size={25} color="#2563EB" /></View>
             <Text style={[styles.linkText, { color: colors.text }]}>{item.label}</Text>
           </Pressable>
@@ -100,7 +100,7 @@ export default function AnnualCompanionScreen() {
               <View style={styles.track}><View style={[styles.fill, { width: `${serviceProgress}%` }]} /></View>
               <Text style={[styles.currentHint, { color: colors.muted }]}>{state.campStarted ? `已完成 ${state.campCompletedDays.length} 个成长营小结，继续按自己的速度走。` : "从一次测评或小行动开始，再慢慢形成自己的节奏。"}</Text>
             </View>
-            <Pressable onPress={() => router.push("/ui/UI-32" as Href)} style={({ pressed }) => [styles.banner, pressed && styles.pressed]}>
+            <Pressable onPress={() => router.push(routeForUi("UI-32"))} style={({ pressed }) => [styles.banner, pressed && styles.pressed]}>
               <View style={styles.bannerCopy}>
                 <Text style={styles.bannerTitle}>{annualPlan?.title ?? "年度会员服务"}</Text>
                 <Text style={styles.bannerText}>{subscription ? "家庭权益与服务支持正在生效" : "先查看权益与长期陪伴节奏"}</Text>

@@ -119,10 +119,13 @@ async def get_ui02_projection(
     family_id: str,
     context: FamilyContext = Depends(get_family_context),
     handler: AssessmentQueryHandler = Depends(get_query_handler),
+    x_correlation_id: str | None = Header(default=None),
 ) -> dict:
     _assert_path_family(context, family_id)
     return await handler.get_ui02_projection(
-        GetUi02ProjectionQuery(family_id, context.tenant_id, context.person_id)
+        GetUi02ProjectionQuery(
+            family_id, context.tenant_id, context.person_id, x_correlation_id or ""
+        )
     )
 
 
@@ -211,10 +214,13 @@ async def get_ui03_projection(
     family_id: str,
     context: FamilyContext = Depends(get_family_context),
     handler: AssessmentQueryHandler = Depends(get_query_handler),
+    x_correlation_id: str | None = Header(default=None),
 ) -> dict:
     _assert_path_family(context, family_id)
     return await handler.get_ui03_projection(
-        GetUi03ProjectionQuery(family_id, context.tenant_id, context.person_id)
+        GetUi03ProjectionQuery(
+            family_id, context.tenant_id, context.person_id, x_correlation_id or ""
+        )
     )
 
 

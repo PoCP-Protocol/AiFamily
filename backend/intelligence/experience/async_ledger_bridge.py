@@ -22,6 +22,7 @@ from typing import Any, Protocol, TypeVar
 
 from backend.intelligence.experience.run_http import (
     DraftPreflight,
+    FeedbackPreferenceSnapshot,
     InteractionReceipt,
     InteractionType,
     RunHttpConflictError,
@@ -88,6 +89,10 @@ class AsyncExperienceRunLedgerPort(Protocol):
     ) -> InteractionReceipt: ...
 
     async def replay(self, *, scope: RunScope, run_id: str) -> RunReplaySnapshot: ...
+
+    async def feedback_preferences(
+        self, *, scope: RunScope
+    ) -> FeedbackPreferenceSnapshot: ...
 
 
 async def dispatch_ledger_call(ledger: object, method_name: str, **kwargs: Any) -> Any:
@@ -273,6 +278,13 @@ class AsyncExperienceRunLedgerBridge:
 
     async def replay(self, *, scope: RunScope, run_id: str) -> RunReplaySnapshot:
         return await self._ledger.replay(scope=scope, run_id=run_id)
+
+    async def feedback_preferences(
+        self, *, scope: RunScope
+    ) -> FeedbackPreferenceSnapshot:
+        if not callable(getattr(self._ledger, "feedback_preferences", None)):
+            return FeedbackPreferenceSnapshot(scope=scope)
+        return await dispatch_ledger_call(self._ledger, "feedback_preferences", scope=scope)
 
 
 __all__ = [

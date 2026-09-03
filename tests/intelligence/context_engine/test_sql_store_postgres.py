@@ -11,7 +11,7 @@ from backend.intelligence.context_engine.sql_store import (
     ContextPersistenceBase,
 )
 from backend.platform.persistence.session import resolve_test_database_url
-from tests.intelligence.context_engine.test_sql_store import _observation, _scope
+from tests.intelligence.context_engine.test_sql_store import NOW, _observation, _scope
 
 
 @pytest.mark.asyncio
@@ -34,8 +34,8 @@ async def test_sql_context_postgres_schema_restart_and_delete() -> None:
         broker = AsyncSqlContextBroker(session_factory)
         scope = _scope()
         await broker.append(_observation())
-        snapshot = await broker.snapshot(scope=scope)
-        replay = await broker.read(snapshot.snapshot_ref, scope)
+        snapshot = await broker.snapshot(scope=scope, now=NOW)
+        replay = await broker.read(snapshot.snapshot_ref, scope, now=NOW)
 
         assert replay.snapshot_ref == snapshot.snapshot_ref
         assert replay.observations[0].observation_id == "observation-1"

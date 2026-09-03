@@ -80,6 +80,27 @@ class AssessmentRepositoryPort(Protocol):
 
     async def tenant_allows_page(self, tenant_id: str, page_id: str) -> bool: ...
 
+    async def subject_has_active_consent(
+        self, family_id: str, subject_person_id: str, purpose: str
+    ) -> bool: ...
+
+    async def record_read_access(
+        self,
+        *,
+        tenant_id: str,
+        family_id: str,
+        actor_id: str,
+        action: str,
+        resource_type: str,
+        resource_id: str,
+        subject_person_id: str,
+        accessed_fields: tuple[str, ...],
+        access_purpose: str,
+        reason: str,
+        correlation_id: str,
+        approval_ref: str,
+    ) -> None: ...
+
     # --- idempotency / audit / outbox, ported from lockOperation /
     # loadOperationReplay / persistOperation / auditAndEmit ---
 

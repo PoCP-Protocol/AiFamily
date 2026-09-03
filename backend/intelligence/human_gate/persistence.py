@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import sqlalchemy as sa
@@ -43,6 +43,7 @@ from .contracts import (
     GateStatus,
     HumanDecision,
     HumanTask,
+    HumanTaskClaim,
     NamedActionRequest,
 )
 from .errors import HumanGateError
@@ -78,6 +79,12 @@ class HumanTaskRow(HumanGateBase):
             "AND action_request_payload IS NULL) OR "
             "(status = 'DECIDED' AND decision_payload IS NOT NULL)",
             name="ck_ai_human_tasks_lifecycle_shape",
+        ),
+        CheckConstraint(
+            "(claim_owner IS NULL AND claim_expires_at IS NULL) OR "
+            "(status = 'DECIDED' AND action_request_payload IS NOT NULL "
+            "AND claim_owner IS NOT NULL AND claim_expires_at IS NOT NULL)",
+            name="ck_ai_human_tasks_claim_shape",
         ),
         Index(
             "uq_ai_human_tasks_tenant_proposal",
@@ -126,6 +133,14 @@ class HumanTaskRow(HumanGateBase):
 
     request_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
     action_request_payload: Mapped[dict | None] = mapped_column(_NULLABLE_JSON, nullable=True)
+
+    # A claim is a delivery lease, not an indication that the business action
+    # has completed.  Both columns are nullable for accepted tasks that are
+    # still waiting in the queue; the CHECK above keeps the pair atomic.
+    claim_owner: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    claim_expires_at: Mapped[datetime | None] = mapped_column(
+        _TZ_DATETIME, nullable=True, index=True
+    )
 
 
 def _utc(value: datetime | None) -> datetime | None:
@@ -191,6 +206,8 @@ def _scope_payload(scope: GateScope) -> dict[str, object]:
         "purpose": scope.purpose,
         "consent_version": scope.consent_version,
         "correlation_id": scope.correlation_id,
+        "region_id": scope.region_id,
+        "deletion_ref": scope.deletion_ref,
     }
 
 
@@ -210,6 +227,7 @@ def _proposal_payload(proposal: ActionProposal) -> dict[str, Any]:
             "provenance_ref": proposal.provenance_ref,
             "created_at": proposal.created_at.isoformat(),
             "expires_at": proposal.expires_at.isoformat(),
+            "source_kind": proposal.source_kind.value,
         },
         "proposal_payload",
     )
@@ -277,6 +295,16 @@ def _scope_from_payload(raw: object) -> GateScope:
         purpose=_text(raw.get("purpose"), "purpose"),
         consent_version=_text(raw.get("consent_version"), "consent_version"),
         correlation_id=_text(raw.get("correlation_id"), "correlation_id"),
+        region_id=(
+            None
+            if raw.get("region_id") is None
+            else _text(raw.get("region_id"), "region_id")
+        ),
+        deletion_ref=(
+            None
+            if raw.get("deletion_ref") is None
+            else _text(raw.get("deletion_ref"), "deletion_ref")
+        ),
     )
 
 
@@ -299,6 +327,7 @@ def _proposal_from_payload(raw: object) -> ActionProposal:
         provenance_ref=_text(raw.get("provenance_ref"), "provenance_ref"),
         created_at=_datetime_from_payload(raw, "created_at"),
         expires_at=_datetime_from_payload(raw, "expires_at"),
+        source_kind=str(raw.get("source_kind") or "AI_DRAFT"),
     )
 
 
@@ -373,6 +402,15 @@ def _persisted_task(row: HumanTaskRow) -> HumanTask:
             raise HumanGateError("PERSISTED_SHAPE_INVALID", "decision id mismatch")
         if row.request_id != (request.request_id if request else None):
             raise HumanGateError("PERSISTED_SHAPE_INVALID", "request id mismatch")
+        if (row.claim_owner is None) != (row.claim_expires_at is None):
+            raise HumanGateError("PERSISTED_SHAPE_INVALID", "claim columns must be paired")
+        if row.claim_owner is not None:
+            if status is not GateStatus.DECIDED or request is None:
+                raise HumanGateError(
+                    "PERSISTED_SHAPE_INVALID", "only an accepted task may have a claim"
+                )
+            _text(row.claim_owner, "claim_owner")
+            _aware(_utc(row.claim_expires_at), "claim_expires_at")
         if _utc(row.decided_at) != (decision.decided_at if decision else None):
             raise HumanGateError("PERSISTED_SHAPE_INVALID", "decision timestamp mismatch")
         if decision is not None and decision.task_id != row.task_id:
@@ -450,6 +488,27 @@ class SqlAlchemyHumanGate:
             raise HumanGateError("TASK_NOT_FOUND", f"unknown human task {task_id!r}")
         return _persisted_task(row)
 
+    async def pending_accepted_task_ids(self, *, limit: int = 100) -> tuple[str, ...]:
+        """Return a bounded queue view of accepted actions awaiting delivery.
+
+        This is intentionally a read-only candidate list.  A worker must still
+        acquire the row-level claim lease before executing each task; returning
+        ids here does not reserve work and is therefore safe for many pollers.
+        """
+
+        if limit < 0:
+            raise HumanGateError("INVALID_QUEUE_LIMIT", "limit must be non-negative")
+        rows = await self._session.scalars(
+            sa.select(HumanTaskRow.task_id)
+            .where(
+                HumanTaskRow.status == GateStatus.DECIDED.value,
+                HumanTaskRow.action_request_payload.is_not(None),
+            )
+            .order_by(HumanTaskRow.decided_at, HumanTaskRow.task_id)
+            .limit(limit)
+        )
+        return tuple(rows)
+
     async def submit(
         self,
         proposal: ActionProposal,
@@ -515,7 +574,11 @@ class SqlAlchemyHumanGate:
                 action="CREATE_HUMAN_TASK",
                 resource_type="HumanTask",
                 resource_id=resolved_task_id,
-                reason="AI draft entered the Human Gate for human review",
+                reason=(
+                    "User requested professional review"
+                    if proposal.source_kind.value == "USER_REQUEST"
+                    else "AI draft entered the Human Gate for human review"
+                ),
                 correlation_id=proposal.scope.correlation_id,
                 after={
                     "status": GateStatus.OPEN.value,
@@ -655,6 +718,163 @@ class SqlAlchemyHumanGate:
         )
         decided = _persisted_task(row)
         return decided, decided.action_request
+
+    async def claim_accepted(
+        self,
+        task_id: str,
+        *,
+        claim_owner: str,
+        lease_ttl: timedelta,
+        recorder: AuditRecorder,
+        now: datetime | None = None,
+    ) -> HumanTaskClaim:
+        """Atomically claim one accepted request for a worker attempt.
+
+        The claim is staged in the caller's transaction and must be audited
+        and committed before business execution begins.  A conditional UPDATE
+        is the actual concurrency guard; the row lock makes the diagnostic
+        read and audit snapshot consistent on PostgreSQL, while the predicate
+        remains the guard on SQLite and other backends.
+        """
+
+        owner = _text(claim_owner, "claim_owner").strip()
+        if len(owner) > 128:
+            raise HumanGateError("INVALID_CLAIM_OWNER", "claim_owner is too long")
+        if owner.lower().startswith("ai:") or owner.upper() in {"AI", "SYSTEM"}:
+            raise HumanGateError(
+                "INVALID_CLAIM_OWNER", "claim_owner must identify a workflow worker"
+            )
+        if not isinstance(lease_ttl, timedelta) or lease_ttl <= timedelta(0):
+            raise HumanGateError("INVALID_CLAIM_LEASE", "lease_ttl must be positive")
+        current = _aware(now or datetime.now(UTC), "now")
+        claim_expires_at = current + lease_ttl
+
+        row = await self._session.scalar(
+            sa.select(HumanTaskRow)
+            .where(HumanTaskRow.task_id == task_id)
+            .with_for_update()
+        )
+        if row is None:
+            raise HumanGateError("TASK_NOT_FOUND", f"unknown human task {task_id!r}")
+        task = _persisted_task(row)
+        if task.status is not GateStatus.DECIDED or task.action_request is None:
+            raise HumanGateError(
+                "TASK_NOT_CLAIMABLE", "only a decided task with an accepted action is claimable"
+            )
+        existing_expires_at = _utc(row.claim_expires_at)
+        if (
+            row.claim_owner is not None
+            and existing_expires_at is not None
+            and existing_expires_at > current
+        ):
+            raise HumanGateError(
+                "TASK_ALREADY_CLAIMED", "the accepted task has an active worker claim"
+            )
+        previous_owner = row.claim_owner
+
+        result = await self._session.execute(
+            sa.update(HumanTaskRow)
+            .where(
+                HumanTaskRow.task_id == task_id,
+                HumanTaskRow.status == GateStatus.DECIDED.value,
+                HumanTaskRow.action_request_payload.is_not(None),
+                sa.or_(
+                    HumanTaskRow.claim_owner.is_(None),
+                    HumanTaskRow.claim_expires_at <= current,
+                ),
+            )
+            .values(claim_owner=owner, claim_expires_at=claim_expires_at)
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            raise HumanGateError(
+                "TASK_CLAIM_LOST", "the task claim changed before this worker acquired it"
+            )
+
+        # Keep an already-loaded ORM identity map coherent with the atomic
+        # UPDATE before the caller can flush/commit the claim transaction.
+        row.claim_owner = owner
+        row.claim_expires_at = claim_expires_at
+        await self._session.flush()
+        recorder.record(
+            AuditEvent(
+                actor_id=owner,
+                tenant_id=task.proposal.scope.tenant_id,
+                action="CLAIM_HUMAN_TASK",
+                resource_type="HumanTask",
+                resource_id=task_id,
+                reason="workflow worker acquired an accepted Human Gate action",
+                correlation_id=task.proposal.scope.correlation_id,
+                before={
+                    "claim_owner": previous_owner,
+                    "claim_expires_at": (
+                        existing_expires_at.isoformat() if existing_expires_at else None
+                    ),
+                },
+                after={
+                    "claim_owner": owner,
+                    "claim_expires_at": claim_expires_at.isoformat(),
+                },
+            )
+        )
+        return HumanTaskClaim(
+            task=task,
+            claim_owner=owner,
+            claim_expires_at=claim_expires_at,
+        )
+
+    async def complete_claim(
+        self,
+        task_id: str,
+        *,
+        claim_owner: str,
+        recorder: AuditRecorder,
+        now: datetime | None = None,
+    ) -> HumanTask:
+        """Clear a live claim after the owning domain command committed.
+
+        Ownership and expiry are checked under the row lock.  A stale worker
+        cannot clear a replacement worker's claim after lease takeover.
+        """
+
+        owner = _text(claim_owner, "claim_owner").strip()
+        current = _aware(now or datetime.now(UTC), "now")
+        row = await self._session.scalar(
+            sa.select(HumanTaskRow)
+            .where(HumanTaskRow.task_id == task_id)
+            .with_for_update()
+        )
+        if row is None:
+            raise HumanGateError("TASK_NOT_FOUND", f"unknown human task {task_id!r}")
+        task = _persisted_task(row)
+        if task.status is not GateStatus.DECIDED or task.action_request is None:
+            raise HumanGateError("TASK_NOT_CLAIMABLE", "task has no accepted action claim")
+        if row.claim_owner != owner:
+            raise HumanGateError("CLAIM_NOT_OWNED", "worker does not own the task claim")
+        claim_expires_at = _utc(row.claim_expires_at)
+        if claim_expires_at is None or claim_expires_at <= current:
+            raise HumanGateError("CLAIM_EXPIRED", "worker claim has expired")
+
+        row.claim_owner = None
+        row.claim_expires_at = None
+        await self._session.flush()
+        recorder.record(
+            AuditEvent(
+                actor_id=owner,
+                tenant_id=task.proposal.scope.tenant_id,
+                action="COMPLETE_HUMAN_TASK_CLAIM",
+                resource_type="HumanTask",
+                resource_id=task_id,
+                reason="workflow worker completed the accepted action attempt",
+                correlation_id=task.proposal.scope.correlation_id,
+                before={
+                    "claim_owner": owner,
+                    "claim_expires_at": claim_expires_at.isoformat(),
+                },
+                after={"claim_owner": None, "claim_expires_at": None},
+            )
+        )
+        return _persisted_task(row)
 
     async def expire_due(
         self,

@@ -211,6 +211,52 @@ class TestUi02Projection:
         assert projection["tool"]["tool_ref"] == "FAMILY_SUPPORT_NEEDS"
         assert projection["named_actions"]["submit"] == "SUBMIT_ASSESSMENT"
 
+    async def test_projection_records_minor_read_access(self, repo, query_handler):
+        family_id = repo._test_family_id
+
+        await query_handler.get_ui02_projection(
+            GetUi02ProjectionQuery(family_id, TENANT_ID, "actor-1", "read-correlation-1")
+        )
+
+        assert len(repo.read_audit_events) == 1
+        event = repo.read_audit_events[0]
+        assert event.is_read
+        assert event.subject_person_id == repo._test_child_id
+        assert event.access_purpose == "ASSESSMENT"
+        assert event.correlation_id == "read-correlation-1"
+        assert "display_name" in event.accessed_fields
+
+    async def test_policy_block_does_not_read_child_projection(self, repo, query_handler):
+        family_id = repo._test_family_id
+        repo.tenant_allowed_pages[TENANT_ID].remove("UI-02")
+
+        projection = await query_handler.get_ui02_projection(
+            GetUi02ProjectionQuery(family_id, TENANT_ID, "actor-1")
+        )
+
+        assert projection["availability"] == "POLICY_BLOCKED"
+        assert projection["subjects"] == []
+        assert repo.read_audit_events == []
+
+    async def test_read_audit_failure_blocks_projection(self, repo, interpretation):
+        class _FailingReadAuditRepository:
+            def __init__(self, inner):
+                self._inner = inner
+
+            def __getattr__(self, name):
+                return getattr(self._inner, name)
+
+            async def record_read_access(self, **kwargs):
+                raise RuntimeError("read audit unavailable")
+
+        handler = AssessmentQueryHandler(
+            _FailingReadAuditRepository(repo), interpretation
+        )
+        with pytest.raises(RuntimeError, match="read audit unavailable"):
+            await handler.get_ui02_projection(
+                GetUi02ProjectionQuery(repo._test_family_id, TENANT_ID, "actor-1")
+            )
+
 
 class TestGrowthHypothesisFlow:
     async def _submit_full_session(self, repo, command_handler) -> str:
@@ -247,6 +293,76 @@ class TestGrowthHypothesisFlow:
         assert projection["availability"] == "READY"
         assert projection["hypothesis"]["fact_boundary"] == "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS"
         assert "hypothesis_not_fact" in projection["hypothesis"]["model_boundary_labels"]
+        assert len(repo.read_audit_events) == 1
+        event = repo.read_audit_events[0]
+        assert event.is_read
+        assert event.subject_person_id == repo._test_child_id
+        assert event.approval_ref == f"consent:ASSESSMENT:{repo._test_child_id}"
+
+    async def test_ui03_withdrawn_consent_hides_evidence_and_records_no_read(
+        self, repo, command_handler, query_handler
+    ):
+        await self._submit_full_session(repo, command_handler)
+        repo.consents.remove((repo._test_family_id, repo._test_child_id, "ASSESSMENT"))
+
+        projection = await query_handler.get_ui03_projection(
+            GetUi03ProjectionQuery(repo._test_family_id, TENANT_ID, "actor-1")
+        )
+
+        assert projection["availability"] == "NO_SUBMITTED_ASSESSMENT"
+        assert projection["hypothesis"] is None
+        assert repo.read_audit_events == []
+
+    async def test_decision_checks_consent_before_interpretation(
+        self, repo, command_handler, query_handler
+    ):
+        session_id = await self._submit_full_session(repo, command_handler)
+        projection = await query_handler.get_ui03_projection(
+            GetUi03ProjectionQuery(repo._test_family_id, TENANT_ID, "actor-1")
+        )
+        hypothesis_ref = projection["hypothesis"]["hypothesis_ref"]
+        repo.consents.remove((repo._test_family_id, repo._test_child_id, "ASSESSMENT"))
+
+        class _MustNotInterpret:
+            async def interpret(self, *args, **kwargs):
+                raise AssertionError("withdrawn child evidence reached interpretation")
+
+        class _StaleEvidenceRepository:
+            def __init__(self, inner):
+                self._inner = inner
+
+            def __getattr__(self, name):
+                return getattr(self._inner, name)
+
+            async def load_hypothesis_evidence(self, family_id, tenant_id, session_id=None):
+                # Simulate a stale repository/cache returning evidence even
+                # though the current consent was withdrawn. The command's
+                # explicit pre-interpretation consent check must still stop it.
+                self._inner.consents.add((family_id, repo._test_child_id, "ASSESSMENT"))
+                try:
+                    return await self._inner.load_hypothesis_evidence(
+                        family_id, tenant_id, session_id
+                    )
+                finally:
+                    self._inner.consents.remove((family_id, repo._test_child_id, "ASSESSMENT"))
+
+        handler = GrowthHypothesisCommandHandler(
+            _StaleEvidenceRepository(repo), _MustNotInterpret()
+        )
+        with pytest.raises(AssessmentForbiddenError) as exc:
+            await handler.decide(
+                DecideGrowthHypothesisCommand(
+                    repo._test_family_id,
+                    TENANT_ID,
+                    "actor-1",
+                    session_id,
+                    hypothesis_ref,
+                    "CONFIRM",
+                    "corr-withdrawn",
+                    "decision-withdrawn",
+                )
+            )
+        assert exc.value.code == "assessment_subject_or_consent_unavailable"
 
     async def test_ui03_projection_no_submitted_assessment_before_submit(self, repo, query_handler):
         family_id = repo._test_family_id

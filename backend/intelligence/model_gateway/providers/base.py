@@ -40,6 +40,7 @@ class ProviderAdapter(Protocol):
     """A single vendor endpoint."""
 
     provider_id: str
+    supported_modalities: frozenset[str]
 
     async def invoke(
         self, request: StructuredRequest, *, timeout_seconds: float

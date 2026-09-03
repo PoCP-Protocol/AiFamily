@@ -13,10 +13,11 @@ evidence, not a claim that a business milestone was completed.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import inspect
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from backend.intelligence.experience.contracts import (
     ExperienceContractError,
@@ -54,6 +55,17 @@ class EngagementAuthorization:
         if len(set(self.authorized_event_ids)) != len(self.authorized_event_ids):
             raise EngagementContractError("AUTHORIZED_EVENT_IDS_MUST_BE_UNIQUE")
         if self.expires_at is not None and self.expires_at <= datetime.now(UTC):
+            raise EngagementContractError("AUTHORIZATION_EXPIRED")
+
+    def assert_active(self, *, now: datetime | None = None) -> None:
+        """Re-check consent and expiry immediately before model invocation."""
+
+        if not self.scope.consent_granted:
+            raise EngagementContractError("CONSENT_REQUIRED")
+        reference = now or datetime.now(UTC)
+        if reference.tzinfo is None or reference.utcoffset() is None:
+            raise EngagementContractError("AUTHORIZATION_CLOCK_TIMEZONE_REQUIRED")
+        if self.expires_at is not None and self.expires_at <= reference:
             raise EngagementContractError("AUTHORIZATION_EXPIRED")
 
 
@@ -154,12 +166,18 @@ class EngagementDraft:
     request_id: str
     draft: ModelDraft
     evidence_event_ids: tuple[str, ...]
+    scope: ExperienceScope | None = None
+    draft_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.draft.status != "DRAFT":
             raise EngagementContractError("ENGAGEMENT_DRAFT_STATUS_MUST_REMAIN_DRAFT")
         if self.draft.may_mutate_business_state:
             raise EngagementContractError("ENGAGEMENT_DRAFT_MUTATION_FORBIDDEN")
+        if self.draft_id is not None and (
+            not isinstance(self.draft_id, str) or not self.draft_id.strip()
+        ):
+            raise EngagementContractError("ENGAGEMENT_DRAFT_ID_INVALID")
         if not self.evidence_event_ids:
             raise EngagementContractError("ENGAGEMENT_EVIDENCE_REQUIRED")
         _validate_output(self.draft.output, set(self.evidence_event_ids))
@@ -192,10 +210,16 @@ class EngagementDraft:
 class EngagementDraftService:
     """Generate engagement candidates through the sole Model Gateway."""
 
-    def __init__(self, gateway: ModelGateway) -> None:
+    def __init__(
+        self, gateway: ModelGateway, *, clock: Callable[[], datetime] | None = None
+    ) -> None:
+        if clock is not None and not callable(clock):
+            raise TypeError("clock must be callable")
         self._gateway = gateway
+        self._clock = clock or (lambda: datetime.now(UTC))
 
     async def generate_draft(self, command: EngagementDraftCommand) -> EngagementDraft:
+        command.authorization.assert_active(now=self._clock())
         draft = await self._gateway.generate_structured(
             command.to_structured_request(),
             provider_id=command.provider_id,
@@ -204,7 +228,82 @@ class EngagementDraftService:
             request_id=command.request_id,
             draft=draft,
             evidence_event_ids=tuple(event.event_id for event in command.events),
+            scope=command.authorization.scope,
         )
+
+
+class EngagementEventReader(Protocol):
+    """Server-owned read port for scope-authorized experience events."""
+
+    def read(
+        self, *, scope: ExperienceScope, event_ids: tuple[str, ...]
+    ) -> tuple[ExperienceEvent, ...] | Awaitable[tuple[ExperienceEvent, ...]]: ...
+
+
+class EngagementDraftApplication:
+    """Build an engagement draft from events loaded by a trusted read port.
+
+    The application boundary accepts event identifiers, never client-created
+    ``ExperienceEvent`` objects.  The injected reader owns tenant/family and
+    deletion filtering; this class verifies that it returned exactly the
+    requested set before constructing the Model Gateway command.
+    """
+
+    def __init__(
+        self,
+        service: EngagementDraftService,
+        event_reader: EngagementEventReader,
+    ) -> None:
+        if not isinstance(service, EngagementDraftService):
+            raise TypeError("service must be an EngagementDraftService")
+        if not callable(getattr(event_reader, "read", None)):
+            raise TypeError("event_reader must implement read(scope, event_ids)")
+        self._service = service
+        self._event_reader = event_reader
+
+    async def generate_draft(
+        self,
+        *,
+        request_id: str,
+        provider_id: str,
+        scope: ExperienceScope,
+        actor_id: str,
+        authorization_ref: str,
+        event_ids: tuple[str, ...],
+        context_snapshot_ref: str,
+        payload: Mapping[str, Any] | None = None,
+        expires_at: datetime | None = None,
+    ) -> EngagementDraft:
+        if not event_ids or any(
+            not isinstance(event_id, str) or not event_id.strip() for event_id in event_ids
+        ):
+            raise EngagementContractError("EXPERIENCE_EVENT_IDS_REQUIRED")
+        if len(set(event_ids)) != len(event_ids):
+            raise EngagementContractError("EXPERIENCE_EVENT_IDS_MUST_BE_UNIQUE")
+        loaded = self._event_reader.read(scope=scope, event_ids=event_ids)
+        events = await loaded if inspect.isawaitable(loaded) else loaded
+        if not isinstance(events, tuple) or any(
+            not isinstance(event, ExperienceEvent) for event in events
+        ):
+            raise EngagementContractError("EXPERIENCE_EVENT_READER_INVALID")
+        by_id = {event.event_id: event for event in events}
+        if set(by_id) != set(event_ids):
+            raise EngagementContractError("EXPERIENCE_EVENTS_NOT_FOUND")
+        command = EngagementDraftCommand(
+            request_id=request_id,
+            provider_id=provider_id,
+            authorization=EngagementAuthorization(
+                scope=scope,
+                authorization_ref=authorization_ref,
+                actor_id=actor_id,
+                authorized_event_ids=event_ids,
+                expires_at=expires_at,
+            ),
+            events=tuple(by_id[event_id] for event_id in event_ids),
+            context_snapshot_ref=context_snapshot_ref,
+            payload=dict(payload or {}),
+        )
+        return await self._service.generate_draft(command)
 
 
 ENGAGEMENT_DRAFT_SCHEMA: dict[str, Any] = {
@@ -288,5 +387,7 @@ __all__ = [
     "EngagementContractError",
     "EngagementDraft",
     "EngagementDraftCommand",
+    "EngagementDraftApplication",
     "EngagementDraftService",
+    "EngagementEventReader",
 ]

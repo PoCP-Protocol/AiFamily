@@ -7,6 +7,7 @@ import { FamilyRefreshControl } from "@/components/family/family-refresh-control
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import type { Ui02AssessmentProjection } from "@/lib/family/assessment-api-contracts";
 import type { GrowthFocusId } from "@/lib/family/core-growth";
 import { UI02_ASSESSMENT_ANSWER_OPTIONS, getUi02DeepAssessmentQuestions, type Ui02AssessmentAnswer } from "@/lib/family/ui02-assessment-design";
 import { UI02_ORIGINAL_FOCUS_LAYOUT } from "@/lib/family/ui02-assessment-layout";
@@ -18,26 +19,6 @@ import { haptic } from "@/lib/haptics";
 type FamilyStructure = "双亲家庭" | "单亲家庭" | "重组家庭";
 type ChildGender = "男孩" | "女孩";
 type ServicePreference = "看文字建议" | "生成计划草案" | "只保留记录";
-
-type RemoteAssessmentSession = {
-  assessment_session_id: string;
-  subject_person_id: string;
-  tool_ref: string;
-  tool_version: number;
-  row_version: number;
-  status: "IN_PROGRESS" | "SUBMITTED" | "EXITED";
-  responses: { item_ref: string; response_value: string | boolean; revision: number }[];
-};
-
-type RemoteAssessmentProjection = {
-  projection_version: "UI02_FAMILY_ASSESSMENT_V1";
-  availability: "AVAILABLE" | "CONSENT_REQUIRED" | "NO_SUBJECT" | "POLICY_BLOCKED";
-  subjects: { person_id: string; display_name: string; availability: "AVAILABLE" | "CONSENT_REQUIRED" }[];
-  tool: { tool_ref: string; version_no: number; title: string; purpose: string; evidence_level: "E1"; boundary: { not_a_score: true; not_a_diagnosis: true; training_use: false } } | null;
-  sessions: RemoteAssessmentSession[];
-};
-
-type AssessmentReceipt = { session: RemoteAssessmentSession; replayed: boolean; evidence_id?: string };
 
 const FOCUS_ICON: Record<string, { name: "book.fill" | "heart.fill" | "message.fill" | "phone.fill" | "shield.fill"; color: string }> = {
   LEARNING_HABITS: { name: "book.fill", color: "#2F9BE0" },
@@ -78,7 +59,7 @@ export default function FamilyAssessmentScreen() {
   const [deepAnswers, setDeepAnswers] = useState<Record<string, Ui02AssessmentAnswer>>({});
   const [childStage, setChildStage] = useState(DEFAULT_CHILD_STAGE);
   const [childStageOpen, setChildStageOpen] = useState(false);
-  const [projection, setProjection] = useState<RemoteAssessmentProjection | null>(null);
+  const [projection, setProjection] = useState<Ui02AssessmentProjection | null>(null);
   const [projectionState, setProjectionState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [subjectId, setSubjectId] = useState<string | null>(null);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
@@ -87,6 +68,11 @@ export default function FamilyAssessmentScreen() {
   const selectedQuestions = getUi02DeepAssessmentQuestions(selectedFocusId);
   const answeredQuestionCount = selectedQuestions.filter((question) => deepAnswers[question.itemRef]).length;
   const canSubmitAssessment = boundaryAccepted && !!selectedGrowthFocus && answeredQuestionCount === selectedQuestions.length;
+
+  const answerAssessment = (itemRef: string, optionId: Ui02AssessmentAnswer) => {
+    setDeepAnswers((current) => ({ ...current, [itemRef]: optionId }));
+    haptic.selection();
+  };
 
   const keyFor = (fingerprint: string) => {
     retryKeys.current[fingerprint] ??= createMobileRequestId(fingerprint.replace(/[^a-z0-9]+/gi, "-").toLowerCase());
@@ -101,7 +87,7 @@ export default function FamilyAssessmentScreen() {
     }
     setProjectionState("loading");
     try {
-      const next = await familyApi.getFamilyAssessment<RemoteAssessmentProjection>(session.token, session.selectedFamily.family_id);
+      const next = await familyApi.getFamilyAssessment(session.token, session.selectedFamily.family_id);
       setProjection(next);
       setProjectionState("ready");
     } catch {
@@ -155,20 +141,20 @@ export default function FamilyAssessmentScreen() {
         setSubmissionError(null);
         const familyId = session.selectedFamily.family_id;
         const active = projection.sessions.find((item) => item.subject_person_id === subjectId && item.status === "IN_PROGRESS");
-        const started = active ? { session: active } : await familyApi.startFamilyAssessment<AssessmentReceipt>(session.token, familyId, { subject_person_id: subjectId, tool_ref: projection.tool.tool_ref }, keyFor(`ui02-start:${familyId}:${subjectId}:${projection.tool.tool_ref}`));
+        const started = active ? { session: active } : await familyApi.startFamilyAssessment(session.token, familyId, { subject_person_id: subjectId, tool_ref: projection.tool.tool_ref }, keyFor(`ui02-start:${familyId}:${subjectId}:${projection.tool.tool_ref}`));
         const sessionId = started.session.assessment_session_id;
-        const focusReceipt = await familyApi.saveFamilyAssessmentResponse<AssessmentReceipt>(session.token, familyId, sessionId, { item_ref: "FOCUS", response_type: "SINGLE_CHOICE", response_value: selectedGrowthFocus }, keyFor(`ui02-focus:${sessionId}:${selectedGrowthFocus}`));
+        const focusReceipt = await familyApi.saveFamilyAssessmentResponse(session.token, familyId, sessionId, { item_ref: "FOCUS", response_type: "SINGLE_CHOICE", response_value: selectedGrowthFocus }, keyFor(`ui02-focus:${sessionId}:${selectedGrowthFocus}`));
         const familyStructureValue = familyStructure === "双亲家庭" ? "TWO_PARENT" : familyStructure === "单亲家庭" ? "SINGLE_PARENT" : "BLENDED";
-        await familyApi.saveFamilyAssessmentResponse<AssessmentReceipt>(session.token, familyId, sessionId, { item_ref: "FAMILY_STRUCTURE", response_type: "SINGLE_CHOICE", response_value: familyStructureValue }, keyFor(`ui02-structure:${sessionId}:${familyStructureValue}`));
+        await familyApi.saveFamilyAssessmentResponse(session.token, familyId, sessionId, { item_ref: "FAMILY_STRUCTURE", response_type: "SINGLE_CHOICE", response_value: familyStructureValue }, keyFor(`ui02-structure:${sessionId}:${familyStructureValue}`));
         const genderValue = childGender === "男孩" ? "BOY" : "GIRL";
-        await familyApi.saveFamilyAssessmentResponse<AssessmentReceipt>(session.token, familyId, sessionId, { item_ref: "CHILD_GENDER", response_type: "SINGLE_CHOICE", response_value: genderValue }, keyFor(`ui02-gender:${sessionId}:${genderValue}`));
+        await familyApi.saveFamilyAssessmentResponse(session.token, familyId, sessionId, { item_ref: "CHILD_GENDER", response_type: "SINGLE_CHOICE", response_value: genderValue }, keyFor(`ui02-gender:${sessionId}:${genderValue}`));
         for (const question of selectedQuestions) {
           const answer = deepAnswers[question.itemRef];
           if (answer) {
-            await familyApi.saveFamilyAssessmentResponse<AssessmentReceipt>(session.token, familyId, sessionId, { item_ref: question.itemRef, response_type: "SINGLE_CHOICE", response_value: answer }, keyFor(`ui02-deep:${sessionId}:${question.itemRef}:${answer}`));
+            await familyApi.saveFamilyAssessmentResponse(session.token, familyId, sessionId, { item_ref: question.itemRef, response_type: "SINGLE_CHOICE", response_value: answer }, keyFor(`ui02-deep:${sessionId}:${question.itemRef}:${answer}`));
           }
         }
-        const submitted = await familyApi.submitFamilyAssessment<AssessmentReceipt>(session.token, familyId, sessionId, keyFor(`ui02-submit:${sessionId}:${focusReceipt.session.row_version ?? 0}`));
+        const submitted = await familyApi.submitFamilyAssessment(session.token, familyId, sessionId, keyFor(`ui02-submit:${sessionId}:${focusReceipt.session.row_version ?? 0}`));
         setProjection((current) => current ? { ...current, sessions: [submitted.session, ...current.sessions.filter((item) => item.assessment_session_id !== sessionId)] } : current);
         setAssessmentSyncState("synced");
       } catch {
@@ -256,7 +242,7 @@ export default function FamilyAssessmentScreen() {
                       key={option.id}
                       accessibilityRole="radio"
                       accessibilityState={{ selected }}
-                      onPress={() => { setDeepAnswers((current) => ({ ...current, [question.itemRef]: option.id })); haptic.selection(); }}
+                      onPress={() => answerAssessment(question.itemRef, option.id)}
                       style={({ pressed }) => [
                         styles.answerChip,
                         { borderColor: selected ? "#1B7CF2" : colors.border, backgroundColor: selected ? "#EDF4FF" : "#FFFFFF" },

@@ -48,7 +48,7 @@ describe("Family AI UI registry", () => {
       .map((tab) => getScreensForTab(tab as Parameters<typeof getScreensForTab>[0]).length)
       .reduce((sum, count) => sum + count, 0);
 
-    expect(total).toBe(35);
+    expect(total).toBe(34);
   });
 
   it("keeps a named visual baseline and feature set for every baseline screen and the assessment result route", () => {
@@ -351,13 +351,13 @@ describe("Family API mobile contract", () => {
     })) as unknown as typeof fetch;
     const client = new FamilyApiClient("https://family.example", fetcher);
 
-    await client.getServiceOfferings("fam_token", "family-1", { availableOnly: true });
-    await client.getServiceSlots("fam_token", "family-1", "TEST_PARENT_CHILD_DIALOGUE", 1);
+    await client.getServiceOfferings("fam_token", "family-1");
+    await client.getServiceSlots("fam_token", "family-1", "offering-1");
     await client.getServiceCustomerProjection("fam_token", "family-1");
 
     expect(vi.mocked(fetcher).mock.calls.map(([url]) => url)).toEqual([
-      "https://family.example/families/family-1/orchestration/test-loop/services/offerings?page_id=UI-19&available_only=true",
-      "https://family.example/families/family-1/orchestration/test-loop/services/slots?service_offering_ref=TEST_PARENT_CHILD_DIALOGUE&service_offering_version=1",
+      "https://family.example/families/family-1/orchestration/test-loop/services/offerings",
+      "https://family.example/families/family-1/orchestration/test-loop/services/slots?service_offering_id=offering-1",
       "https://family.example/families/family-1/orchestration/test-loop/services/customer-projection",
     ]);
     for (const [, request] of vi.mocked(fetcher).mock.calls) {
@@ -374,11 +374,12 @@ describe("Family API mobile contract", () => {
     const client = new FamilyApiClient("https://family.example", fetcher);
 
     await client.submitServiceBooking("fam_token", "family-1", {
-      page_id: "UI-21",
-      service_offering_ref: "TEST_PARENT_CHILD_DIALOGUE",
-      service_offering_version: 1,
-      availability_slot_ref: "TEST_SLOT_001",
-      attributes: { entry: "family_ai_mobile_consultation_need", channel_preference: "VIDEO" },
+      service_offering_id: "offering-1",
+      availability_slot_id: "slot-1",
+      booking_ref: "mobile-ui21:offering-1:slot-1",
+      source_page_id: "UI-21",
+      subject_person_id: "person-child-1",
+      consent_ref: "session-consent:person-child-1:SERVICE",
     }, "service-idempotency-1");
 
     const [url, request] = vi.mocked(fetcher).mock.calls[0];
@@ -386,7 +387,7 @@ describe("Family API mobile contract", () => {
     expect(url).toBe("https://family.example/families/family-1/orchestration/test-loop/services/booking-requests");
     expect(request?.method).toBe("POST");
     expect(request?.headers).toMatchObject({ "idempotency-key": "service-idempotency-1", Authorization: "Bearer fam_token" });
-    expect(body).toMatchObject({ page_id: "UI-21", service_offering_ref: "TEST_PARENT_CHILD_DIALOGUE", service_offering_version: 1, availability_slot_ref: "TEST_SLOT_001" });
+    expect(body).toMatchObject({ service_offering_id: "offering-1", availability_slot_id: "slot-1", source_page_id: "UI-21" });
     expect(JSON.stringify(body)).not.toMatch(/payment|price|currency|recipient|notification|provider_ref|child_name|phone|address|diagnosis/i);
   });
 

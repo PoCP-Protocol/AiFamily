@@ -1,0 +1,718 @@
+# AiFamily AI 用例与运行时治理登记
+#
+# 本文件登记 AI 能力的业务边界、Agent、工具、输出和闸门。
+# 它是“契约登记”，不是上线清单：PLANNED 只表示设计已冻结，
+# 不表示对应能力已经可用。实现完成度以代码、测试和发布证据为准。
+#
+# 供应商、模型名称和密钥不在本文件登记；模型调用只能经过
+# backend/intelligence/model_gateway，由能力路由策略选择合规实现。
+
+schema_version: "1.0"
+updated: "2026-09-01"
+owner: ai-product-and-governance
+canonical_scope:
+  - ai_use_case
+  - agent_definition
+  - tool_definition
+  - output_contract
+  - human_gate_policy
+
+enums:
+  status: [PLANNED, EXPERIMENT, PILOT, PRODUCTION, BLOCKED]
+  output_type: [Perspective, Hypothesis, Draft, Recommendation, HumanTask, Explanation, ActionProposal, OpsInsight]
+  risk_level: [LOW, MEDIUM, HIGH, PROHIBITED]
+  data_class: [PUBLIC, INTERNAL, PERSONAL, MINOR_SENSITIVE, HIGHLY_SENSITIVE]
+  human_gate_mode: [NOT_REQUIRED, REVIEW_REQUIRED, EXPLICIT_CONFIRMATION, PROHIBITED]
+
+runtime_invariants:
+  single_model_boundary: backend/intelligence/model_gateway
+  ai_runtime_root: backend/intelligence
+  may_mutate_business_state: false
+  canonical_write_requires_named_action: true
+  high_impact_requires_human_gate: true
+  minor_commercial_profiling: PROHIBITED
+  family_total_score_or_ranking: PROHIBITED
+  retry_default: 0
+  environment_functional_parity: true
+
+principal:
+  id: famili_principal
+  name: 法咪莉校长
+  role: cross_cutting_experience_and_orchestration_layer
+  soul_id: FAMILI_PRINCIPAL_SISTERLY_MENTOR
+  soul_version: 1.0.0
+  method_inheritance: true
+  identity_cloning: false
+  output_boundary: draft_recommendation_action_proposal_or_human_task
+  may_mutate_business_state: false
+  allowed_agents: [parent_advisor, child_coach, teaching_assistant, growth_planner, operations_assistant]
+  profiles:
+    - family_understanding
+    - growth_planning
+    - action_coaching
+    - delivery_reflection
+    - service_matching
+    - service_product_architect
+    - experience_curator
+    - knowledge_steward
+    - operations_insight
+  human_gate_for_high_risk: true
+  evidence_refs:
+    - docs/05_ai/AI_TECHNICAL_ARCHITECTURE_DEEP_DESIGN.md#d03-principal-soul-与人格维度
+    - docs/00_system/ARCHITECTURE_ALIGNMENT_V2.md#1-这次重构的结论
+    - docs/08_experience/EXPERIENCE_CLOSED_LOOP_CONTRACTS_V1.md#3-五层架构和六引擎对齐
+
+agents:
+  - id: parent_advisor
+    name: 家长顾问
+    audience: [guardian]
+    purpose: 帮助家长理解证据、看见家庭互动并做出可执行的确认
+    context_policy: guardian_authorized_minimum
+    safety_policy: family_growth_safety_v1
+    human_handoff_policy: high_risk_or_uncertain
+    allowed_use_cases: [assessment_interpretation, family_assistant_conversation, engagement_achievement_proposal, principal_knowledge_answer]
+    allowed_tools: [read_context, read_growth_projection, draft_explanation, create_human_task]
+    may_mutate_business_state: false
+    status: EXPERIMENT
+    evidence_refs:
+      - docs/05_ai/AI_ARCHITECTURE.md#1
+      - docs/05_ai/AI_NATIVE_PRINCIPLES.md#4
+
+  - id: child_coach
+    name: 孩子陪练
+    audience: [child]
+    purpose: 在明确授权和安全边界内提供成长练习与过程反馈
+    context_policy: child_minimum_safe_context
+    safety_policy: minor_safe_interaction_v1
+    human_handoff_policy: sensitive_topic_or_risk_signal
+    allowed_use_cases: [daily_action_proposal, reflection_process_perspective]
+    allowed_tools: [read_context, read_growth_projection, draft_daily_action, create_human_task]
+    may_mutate_business_state: false
+    status: PLANNED
+    evidence_refs:
+      - docs/05_ai/AI_ARCHITECTURE.md#1
+      - docs/12_governance/COMPLIANCE_HARD_CONSTRAINTS.md
+
+  - id: teaching_assistant
+    name: 助教助手
+    audience: [teacher]
+    purpose: 辅助教师理解家庭授权范围内的过程资料并准备服务建议
+    context_policy: assigned_family_and_service_scope
+    safety_policy: professional_review_v1
+    human_handoff_policy: explicit_teacher_review
+    allowed_use_cases: [service_matching_recommendation, reflection_process_perspective]
+    allowed_tools: [read_context, read_growth_projection, read_service_catalog, draft_service_recommendation, create_human_task]
+    may_mutate_business_state: false
+    status: PLANNED
+    evidence_refs:
+      - docs/05_ai/AI_ARCHITECTURE.md#1
+      - docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s10
+
+  - id: growth_planner
+    name: 成长规划师
+    audience: [guardian, teacher]
+    purpose: 将家庭已确认的意图转化为可讨论、可编辑、可复盘的计划草案
+    context_policy: confirmed_intent_and_minimum_family_context
+    safety_policy: growth_plan_safety_v1
+    human_handoff_policy: explicit_guardian_confirmation
+    allowed_use_cases: [growth_hypothesis_prioritization, growth_plan_draft, daily_action_proposal]
+    allowed_tools: [read_context, read_growth_projection, draft_growth_plan, draft_daily_action, create_human_task]
+    may_mutate_business_state: false
+    status: EXPERIMENT
+    evidence_refs:
+      - docs/05_ai/AI_ARCHITECTURE.md#4
+      - docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s05
+      - docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s06
+
+  - id: operations_assistant
+    name: 经营助手
+    audience: [operator]
+    purpose: 为运营、质量和 AI 治理提供可追溯的洞察草案
+    context_policy: aggregated_authorized_operations_projection
+    safety_policy: operations_governance_v1
+    human_handoff_policy: operator_review_before_external_effect
+    allowed_use_cases:
+      [
+        operations_insight,
+        service_product_discovery,
+        service_product_composition,
+        service_product_compile,
+        service_product_simulation,
+        knowledge_stewardship,
+      ]
+    allowed_tools:
+      [
+        read_ops_projection,
+        read_ai_quality_projection,
+        draft_ops_insight,
+        read_product_components,
+        draft_product_concept,
+        draft_product_definition,
+        read_product_definition,
+        compile_service_blueprint,
+        read_service_blueprint_draft,
+        run_simulation,
+        read_knowledge_source,
+        draft_knowledge_claim,
+        create_human_task,
+      ]
+    may_mutate_business_state: false
+    status: PLANNED
+    evidence_refs:
+      - docs/05_ai/AI_ARCHITECTURE.md#1
+      - docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#o12
+
+tools:
+  - id: read_context
+    purpose: 读取已授权的 ContextSnapshot 和证据引用
+    mutates_business_state: false
+    data_access: [PERSONAL, MINOR_SENSITIVE]
+    allowed_agents: [parent_advisor, child_coach, teaching_assistant, growth_planner]
+    human_gate: NOT_REQUIRED
+    status: EXPERIMENT
+    evidence_refs: [docs/05_ai/AI_TECHNICAL_ARCHITECTURE.md#5]
+
+  - id: read_growth_projection
+    purpose: 读取 Growth Graph 的只读投影，不读取未授权原始事实
+    mutates_business_state: false
+    data_access: [PERSONAL, MINOR_SENSITIVE]
+    allowed_agents: [parent_advisor, child_coach, teaching_assistant, growth_planner]
+    human_gate: NOT_REQUIRED
+    status: PLANNED
+    evidence_refs: [docs/05_ai/AI_TECHNICAL_ARCHITECTURE.md#5]
+
+  - id: read_service_catalog
+    purpose: 读取服务供给、资质、SLA 和适用范围
+    mutates_business_state: false
+    data_access: [INTERNAL]
+    allowed_agents: [teaching_assistant]
+    human_gate: NOT_REQUIRED
+    status: PLANNED
+    evidence_refs: [docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s10]
+
+  - id: draft_explanation
+    purpose: 生成带来源、限制和版本的解释草案
+    mutates_business_state: false
+    data_access: [PERSONAL, MINOR_SENSITIVE]
+    allowed_agents: [parent_advisor]
+    human_gate: REVIEW_REQUIRED
+    status: PLANNED
+    evidence_refs: [docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s05]
+
+  - id: draft_growth_plan
+    purpose: 生成计划阶段、候选行动和依据的草案
+    mutates_business_state: false
+    data_access: [PERSONAL, MINOR_SENSITIVE]
+    allowed_agents: [growth_planner]
+    human_gate: EXPLICIT_CONFIRMATION
+    status: PLANNED
+    evidence_refs: [docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s06]
+
+  - id: draft_daily_action
+    purpose: 生成今日行动、难度和适用成员的候选方案
+    mutates_business_state: false
+    data_access: [PERSONAL, MINOR_SENSITIVE]
+    allowed_agents: [child_coach, growth_planner]
+    human_gate: EXPLICIT_CONFIRMATION
+    status: PLANNED
+    evidence_refs: [docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s07]
+
+  - id: draft_service_recommendation
+    purpose: 依据授权上下文和服务目录生成服务匹配建议
+    mutates_business_state: false
+    data_access: [PERSONAL, MINOR_SENSITIVE, INTERNAL]
+    allowed_agents: [teaching_assistant]
+    human_gate: REVIEW_REQUIRED
+    status: PLANNED
+    evidence_refs: [docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s10]
+
+  - id: read_ops_projection
+    purpose: 读取运营队列、指标和服务质量只读投影
+    mutates_business_state: false
+    data_access: [INTERNAL]
+    allowed_agents: [operations_assistant]
+    human_gate: NOT_REQUIRED
+    status: PLANNED
+    evidence_refs: [docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#o12]
+
+  - id: read_ai_quality_projection
+    purpose: 读取 AI trace、评估和发布质量投影
+    mutates_business_state: false
+    data_access: [INTERNAL]
+    allowed_agents: [operations_assistant]
+    human_gate: NOT_REQUIRED
+    status: PLANNED
+    evidence_refs: [docs/05_ai/AI_TECHNICAL_ARCHITECTURE.md#12]
+
+  - id: draft_ops_insight
+    purpose: 生成运营和 AI 质量洞察草案，不直接发布策略
+    mutates_business_state: false
+    data_access: [INTERNAL]
+    allowed_agents: [operations_assistant]
+    human_gate: REVIEW_REQUIRED
+    status: PLANNED
+    evidence_refs: [docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#o12]
+
+  - id: create_human_task
+    purpose: 建立人工复核或人工接管任务
+    mutates_business_state: false
+    data_access: [PERSONAL, MINOR_SENSITIVE, HIGHLY_SENSITIVE, INTERNAL]
+    allowed_agents: [parent_advisor, child_coach, teaching_assistant, growth_planner, operations_assistant]
+    human_gate: NOT_REQUIRED
+    status: PLANNED
+    evidence_refs: [docs/05_ai/AI_TECHNICAL_ARCHITECTURE.md#9]
+
+  - id: retrieve_reviewed_knowledge
+    purpose: 只检索已发布、未过期且许可范围匹配的知识 Claim
+    mutates_business_state: false
+    data_access: [PUBLIC, INTERNAL, PERSONAL, MINOR_SENSITIVE]
+    allowed_agents: [parent_advisor, child_coach, teaching_assistant, growth_planner, operations_assistant]
+    human_gate: NOT_REQUIRED
+    status: PLANNED
+    evidence_refs: [docs/05_ai/AI_TECHNICAL_ARCHITECTURE_DEEP_DESIGN.md#d05-知识工程维度]
+
+  - id: read_product_components
+    purpose: 读取组件、模式、兼容矩阵和版本状态
+    mutates_business_state: false
+    data_access: [INTERNAL]
+    allowed_agents: [operations_assistant]
+    human_gate: NOT_REQUIRED
+    status: PLANNED
+    evidence_refs: [docs/05_ai/SERVICE_PRODUCT_DESIGN_AI_PLATFORM.md#3-组件化产品模型]
+
+  - id: draft_product_concept
+    purpose: 形成服务产品概念草案，不自动创建可发布产品
+    mutates_business_state: false
+    data_access: [INTERNAL]
+    allowed_agents: [operations_assistant]
+    human_gate: REVIEW_REQUIRED
+    status: PLANNED
+    evidence_refs: [docs/05_ai/SERVICE_PRODUCT_DESIGN_AI_PLATFORM.md#4-生命周期与流程架构]
+
+  - id: draft_product_definition
+    purpose: 编排组件和模式形成服务产品定义草案
+    mutates_business_state: false
+    data_access: [INTERNAL]
+    allowed_agents: [operations_assistant]
+    human_gate: REVIEW_REQUIRED
+    status: PLANNED
+    evidence_refs: [docs/05_ai/SERVICE_PRODUCT_DESIGN_AI_PLATFORM.md#3-组件化产品模型]
+
+  - id: read_product_definition
+    purpose: 读取已版本化的服务产品定义及其证据引用
+    mutates_business_state: false
+    data_access: [INTERNAL]
+    allowed_agents: [operations_assistant]
+    human_gate: NOT_REQUIRED
+    status: PLANNED
+    evidence_refs: [docs/05_ai/SERVICE_PRODUCT_DESIGN_AI_PLATFORM.md#3-组件化产品模型]
+
+  - id: compile_service_blueprint
+    purpose: 运行服务蓝图十二项确定性编译检查
+    mutates_business_state: false
+    data_access: [INTERNAL]
+    allowed_agents: [operations_assistant]
+    human_gate: REVIEW_REQUIRED
+    status: PLANNED
+    evidence_refs: [docs/05_ai/SERVICE_PRODUCT_DESIGN_AI_PLATFORM.md#4-生命周期与流程架构]
+
+  - id: read_service_blueprint_draft
+    purpose: 读取未发布服务蓝图和模拟输入
+    mutates_business_state: false
+    data_access: [INTERNAL]
+    allowed_agents: [operations_assistant]
+    human_gate: NOT_REQUIRED
+    status: PLANNED
+    evidence_refs: [docs/05_ai/SERVICE_PRODUCT_DESIGN_AI_PLATFORM.md#4-生命周期与流程架构]
+
+  - id: run_simulation
+    purpose: 在合成情境中模拟服务蓝图并输出风险/成本/SLA建议
+    mutates_business_state: false
+    data_access: [INTERNAL]
+    allowed_agents: [operations_assistant]
+    human_gate: REVIEW_REQUIRED
+    status: PLANNED
+    evidence_refs: [docs/05_ai/SERVICE_PRODUCT_DESIGN_AI_PLATFORM.md#7-模拟验证与发布闸门]
+
+  - id: read_knowledge_source
+    purpose: 读取知识来源、许可、证据等级和审核状态
+    mutates_business_state: false
+    data_access: [PUBLIC, INTERNAL]
+    allowed_agents: [operations_assistant]
+    human_gate: NOT_REQUIRED
+    status: PLANNED
+    evidence_refs: [docs/05_ai/AI_TECHNICAL_ARCHITECTURE_DEEP_DESIGN.md#d05-知识工程维度]
+
+  - id: draft_knowledge_claim
+    purpose: 从来源形成待审核知识 Claim，保留来源和适用范围
+    mutates_business_state: false
+    data_access: [PUBLIC, INTERNAL]
+    allowed_agents: [operations_assistant]
+    human_gate: REVIEW_REQUIRED
+    status: PLANNED
+    evidence_refs: [docs/05_ai/AI_TECHNICAL_ARCHITECTURE_DEEP_DESIGN.md#d05-知识工程维度]
+
+use_cases:
+  - id: engagement_achievement_proposal
+    name: 证据驱动的家庭成长时刻建议
+    business_process_ids: [S07-N04, S08-N01]
+    application_surface: [UI-05, UI-11, UI-12]
+    owner: family-experience
+    agent: parent_advisor
+    capability_route: experience_curation
+    input_evidence: [ExperienceEvent, ContextSnapshot, ConsentSnapshot]
+    data_class: MINOR_SENSITIVE
+    purpose: 基于家庭授权的真实过程事件生成可拒绝、可人工确认的成长时刻候选
+    output_type: ActionProposal
+    output_schema_ref: engagement-draft.v1
+    prompt_ref: engagement.v1
+    knowledge_refs: [family_engagement_knowledge_v1]
+    allowed_tools: [read_context, create_human_task]
+    risk_level: MEDIUM
+    human_gate: EXPLICIT_CONFIRMATION
+    forbidden_outputs: [canonical_fact, automatic_achievement, family_total_score, family_ranking]
+    named_action_owner: guardian_or_designated_professional
+    status: PLANNED
+    evidence_refs: [governance/ADR/ADR-0082-ai-achievement-human-gated-landing.md, docs/08_experience/EXPERIENCE_CLOSED_LOOP_CONTRACTS_V1.md]
+
+  - id: assessment_interpretation
+    name: 测评证据解释
+    business_process_ids: [S04-N04, S05-N01]
+    application_surface: [UI-02-result, UI-03]
+    owner: growth-product
+    agent: parent_advisor
+    capability_route: assessment_interpretation
+    input_evidence: [EvidenceSet, AssessmentResultProjection]
+    data_class: MINOR_SENSITIVE
+    purpose: 帮助家长理解测评证据及其限制
+    output_type: Perspective
+    output_schema_ref: growth_perspective_v1
+    prompt_ref: assessment_interpretation_v1
+    knowledge_refs: [assessment_interpretation_knowledge_v1]
+    allowed_tools: [read_context, draft_explanation, create_human_task]
+    risk_level: HIGH
+    human_gate: REVIEW_REQUIRED
+    forbidden_outputs: [diagnosis, efficacy_claim, family_total_score, family_ranking]
+    named_action_owner: guardian_or_designated_professional
+    status: EXPERIMENT
+    evidence_refs: [docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s05, docs/05_ai/AI_NATIVE_PRINCIPLES.md#5]
+
+  - id: growth_hypothesis_prioritization
+    name: 成长假设优先级建议
+    business_process_ids: [S05-N02, S05-N03]
+    application_surface: [UI-03]
+    owner: growth-product
+    agent: growth_planner
+    capability_route: growth_hypothesis_prioritization
+    input_evidence: [GrowthPerspective, FamilyContextProjection]
+    data_class: MINOR_SENSITIVE
+    purpose: 形成可讨论、可驳回的主矛盾候选
+    output_type: Hypothesis
+    output_schema_ref: growth_hypothesis_v1
+    prompt_ref: growth_hypothesis_v1
+    knowledge_refs: [growth_hypothesis_knowledge_v1]
+    allowed_tools: [read_context, read_growth_projection, create_human_task]
+    risk_level: HIGH
+    human_gate: EXPLICIT_CONFIRMATION
+    forbidden_outputs: [canonical_fact, diagnosis, family_total_score, family_ranking]
+    named_action_owner: guardian
+    status: PLANNED
+    evidence_refs: [docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s05, docs/01_strategy/COMMERCIAL_VALUE_STRATEGY.md]
+
+  - id: growth_plan_draft
+    name: 90 天成长计划草案
+    business_process_ids: [S06-N01, S06-N02, S06-N03]
+    application_surface: [UI-04, UI-05, UI-08]
+    owner: growth-product
+    agent: growth_planner
+    capability_route: growth_plan_draft
+    input_evidence: [GrowthIntent, JourneyTemplate, TaskTemplate, FamilyRhythmPolicy]
+    data_class: MINOR_SENSITIVE
+    purpose: 将已确认意图转为可编辑的阶段计划和候选行动
+    output_type: Draft
+    output_schema_ref: journey_plan_preview_v1
+    prompt_ref: journey_plan_v1
+    knowledge_refs: [journey_plan_knowledge_v1]
+    allowed_tools: [read_context, read_growth_projection, draft_growth_plan, create_human_task]
+    risk_level: HIGH
+    human_gate: EXPLICIT_CONFIRMATION
+    forbidden_outputs: [activated_plan, canonical_fact, efficacy_claim, family_total_score]
+    named_action_owner: guardian
+    status: EXPERIMENT
+    evidence_refs: [docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s06, docs/07_data/MASTER_AND_BUSINESS_DATA_DECOMPOSITION.md#4.2]
+
+  - id: daily_action_proposal
+    name: 今日行动建议
+    business_process_ids: [S07-N01, S07-N04]
+    application_surface: [UI-09, UI-10, UI-11]
+    owner: growth-product
+    agent: growth_planner
+    capability_route: daily_action_proposal
+    input_evidence: [ActivePhase, ActionRecord, FamilyRhythmPolicy]
+    data_class: MINOR_SENSITIVE
+    purpose: 结合当前阶段和家庭节奏提出当天可执行行动
+    output_type: ActionProposal
+    output_schema_ref: daily_action_proposal_v1
+    prompt_ref: daily_action_v1
+    knowledge_refs: [daily_action_knowledge_v1]
+    allowed_tools: [read_context, read_growth_projection, draft_daily_action, create_human_task]
+    risk_level: MEDIUM
+    human_gate: EXPLICIT_CONFIRMATION
+    forbidden_outputs: [automatic_assignment, efficacy_claim, family_total_score, family_ranking]
+    named_action_owner: guardian_or_family_member
+    status: PLANNED
+    evidence_refs: [docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s07]
+
+  - id: reflection_process_perspective
+    name: 过程回读与阶段复盘建议
+    business_process_ids: [S06-N05, S07-N04, S08-N01]
+    application_surface: [UI-08, UI-11, UI-12]
+    owner: growth-product
+    agent: child_coach
+    capability_route: reflection_process_perspective
+    input_evidence: [ActionRecord, PhaseProgress, FamilyFeedback]
+    data_class: MINOR_SENSITIVE
+    purpose: 生成基于行为证据的过程观察和下一步建议
+    output_type: Recommendation
+    output_schema_ref: process_perspective_v1
+    prompt_ref: process_reflection_v1
+    knowledge_refs: [process_reflection_knowledge_v1]
+    allowed_tools: [read_context, read_growth_projection, create_human_task]
+    risk_level: HIGH
+    human_gate: REVIEW_REQUIRED
+    forbidden_outputs: [family_total_score, family_ranking, efficacy_claim, automated_phase_decision]
+    named_action_owner: guardian_or_designated_professional
+    status: PLANNED
+    evidence_refs: [docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s07, docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s08]
+
+  - id: family_assistant_conversation
+    name: 家庭助手对话
+    business_process_ids: [S09-N01, S09-N02, S09-N03, S09-N04, S09-N05]
+    application_surface: [UI-03, UI-05, UI-09, UI-10]
+    owner: family-experience
+    agent: parent_advisor
+    capability_route: family_assistant_conversation
+    input_evidence: [AIRequest, ContextSnapshot, ConversationTurn, KnowledgeVersion]
+    data_class: MINOR_SENSITIVE
+    purpose: 在目的限定和最小上下文下回答家庭问题并支持人工升级
+    output_type: Draft
+    output_schema_ref: assistant_response_v1
+    prompt_ref: family_assistant_v1
+    knowledge_refs: [family_assistant_knowledge_v1]
+    allowed_tools: [read_context, create_human_task]
+    risk_level: HIGH
+    human_gate: REVIEW_REQUIRED
+    forbidden_outputs: [diagnosis, legal_or_medical_conclusion, commercial_marketing_to_minor, canonical_fact]
+    named_action_owner: guardian_or_human_operator
+    status: PLANNED
+    evidence_refs: [docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s09, docs/12_governance/COMPLIANCE_HARD_CONSTRAINTS.md]
+
+  - id: service_matching_recommendation
+    name: 服务匹配建议
+    business_process_ids: [S10-N01, S10-N02, S10-N05]
+    application_surface: [UI-05, UI-06, UI-24, UI-31, UI-34]
+    owner: service-product
+    agent: teaching_assistant
+    capability_route: service_matching_recommendation
+    input_evidence: [GrowthIntent, ServiceCatalog, ProviderQualification, ServiceEntitlement]
+    data_class: PERSONAL
+    purpose: 在授权范围内推荐适配的真人服务与交付方式
+    output_type: Recommendation
+    output_schema_ref: service_recommendation_v1
+    prompt_ref: service_matching_v1
+    knowledge_refs: [service_catalog_knowledge_v1]
+    allowed_tools: [read_context, read_growth_projection, read_service_catalog, draft_service_recommendation, create_human_task]
+    risk_level: HIGH
+    human_gate: REVIEW_REQUIRED
+    forbidden_outputs: [automatic_booking, automatic_purchase, minor_commercial_profiling, canonical_fact]
+    named_action_owner: guardian_or_service_operator
+    status: PLANNED
+    evidence_refs: [docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s10, docs/05_ai/AI_NATIVE_PRINCIPLES.md#5]
+
+  - id: operations_insight
+    name: 运营与 AI 质量洞察
+    business_process_ids: [O12-N01, O12-N02, O12-N03, O12-N04, S22-N05]
+    application_surface: [operations_console]
+    owner: platform-governance
+    agent: operations_assistant
+    capability_route: operations_insight
+    input_evidence: [AITraceProjection, EvaluationRun, CostRecord, ServiceQualityProjection]
+    data_class: INTERNAL
+    purpose: 帮助运营识别质量、成本、风险和发布回滚候选
+    output_type: OpsInsight
+    output_schema_ref: operations_insight_v1
+    prompt_ref: operations_insight_v1
+    knowledge_refs: [ai_governance_knowledge_v1]
+    allowed_tools: [read_ops_projection, read_ai_quality_projection, draft_ops_insight, create_human_task]
+    risk_level: MEDIUM
+    human_gate: REVIEW_REQUIRED
+    forbidden_outputs: [automatic_release, automatic_policy_change, family_ranking, unreviewed_external_message]
+    named_action_owner: operator_or_ai_governance_owner
+    status: PLANNED
+    evidence_refs: [docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#o12, docs/05_ai/AI_TECHNICAL_ARCHITECTURE.md#12]
+
+  - id: service_product_discovery
+    name: 服务产品问题与概念草案
+    business_process_ids: [O12-N01, O12-N02]
+    application_surface: [operations_console]
+    owner: service-product
+    agent: operations_assistant
+    principal_profile: service_product_architect
+    capability_route: service_product_discovery
+    input_evidence: [GrowthProblem, MarketSignal, ProductZoneAssessment]
+    data_class: INTERNAL
+    purpose: 在三区证据和问题假设基础上形成服务产品概念草案
+    output_type: Draft
+    output_schema_ref: service_product_concept_v1
+    prompt_ref: service_product_discovery_v1
+    knowledge_refs: [product_design_knowledge_v1]
+    allowed_tools: [read_product_components, draft_product_concept, create_human_task]
+    risk_level: MEDIUM
+    human_gate: REVIEW_REQUIRED
+    forbidden_outputs: [automatic_release, canonical_fact, ungrounded_efficacy_claim]
+    named_action_owner: product_or_research_owner
+    status: PLANNED
+    evidence_refs: [docs/05_ai/SERVICE_PRODUCT_DESIGN_AI_PLATFORM.md#4-生命周期与流程架构]
+
+  - id: service_product_composition
+    name: 服务产品组件化编排
+    business_process_ids: [O12-N02, O12-N03]
+    application_surface: [operations_console]
+    owner: service-product
+    agent: operations_assistant
+    principal_profile: service_product_architect
+    capability_route: service_product_composition
+    input_evidence: [ProductConcept, ComponentDefinition, PatternDefinition, KnowledgeClaim]
+    data_class: INTERNAL
+    purpose: 形成可版本化、可解释的服务产品定义草案
+    output_type: Draft
+    output_schema_ref: service_product_definition_v1
+    prompt_ref: service_product_composition_v1
+    knowledge_refs: [product_design_knowledge_v1]
+    allowed_tools: [read_product_components, draft_product_definition, create_human_task]
+    risk_level: MEDIUM
+    human_gate: REVIEW_REQUIRED
+    forbidden_outputs: [automatic_release, canonical_fact]
+    named_action_owner: product_owner
+    status: PLANNED
+    evidence_refs: [docs/05_ai/SERVICE_PRODUCT_DESIGN_AI_PLATFORM.md#3-组件化产品模型]
+
+  - id: service_product_compile
+    name: 服务蓝图编译检查
+    business_process_ids: [O12-N03, O12-N04]
+    application_surface: [operations_console]
+    owner: service-product
+    agent: operations_assistant
+    principal_profile: service_product_architect
+    capability_route: service_product_compile
+    input_evidence: [ServiceProductDefinition, ComponentDefinition, KnowledgeClaim]
+    data_class: INTERNAL
+    purpose: 执行十二项确定性编译检查并返回可修复 finding
+    output_type: Draft
+    output_schema_ref: service_blueprint_compile_v1
+    prompt_ref: service_product_compile_v1
+    knowledge_refs: [product_design_knowledge_v1]
+    allowed_tools: [read_product_definition, compile_service_blueprint, create_human_task]
+    risk_level: HIGH
+    human_gate: REVIEW_REQUIRED
+    forbidden_outputs: [automatic_publish, canonical_fact]
+    named_action_owner: product_and_service_owner
+    status: PLANNED
+    evidence_refs: [docs/05_ai/SERVICE_PRODUCT_DESIGN_AI_PLATFORM.md#4-生命周期与流程架构]
+
+  - id: service_product_simulation
+    name: 服务蓝图合成模拟
+    business_process_ids: [O12-N04]
+    application_surface: [operations_console]
+    owner: service-product
+    agent: operations_assistant
+    principal_profile: service_product_architect
+    capability_route: service_product_simulation
+    input_evidence: [ServiceBlueprintDraft, SyntheticScenario, CostPolicy, SLAPolicy]
+    data_class: INTERNAL
+    purpose: 用合成情境检验交付、成本、风险和 SLA，不自证真实效果
+    output_type: Recommendation
+    output_schema_ref: service_blueprint_simulation_v1
+    prompt_ref: service_product_simulation_v1
+    knowledge_refs: [product_design_knowledge_v1]
+    allowed_tools: [read_service_blueprint_draft, run_simulation, create_human_task]
+    risk_level: HIGH
+    human_gate: REVIEW_REQUIRED
+    forbidden_outputs: [efficacy_claim, automatic_publish, canonical_fact]
+    named_action_owner: product_and_service_owner
+    status: PLANNED
+    evidence_refs: [docs/05_ai/SERVICE_PRODUCT_DESIGN_AI_PLATFORM.md#7-模拟验证与发布闸门]
+
+  - id: knowledge_stewardship
+    name: 知识来源与 Claim 治理
+    business_process_ids: [O12-N02, O12-N04]
+    application_surface: [operations_console]
+    owner: knowledge-governance
+    agent: operations_assistant
+    principal_profile: knowledge_steward
+    capability_route: knowledge_stewardship
+    input_evidence: [KnowledgeSource, KnowledgeClaim, LicenseRecord]
+    data_class: INTERNAL
+    purpose: 形成待审核知识 Claim，维护许可、适用范围、禁忌和失效
+    output_type: Draft
+    output_schema_ref: knowledge_claim_draft_v1
+    prompt_ref: knowledge_stewardship_v1
+    knowledge_refs: [knowledge_governance_v1]
+    allowed_tools: [read_knowledge_source, draft_knowledge_claim, create_human_task]
+    risk_level: HIGH
+    human_gate: REVIEW_REQUIRED
+    forbidden_outputs: [automatic_publish, unlicensed_claim, canonical_fact]
+    named_action_owner: knowledge_owner
+    status: PLANNED
+    evidence_refs: [docs/05_ai/AI_TECHNICAL_ARCHITECTURE_DEEP_DESIGN.md#d05-知识工程维度]
+
+  - id: principal_knowledge_answer
+    name: 校长知识 grounded 回答
+    business_process_ids: [S09-N01, S09-N03]
+    application_surface: [UI-03, UI-05, UI-09, UI-10]
+    owner: family-experience
+    agent: parent_advisor
+    principal_profile: family_understanding
+    capability_route: principal_knowledge_answer
+    input_evidence: [PrincipalSession, ContextSnapshot, KnowledgeClaim]
+    data_class: MINOR_SENSITIVE
+    purpose: 以校长人格解释已发布知识并明确适用边界
+    output_type: Explanation
+    output_schema_ref: principal_grounded_answer_v1
+    prompt_ref: principal_grounded_answer_v1
+    knowledge_refs: [principal_reviewed_knowledge_v1]
+    allowed_tools: [read_context, retrieve_reviewed_knowledge, draft_explanation, create_human_task]
+    risk_level: MEDIUM
+    human_gate: REVIEW_REQUIRED
+    forbidden_outputs: [diagnosis, efficacy_claim, family_total_score, family_ranking, canonical_fact]
+    named_action_owner: guardian_or_designated_professional
+    status: PLANNED
+    evidence_refs: [docs/00_system/ARCHITECTURE_ALIGNMENT_V2.md#4-分级流程架构重构]
+
+versioned_assets:
+  prompt:
+    registry: governance/AI_USE_CASE_REGISTRY.yaml
+    required_fields: [id, version, owner, purpose, input_contract, output_schema_ref, safety_policy, status]
+    publish_gate: evaluation_passed_and_owner_approved
+  schema:
+    registry: governance/AI_USE_CASE_REGISTRY.yaml
+    required_fields: [id, version, fields, validation_rules, compatibility, status]
+    publish_gate: contract_tests_passed
+  knowledge:
+    registry: governance/AI_USE_CASE_REGISTRY.yaml
+    required_fields: [id, version, source, license, scope, expires_at, status]
+    publish_gate: source_license_and_safety_review
+  provenance:
+    required_fields: [request_id, agent_id, prompt_version, schema_version, knowledge_versions, model_attempt_id, evidence_refs, created_at]
+    initial_output_status: DRAFT
+    immutable_after_creation: true
+
+release_gates:
+  - gate: contract
+    checks: [schema_validation, provenance_complete, draft_only]
+  - gate: safety
+    checks: [minor_data_minimization, prohibited_output_scan, high_risk_human_gate]
+  - gate: quality
+    checks: [grounding, usefulness, workflow_completion, regression]
+  - gate: operations
+    checks: [trace_and_cost_recorded, rollback_ready, environment_parity_verified]

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aifamily.invalid/contracts/media-evidence.schema.json",
+  "title": "AiFamily MediaEvidence",
+  "description": "Source-bound observation or confirmation; never an automatic fact, diagnosis or commercial decision.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "evidence_id": { "type": "string", "minLength": 1 },
+    "tenant_id": { "type": "string", "minLength": 1 },
+    "family_id": { "type": "string", "minLength": 1 },
+    "subject_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true },
+    "source_refs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true },
+    "evidence_kind": { "type": "string", "enum": ["ACTION", "REFLECTION", "RELATIONSHIP_FEEDBACK", "CONTRIBUTION_QUALITY"] },
+    "observation": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["DRAFT", "FAMILY_CONFIRMED", "HUMAN_VERIFIED", "WITHDRAWN"] },
+    "human_verification_ref": { "type": ["string", "null"] },
+    "purpose": { "type": "string", "enum": ["growth_support", "family_memory", "family_sharing", "contribution_review"] },
+    "consent": { "$ref": "#/$defs/consent" },
+    "retention": { "$ref": "#/$defs/retention" },
+    "deletion": { "$ref": "#/$defs/deletion" },
+    "provenance": { "type": "string", "minLength": 1 },
+    "may_mutate_business_state": { "const": false },
+    "correlation_id": { "type": "string", "minLength": 1 },
+    "causation_id": { "type": "string", "minLength": 1 }
+  },
+  "required": ["evidence_id", "tenant_id", "family_id", "subject_ids", "source_refs", "evidence_kind", "observation", "status", "human_verification_ref", "purpose", "consent", "retention", "deletion", "provenance", "may_mutate_business_state", "correlation_id", "causation_id"],
+  "allOf": [{ "if": { "properties": { "status": { "const": "HUMAN_VERIFIED" } } }, "then": { "properties": { "human_verification_ref": { "type": "string", "minLength": 1 } } } }],
+  "$defs": {
+    "consent": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "consent_version": { "type": "string", "minLength": 1 }, "status": { "const": "GRANTED" }, "effective_from": { "type": "string", "format": "date-time" }, "effective_to": { "type": ["string", "null"], "format": "date-time" }, "purpose": { "type": "string", "minLength": 1 } },
+      "required": ["consent_version", "status", "effective_from", "effective_to", "purpose"]
+    },
+    "retention": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "expires_at": { "type": "string", "format": "date-time" }, "on_expiry": { "const": "DELETE" } },
+      "required": ["expires_at", "on_expiry"]
+    },
+    "deletion": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "deletion_id": { "type": "string", "minLength": 1 }, "source_refs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true } },
+      "required": ["deletion_id", "source_refs"]
+    }
+  }
+}

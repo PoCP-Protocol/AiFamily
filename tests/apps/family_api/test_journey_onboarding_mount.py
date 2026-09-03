@@ -57,7 +57,7 @@ def _dev_app(monkeypatch: pytest.MonkeyPatch):
         scope,
         SUBJECT_ID,
         "GROWTH_TRACKING",
-        effective_from=datetime.now(UTC) - timedelta(minutes=1),
+        granted_at=datetime.now(UTC) - timedelta(minutes=1),
     )
     actor_resolver = InMemoryGrowthOnboardingActorResolver(
         {

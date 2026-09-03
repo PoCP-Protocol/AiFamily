@@ -49,6 +49,13 @@ class GateStatus(StrEnum):
     EXPIRED = "EXPIRED"
 
 
+class ProposalSourceKind(StrEnum):
+    """Why a review task exists; user requests must not masquerade as AI drafts."""
+
+    AI_DRAFT = "AI_DRAFT"
+    USER_REQUEST = "USER_REQUEST"
+
+
 def _require_text(value: str, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise HumanGateError("INVALID_CONTRACT", f"{field_name} is required")
@@ -80,6 +87,8 @@ class GateScope:
     purpose: str
     consent_version: str
     correlation_id: str
+    region_id: str | None = None
+    deletion_ref: str | None = None
 
     def __post_init__(self) -> None:
         for value, field_name in (
@@ -91,6 +100,10 @@ class GateScope:
             _require_text(value, field_name)
         if self.family_id is not None:
             _require_text(self.family_id, "family_id")
+        if self.region_id is not None:
+            _require_text(self.region_id, "region_id")
+        if self.deletion_ref is not None:
+            _require_text(self.deletion_ref, "deletion_ref")
         if any(
             not isinstance(subject_id, str) or not subject_id.strip()
             for subject_id in self.subject_ids
@@ -100,7 +113,7 @@ class GateScope:
 
 @dataclass(frozen=True, slots=True)
 class ActionProposal:
-    """A human-reviewable action candidate derived from a model draft."""
+    """A human-reviewable action candidate with an explicit source kind."""
 
     proposal_id: str
     draft_id: str
@@ -113,11 +126,17 @@ class ActionProposal:
     provenance_ref: str
     created_at: datetime
     expires_at: datetime
+    source_kind: ProposalSourceKind = ProposalSourceKind.AI_DRAFT
 
     def __post_init__(self) -> None:
         _require_text(self.proposal_id, "proposal_id")
         _require_text(self.draft_id, "draft_id")
         _require_text(self.draft_status, "draft_status")
+        try:
+            source_kind = ProposalSourceKind(self.source_kind)
+        except ValueError as exc:
+            raise HumanGateError("INVALID_CONTRACT", "unknown proposal source kind") from exc
+        object.__setattr__(self, "source_kind", source_kind)
         if not isinstance(self.scope, GateScope):
             raise HumanGateError("INVALID_CONTRACT", "action proposal scope is invalid")
         if self.draft_status != "DRAFT":
@@ -261,6 +280,31 @@ class HumanTask:
             raise HumanGateError("INVALID_TASK_STATE", "action request must reference its decision")
 
 
+@dataclass(frozen=True, slots=True)
+class HumanTaskClaim:
+    """A short-lived durable lease held by one workflow-worker attempt.
+
+    Claim state is operational delivery state, not part of the reviewed
+    HumanTask aggregate.  The claim therefore carries the immutable task
+    snapshot plus the owner and expiry that the worker must present when it
+    completes the attempt.
+    """
+
+    task: HumanTask
+    claim_owner: str
+    claim_expires_at: datetime
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.task, HumanTask):
+            raise HumanGateError("INVALID_CLAIM", "claim task is invalid")
+        if self.task.status is not GateStatus.DECIDED or self.task.action_request is None:
+            raise HumanGateError(
+                "INVALID_CLAIM", "only a decided task with an accepted action may be claimed"
+            )
+        _require_text(self.claim_owner, "claim_owner")
+        _require_aware(self.claim_expires_at, "claim_expires_at")
+
+
 __all__ = [
     "ActionProposal",
     "ActorType",
@@ -270,5 +314,7 @@ __all__ = [
     "HUMAN_ACTOR_TYPES",
     "HumanDecision",
     "HumanTask",
+    "HumanTaskClaim",
     "NamedActionRequest",
+    "ProposalSourceKind",
 ]

@@ -146,6 +146,7 @@ def test_ai_actor_and_disallowed_human_are_rejected_before_decision():
             actor_id="operator-1",
             actor_type=ActorType.OPERATOR,
             outcome=DecisionOutcome.ACCEPT,
+            now=datetime(2026, 8, 30, 10, tzinfo=UTC),
         )
 
     with pytest.raises(HumanGateError, match="HUMAN_REVIEWER_REQUIRED"):
@@ -154,6 +155,7 @@ def test_ai_actor_and_disallowed_human_are_rejected_before_decision():
             actor_id="agent-1",
             actor_type=ActorType.AI,
             outcome=DecisionOutcome.ACCEPT,
+            now=datetime(2026, 8, 30, 10, tzinfo=UTC),
         )
 
     assert gate.get(task.task_id).status is GateStatus.OPEN

@@ -108,7 +108,8 @@ export function createSyntheticCapabilityAdapters(options: CapabilityAdapterOpti
     const state = stateFor(id);
     if (state === "PERMISSION_DENIED") return Promise.resolve(capabilityFailure("PERMISSION_DENIED", "PERMISSION_DENIED", `${id} 权限未授予`, true, "请在系统设置中允许后重试。"));
     if (state === "LOW_BANDWIDTH") return Promise.resolve(capabilityFailure("LOW_BANDWIDTH", "LOW_BANDWIDTH", "当前网络较慢，媒体播放已暂停", true, "可切换文字或低码率内容。"));
-    return Promise.resolve({ state, value: { state, permission: "GRANTED", lowBandwidth, fallbackSupported: state === "FALLBACK" || lowBandwidth } });
+    const value = { state, permission: "GRANTED" as const, lowBandwidth, fallbackSupported: state === "FALLBACK" || lowBandwidth };
+    return Promise.resolve(state === "FALLBACK" ? capabilityFallback(value, "将回退到宿主或本地能力。") : { state, value });
   }
 
   function gate<T>(id: CapabilityId, value: T, fallbackMessage?: string): CapabilityResult<T> {

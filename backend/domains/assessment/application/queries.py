@@ -15,6 +15,7 @@ class GetUi02ProjectionQuery:
     family_id: str
     tenant_id: str
     actor_id: str
+    correlation_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ class GetUi03ProjectionQuery:
     family_id: str
     tenant_id: str
     actor_id: str
+    correlation_id: str = ""
 
 
 class AssessmentQueryHandler:
@@ -36,6 +38,9 @@ class AssessmentQueryHandler:
             query.tenant_id, query.family_id, query.actor_id
         )
         policy_allows = await self._repository.tenant_allows_page(query.tenant_id, "UI-02")
+        if not policy_allows:
+            return _ui02_projection(query.tenant_id, query.family_id, "POLICY_BLOCKED")
+
         subjects = await self._repository.load_assessable_subjects(query.family_id)
         tool = await self._repository.load_active_tool("FAMILY_SUPPORT_NEEDS")
         sessions = await self._repository.load_recent_sessions(
@@ -51,16 +56,14 @@ class AssessmentQueryHandler:
             for subject in subjects
         ]
         availability: Ui02AssessmentAvailability
-        if not policy_allows:
-            availability = "POLICY_BLOCKED"
-        elif any(subject["availability"] == "AVAILABLE" for subject in mapped_subjects):
+        if any(subject["availability"] == "AVAILABLE" for subject in mapped_subjects):
             availability = "AVAILABLE"
         elif mapped_subjects:
             availability = "CONSENT_REQUIRED"
         else:
             availability = "NO_SUBJECT"
 
-        return {
+        projection = {
             "projection_version": "UI02_FAMILY_ASSESSMENT_V1",
             "tenant_id": query.tenant_id,
             "family_id": query.family_id,
@@ -74,6 +77,8 @@ class AssessmentQueryHandler:
                 "submit": "SUBMIT_ASSESSMENT",
             },
         }
+        await _record_ui02_reads(self, query, subjects=mapped_subjects, sessions=sessions)
+        return projection
 
     async def get_ui03_projection(self, query: GetUi03ProjectionQuery) -> dict:
         await self._repository.assert_tenant_family_scope(
@@ -88,6 +93,31 @@ class AssessmentQueryHandler:
                 query.tenant_id, query.family_id, "NO_SUBMITTED_ASSESSMENT", None
             )
 
+        # Consent is checked before the evidence is handed to the
+        # interpretation runtime. A read cache or an AI adapter must never
+        # turn a withdrawn grant into continued access to child evidence.
+        await self._repository.assert_subject_consent(
+            query.family_id, evidence.subject_person_id, "ASSESSMENT"
+        )
+        await self._repository.record_read_access(
+            tenant_id=query.tenant_id,
+            family_id=query.family_id,
+            actor_id=query.actor_id,
+            action="assessment.ui03.read",
+            resource_type="ASSESSMENT_PROJECTION",
+            resource_id=f"UI-03:{query.family_id}",
+            subject_person_id=evidence.subject_person_id,
+            accessed_fields=(
+                "subject_person_id",
+                "subject_display_name",
+                "assessment_response_set",
+                "growth_hypothesis_evidence",
+            ),
+            access_purpose="ASSESSMENT",
+            reason="family growth hypothesis projection",
+            correlation_id=_read_correlation(query.correlation_id, "UI-03", query.family_id),
+            approval_ref=f"consent:ASSESSMENT:{evidence.subject_person_id}",
+        )
         interpretation = await self._interpretation.interpret(
             query.family_id, evidence, "DEEP_AI_INTERPRETATION"
         )
@@ -116,6 +146,156 @@ def _ui03_projection(
         },
         "ai_state": ai_state,
     }
+
+
+def _ui02_projection(tenant_id: str, family_id: str, availability: str) -> dict:
+    """Return a policy-denied UI-02 shape without reading child data."""
+
+    return {
+        "projection_version": "UI02_FAMILY_ASSESSMENT_V1",
+        "tenant_id": tenant_id,
+        "family_id": family_id,
+        "availability": availability,
+        "subjects": [],
+        "tool": None,
+        "sessions": [],
+        "named_actions": {
+            "start": "START_ASSESSMENT",
+            "save_response": "SAVE_ASSESSMENT_RESPONSE",
+            "submit": "SUBMIT_ASSESSMENT",
+        },
+    }
+
+
+def _read_correlation(correlation_id: str, page_id: str, family_id: str) -> str:
+    return correlation_id or f"assessment-read:{page_id}:{family_id}"
+
+
+async def _record_ui02_reads(
+    self: AssessmentQueryHandler,
+    query: GetUi02ProjectionQuery,
+    *,
+    subjects: list[dict],
+    sessions: list,
+) -> None:
+    """Record every child whose data is present in UI-02.
+
+    This is deliberately done by the query handler rather than by the HTTP
+    layer. The cached and uncached handlers therefore share the same audit
+    boundary, and a non-HTTP caller cannot accidentally return a minor-data
+    projection without a read record.
+    """
+
+    fields_by_subject: dict[str, set[str]] = {}
+    for subject in subjects:
+        fields_by_subject.setdefault(subject["person_id"], set()).update(
+            {"person_id", "display_name", "assessment_consent_status"}
+        )
+    for session in sessions:
+        subject_person_id = (
+            session["subject_person_id"] if isinstance(session, dict) else session.subject_person_id
+        )
+        fields_by_subject.setdefault(subject_person_id, set()).update(
+            {"assessment_sessions", "assessment_responses", "session_status"}
+        )
+
+    for subject_person_id, fields in fields_by_subject.items():
+        await self._repository.record_read_access(
+            tenant_id=query.tenant_id,
+            family_id=query.family_id,
+            actor_id=query.actor_id,
+            action="assessment.ui02.read",
+            resource_type="ASSESSMENT_PROJECTION",
+            resource_id=f"UI-02:{query.family_id}",
+            subject_person_id=subject_person_id,
+            accessed_fields=tuple(sorted(fields)),
+            access_purpose="ASSESSMENT",
+            reason="family assessment projection",
+            correlation_id=_read_correlation(query.correlation_id, "UI-02", query.family_id),
+            approval_ref=f"family-scope:{query.family_id}",
+        )
+
+
+async def _revalidate_cached_ui02_projection(
+    self: AssessmentQueryHandler,
+    query: GetUi02ProjectionQuery,
+    projection: dict,
+) -> dict:
+    """Re-check scope, page policy and current consent before a cache hit.
+
+    Cache entries contain child-facing fields, so a cache hit is still a
+    protected read. Re-validating consent here prevents a withdrawn grant from
+    remaining effective for the cache TTL.
+    """
+
+    await self._repository.assert_tenant_family_scope(
+        query.tenant_id, query.family_id, query.actor_id
+    )
+    if not await self._repository.tenant_allows_page(query.tenant_id, "UI-02"):
+        return _ui02_projection(query.tenant_id, query.family_id, "POLICY_BLOCKED")
+
+    current_subjects: list[dict] = []
+    for subject in projection.get("subjects", []):
+        subject_person_id = subject["person_id"]
+        consent_granted = await self._repository.subject_has_active_consent(
+            query.family_id, subject_person_id, "ASSESSMENT"
+        )
+        current_subjects.append(
+            {
+                **subject,
+                "availability": "AVAILABLE" if consent_granted else "CONSENT_REQUIRED",
+            }
+        )
+    if any(subject["availability"] == "AVAILABLE" for subject in current_subjects):
+        availability = "AVAILABLE"
+    elif current_subjects:
+        availability = "CONSENT_REQUIRED"
+    else:
+        availability = "NO_SUBJECT"
+    refreshed = {**projection, "subjects": current_subjects, "availability": availability}
+    await _record_ui02_reads(
+        self, query, subjects=current_subjects, sessions=refreshed.get("sessions", [])
+    )
+    return refreshed
+
+
+async def _revalidate_cached_ui03_projection(
+    self: AssessmentQueryHandler,
+    query: GetUi03ProjectionQuery,
+    projection: dict,
+) -> dict:
+    """Re-check current scope/consent before returning a cached hypothesis."""
+
+    await self._repository.assert_tenant_family_scope(
+        query.tenant_id, query.family_id, query.actor_id
+    )
+    if not await self._repository.tenant_allows_page(query.tenant_id, "UI-03"):
+        return _ui03_projection(query.tenant_id, query.family_id, "POLICY_BLOCKED", None)
+    hypothesis = projection.get("hypothesis")
+    if hypothesis is None:
+        return projection
+    subject_person_id = hypothesis["subject_person_id"]
+    await self._repository.assert_subject_consent(query.family_id, subject_person_id, "ASSESSMENT")
+    await self._repository.record_read_access(
+        tenant_id=query.tenant_id,
+        family_id=query.family_id,
+        actor_id=query.actor_id,
+        action="assessment.ui03.read",
+        resource_type="ASSESSMENT_PROJECTION",
+        resource_id=f"UI-03:{query.family_id}",
+        subject_person_id=subject_person_id,
+        accessed_fields=(
+            "subject_person_id",
+            "subject_display_name",
+            "assessment_response_set",
+            "growth_hypothesis",
+        ),
+        access_purpose="ASSESSMENT",
+        reason="cached family growth hypothesis projection",
+        correlation_id=_read_correlation(query.correlation_id, "UI-03", query.family_id),
+        approval_ref=f"consent:ASSESSMENT:{subject_person_id}",
+    )
+    return projection
 
 
 def _map_hypothesis(evidence, interpretation: dict) -> dict:

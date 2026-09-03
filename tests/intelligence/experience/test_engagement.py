@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from backend.intelligence.experience.contracts import ExperienceEventType
@@ -7,6 +9,7 @@ from backend.intelligence.experience.engagement import (
     EngagementAuthorization,
     EngagementContractError,
     EngagementDraft,
+    EngagementDraftApplication,
     EngagementDraftCommand,
     EngagementDraftService,
 )
@@ -96,3 +99,83 @@ async def test_achievement_candidate_requires_evidence_reference() -> None:
     provider = FakeProvider({"family-engagement-draft": _output()})
     with pytest.raises(EngagementContractError, match="ACHIEVEMENT_EVIDENCE_REQUIRED"):
         await EngagementDraftService(build(provider)).generate_draft(_command())
+
+
+@pytest.mark.asyncio
+async def test_engagement_rechecks_authorization_expiry_before_gateway_call() -> None:
+    event = _event(event_id="action-1", event_type=ExperienceEventType.ACTION_COMPLETED)
+    authorization = EngagementAuthorization(
+        scope=event.scope,
+        authorization_ref="auth-expiring",
+        actor_id="guardian-a",
+        authorized_event_ids=(event.event_id,),
+        expires_at=datetime.now(UTC) + timedelta(minutes=5),
+    )
+    provider = FakeProvider({"family-engagement-draft": _output(evidence_refs=[event.event_id])})
+    service = EngagementDraftService(
+        build(provider), clock=lambda: datetime.now(UTC) + timedelta(minutes=10)
+    )
+
+    with pytest.raises(EngagementContractError, match="AUTHORIZATION_EXPIRED"):
+        await service.generate_draft(_command(events=(event,), authorization=authorization))
+
+    assert provider.invocations == []
+
+
+@pytest.mark.asyncio
+async def test_engagement_application_reads_events_from_server_port_in_requested_order() -> None:
+    first = _event(event_id="action-1", event_type=ExperienceEventType.ACTION_COMPLETED)
+    second = _event(event_id="action-2", event_type=ExperienceEventType.ACTION_STARTED)
+
+    class Reader:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, ...]] = []
+
+        async def read(self, *, scope, event_ids):  # type: ignore[no-untyped-def]
+            assert scope == first.scope
+            self.calls.append(event_ids)
+            return (second, first)
+
+    provider = FakeProvider(
+        {"family-engagement-draft": _output(evidence_refs=["action-1", "action-2"])}
+    )
+    reader = Reader()
+    result = await EngagementDraftApplication(
+        EngagementDraftService(build(provider)), reader
+    ).generate_draft(
+        request_id="engagement-read-001",
+        provider_id="fake-deterministic",
+        scope=first.scope,
+        actor_id="guardian-a",
+        authorization_ref="auth-001",
+        event_ids=("action-1", "action-2"),
+        context_snapshot_ref="ctx-engagement-read-001",
+    )
+
+    assert result.evidence_event_ids == ("action-1", "action-2")
+    assert reader.calls == [("action-1", "action-2")]
+    assert provider.invocations[0].input_refs == ("action-1", "action-2")
+
+
+@pytest.mark.asyncio
+async def test_engagement_application_rejects_reader_missing_requested_event() -> None:
+    event = _event(event_id="action-1", event_type=ExperienceEventType.ACTION_COMPLETED)
+
+    class Reader:
+        def read(self, *, scope, event_ids):  # type: ignore[no-untyped-def]
+            return ()
+
+    provider = FakeProvider({"family-engagement-draft": _output(evidence_refs=["action-1"])})
+    application = EngagementDraftApplication(EngagementDraftService(build(provider)), Reader())
+
+    with pytest.raises(EngagementContractError, match="EXPERIENCE_EVENTS_NOT_FOUND"):
+        await application.generate_draft(
+            request_id="engagement-read-missing",
+            provider_id="fake-deterministic",
+            scope=event.scope,
+            actor_id="guardian-a",
+            authorization_ref="auth-001",
+            event_ids=("action-1",),
+            context_snapshot_ref="ctx-engagement-read-missing",
+        )
+    assert provider.invocations == []

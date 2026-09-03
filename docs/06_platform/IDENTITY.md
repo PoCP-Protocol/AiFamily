@@ -25,7 +25,7 @@ superseded_by: null
 
 ## 1. 实际提供什么
 
-七个导出符号（`backend/platform/identity/__init__.py`）：`ActorContext` / `ActorType` / `TenantContext` / `TenantStatus` / `TenantDirectory` / `DenyAllTenantDirectory` / `InMemoryTenantDirectory`。
+除 Actor/Tenant 原语外，身份包还提供 `HttpIdentitySessionPort`、`IdentitySessionPort`、`IssuedIdentitySession` 与 `VerifiedIdentitySession`；Family API 通过 `HttpIdentityPrincipalResolver` 可将 auth_identity introspection 结果绑定为请求 principal。
 
 ### 1.1 `ActorType`（StrEnum）
 
@@ -89,6 +89,6 @@ def resolve(self, tenant_id: str) -> TenantContext | None
 2. **`ActorContext.tenant_id` 与 `TenantContext.tenant_id` 之间没有任何一致性强制**。前者是裸 `str`，两者可以不相等而不报错。没有 `ActorContext.tenant` 这样的组合字段，也没有任何校验函数。
 3. ~~**`TenantContext.is_active` 无任何调用方**。也就是说"暂停/归档的租户不能操作"这条规则目前**完全没有被执行**。~~ **已修（T-14）**：`is_active` 现在由 `PolicyEngine.check` 的第 0 遍强制执行，经 `TenantDirectory` 解析 `actor.tenant_id`。SUSPENDED 与 ARCHIVED 都被拒，未登记租户同样被拒（fail-closed）。`PolicyEngine` 无法在不提供 directory 的情况下构造。测试：`tests/platform/authorization/test_tenant_gate.py`（含"任意数量的宽松规则都无法压倒租户暂停"与"暂停原因不得被『无规则』掩盖"两条）、`tests/platform/identity/test_directory.py`。
    **仍未闭合的部分**：租户状态的**真实来源**不存在。生产装配用 `DenyAllTenantDirectory`，dev wiring 用一个把 token 里的 family_id 当作 ACTIVE 租户的合成 directory。也就是说门是真的，门后的名册还是空的 —— 需要 `auth_identity` 落地。
-4. **没有身份来源（authentication）**。本模块只表达"已经确定的身份是什么"，不解决"如何确定身份"。JWT 校验、API Key、会话续期全部不在此处，也不在 `backend/platform/` 任何位置。`governance/DOMAIN_REGISTRY.yaml` 有一条 `auth_identity` 与本条共用 canonical_path，边界模糊（见 `docs/00_system/CURRENT_SYSTEM_BASELINE.md` §5 漂移表第 4 条）。
+4. **真实身份来源仍未落地为默认主入口**。`session_port.py`（ADR-0117/0122）已冻结 AI 组合根调用 auth_identity 的会话签发、轮换、撤销与 introspection HTTP/mTLS 端口；`HttpIdentityPrincipalResolver` 可在部署侧注入请求 scope，但本模块不实现 JWT/OTP、账号生命周期或会话数据库。生产仍需迁移 `auth_identity` 服务并把该 resolver 注入请求 middleware。`governance/DOMAIN_REGISTRY.yaml` 的边界裁决仍适用：平台只保留上下文原语，业务身份拥有生命周期。
 5. **`tenancy` 的 canonical path 与 manifest 声明不一致**：`MIGRATION_MANIFEST.yaml` 的 `platform_actor_tenant_context` 条目 target 写 `backend/platform/tenant`，该目录**不存在**；`TenantContext` 实际落在 `backend/platform/identity`（同上，漂移表第 3 条）。本任务未修（属 registry 范围）。
 6. **无租户隔离执行**。`ActorContext.tenant_id` 存在，但没有任何机制保证查询会按它过滤 —— 无 RLS、无 session 级 filter（见 `PERSISTENCE.md` 缺口 2）。**注意与缺口 3 的区别**：T-14 修好的是"暂停的租户不能操作"（授权门），**不是**"查询只能看到本租户的行"（数据隔离）。后者仍然完全依赖 domain 手写 filter，且无检查器。

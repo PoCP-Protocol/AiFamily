@@ -42,6 +42,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     () =>
       vars({
         "color-primary": SchemeColors[colorScheme].primary,
+        "color-trust": SchemeColors[colorScheme].trust,
+        "color-growth": SchemeColors[colorScheme].growth,
         "color-background": SchemeColors[colorScheme].background,
         "color-surface": SchemeColors[colorScheme].surface,
         "color-foreground": SchemeColors[colorScheme].foreground,

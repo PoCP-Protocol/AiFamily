@@ -99,16 +99,19 @@ class GrowthHypothesisCommandHandler:
         if evidence is None:
             raise AssessmentNotFoundError("growth_hypothesis_not_found")
 
+        # The evidence contains the child's response set. Check the current
+        # purpose grant before handing it to the interpretation runtime; a
+        # repository implementation or cache must not turn a withdrawn grant
+        # into an AI input.
+        await self._repository.assert_subject_consent(
+            command.family_id, evidence.subject_person_id, "ASSESSMENT"
+        )
         interpretation = await self._interpretation.interpret(
             command.family_id, evidence, "DEEP_AI_INTERPRETATION"
         )
         hypothesis = _map_hypothesis(evidence, interpretation)
         if hypothesis["hypothesis_ref"] != command.hypothesis_ref:
             raise AssessmentConflictError("growth_hypothesis_reference_mismatch")
-
-        await self._repository.assert_subject_consent(
-            command.family_id, evidence.subject_person_id, "ASSESSMENT"
-        )
 
         intent: dict | None = None
         if command.decision_type == "CONFIRM":

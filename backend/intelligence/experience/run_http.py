@@ -73,6 +73,55 @@ class RunScope:
 
 
 @dataclass(frozen=True, slots=True)
+class FeedbackPreferenceSnapshot:
+    """Bounded, metadata-only feedback context for the next AI draft.
+
+    This is deliberately a preference *context*, not a score or a family
+    ranking.  It contains only aggregate counts inside one exact
+    tenant/family/subject scope; raw reasons, model output, and event payloads
+    never cross into the generation request.
+    """
+
+    scope: RunScope
+    helpful_count: int = 0
+    not_helpful_count: int = 0
+    request_human_count: int = 0
+    last_feedback_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.scope, RunScope):
+            raise RunHttpError("SCOPE_REQUIRED")
+        counts = (self.helpful_count, self.not_helpful_count, self.request_human_count)
+        if any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in counts
+        ):
+            raise RunHttpError("FEEDBACK_PREFERENCE_COUNT_INVALID")
+        if sum(counts) > 10_000:
+            raise RunHttpError("FEEDBACK_PREFERENCE_COUNT_TOO_LARGE")
+        if self.last_feedback_at is not None and (
+            self.last_feedback_at.tzinfo is None or self.last_feedback_at.utcoffset() is None
+        ):
+            raise RunHttpError("FEEDBACK_PREFERENCE_TIMESTAMP_INVALID")
+
+    @property
+    def sample_size(self) -> int:
+        return self.helpful_count + self.not_helpful_count + self.request_human_count
+
+    def to_prompt_context(self) -> dict[str, Any]:
+        """Return a stable, non-sensitive object safe to add to a prompt."""
+
+        return {
+            "signal_counts": {
+                "helpful": self.helpful_count,
+                "not_helpful": self.not_helpful_count,
+                "request_human": self.request_human_count,
+            },
+            "sample_size": self.sample_size,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class RunInteractionEntry:
     """Append-only user interaction bound to one run and exact scope."""
 
@@ -233,6 +282,8 @@ class ExperienceRunLedger(Protocol):
     ) -> InteractionReceipt: ...
 
     def replay(self, *, scope: RunScope, run_id: str) -> RunReplaySnapshot: ...
+
+    def feedback_preferences(self, *, scope: RunScope) -> FeedbackPreferenceSnapshot: ...
 
 
 @dataclass(slots=True)
@@ -500,6 +551,32 @@ class InMemoryExperienceRunLedger:
 
         self._assert_scope(scope)
         return self._snapshot(self._get_record(scope, run_id))
+
+    def feedback_preferences(self, *, scope: RunScope) -> FeedbackPreferenceSnapshot:
+        """Aggregate only feedback signals for this exact family subject scope."""
+
+        self._assert_scope(scope)
+        counts = {"helpful": 0, "not_helpful": 0, "request_human": 0}
+        last_feedback_at: datetime | None = None
+        for record in self._records.values():
+            if record.deleted or record.scope.key != scope.key:
+                continue
+            for entry in record.interactions:
+                if entry.interaction_type is not InteractionType.FEEDBACK:
+                    continue
+                signal = entry.payload.get("signal")
+                if signal not in counts:
+                    continue
+                counts[signal] += 1
+                if last_feedback_at is None or entry.occurred_at > last_feedback_at:
+                    last_feedback_at = entry.occurred_at
+        return FeedbackPreferenceSnapshot(
+            scope=scope,
+            helpful_count=counts["helpful"],
+            not_helpful_count=counts["not_helpful"],
+            request_human_count=counts["request_human"],
+            last_feedback_at=last_feedback_at,
+        )
 
     def record_decision(
         self,
@@ -808,6 +885,7 @@ __all__ = [
     "DecisionStatus",
     "DeletionState",
     "DraftPreflight",
+    "FeedbackPreferenceSnapshot",
     "DraftPreflightStatus",
     "ExperienceRunLedger",
     "FeedbackStatus",

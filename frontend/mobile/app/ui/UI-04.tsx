@@ -7,23 +7,12 @@ import { FamilyRefreshControl } from "@/components/family/family-refresh-control
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { familyApi } from "@/lib/family/family-api-client";
+import type { GrowthPriorityProjection, JourneyPlanProjection, PlanPreviewProjection } from "@/lib/family/growth-api-contracts";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
 import { useFamilyMobile } from "@/lib/family/family-state";
 import { MOBILE_JOURNEY_PHASES, type MobileJourneyPhase } from "@/lib/family/journey-plan-content";
 import { getUiActionPolicy } from "@/lib/family/ui-action-policies";
 import { haptic } from "@/lib/haptics";
-
-interface RemoteJourneyPlan {
-  plan?: { plan_id?: string; status?: string; current_phase?: string; phases?: { phase: string; status: string }[] } | null;
-}
-
-interface RemotePlanPreview {
-  structure?: { stages?: { stage_id: string; small_action: string }[] };
-}
-
-interface RemoteGrowthPriority {
-  active_priority?: { priority_id?: string } | null;
-}
 
 type BaselineWeek = {
   id: MobileJourneyPhase["id"];
@@ -49,7 +38,7 @@ const BASELINE_WEEKS: readonly BaselineWeek[] = [
   { id: "STABILIZE", week: "第4周", title: "情绪管理", intent: "识别情绪，科学表达", tasks: ["识别此刻的感受", "用一句话表达需要"], tone: "gray", illustration: "○" },
 ] as const;
 
-function getPhaseStatus(plan: RemoteJourneyPlan["plan"], phaseId: string, currentPhase: string | null) {
+function getPhaseStatus(plan: JourneyPlanProjection["plan"], phaseId: string, currentPhase: string | null) {
   if (!plan?.plan_id || plan.status === "DRAFT") return "pending" as const;
   const remote = plan?.phases?.find((phase) => phase.phase === phaseId)?.status;
   if (remote === "COMPLETED") return "completed" as const;
@@ -60,9 +49,9 @@ function getPhaseStatus(plan: RemoteJourneyPlan["plan"], phaseId: string, curren
 export default function JourneyPlanScreen() {
   const session = useFamilyApiSession();
   const { activeOnboardingId, recordUiAction } = useFamilyMobile();
-  const [remoteJourney, setRemoteJourney] = useState<RemoteJourneyPlan | null>(null);
-  const [remotePreview, setRemotePreview] = useState<RemotePlanPreview | null>(null);
-  const [remotePriority, setRemotePriority] = useState<RemoteGrowthPriority | null>(null);
+  const [remoteJourney, setRemoteJourney] = useState<JourneyPlanProjection | null>(null);
+  const [remotePreview, setRemotePreview] = useState<PlanPreviewProjection | null>(null);
+  const [remotePriority, setRemotePriority] = useState<GrowthPriorityProjection | null>(null);
   const [projectionState, setProjectionState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [projectionError, setProjectionError] = useState<string | null>(null);
   const [activationState, setActivationState] = useState<"idle" | "submitting">("idle");
@@ -73,9 +62,9 @@ export default function JourneyPlanScreen() {
     setProjectionState("loading"); setProjectionError(null);
     try {
       const [journeyResult, previewResult, priorityResult] = await Promise.all([
-        familyApi.getJourneyPlan<RemoteJourneyPlan>(session.token, session.selectedFamily.family_id),
-        activeOnboardingId ? familyApi.getPlanPreview<RemotePlanPreview>(session.token, session.selectedFamily.family_id, activeOnboardingId) : Promise.resolve(null),
-        activeOnboardingId ? familyApi.getGrowthPriority<RemoteGrowthPriority>(session.token, session.selectedFamily.family_id, activeOnboardingId) : Promise.resolve(null),
+        familyApi.getJourneyPlan(session.token, session.selectedFamily.family_id),
+        activeOnboardingId ? familyApi.getPlanPreview(session.token, session.selectedFamily.family_id, activeOnboardingId) : Promise.resolve(null),
+        activeOnboardingId ? familyApi.getGrowthPriority(session.token, session.selectedFamily.family_id, activeOnboardingId) : Promise.resolve(null),
       ]);
       setRemoteJourney(journeyResult); setRemotePreview(previewResult); setRemotePriority(priorityResult); setProjectionState("ready");
     } catch { setProjectionState("error"); setProjectionError("成长方案暂时无法同步；请稍后重试。"); }
@@ -83,7 +72,7 @@ export default function JourneyPlanScreen() {
 
   useEffect(() => { void loadPlanProjection(); }, [loadPlanProjection]);
 
-  const plan = remoteJourney?.plan;
+  const plan = remoteJourney?.plan ?? null;
   const currentPhase = plan?.current_phase ?? null;
   const planIsActive = !!plan?.plan_id && plan.status !== "DRAFT";
   const phases = useMemo(() => {
@@ -110,11 +99,11 @@ export default function JourneyPlanScreen() {
     setActivationState("submitting");
     setActivationMessage(null);
     try {
-      let currentPlan = plan;
+      let currentPlan = plan ?? null;
       if (!currentPlan?.plan_id) {
         const priorityId = remotePriority?.active_priority?.priority_id;
         if (!priorityId) throw new Error("GROWTH_PRIORITY_REQUIRED");
-        const created = await familyApi.createJourneyPlan<RemoteJourneyPlan>(
+        const created = await familyApi.createJourneyPlan(
           session.token,
           session.selectedFamily.family_id,
           activeOnboardingId,
@@ -125,7 +114,7 @@ export default function JourneyPlanScreen() {
       }
       if (!currentPlan?.plan_id) throw new Error("JOURNEY_PLAN_REQUIRED");
       if (currentPlan.status === "DRAFT") {
-        const confirmed = await familyApi.confirmJourneyPlan<RemoteJourneyPlan>(
+        const confirmed = await familyApi.confirmJourneyPlan(
           session.token,
           session.selectedFamily.family_id,
           currentPlan.plan_id,

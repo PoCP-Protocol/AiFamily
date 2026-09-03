@@ -143,6 +143,24 @@ class CaseOpeningIdempotencyRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class MutationIdempotencyRecord:
+    """Durable claim/result for a tenant-scoped FGCN mutation."""
+
+    action_name: str
+    request_hash: str
+    resource_id: str | None = None
+    is_new: bool = False
+
+    def __post_init__(self) -> None:
+        _text(self.action_name, "mutation_action")
+        _text(self.request_hash, "mutation_request_hash")
+        if self.resource_id is not None:
+            _text(self.resource_id, "mutation_resource_id")
+        if not isinstance(self.is_new, bool):
+            raise ServiceValidationError("fgcn_mutation_claim_invalid")
+
+
+@dataclass(frozen=True, slots=True)
 class BlueprintSnapshot:
     """The published service configuration frozen into a case."""
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -14,6 +15,8 @@ from backend.intelligence.context_engine.contracts import (
 from backend.intelligence.context_engine.sql_store import (
     AsyncSqlContextBroker,
     ContextPersistenceBase,
+    SqlContextBrokerFactory,
+    build_sql_context_broker,
 )
 
 NOW = datetime(2026, 8, 30, 8, 0, tzinfo=UTC)
@@ -108,22 +111,43 @@ async def test_sql_context_delete_scrubs_snapshot_and_observations(broker) -> No
 
 
 @pytest.mark.asyncio
-async def test_sql_context_duplicate_observation_is_rejected(broker) -> None:
+async def test_sql_context_exact_duplicate_observation_is_idempotent(broker) -> None:
     await broker.append(_observation())
-
-    with pytest.raises(ValueError, match="ALREADY_EXISTS"):
-        await broker.append(_observation())
+    await broker.append(_observation())
 
 
 @pytest.mark.asyncio
-async def test_sql_context_concurrent_duplicate_append_has_one_winner(broker) -> None:
+async def test_sql_context_changed_duplicate_observation_is_rejected(broker) -> None:
+    await broker.append(_observation())
+    with pytest.raises(ValueError, match="ALREADY_EXISTS"):
+        await broker.append(replace(_observation(), observed_value="changed"))
+
+
+@pytest.mark.asyncio
+async def test_sql_context_concurrent_exact_duplicate_append_is_idempotent(broker) -> None:
     results = await asyncio.gather(
         broker.append(_observation()),
         broker.append(_observation()),
         return_exceptions=True,
     )
 
-    assert sum(result is None for result in results) == 1
-    errors = [result for result in results if isinstance(result, ValueError)]
-    assert len(errors) == 1
-    assert str(errors[0]) == "OBSERVATION_ID_ALREADY_EXISTS"
+    assert results == [None, None]
+
+
+@pytest.mark.asyncio
+async def test_sql_context_factory_builds_durable_session_per_operation_broker(
+    tmp_path,
+) -> None:
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'factory.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(ContextPersistenceBase.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        factory = SqlContextBrokerFactory(session_factory)
+        broker = factory()
+        assert isinstance(broker, AsyncSqlContextBroker)
+        assert broker.durability_mode == "DURABLE"
+        assert factory.session_factory is session_factory
+        assert isinstance(build_sql_context_broker(session_factory), AsyncSqlContextBroker)
+    finally:
+        await engine.dispose()

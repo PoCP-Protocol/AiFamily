@@ -170,6 +170,12 @@ class AsyncSqlContextBroker(AsyncContextBrokerPort):
                 await session.commit()
             except IntegrityError as exc:
                 await session.rollback()
+                existing = await session.get(
+                    ContextObservationRow,
+                    (observation.tenant_id, observation.observation_id),
+                )
+                if existing is not None and _observation_from_row(existing) == observation:
+                    return
                 raise ContextContractError("OBSERVATION_ID_ALREADY_EXISTS") from exc
 
     async def snapshot(
@@ -384,10 +390,49 @@ class AsyncSqlContextBroker(AsyncContextBrokerPort):
             return len(observations)
 
 
+class SqlContextBrokerFactory:
+    """Build the durable Context Broker used by a production composition root.
+
+    The factory keeps SQL session ownership at the application boundary.  The
+    broker itself remains session-per-operation, so a request can safely share
+    this immutable adapter without leaking an ``AsyncSession`` across requests
+    or event-loop tasks.
+    """
+
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        if not isinstance(session_factory, async_sessionmaker):
+            raise TypeError("session_factory must be an async_sessionmaker")
+        self._session_factory = session_factory
+
+    def __call__(self) -> AsyncSqlContextBroker:
+        return AsyncSqlContextBroker(self._session_factory)
+
+    @property
+    def session_factory(self) -> async_sessionmaker[AsyncSession]:
+        """Expose the validated factory for startup diagnostics only."""
+
+        return self._session_factory
+
+
+def build_sql_context_broker(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> AsyncSqlContextBroker:
+    """Create one durable Context Broker for a production application.
+
+    This small function is the provider-neutral composition seam.  Deployments
+    can replace it with another durable adapter without changing the
+    multimodal application or HTTP router.
+    """
+
+    return SqlContextBrokerFactory(session_factory)()
+
+
 __all__ = [
     "AsyncSqlContextBroker",
     "ContextObservationRow",
     "ContextPersistenceBase",
     "ContextSnapshotObservationRow",
     "ContextSnapshotRow",
+    "SqlContextBrokerFactory",
+    "build_sql_context_broker",
 ]

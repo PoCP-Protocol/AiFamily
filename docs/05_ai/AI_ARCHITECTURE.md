@@ -132,6 +132,17 @@ Service Blueprint层的呼应（同样来自V2战略8.3节）：如果一个21�
 | P2 | Growth Intervention Engine雏形（在现有hypotheses/action_candidates基础上加决策层） | 依赖P0的Context落地后才有输入数据 |
 | P3 | 多Agent协同/Agent Runtime | 现有代码连单一Agent的记忆和人格一致性都没做实，多Agent协同不应该先做 |
 
+> 进展说明（2026-08-30）：已落地 provider-neutral 的最小 Agent Runtime 基础（静态
+> AgentDefinition、动态授权（含 SQL authorization lease）、Prompt/Schema 解析、fail-closed
+> 执行端口）、SQL AgentRun/Trace durable ledger、human-gated Tool Runtime seam、
+> ToolCall durable outbox、SQL Human Gate inbox consumer、治理 YAML AgentDefinition
+> registry、显式 Agent Runtime composition factory、provider-neutral Safety Runtime
+> 与 AI release/admission gate，
+> ModelGatewayExecutionPort 与 parent_advisor 合成数据纵向切片，
+> SafetyDecision/Attempt durable ledger（含 tenant/family scope）与 Agent 生产组合根，
+> 但尚未宣称单一 Agent 业务能力或多 Agent 协同完成；Family Context、业务 consumer
+> 和真实 identity/consent resolver 接线完成后，才进入单一 Agent 纵向试点。
+
 **这条优先级直接约束第1节的5个Agent落地顺序**：P3明确"多Agent协同不应该先做"，意味着5个Agent不应该在Family Context P0落地之前，同时开工建设成一套完整的多Agent Runtime——应该先让单一Agent（很可能是与ASSESSMENT闭环绑定的"成长规划师"或"家长顾问"）在有真实Family Context输入的情况下把记忆和人格一致性做实，再横向扩展到其余4个Agent。
 
 ---
@@ -222,9 +233,11 @@ Agent 是执行这些资产的智能劳动者。Model 在最底层，不在最�
 | `AiProvenance` | 身份字段**全部必填、缺一即构造失败** | PIPL 第 24 条赋予个人对自动化决策的解释权。一个能缺一半字段构造出来的 provenance，会让不可解释的建议到达家庭 |
 | `ModelDraft` | `status` 只有 `DRAFT` 一个合法值；`may_mutate_business_state` 是无 setter 的 property | R9 的类型层表达——**但它有四处实测泄漏，见 §8.2**。不要把它当成已封死 |
 
-**唯一接入模式**：经 `build_gateway()` 工厂获取，其签名**不设** `api_key` / `credential` /
-`config` 形参——凭据只能由网关内部按 `credential_env_var` 记录的**变量名**自取。
-这把「凭据从外部被传进来」从「能不能查出」变成「**根本没有形参可传**」。
+**唯一治理接入模式**：经 `model_gateway/composition.py` 的 registry 组合工厂获取，
+生产可选择显式注入 `ProviderCredentialPort` 或 `HttpProviderCredentialPort` 返回短期
+`CredentialLease`（ADR-0100）；兼容的环境变量读取仍封装在 Gateway 工厂内，领域层
+没有 `api_key` / `credential` 形参。低层 `build_gateway()` 只接受已构造的 provider
+adapter，不负责凭据来源，也不得被业务域直接调用。
 
 > **R10 的伤疤**：源仓库只有一份网关实现，却有三套接入模式（DI 工厂 + fail-closed 最严 /
 > DI + 双 env 门控 / 业务方法内裸 `new`）。**重复的不是实现，是纪律。**
@@ -236,8 +249,12 @@ Agent 是执行这些资产的智能劳动者。Model 在最底层，不在最�
 以下组件**在有可运行实现之前不建目录**——`design_copilot` 是活标本
 （全 `NotImplementedError`、零调用方、零测试）：
 
-`context_engine` / `memory` / `agent_runtime` / `tool_runtime` / `safety` /
-`evaluation` / `observability` —— 七项全部 `ABSENT`。
+历史版本曾将 `context_engine` / `memory` / `agent_runtime` / `tool_runtime` /
+`safety` / `evaluation` / `observability` 记为 `ABSENT`。截至 2026-08-30，
+其中除 Growth Graph 外已具备可运行的 EXPERIMENT 接缝：Context SQL adapter、
+durable MemoryRef Store（0022）、Agent/Tool/Safety/Human Gate、offline Evaluation
+和 metadata-only Observability（0021）均有代码与测试；成熟度以
+`docs/00_system/CURRENT_AI_MAP.md` 为准。`design_copilot` 仍是未实现占位。
 
 两项**永不在此建立**，理由是 R10「各一份」：
 
@@ -336,7 +353,7 @@ AI 侧读取业务数据的**唯一合法通路**是 ADR-0010 的只读投影
 |---|---|---|
 | R7 领域不直连供应商 | `test_no_direct_provider_calls.py` | **有效** |
 | AI Runtime 不 import 域 repository / 不自我晋升 | `test_ai_runtime_isolation.py` | **有效**（`AI_NATIVE_PRINCIPLES.md` §5 的两项待补检查已兑现） |
-| 凭据只在 Model Gateway 读 | 同上（credential 用例）+ `build_gateway()` 无凭据形参 | **有效** |
+| 凭据只在 Model Gateway 读 | `test_no_direct_provider_calls.py` + CredentialLease/HTTP credential tests；组合工厂隔离凭据来源 | **有效** |
 | 主体形状的类不得有分数 | `test_r9_value_layer_boundary.py` | **有效** |
 | §8.2 四处封印 | — | **未落地**，规格已出（T-16） |
 | §7 第 ⑥ 步 fail-closed 不返回罐头文案 | — | **未落地**，assessment 是活反例（T-17） |

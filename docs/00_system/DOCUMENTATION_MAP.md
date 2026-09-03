@@ -28,7 +28,7 @@ superseded_by: null
 |---|---|---|---|---|
 | `docs/00_system/` | L0 | 系统真相：系统是什么、现在到哪、哪些文档算真相 | `SYSTEM_MANIFEST.md`、`CURRENT_*.md`、本文件 | **8 份**：`SYSTEM_MANIFEST` / `CURRENT_SYSTEM_BASELINE` / `CURRENT_AI_MAP` / `CURRENT_TECHNOLOGY_BASELINE` / `CURRENT_DOMAIN_MAP` / `CURRENT_PRODUCT_MAP` / `TARGET_ARCHITECTURE` / 本文件。仍缺 Manifest §5.1 所列的 `CURRENT_PROGRAM_STATUS.md`；多出一份 Manifest 未列的 `TARGET_ARCHITECTURE.md`（Specification 类，非 Current Truth） |
 | `docs/01_strategy/` | L1 | 商业战略、价值定位、三区方法论 | `COMMERCIAL_VALUE_STRATEGY.md` | **1 份** + `source_materials/` 3 份原始材料（中文 `.txt`，例外保留原名） |
-| `docs/02_business/` | L1 | 业务架构、业务能力地图、业务场景与流程 | `BUSINESS_CAPABILITY_MAP.md` | **3 份**：`BUSINESS_ARCHITECTURE` / `BUSINESS_CAPABILITY_MAP` / `BUSINESS_SCENARIOS_AND_PROCESSES` |
+| `docs/02_business/` | L1 | 业务架构、业务能力地图、业务场景与流程 | `BUSINESS_CAPABILITY_MAP.md` | **4 份**：`BUSINESS_ARCHITECTURE` / `BUSINESS_CAPABILITY_MAP` / `BUSINESS_SCENARIOS_AND_PROCESSES` / `BUSINESS_SCENARIO_CLOSURE_CATALOG`（draft，节点级输入/活动/输出/规则） |
 | `docs/03_product/` | L1 | 产品愿景、产品能力、页面清单 `PAGE-NNN-*` | `PRODUCT_VISION.md` | **1 份**：`PRODUCT_VISION`。页面清单尚未建立（34 个 UI 的真实状态目前只在 `14_reference/legacy_audits/` 的矩阵里） |
 | `docs/04_domains/` | L2 | 每个 Domain 一份：聚合、不变量、Command、Event、Port | `FAMILY.md`、`ASSESSMENT.md` | **空，且属"该写而没写"** —— `backend/domains/` 下已有 7 个域的真实 Python 代码（`product_intelligence` 50 个 `.py`、`membership` 20、`loyalty_points` 17、`product_strategy` 9、`market_intelligence` 4、`assessment` 3、`growth_plan` 3），但边界文档一份都没有。这是继 `06_platform` 之后**下一个最实质的文档缺口**（注：`DOMAIN_REGISTRY.yaml` 的 status 也仍全写 `NOT_STARTED`，与磁盘不符，见 `CURRENT_SYSTEM_BASELINE.md` §5 漂移表第 1 条） |
 | `docs/05_ai/` | L2 | AI 原生原则、AI 架构、Agent 定义 | `AI_NATIVE_PRINCIPLES.md`、`AI_ARCHITECTURE.md` | **2 份**；`AI_USE_CASES/` **空** —— 尚无 AIUC 用例文档 |
@@ -36,7 +36,7 @@ superseded_by: null
 | `docs/07_data/` | L2 | 数据架构、schema 归属、留存期限与目的绑定、级联删除 | `DATA_ARCHITECTURE.md` | **1 份** |
 | `docs/08_experience/` | L3 | 交互与体验规范、设计 token、可访问性 | `EXPERIENCE_PRINCIPLES.md` | **空** —— 前端代码在 `frontend/mobile/`（34 个 UI 屏幕已入仓）但阻塞于后端未就绪，体验规范暂无消费方。属"尚未需要" |
 | `docs/09_operations/` | L3 | 运维、可观测性、SLO、事故响应、成本控制 | `OBSERVABILITY.md`、`SLO.md` | **空** —— 尚无承载生产流量的服务（唯一端点是 `/health` `/ready`），暂无需要 |
-| `docs/10_engineering/` | L3 | 工程架构、分层约定、测试策略、CI 设计 | `ENGINEERING_ARCHITECTURE.md` | **1 份** |
+| `docs/10_engineering/` | L3 | 工程架构、环境等价、分层约定、测试策略、CI 设计 | `ENGINEERING_ARCHITECTURE.md` | **2 份**：`ENGINEERING_ARCHITECTURE` / `ENVIRONMENT_PARITY` |
 | `docs/11_delivery/` | L3 | 交付计划、迁移分析、Sprint/Release/Roadmap | `CURRENT_PROGRAM_PLAN.md` | **3 份**：`CURRENT_PROGRAM_PLAN`、`TASK_BACKLOG`（T-01…T-10 任务卡）、`TRACEABILITY_REPORT_SNAPSHOT`（T-08 检查器输出快照，非 canonical）+ `migration/` **6 份**（仓库清点、死代码审计、TS→Python 能力矩阵、Python 缺口分析、`MIGRATION_PLAN_V2`、Mobile 迁移笔记）；`sprints/` `releases/` `roadmap/` **均空** |
 | `docs/12_governance/` | L4 | 人类可读治理规范 | `DOCUMENT_GOVERNANCE.md`、`COMPLIANCE_HARD_CONSTRAINTS.md` | **4 份**：上述两份 + `DPIA_MECHANISM_DESIGN`、`DATA_RETENTION_BINDING_DESIGN`（均 T-07 产出，`status: draft`，落地需先出 ADR） |
 | `docs/13_research/` | L4 | 调研与证据，必标 `RESEARCH_ONLY` | `market/`、`technology/`、`compliance/` | **1 份**：`market/RESEARCH-ACN-TRANSFERABILITY-TO-FGCN.md`（T-09）。`technology/` `compliance/` 仍空 —— 已完成的合规 deep-research 结论直接固化为 `12_governance/COMPLIANCE_HARD_CONSTRAINTS.md`，未留研究稿 |

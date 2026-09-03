@@ -36,6 +36,14 @@ def _valid_draft_payload() -> dict[str, object]:
         },
         "modalities": ["TEXT", "IMAGE"],
         "estimated_input_tokens": 128,
+        "media_inputs": [
+            {
+                "media_type": "IMAGE",
+                "uri": "media:fixture:app-mount-001",
+                "mime_type": "image/jpeg",
+                "sha256": "a" * 64,
+            }
+        ],
     }
 
 
@@ -92,3 +100,13 @@ def test_health_and_ready_remain_available() -> None:
     assert health.json() == {"status": "ok"}
     assert ready.status_code == 200
     assert ready.json() == {"status": "ready"}
+
+
+def test_create_app_rejects_ambiguous_experience_runtime_wiring() -> None:
+    with pytest.raises(
+        ValueError, match="experience_runtime_resolver and experience_runtime_wiring"
+    ):
+        create_app(
+            experience_runtime_resolver=object(),  # type: ignore[arg-type]
+            experience_runtime_wiring=lambda _application: None,
+        )

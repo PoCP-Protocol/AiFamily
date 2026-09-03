@@ -331,7 +331,7 @@ def test_experience_curator_route_carries_scope_and_confirmation_gate() -> None:
     )
 
     assert decision.profile_id == "experience_curator"
-    assert decision.output_type.value == "Recommendation"
+    assert decision.output_type.value == "ActionProposal"
     assert decision.human_gate.value == "EXPLICIT_CONFIRMATION"
     assert decision.tenant_id == "tenant-1"
     assert decision.family_id == "family-1"

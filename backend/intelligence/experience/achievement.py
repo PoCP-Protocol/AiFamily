@@ -30,6 +30,7 @@ class AchievementKey(StrEnum):
     FIRST_STEP = "first_step"
     PAUSE_AND_RETURN = "pause_and_return"
     SERVICE_INTENT_EXPRESSED = "service_intent_expressed"
+    AI_EVIDENCE_MOMENT = "ai_evidence_moment"
 
 
 _ACHIEVEMENT_BASES = frozenset(
@@ -62,6 +63,10 @@ class Achievement:
     visibility: str = "FAMILY_PRIVATE"
     comparison_scope: str = "NONE"
     commercial_reward: str = "NONE"
+    # Stable identity for a repeatable milestone occurrence. ``default`` keeps
+    # legacy one-time milestones idempotent; AI evidence moments derive a
+    # value from their evidence set so distinct events can earn separately.
+    occurrence_id: str = "default"
 
     def __post_init__(self) -> None:
         if not self.achievement_id or not self.title or not self.message:
@@ -86,6 +91,10 @@ class Achievement:
             raise ExperienceContractError("ACHIEVEMENT_COMPARISON_FORBIDDEN")
         if self.commercial_reward != "NONE":
             raise ExperienceContractError("ACHIEVEMENT_COMMERCIAL_REWARD_FORBIDDEN")
+        if not isinstance(self.occurrence_id, str) or not self.occurrence_id.strip():
+            raise ExperienceContractError("ACHIEVEMENT_OCCURRENCE_REQUIRED")
+        if len(self.occurrence_id) > 256:
+            raise ExperienceContractError("ACHIEVEMENT_OCCURRENCE_TOO_LONG")
 
 
 class AchievementProjectionPort(Protocol):
@@ -112,10 +121,10 @@ class InMemoryAchievementProjection:
     """Append-only read model keyed by exact family scope and achievement key."""
 
     def __init__(self) -> None:
-        self._records: dict[tuple[tuple[str, ...], AchievementKey], Achievement] = {}
+        self._records: dict[tuple[tuple[str, ...], AchievementKey, str], Achievement] = {}
 
     def append(self, achievement: Achievement) -> Achievement:
-        key = (_scope_key(achievement.scope), achievement.key)
+        key = (_scope_key(achievement.scope), achievement.key, achievement.occurrence_id)
         existing = self._records.get(key)
         if existing is not None:
             if existing != achievement:
@@ -149,20 +158,25 @@ class AchievementEngine:
             candidates.append(AchievementKey.FIRST_STEP)
         if event.event_type is ExperienceEventType.ACTION_PAUSED:
             self._paused.add(key)
-        elif event.event_type is ExperienceEventType.ACTION_STARTED and key in self._paused:
+        elif event.event_type is ExperienceEventType.ACTION_RESUMED or (
+            event.event_type is ExperienceEventType.ACTION_STARTED and key in self._paused
+        ):
             self._paused.discard(key)
             candidates.append(AchievementKey.PAUSE_AND_RETURN)
         if event.event_type is ExperienceEventType.SERVICE_INTENT_DECLARED:
             candidates.append(AchievementKey.SERVICE_INTENT_EXPRESSED)
 
         earned: list[Achievement] = []
-        existing = {item.key for item in self.projection.earned(event.scope)}
+        existing = {
+            (item.key, item.occurrence_id) for item in self.projection.earned(event.scope)
+        }
         for achievement_key in candidates:
-            if achievement_key in existing:
+            occurrence_id = "default"
+            if (achievement_key, occurrence_id) in existing:
                 continue
             achievement = _build_achievement(event, achievement_key)
             earned.append(self.projection.append(achievement))
-            existing.add(achievement_key)
+            existing.add((achievement_key, occurrence_id))
         return tuple(earned)
 
     async def apply_async(self, event: ExperienceEvent) -> tuple[Achievement, ...]:
@@ -181,7 +195,9 @@ class AchievementEngine:
             candidates.append(AchievementKey.FIRST_STEP)
         if event.event_type is ExperienceEventType.ACTION_PAUSED:
             self._paused.add(key)
-        elif event.event_type is ExperienceEventType.ACTION_STARTED and key in self._paused:
+        elif event.event_type is ExperienceEventType.ACTION_RESUMED or (
+            event.event_type is ExperienceEventType.ACTION_STARTED and key in self._paused
+        ):
             self._paused.discard(key)
             candidates.append(AchievementKey.PAUSE_AND_RETURN)
         if event.event_type is ExperienceEventType.SERVICE_INTENT_DECLARED:
@@ -189,15 +205,17 @@ class AchievementEngine:
 
         earned: list[Achievement] = []
         existing = {
-            item.key for item in await _resolve_projection(self.projection.earned(event.scope))
+            (item.key, item.occurrence_id)
+            for item in await _resolve_projection(self.projection.earned(event.scope))
         }
         for achievement_key in candidates:
-            if achievement_key in existing:
+            occurrence_id = "default"
+            if (achievement_key, occurrence_id) in existing:
                 continue
             achievement = _build_achievement(event, achievement_key)
             persisted = await _resolve_projection(self.projection.append(achievement))
             earned.append(persisted)
-            existing.add(achievement_key)
+            existing.add((achievement_key, occurrence_id))
         return tuple(earned)
 
 
@@ -245,6 +263,7 @@ def _build_achievement(event: ExperienceEvent, key: AchievementKey) -> Achieveme
             if key is AchievementKey.SERVICE_INTENT_EXPRESSED
             else "ACTION_COMPLETED"
         ),
+        occurrence_id="default",
     )
 
 

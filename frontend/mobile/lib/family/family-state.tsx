@@ -31,7 +31,7 @@ interface FamilyMobileContextValue extends FamilyMobileState {
   saveStudyGroupDraft(productRef: string, productTitle: string, familyCount: 2 | 3 | 4): void;
   cancelStudyGroupDraft(): void;
   saveConsultationNeedDraft(offeringRef: string, offeringVersion: number, offeringTitle: string, providerName: string, channel: ConsultationChannel, slotRef: string | null, timePreference: string, ageBand: string, needFocus: string): void;
-  syncConsultationNeedReceipt(bookingRequestId: string, serviceRecordId: string): void;
+  syncConsultationNeedReceipt(bookingRequestId: string, serviceRecordId: string | null): void;
   saveActivityInterestDraft(activityRef: string, activityTitle: string): void;
   saveCommunityPostDraft(kind: CommunityPostKind, title: string, body: string, topic: string, aiTagDraft?: CommunityAiTagDraft): void;
   toggleCommunityBookmark(exchangeRef: string): void;

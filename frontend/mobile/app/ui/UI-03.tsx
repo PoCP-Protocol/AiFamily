@@ -2,119 +2,28 @@ import type { Href } from "expo-router";
 import { Stack, router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import Svg, { Circle, Line, Polygon, Text as SvgText } from "react-native-svg";
-
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import type { Ui03GrowthHypothesisProjection } from "@/lib/family/assessment-api-contracts";
 import { createMobileRequestId, familyApi, FamilyApiError } from "@/lib/family/family-api-client";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
 import { useFamilyMobile } from "@/lib/family/family-state";
-
-interface Ui03ScoreDimension {
-  dimension_ref: string;
-  label: string;
-  score: number;
-  peer_reference: number;
-}
-
-interface Ui03Scorecard {
-  generated_by: "FAMILI_PRINCIPAL_FAMILY_EDUCATION_MODEL";
-  overall_score: number;
-  overall_band: string;
-  dimensions: Ui03ScoreDimension[];
-  core_issue_tags: string[];
-  recommendations: string[];
-  score_boundary: "SUPPORT_ORIENTATION_SCORE_NOT_CHILD_DIAGNOSIS_OR_RANKING";
-}
-
-interface Ui03EvidenceCoverage {
-  source_response_count: number;
-  interpreted_response_count: number;
-  coverage_ratio: number;
-  mapped_item_refs: string[];
-  evidence_summaries: string[];
-  uninterpreted_item_refs: string[];
-  uncertainty_item_refs: string[];
-  uncertainty_reasons: string[];
-  support_direction_refs: string[];
-  support_direction_labels: string[];
-  next_questions?: string[];
-}
-
-interface RemoteHypothesisProjection {
-  projection_version: "UI03_GROWTH_HYPOTHESIS_V1";
-  availability: "READY" | "NO_SUBMITTED_ASSESSMENT" | "POLICY_BLOCKED" | "CONSENT_WITHDRAWN" | "SUBMITTED" | "ANALYZING" | "ACKNOWLEDGED" | "DISMISSED" | "ANALYSIS_FAILED";
-  ai_state: "NOT_INVOKED" | "MODEL_DRAFT_READY" | "MODEL_GATEWAY_BLOCKED" | "READ_ONLY_PERSISTED";
-  latest_assessment_session_id?: string | null;
-  named_actions?: { generate?: "GENERATE_GROWTH_HYPOTHESIS"; confirm?: "CONFIRM_GROWTH_HYPOTHESIS" };
-  hypothesis: null | {
-    hypothesis_ref: string;
-    subject_person_id: string;
-    subject_display_name: string;
-    focus_ref: string;
-    title: string;
-    statement: string;
-    source_refs: {
-      assessment_session_id: string;
-      assessment_response_id: string;
-      assessment_evidence_id: string;
-      tool_ref: string;
-      tool_version: number;
-      assessment_submitted_at?: string | null;
-    };
-    limitations: string[];
-    fact_boundary: "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS";
-    safety_gate?: { required: boolean; reason_refs: string[]; mode: "HUMAN_REVIEW_REQUIRED" };
-    evidence_coverage?: Ui03EvidenceCoverage;
-    scorecard?: Ui03Scorecard;
-  };
-}
-
-interface HypothesisDecisionReceipt { outcome: "INTENT_CREATED" | "NO_ACTION"; intent: { intent_id: string } | null; replayed: boolean }
-
-const PREVIEW_SCORECARD: Ui03Scorecard = {
-  generated_by: "FAMILI_PRINCIPAL_FAMILY_EDUCATION_MODEL",
-  overall_score: 0,
-  overall_band: "PENDING_ASSESSMENT",
-  dimensions: [
-    { dimension_ref: "communication", label: "沟通", score: 50, peer_reference: 50 },
-    { dimension_ref: "habit", label: "习惯", score: 50, peer_reference: 50 },
-    { dimension_ref: "emotion", label: "情绪", score: 50, peer_reference: 50 },
-    { dimension_ref: "boundary", label: "边界", score: 50, peer_reference: 50 },
-    { dimension_ref: "support", label: "支持", score: 50, peer_reference: 50 },
-  ],
-  core_issue_tags: ["完成测评后显示", "家庭支持方向", "非诊断结论"],
-  recommendations: [
-    "先完成免费家庭测评，系统会基于已提交答案整理支持方向。",
-    "AI 只生成家庭支持假设，不替代专业诊断或儿童能力评价。",
-    "确认方向后，再进入 90 天家庭成长方案预览。",
-  ],
-  score_boundary: "SUPPORT_ORIENTATION_SCORE_NOT_CHILD_DIAGNOSIS_OR_RANKING",
-};
-
-const RADAR_CENTER = { x: 120, y: 104 };
-const RADAR_POINTS = [
-  { x: 120, y: 24, labelX: 120, labelY: 14, anchor: "middle" as const },
-  { x: 196, y: 80, labelX: 217, labelY: 78, anchor: "start" as const },
-  { x: 168, y: 170, labelX: 188, labelY: 190, anchor: "start" as const },
-  { x: 72, y: 170, labelX: 52, labelY: 190, anchor: "end" as const },
-  { x: 44, y: 80, labelX: 23, labelY: 78, anchor: "end" as const },
-] as const;
 
 export default function GrowthExplanationScreen() {
   const colors = useColors();
   const session = useFamilyApiSession();
   const { activeOnboardingId, setActiveOnboardingId } = useFamilyMobile();
-  const [remote, setRemote] = useState<RemoteHypothesisProjection | null>(null);
-  const [remoteState, setRemoteState] = useState<"idle" | "loading" | "generating" | "ready" | "fallback">("idle");
-  const [decisionState, setDecisionState] = useState<"idle" | "saving" | "error">("idle");
+  const [remote, setRemote] = useState<Ui03GrowthHypothesisProjection | null>(null);
+  const [remoteState, setRemoteState] = useState<"idle" | "loading" | "generating" | "ready" | "empty" | "denied" | "review_required" | "error">("idle");
+  const [decisionState, setDecisionState] = useState<"idle" | "saving" | "error" | "denied" | "review_required" | "success">("idle");
+  const [remoteError, setRemoteError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const decisionKeys = useRef<Record<string, string>>({});
   const generateKeys = useRef<Record<string, string>>({});
   const onboardingKeys = useRef<Record<string, string>>({});
   const hypothesis = remote?.hypothesis ?? null;
-  const scorecard = hypothesis?.scorecard ?? null;
+  const supportDraft = hypothesis?.scorecard ?? null;
   const safetyGateRequired = hypothesis?.safety_gate?.required === true;
   const named_actions = remote?.named_actions ?? { generate: "GENERATE_GROWTH_HYPOTHESIS" as const, confirm: "CONFIRM_GROWTH_HYPOTHESIS" as const };
 
@@ -126,10 +35,11 @@ export default function GrowthExplanationScreen() {
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
     const load = async (): Promise<void> => {
-      const result = await familyApi.getGrowthHypothesis<RemoteHypothesisProjection>(token, familyId);
+      const result = await familyApi.getGrowthHypothesis(token, familyId);
       if (!active) return;
       setRemote(result);
-      if (result.availability === "CONSENT_WITHDRAWN") { setRemoteState("ready"); return; }
+      if (result.availability === "CONSENT_REQUIRED" || result.availability === "CONSENT_WITHDRAWN" || result.availability === "POLICY_BLOCKED") { setRemoteState("denied"); return; }
+      if (result.availability === "NO_SUBMITTED_ASSESSMENT") { setRemoteState("empty"); return; }
       if (result.availability === "SUBMITTED" || result.availability === "ANALYSIS_FAILED") {
         const sessionId = result.latest_assessment_session_id;
         if (!sessionId) { setRemoteState("ready"); return; }
@@ -140,7 +50,7 @@ export default function GrowthExplanationScreen() {
           await familyApi.generateGrowthHypothesis(token, familyId, sessionId, generateKeys.current[fingerprint]);
           if (active) await load();
         } catch {
-          if (active) setRemoteState("fallback");
+          if (active) { setRemoteState("error"); setRemoteError("支持方向暂时没有生成成功，请稍后重试。"); }
         }
         return;
       }
@@ -149,11 +59,12 @@ export default function GrowthExplanationScreen() {
         pollTimer = setTimeout(() => { if (active) void load(); }, 1500);
         return;
       }
-      setRemoteState("ready");
+      setRemoteState(result.hypothesis?.safety_gate?.required ? "review_required" : "ready");
     };
 
     setRemoteState("loading");
-    void load().catch(() => { if (active) setRemoteState("fallback"); });
+    setRemoteError(null);
+    void load().catch(() => { if (active) { setRemoteState("error"); setRemoteError("暂时无法读取这次家庭解读，请稍后重试。"); } });
     return () => { active = false; if (pollTimer) clearTimeout(pollTimer); };
   }, [session.selectedFamily, session.status, session.token]);
 
@@ -183,7 +94,7 @@ export default function GrowthExplanationScreen() {
     if (confirmed) { router.push("/ui/UI-04" as Href); return; }
     if (session.status !== "connected" || !session.token || !session.selectedFamily || !hypothesis) { router.replace("/ui/UI-02" as Href); return; }
     if (safetyGateRequired) {
-      setDecisionState("error");
+      setDecisionState("review_required");
       return;
     }
     if (named_actions.confirm !== "CONFIRM_GROWTH_HYPOTHESIS") {
@@ -194,14 +105,14 @@ export default function GrowthExplanationScreen() {
     decisionKeys.current[fingerprint] ??= `confirm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
     setDecisionState("saving");
     try {
-      const result = await familyApi.decideGrowthHypothesis<HypothesisDecisionReceipt>(session.token, session.selectedFamily.family_id, {
+      const result = await familyApi.decideGrowthHypothesis(session.token, session.selectedFamily.family_id, {
         assessment_session_id: hypothesis.source_refs.assessment_session_id,
         hypothesis_ref: hypothesis.hypothesis_ref,
         decision_type: "CONFIRM",
       }, decisionKeys.current[fingerprint]);
       if (result.outcome === "INTENT_CREATED") {
         await ensureActiveOnboarding(session.token, session.selectedFamily.family_id, session.selectedFamily.person_id, hypothesis.subject_person_id);
-        setDecisionState("idle");
+        setDecisionState("success");
         setConfirmed(true);
         router.push("/ui/UI-04" as Href);
         return;
@@ -223,9 +134,10 @@ export default function GrowthExplanationScreen() {
     );
   }
 
-  const isPreview = !hypothesis || !scorecard;
+  const isPreview = !hypothesis || !supportDraft;
   const consentWithdrawn = remote?.availability === "CONSENT_WITHDRAWN";
-  const displayScorecard = scorecard ?? PREVIEW_SCORECARD;
+  const denied = remoteState === "denied" || remote?.availability === "POLICY_BLOCKED" || consentWithdrawn;
+  const reviewRequired = remoteState === "review_required" || safetyGateRequired || decisionState === "review_required";
   const evidenceCoverage = hypothesis?.evidence_coverage ?? null;
   const aiState = remote?.ai_state ?? "NOT_INVOKED";
   const submittedAt = formatDate(hypothesis?.source_refs.assessment_submitted_at);
@@ -247,7 +159,12 @@ export default function GrowthExplanationScreen() {
         }}
       />
       <ScrollView contentContainerStyle={styles.content}>
-        {isPreview ? <View style={styles.previewNotice}><Text style={styles.previewNoticeTitle}>{consentWithdrawn ? "测评授权已撤回" : "先完成免费家庭测评"}</Text><Text style={styles.previewNoticeText}>{consentWithdrawn ? "根据你的授权选择，系统已停止展示这次测评和 AI 分析内容。如需继续，请重新确认测评授权。" : "AI 会基于你提交的免费测评生成成长诊断报告；这不是儿童诊断结论、能力测验或排名。"}</Text></View> : null}
+        <View style={styles.empathyCard} accessibilityRole="summary">
+          <Text style={styles.empathyTitle}>先接住这份无奈和疲惫</Text>
+          <Text style={styles.empathyText}>你不需要一次解决所有问题。我们先一起看清一个可讨论的方向，再决定今晚要不要做一个小行动。</Text>
+        </View>
+        {isPreview ? <View style={styles.previewNotice}><Text style={styles.previewNoticeTitle}>{denied ? "暂时不能展示这次解读" : remoteState === "empty" ? "还没有提交的家庭测评" : "先完成免费家庭测评"}</Text><Text style={styles.previewNoticeText}>{denied ? (consentWithdrawn ? "根据你的授权选择，系统已停止展示这次测评和 AI 分析内容。如需继续，请重新确认测评授权。" : "当前家庭权限或平台策略不允许读取这次解读，请联系家庭管理员或人工支持。") : remoteState === "empty" ? "完成并提交一次家庭测评后，系统才会基于真实回答整理支持方向。" : "AI 会基于你提交的免费测评生成支持方向；这不是儿童诊断结论、能力测验或排名。"}</Text></View> : null}
+        {remoteState === "error" ? <View style={styles.errorNotice}><Text style={styles.errorNoticeTitle}>读取失败</Text><Text style={styles.errorNoticeText}>{remoteError ?? "暂时无法读取这次家庭解读，请稍后重试。"}</Text></View> : null}
         <View style={styles.assessmentSummary}>
           <View style={styles.summaryAvatar}><IconSymbol name="person.crop.circle.fill" size={58} color="#2563EB" /></View>
           <View style={styles.summaryCopy}>
@@ -255,20 +172,16 @@ export default function GrowthExplanationScreen() {
             <Text style={styles.summaryTitle}>{isPreview ? "家庭成长诊断预览" : hypothesis.subject_display_name ? `${hypothesis.subject_display_name}的成长诊断` : "家庭成长诊断"}</Text>
             {summaryRows.map((row) => <Text key={row} style={styles.summaryMeta}>{row}</Text>)}
           </View>
-          <View style={styles.summaryScorePill}>
-            <Text style={styles.summaryScore}>{isPreview ? "—" : displayScorecard.overall_score}</Text>
-            <Text style={styles.summaryScoreLabel}>参考分</Text>
-          </View>
           <IconSymbol name="chevron.right" size={19} color="#536A8B" />
         </View>
 
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>综合成长评估</Text>
-        <GrowthRadarOverview scorecard={displayScorecard} isPreview={isPreview} />
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>证据与支持方向</Text>
+        {!supportDraft ? <View style={styles.supportEmpty}><Text style={styles.supportEmptyTitle}>完成测评后显示支持方向</Text><Text style={styles.supportEmptyText}>这里不会预填家庭分数，也不会替家庭或孩子下诊断结论。</Text></View> : null}
 
-        {scorecard ? <>
+        {supportDraft ? <>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>核心问题</Text>
           <View style={styles.tags}>
-            {scorecard.core_issue_tags.slice(0, 3).map((tag, index) => (
+            {supportDraft.core_issue_tags.slice(0, 3).map((tag, index) => (
               <View key={tag} style={[styles.tag, { backgroundColor: tagColors[index].background }]}>
                 <Text style={[styles.tagText, { color: tagColors[index].text }]}>{tag}</Text>
               </View>
@@ -294,10 +207,10 @@ export default function GrowthExplanationScreen() {
           </View> : null}
         </> : null}
 
-        {scorecard ? <>
+        {supportDraft ? <>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>成长建议</Text>
           <View style={styles.suggestions}>
-            {scorecard.recommendations.slice(0, 3).map((item, index) => (
+            {supportDraft.recommendations.slice(0, 3).map((item, index) => (
               <View key={`${index}-${item}`} style={styles.suggestionRow}>
                 <View style={styles.suggestionIndex}><Text style={styles.suggestionIndexText}>{index + 1}</Text></View>
                 <Text style={[styles.suggestionText, { color: colors.text }]}>{item}</Text>
@@ -314,54 +227,19 @@ export default function GrowthExplanationScreen() {
         </> : null}
 
         {decisionState === "error" ? <Text style={[styles.errorText, { color: "#D96464" }]}>支持方案暂时未形成，请稍后重试。</Text> : null}
-        {safetyGateRequired ? <View style={styles.safetyNotice}>
+        {reviewRequired ? <View style={styles.safetyNotice}>
           <Text style={styles.safetyNoticeTitle}>需要人工复核</Text>
           <Text style={styles.safetyNoticeText}>这次测评出现了需要谨慎理解的健康或家庭压力信号。AI 不会直接生成成长方案，请联系专业人工支持进一步判断。</Text>
         </View> : null}
-        <Pressable disabled={decisionState === "saving"} onPress={() => void generatePlan()} style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.tint }, pressed && styles.pressed]}>
+        <Pressable disabled={decisionState === "saving" || denied || remoteState === "error" || reviewRequired} onPress={() => void generatePlan()} style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.tint }, (pressed || denied || remoteState === "error" || reviewRequired) && styles.disabledButton]}>
           <IconSymbol name="star.fill" size={18} color="#FFFFFF" />
-          <Text style={styles.primaryButtonText}>{decisionState === "saving" ? "正在生成" : isPreview ? "进入免费测评" : safetyGateRequired ? "等待人工复核" : "生成个性化方案"}</Text>
+          <Text style={styles.primaryButtonText}>{decisionState === "saving" ? "正在生成" : reviewRequired ? "等待人工复核" : denied ? "暂不可用" : remoteState === "empty" ? "去完成家庭测评" : isPreview ? "进入免费测评" : "生成个性化方案"}</Text>
         </Pressable>
+        <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.deferButton}><Text style={[styles.deferText, { color: colors.muted }]}>先放一放，稍后再继续</Text></Pressable>
         <Text style={[styles.boundaryText, { color: colors.muted }]}>以上内容用于家庭支持参考，不是儿童诊断结论、能力测验或排名。</Text>
       </ScrollView>
     </ScreenContainer>
   );
-}
-
-function GrowthRadarOverview({ scorecard, isPreview = false }: { scorecard: Ui03Scorecard; isPreview?: boolean }) {
-  const childPoints = radarPolygon(scorecard.dimensions.map((item) => item.score));
-  const peerPoints = radarPolygon(scorecard.dimensions.map((item) => item.peer_reference));
-  return (
-    <View style={styles.radarCard}>
-      <Svg width={240} height={224} viewBox="0 0 240 224" accessibilityLabel="综合成长评估雷达图">
-        <Polygon points={RADAR_POINTS.map((point) => `${point.x},${point.y}`).join(" ")} fill="none" stroke="#C6DBF6" strokeWidth={1} />
-        <Polygon points={radarPolygon([50, 50, 50, 50, 50])} fill="none" stroke="#E1ECFA" strokeWidth={1} />
-        {RADAR_POINTS.map((point, index) => <Line key={`axis-${scorecard.dimensions[index]?.dimension_ref ?? index}`} x1={RADAR_CENTER.x} y1={RADAR_CENTER.y} x2={point.x} y2={point.y} stroke="#E1ECFA" strokeWidth={1} />)}
-        <Polygon points={peerPoints} fill="rgba(247, 181, 77, 0.16)" stroke="#F2A23A" strokeWidth={2} />
-        <Polygon points={childPoints} fill="rgba(47, 143, 251, 0.22)" stroke="#2F8FFB" strokeWidth={2} />
-        <Circle cx={RADAR_CENTER.x} cy={RADAR_CENTER.y} r={35} fill="#FFFFFF" stroke="#D5E6FA" strokeWidth={1} />
-        <SvgText x={RADAR_CENTER.x} y={RADAR_CENTER.y - 2} textAnchor="middle" fill="#2563EB" fontSize={24} fontWeight="800">{isPreview ? "—" : scorecard.overall_score}</SvgText>
-        <SvgText x={RADAR_CENTER.x} y={RADAR_CENTER.y + 17} textAnchor="middle" fill="#6B7280" fontSize={10}>{isPreview ? "待生成" : "参考分"}</SvgText>
-        {scorecard.dimensions.slice(0, 5).map((dimension, index) => {
-          const point = RADAR_POINTS[index];
-          return <SvgText key={dimension.dimension_ref} x={point.labelX} y={point.labelY} textAnchor={point.anchor} fill="#5B6B7F" fontSize={11} fontWeight="700">{dimension.label}{isPreview ? "" : dimension.score}</SvgText>;
-        })}
-      </Svg>
-      <View style={styles.legendRow}>
-        <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: "#2F8FFB" }]} /><Text style={styles.legendText}>家庭自查线索</Text></View>
-        <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: "#F2A23A" }]} /><Text style={styles.legendText}>参考方向</Text></View>
-      </View>
-    </View>
-  );
-}
-
-function radarPolygon(values: number[]) {
-  return RADAR_POINTS.map((point, index) => {
-    const value = Math.max(0, Math.min(100, values[index] ?? 0)) / 100;
-    const x = RADAR_CENTER.x + (point.x - RADAR_CENTER.x) * value;
-    const y = RADAR_CENTER.y + (point.y - RADAR_CENTER.y) * value;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" ");
 }
 
 function formatDate(value?: string | null) {
@@ -371,7 +249,7 @@ function formatDate(value?: string | null) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function formatAiState(value: RemoteHypothesisProjection["ai_state"]) {
+function formatAiState(value: Ui03GrowthHypothesisProjection["ai_state"]) {
   if (value === "MODEL_DRAFT_READY") return "模型草稿已生成";
   if (value === "MODEL_GATEWAY_BLOCKED") return "模型网关已拦截";
   if (value === "READ_ONLY_PERSISTED") return "已读取历史草稿";
@@ -386,6 +264,15 @@ const tagColors = [
 
 const styles = StyleSheet.create({
   content: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 34, gap: 16, backgroundColor: "#FFFFFF" },
+  empathyCard: { borderRadius: 16, backgroundColor: "#FFF7EE", borderWidth: 1, borderColor: "#F5D5B8", padding: 14, gap: 4 },
+  empathyTitle: { color: "#8A4B00", fontSize: 15, lineHeight: 21, fontWeight: "900" },
+  empathyText: { color: "#6F532B", fontSize: 13, lineHeight: 19, fontWeight: "700" },
+  errorNotice: { borderRadius: 16, backgroundColor: "#FFF1F0", borderWidth: 1, borderColor: "#F2B8B5", padding: 14, gap: 4 },
+  errorNoticeTitle: { color: "#A33A35", fontSize: 14, lineHeight: 20, fontWeight: "900" },
+  errorNoticeText: { color: "#7E4D4A", fontSize: 12, lineHeight: 18, fontWeight: "700" },
+  supportEmpty: { minHeight: 154, borderRadius: 16, backgroundColor: "#F8FAFC", borderWidth: 1, borderColor: "#E3EAF2", padding: 18, justifyContent: "center", gap: 7 },
+  supportEmptyTitle: { color: "#344054", fontSize: 16, lineHeight: 22, fontWeight: "900", textAlign: "center" },
+  supportEmptyText: { color: "#68727D", fontSize: 12, lineHeight: 18, fontWeight: "700", textAlign: "center" },
   safetyNotice: { borderRadius: 16, backgroundColor: "#FFF4E5", borderWidth: 1, borderColor: "#F3C879", padding: 14, gap: 4 },
   safetyNoticeTitle: { color: "#8A4B00", fontSize: 14, lineHeight: 20, fontWeight: "900" },
   safetyNoticeText: { color: "#6F532B", fontSize: 12, lineHeight: 18, fontWeight: "700" },
@@ -401,15 +288,7 @@ const styles = StyleSheet.create({
   summaryBadge: { alignSelf: "flex-start", overflow: "hidden", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: "#FFFFFF80", color: "#2563EB", fontSize: 11, lineHeight: 15, fontWeight: "800" },
   summaryTitle: { color: "#09295A", fontSize: 18, lineHeight: 24, fontWeight: "800" },
   summaryMeta: { color: "#5B7091", fontSize: 12, lineHeight: 17, fontWeight: "700" },
-  summaryScorePill: { width: 54, height: 54, borderRadius: 27, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
-  summaryScore: { color: "#2563EB", fontSize: 20, lineHeight: 24, fontWeight: "900" },
-  summaryScoreLabel: { color: "#6B7280", fontSize: 9, lineHeight: 12, fontWeight: "800" },
   sectionTitle: { fontSize: 18, lineHeight: 25, fontWeight: "800" },
-  radarCard: { alignItems: "center", borderRadius: 14, paddingTop: 10, paddingBottom: 12, backgroundColor: "#FFFFFF" },
-  legendRow: { flexDirection: "row", justifyContent: "center", gap: 20, marginTop: -4 },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
-  legendDot: { width: 10, height: 10, borderRadius: 5 },
-  legendText: { color: "#6B7280", fontSize: 12, lineHeight: 17, fontWeight: "700" },
   tags: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   tag: { borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6 },
   tagText: { fontSize: 12, lineHeight: 17, fontWeight: "700" },
@@ -430,6 +309,9 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 12, lineHeight: 18, textAlign: "center" },
   primaryButton: { minHeight: 52, borderRadius: 26, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginTop: 2 },
   primaryButtonText: { color: "#FFFFFF", fontSize: 16, lineHeight: 22, fontWeight: "800" },
+  disabledButton: { opacity: 0.5 },
+  deferButton: { minHeight: 44, alignItems: "center", justifyContent: "center" },
+  deferText: { fontSize: 13, lineHeight: 18, fontWeight: "700" },
   boundaryText: { marginTop: -6, fontSize: 11, lineHeight: 17, textAlign: "center" },
   pressed: { opacity: 0.84, transform: [{ scale: 0.985 }] },
 });

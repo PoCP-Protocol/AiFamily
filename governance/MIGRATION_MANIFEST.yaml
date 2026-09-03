@@ -351,10 +351,15 @@ entries:
       - backend/domains/action/api/routes.py
       - backend/apps/family_api/production_daily_action_http_wiring.py
       - backend/apps/family_api/growth_plan_activation_wiring.py
+      - backend/workflow_worker
+      - backend/workflow_worker/growth_action_experience_relay.py
+      - backend/workflow_worker/experience_fanout.py
       - database/migrations/versions/0061_growth_action_ai_provenance.py
+      - database/migrations/versions/0062_domain_outbox_consumer_deliveries.py
       - tests/domains/action/test_daily_action_state_machine.py
       - tests/domains/action/test_daily_action_postgres.py
       - governance/ADR/ADR-0153-ui09-growth-action-domain-and-ai-plan-bridge.md
+      - governance/ADR/ADR-0154-growth-action-experience-event-relay.md
     status: MIGRATED_TESTED
     evidence:
       - "Action 域拥有 NOT_STARTED/IN_PROGRESS/PAUSED/COMPLETED/PARTIAL/NOT_COMPLETED/CANCELLED 状态机，Journey 只提供 ACTIVE plan"
@@ -362,10 +367,12 @@ entries:
       - "Bearer、tenant/family/guardian/subject 与 GROWTH_TRACKING Consent 每个请求重新校验，跨范围 fail-closed"
       - "状态变更使用 row_version 乐观锁；同 key 同 payload 重放，旧版本和 key 冲突返回 409"
       - "Action、Audit、Outbox 和幂等 response 同事务，AI 草案 digest/provenance/consent version 固化到 Action 行"
+      - "workflow worker 通过 per-consumer receipt 将 Action outbox 原子投影为 ExperienceEvent；真实 PostgreSQL 验证恰好一次中继、坏消息隔离、Consent 撤回丢弃审计"
+      - "固定 Experience fanout 在同一事务完成 Achievement/Notification/Analytics/GrowthGraph 后统一 ACK；ACTION_RESUMED 让暂停后继续不依赖 worker 进程内状态"
     reason: "依据蓝图 UI-09 L4 契约建立生产等价的家庭今日行动事实链，且行动过程不等于成长结果"
     known_gaps:
       - "尚未挂载到共享 main；不得在并发 WIP 未协调前修改 main"
-      - "DailyAction outbox 到 ExperienceEvent、feedback 与非比较性 achievement 的消费链待下一增量"
+      - "Experience feedback 写入口、常驻 scheduler、payload-preserving DLQ/告警与部署级 worker 进程仍待下一增量"
 
   - capability: tool_runtime
     disposition: REIMPLEMENT
@@ -1830,10 +1837,14 @@ entries:
       - backend/intelligence/experience/achievement_consumer.py
       - backend/intelligence/experience/feedback_api.py
       - backend/intelligence/experience/feedback_read.py
+      - backend/intelligence/experience/feedback_write.py
+      - backend/intelligence/experience/feedback_write_api.py
       - backend/apps/family_api/experience_wiring.py
+      - backend/apps/family_api/production_achievement_feedback_write_wiring.py
       - backend/apps/family_api/main.py
       - database/migrations/versions/0028_ai_achievement_occurrences.py
       - database/migrations/versions/0029_ai_experience_feedback_projections.py
+      - database/migrations/versions/0063_achievement_feedback_human_gate.py
       - tests/intelligence/experience/test_projections.py
       - tests/intelligence/experience/test_achievement_consumer.py
       - tests/apps/family_api/test_experience_feedback_api.py
@@ -1866,6 +1877,7 @@ entries:
       - governance/ADR/ADR-0086-repeatable-achievement-feedback-projections.md
       - governance/ADR/ADR-0087-shared-experience-scope-authority.md
       - governance/ADR/ADR-0088-achievement-notification-read-state.md
+      - governance/ADR/ADR-0155-achievement-feedback-human-escalation.md
     status: MIGRATED_TESTED
     evidence:
       - "成就 occurrence_id 使 evidence-distinct AI moments 可重复且按 scope/key/occurrence 幂等"
@@ -1873,9 +1885,12 @@ entries:
       - "analytics 以 metadata-only record ledger 去重，通知按 achievement_id 幂等，不存原始 payload"
       - "测试覆盖跨 scope 隔离、重复消费、通知和事件/成就计数"
       - "FeedbackPreferenceSnapshot 在内存/SQL Ledger 统一聚合有界信号，并以服务端值绑定到多模态生成 Prompt"
+      - "Achievement feedback 写入口以 append-only 表保存 helpful/not_helpful/request_human；真实 PostgreSQL 验证并发幂等、篡改拒绝、Consent 撤回拒绝与审计失败全事务回滚"
+      - "request_human 同事务创建 source_kind=USER_REQUEST 的 Professional/Operator HumanTask，不伪装为 AI draft，也不修改 Action/Journey/Outcome"
     reason: "把 AI 成就输出转为可持续的家庭反馈闭环，同时维持非比较、只读和人工闸门约束"
     known_gaps:
-      - "push provider、retention/deletion worker、analytics dashboard 与产品指标审批仍未接入；生产部署需使用 shared scope resolver；已读操作只收敛通知 read model"
+      - "push provider、feedback/HumanTask 主体删除 worker、analytics dashboard 与产品指标审批仍未接入；生产部署需使用 shared scope resolver；已读操作只收敛通知 read model"
+      - "RESPOND_TO_EXPERIENCE_FEEDBACK Named Action 的响应记录 handler 与共享 main 挂载仍待后续增量"
       - "反馈偏好上下文仅聚合三类反馈信号，不携带原始理由，尚未提供时间衰减或标签化偏好"
 
   - capability: durable_experience_outbox_runtime

@@ -30,6 +30,10 @@ from backend.intelligence.experience.async_ledger_bridge import (
     AsyncExperienceRunLedgerPort,
     dispatch_ledger_call,
 )
+from backend.intelligence.experience.contract_binding import (
+    MultimodalContractBindingError,
+    MultimodalContractRegistryBinding,
+)
 from backend.intelligence.experience.multimodal_context_application import (
     ContextBoundMultimodalCommand,
     ContextBoundMultimodalDraft,
@@ -42,6 +46,7 @@ from backend.intelligence.experience.multimodal_routing import (
 from backend.intelligence.experience.run_http import (
     DraftPreflight,
     ExperienceRunLedger,
+    FeedbackPreferenceSnapshot,
     InteractionReceipt,
     InteractionType,
     RunHttpConflictError,
@@ -50,7 +55,8 @@ from backend.intelligence.experience.run_http import (
     RunScope,
     fingerprint_request,
 )
-from backend.intelligence.model_gateway.contracts import MediaInput
+from backend.intelligence.model_gateway.budget import estimate_prompt_tokens
+from backend.intelligence.model_gateway.contracts import MediaInput, PromptExecutionPlan
 from backend.intelligence.model_gateway.errors import ModelGatewayError
 
 _MODALITY_VALUES = Literal["TEXT", "IMAGE", "AUDIO", "VIDEO"]
@@ -180,6 +186,13 @@ class MultimodalDraftRequest(BaseModel):
     def validate_payload_and_modalities(self) -> MultimodalDraftRequest:
         if len(set(self.modalities)) != len(self.modalities):
             raise ValueError("modalities must contain unique values")
+        actual_modalities = {"TEXT", *(item.media_type for item in self.media_inputs)}
+        if "DOCUMENT" in actual_modalities:
+            raise ValueError("DOCUMENT media is not supported by the multimodal route")
+        if set(self.modalities) != actual_modalities:
+            raise ValueError(
+                "modalities must exactly match server-derived TEXT and media input types"
+            )
         if any(not reference.strip() for reference in self.input_refs):
             raise ValueError("input_refs must contain non-empty references")
         if len(set(self.input_refs)) != len(self.input_refs):
@@ -370,6 +383,7 @@ class MultimodalDraftRuntime:
     application: MultimodalDraftApplication
     environment: str
     run_ledger: ExperienceRunLedger | AsyncExperienceRunLedgerPort | None = None
+    contract_binding: MultimodalContractRegistryBinding | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.scope, ContextScope):
@@ -377,6 +391,10 @@ class MultimodalDraftRuntime:
         self.scope.assert_active()
         if not self.environment.strip():
             raise ValueError("multimodal runtime environment is required")
+        if self.contract_binding is not None and not isinstance(
+            self.contract_binding, MultimodalContractRegistryBinding
+        ):
+            raise TypeError("contract_binding must be a MultimodalContractRegistryBinding")
 
 
 def get_multimodal_draft_runtime() -> MultimodalDraftRuntime | None:
@@ -469,7 +487,6 @@ def _draft_request_fingerprint(
             "payload": body.payload,
             "output_schema": body.output_schema,
             "modalities": body.modalities,
-            "estimated_input_tokens": body.estimated_input_tokens,
             "strategy": body.strategy,
             "max_latency_ms": body.max_latency_ms,
             "max_cost_microusd": body.max_cost_microusd,
@@ -502,6 +519,56 @@ async def _release_draft_preflight(
         # Preserve the original provider/validation failure.  A durable
         # implementation must make release idempotent and transaction-safe.
         return
+
+
+async def _read_feedback_preferences(
+    ledger: object | None, scope: RunScope
+) -> FeedbackPreferenceSnapshot | None:
+    """Read optional aggregate feedback without making it a second gate.
+
+    Older contract-only ledgers do not expose this method.  In that case the
+    draft remains valid and simply carries no preference context.  Any value
+    that is returned must be bound to the exact request scope before it can
+    reach the Model Gateway.
+    """
+
+    if ledger is None or not callable(getattr(ledger, "feedback_preferences", None)):
+        return None
+    try:
+        value = await dispatch_ledger_call(ledger, "feedback_preferences", scope=scope)
+    except (RunHttpError, TypeError, ValueError):
+        return None
+    if not isinstance(value, FeedbackPreferenceSnapshot) or value.scope.key != scope.key:
+        return None
+    return value
+
+
+async def _resolve_multimodal_contract(
+    runtime: MultimodalDraftRuntime, body: MultimodalDraftRequest
+) -> tuple[str, str, dict[str, Any], PromptExecutionPlan | None]:
+    """Resolve reviewed Prompt/Schema versions when the composition root opts in."""
+
+    binding = runtime.contract_binding
+    if binding is None:
+        return body.prompt_version, body.schema_version, dict(body.output_schema), None
+    try:
+        resolved = await binding.resolve(
+            use_case=runtime.scope.purpose,
+            prompt_version=body.prompt_version,
+            schema_version=body.schema_version,
+            output_schema=body.output_schema,
+        )
+    except MultimodalContractBindingError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="PROMPT_SCHEMA_BINDING_REJECTED",
+        ) from error
+    return (
+        resolved.prompt_version,
+        resolved.schema_version,
+        resolved.output_schema,
+        resolved.prompt_execution_plan,
+    )
 
 
 def _replay_response(snapshot: RunReplaySnapshot) -> RunReplayResponse:
@@ -667,7 +734,13 @@ async def create_multimodal_draft(
         data_class=runtime.scope.data_class.value,
         modalities=body.modalities,
         environment=runtime.environment,
-        estimated_input_tokens=body.estimated_input_tokens,
+        estimated_input_tokens=estimate_prompt_tokens(
+            use_case=runtime.scope.purpose,
+            payload=body.payload,
+            output_schema=body.output_schema,
+            input_refs=body.input_refs,
+        ),
+        media_item_count=len(body.media_inputs),
         strategy=body.strategy,
         max_latency_ms=body.max_latency_ms,
         max_cost_microusd=body.max_cost_microusd,
@@ -717,18 +790,31 @@ async def create_multimodal_draft(
                 ) from error
         if reservation.status != "reserved":
             raise _map_run_error(RunHttpConflictError("DRAFT_CREATE_IN_PROGRESS"))
+    feedback_preferences = await _read_feedback_preferences(ledger, _run_scope(runtime))
+    try:
+        (
+            prompt_version,
+            schema_version,
+            output_schema,
+            prompt_execution_plan,
+        ) = await _resolve_multimodal_contract(runtime, body)
+    except HTTPException:
+        await _release_draft_preflight(ledger, reservation)
+        raise
     try:
         command = ContextBoundMultimodalCommand(
             run_id=body.run_id,
             route_request=route_request,
             scope=runtime.scope,
-            prompt_version=body.prompt_version,
-            schema_version=body.schema_version,
+            prompt_version=prompt_version,
+            schema_version=schema_version,
             payload=dict(body.payload),
-            output_schema=dict(body.output_schema),
+            output_schema=output_schema,
             input_refs=body.input_refs,
             media_inputs=tuple(item.to_domain() for item in body.media_inputs),
             session_id=body.session_id,
+            feedback_preferences=feedback_preferences,
+            prompt_execution_plan=prompt_execution_plan,
         )
         result = await runtime.application.generate_draft(command)
     except MultimodalRouteError as error:

@@ -14,6 +14,8 @@ it never contains prompts, media bytes, URLs or family content.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import Literal
 
@@ -99,7 +101,7 @@ class ProviderCapabilityProfile:
             return False
         if not set(request.modalities).issubset(self.modalities):
             return False
-        if len(request.modalities) > self.max_media_items:
+        if request.media_item_count > self.max_media_items:
             return False
         if request.data_class not in self.approved_data_classes:
             return False
@@ -124,6 +126,7 @@ class MultimodalRouteRequest:
     modalities: tuple[Modality, ...]
     environment: str
     estimated_input_tokens: int
+    media_item_count: int = 0
     strategy: RouteStrategy = "balanced"
     max_latency_ms: int | None = None
     max_cost_microusd: int | None = None
@@ -141,6 +144,14 @@ class MultimodalRouteRequest:
             raise MultimodalRouteError("INVALID_REQUEST", "unsupported modality requested")
         if self.estimated_input_tokens <= 0:
             raise MultimodalRouteError("INVALID_REQUEST", "estimated_input_tokens must be positive")
+        if (
+            not isinstance(self.media_item_count, int)
+            or isinstance(self.media_item_count, bool)
+            or self.media_item_count < 0
+        ):
+            raise MultimodalRouteError(
+                "INVALID_REQUEST", "media_item_count must be a non-negative integer"
+            )
         if self.strategy not in {"latency", "cost", "balanced"}:
             raise MultimodalRouteError("INVALID_REQUEST", "unknown route strategy")
         if self.max_latency_ms is not None and self.max_latency_ms <= 0:
@@ -181,20 +192,89 @@ class MultimodalRouteDecision:
 class MultimodalRouter:
     """Select an admitted provider without making any network call."""
 
-    def __init__(self, profiles: tuple[ProviderCapabilityProfile, ...]) -> None:
+    def __init__(
+        self,
+        profiles: tuple[ProviderCapabilityProfile, ...],
+        *,
+        policy_version: str = "multimodal-routing.v1",
+    ) -> None:
+        if not policy_version.strip():
+            raise ValueError("routing policy version is required")
         by_id: dict[str, ProviderCapabilityProfile] = {}
         for profile in profiles:
             if profile.provider_id in by_id:
                 raise ValueError(f"duplicate provider_id {profile.provider_id!r}")
             by_id[profile.provider_id] = profile
         self._profiles = tuple(by_id.values())
+        self._policy_version = policy_version
+
+    @property
+    def policy_version(self) -> str:
+        return self._policy_version
+
+    @property
+    def configuration_digest(self) -> str:
+        """Hash every route input that can change selection or admission."""
+
+        profiles = []
+        for profile in sorted(self._profiles, key=lambda item: item.provider_id):
+            profiles.append(
+                {
+                    "provider_id": profile.provider_id,
+                    "vendor": profile.vendor,
+                    "model": profile.model,
+                    "model_version": profile.model_version,
+                    "modalities": sorted(profile.modalities),
+                    "status": str(profile.status),
+                    "approved_environments": sorted(profile.approved_environments),
+                    "approved_data_classes": sorted(profile.approved_data_classes),
+                    "sub_delegates": profile.sub_delegates,
+                    "supports_structured_output": profile.supports_structured_output,
+                    "estimated_input_cost_microusd_per_1k_tokens": (
+                        profile.estimated_input_cost_microusd_per_1k_tokens
+                    ),
+                    "estimated_latency_ms_p50": profile.estimated_latency_ms_p50,
+                    "max_media_items": profile.max_media_items,
+                    "security_assessment_ref": profile.security_assessment_ref,
+                    "processing_agreement_ref": profile.processing_agreement_ref,
+                    "deletion_on_termination_committed": (
+                        profile.deletion_on_termination_committed
+                    ),
+                }
+            )
+        return _configuration_digest(
+            {"policy_version": self._policy_version, "profiles": profiles}
+        )
+
+    @property
+    def provider_ids(self) -> tuple[str, ...]:
+        """Provider ids declared by this route catalog, in stable order."""
+
+        return tuple(sorted(self._profiles_by_id()))
+
+    def profile(self, provider_id: str) -> ProviderCapabilityProfile:
+        """Return one route profile without exposing mutable catalog state."""
+
+        try:
+            return self._profiles_by_id()[provider_id]
+        except KeyError as exc:
+            raise KeyError(f"unknown multimodal provider {provider_id!r}") from exc
+
+    def _profiles_by_id(self) -> dict[str, ProviderCapabilityProfile]:
+        return {profile.provider_id: profile for profile in self._profiles}
 
     def route(
         self,
         request: MultimodalRouteRequest,
         *,
-        policy_version: str = "multimodal-routing.v1",
+        policy_version: str | None = None,
     ) -> MultimodalRouteDecision:
+        if policy_version is not None and policy_version != self._policy_version:
+            raise MultimodalRouteError(
+                "INVALID_REQUEST",
+                "routing policy version override differs from the configured catalog",
+            )
+        effective_policy_version = policy_version or self._policy_version
         eligible: list[tuple[ProviderCapabilityProfile, int]] = []
         for profile in self._profiles:
             if not profile.can_serve(request):
@@ -233,7 +313,7 @@ class MultimodalRouter:
         selected, selected_cost = ordered[0]
         fallbacks = tuple(profile.provider_id for profile, _ in ordered[1:])
         provenance = MultimodalProvenanceInput(
-            policy_version=policy_version,
+            policy_version=effective_policy_version,
             provider_id=selected.provider_id,
             vendor=selected.vendor,
             model=selected.model,
@@ -253,6 +333,17 @@ class MultimodalRouter:
             estimated_cost_microusd=selected_cost,
             provenance_input=provenance,
         )
+
+
+def _configuration_digest(value: object) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 # Candidate declarations only.  Their status is deliberately non-callable until

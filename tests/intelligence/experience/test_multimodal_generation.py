@@ -116,3 +116,18 @@ async def test_service_preserves_gateway_fail_closed_policy() -> None:
         )
     assert provider.invocations == []
     assert run.state is RunState.FAILED
+
+
+@pytest.mark.asyncio
+async def test_service_rejects_duplicate_fallback_route_before_model_call() -> None:
+    provider = FakeProvider(
+        {"family-image-summary": {"summary": "不应调用"}},
+        provider_id="fake-deterministic",
+    )
+    service = MultimodalExperienceService(build(provider))
+
+    with pytest.raises(ValueError, match="duplicate provider"):
+        await service.generate_draft(
+            _command(), fallback_provider_ids=("fake-deterministic",)
+        )
+    assert provider.invocations == []

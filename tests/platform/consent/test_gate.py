@@ -10,11 +10,21 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from backend.platform.consent.gate import ConsentGate
-from backend.platform.consent.models import ConsentGrant, ConsentPurpose, ConsentStatus
+from backend.platform.consent.models import (
+    ConsentGrant,
+    ConsentPurpose,
+    ConsentStatus,
+    GuardianRelation,
+    SubjectAge,
+)
 
 
 def _grant(
-    status: ConsentStatus, purpose: ConsentPurpose = ConsentPurpose.ASSESSMENT
+    status: ConsentStatus,
+    purpose: ConsentPurpose = ConsentPurpose.ASSESSMENT,
+    *,
+    granted_at: datetime | None = None,
+    expires_at: datetime | None = None,
 ) -> ConsentGrant:
     return ConsentGrant(
         consent_id="consent-1",
@@ -22,7 +32,10 @@ def _grant(
         guardian_person_id="guardian-1",
         purpose=purpose,
         status=status,
-        granted_at=datetime.now(UTC),
+        granted_at=granted_at or datetime.now(UTC),
+        subject_age=SubjectAge(years=9),
+        guardian_relation=GuardianRelation.GUARDIAN,
+        expires_at=expires_at,
     )
 
 

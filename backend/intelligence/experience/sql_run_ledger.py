@@ -34,6 +34,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.intelligence.experience.run_http import (
     DraftPreflight,
+    FeedbackPreferenceSnapshot,
     InteractionReceipt,
     InteractionType,
     RunHttpConflictError,
@@ -119,6 +120,10 @@ class AsyncExperienceRunLedger(Protocol):
     ) -> InteractionReceipt: ...
 
     async def replay(self, *, scope: HttpRunScope, run_id: str) -> RunReplaySnapshot: ...
+
+    async def feedback_preferences(
+        self, *, scope: HttpRunScope
+    ) -> FeedbackPreferenceSnapshot: ...
 
 
 class ExperienceRunInteractionRow(ExperienceRunPersistenceBase):
@@ -641,6 +646,54 @@ class SqlAlchemyExperienceRunLedger:
             deletion_state="deleted" if deleted else "active",
         )
 
+    async def feedback_preferences(
+        self, *, scope: HttpRunScope
+    ) -> FeedbackPreferenceSnapshot:
+        """Aggregate non-sensitive feedback for the exact active scope."""
+
+        self._assert_scope(scope)
+        result = await self._session.execute(
+            select(ExperienceRunInteractionRow)
+            .where(
+                ExperienceRunInteractionRow.tenant_id == scope.tenant_id,
+                ExperienceRunInteractionRow.family_id == scope.family_id,
+                ExperienceRunInteractionRow.interaction_type == InteractionType.FEEDBACK.value,
+            )
+            .order_by(ExperienceRunInteractionRow.occurred_at.desc())
+            .limit(5_000)
+        )
+        rows = list(result.scalars())
+        if not rows:
+            return FeedbackPreferenceSnapshot(scope=scope)
+        run_ids = {row.run_id for row in rows}
+        state_result = await self._session.execute(
+            select(ExperienceRunRow.run_id, ExperienceRunRow.deletion_state).where(
+                ExperienceRunRow.tenant_id == scope.tenant_id,
+                ExperienceRunRow.run_id.in_(run_ids),
+            )
+        )
+        deleted = {run_id for run_id, state in state_result if state == "deleted"}
+        counts = {"helpful": 0, "not_helpful": 0, "request_human": 0}
+        last_feedback_at: datetime | None = None
+        for row in rows:
+            self._assert_interaction_row_scope(row, scope)
+            if row.run_id in deleted or not isinstance(row.payload, Mapping):
+                continue
+            signal = row.payload.get("signal")
+            if signal not in counts:
+                continue
+            counts[signal] += 1
+            occurred_at = _normalise_datetime(row.occurred_at)
+            if last_feedback_at is None or occurred_at > last_feedback_at:
+                last_feedback_at = occurred_at
+        return FeedbackPreferenceSnapshot(
+            scope=scope,
+            helpful_count=counts["helpful"],
+            not_helpful_count=counts["not_helpful"],
+            request_human_count=counts["request_human"],
+            last_feedback_at=last_feedback_at,
+        )
+
     async def _scrub_deleted_run(
         self, row: ExperienceRunRow, tenant_id: str, run_id: str
     ) -> None:
@@ -819,6 +872,9 @@ class CommittedExperienceRunLedger:
     async def replay(self, **kwargs: Any) -> RunReplaySnapshot:
         return await self._ledger.replay(**kwargs)
 
+    async def feedback_preferences(self, **kwargs: Any) -> FeedbackPreferenceSnapshot:
+        return await self._ledger.feedback_preferences(**kwargs)
+
 
 class SessionPerCallExperienceRunLedger:
     """Open and close one SQL session for each ledger operation.
@@ -861,6 +917,10 @@ class SessionPerCallExperienceRunLedger:
     async def replay(self, **kwargs: Any) -> RunReplaySnapshot:
         async with self._session_factory() as session:
             return await SqlAlchemyExperienceRunLedger(session).replay(**kwargs)
+
+    async def feedback_preferences(self, **kwargs: Any) -> FeedbackPreferenceSnapshot:
+        async with self._session_factory() as session:
+            return await SqlAlchemyExperienceRunLedger(session).feedback_preferences(**kwargs)
 
 
 def _jsonable(value: Any) -> Any:

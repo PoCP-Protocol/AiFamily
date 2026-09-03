@@ -60,6 +60,8 @@ route). The env guard in `install_dev_wiring` is what keeps it on the right side
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -67,6 +69,9 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import FastAPI, Header, HTTPException, Path
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from backend.apps.family_api.ai_coach_wiring import build_dev_ai_coach_gateway
 from backend.apps.family_api.orchestration.need_fulfillment_flow import fulfil_confirmed_draft
@@ -97,7 +102,9 @@ from backend.domains.family_need.infrastructure.course_supply_adapter import (
 )
 from backend.domains.family_need.infrastructure.fake_repository import (
     FakeFamilyNeedPolicy,
-    FakeFamilyNeedRepository,
+)
+from backend.domains.family_need.infrastructure.postgres_repository import (
+    SqlAlchemyFamilyNeedRepository,
 )
 from backend.domains.family_need.infrastructure.service_supply_adapter import (
     ServiceSupplyAdapter,
@@ -113,14 +120,14 @@ from backend.domains.product_intelligence.application.course_publication import 
     submit_course_content_for_review,
 )
 from backend.domains.product_intelligence.domain.course_content import CourseLesson
-from backend.domains.product_intelligence.infrastructure import (
-    family_experience_signal_repository as _family_experience_signal_repository_module,
+from backend.domains.product_intelligence.infrastructure.course_content_postgres_repository import (
+    SqlAlchemyCourseContentRepository,
 )
-from backend.domains.product_intelligence.infrastructure.course_content_repository import (
-    InMemoryCourseContentRepository,
+from backend.domains.product_intelligence.infrastructure.family_experience_signal_postgres_repository import (
+    SqlAlchemyFamilyExperienceSignalRepository,
 )
-from backend.domains.product_intelligence.infrastructure.improvement_candidate_repository import (
-    InMemoryImprovementCandidateRepository,
+from backend.domains.product_intelligence.infrastructure.improvement_candidate_postgres_repository import (
+    SqlAlchemyImprovementCandidateRepository,
 )
 from backend.domains.service.api import dependencies as service_deps
 from backend.domains.service.application.context import ActionContext
@@ -175,19 +182,293 @@ class DevWiringNotPermittedError(RuntimeError):
     """Raised when dev wiring is asked to install outside a dev environment."""
 
 
+DEV_DEFAULT_DATABASE_URL = "postgresql+asyncpg://aifamily:aifamily@localhost:55442/aifamily_test"
+"""Fallback dev/test PostgreSQL URL, matching `docker-compose.dev.yml`'s
+`aifamily-dev-postgres` container port mapping.
+
+Dev/test for the five domains this module wires (family_need, course_content,
+improvement_candidate, family_experience_signal, and the FGCN provider
+admission read) is a real-database requirement, not an optional one: this
+constant exists only as the *default value* of an explicit configuration,
+never as a silent fallback to sqlite or an in-memory store. See
+`_dev_database_url`'s docstring for the fail-closed contract.
+"""
+
+
+def _dev_database_url() -> str:
+    """Return the PostgreSQL URL dev/test wiring must use.
+
+    Prefers `DATABASE_URL` from the environment; falls back to
+    `DEV_DEFAULT_DATABASE_URL` (the local `aifamily-dev-postgres` container)
+    when unset. Deliberately does **not** fall back to sqlite or an in-memory
+    engine — a dev environment with no reachable PostgreSQL must fail loudly
+    at the point a connection is actually opened, not silently downgrade to a
+    different persistence technology than production uses.
+    """
+
+    configured = os.environ.get("DATABASE_URL", "").strip()
+    return configured or DEV_DEFAULT_DATABASE_URL
+
+
+def _get_dev_engine() -> AsyncEngine:
+    """Create a brand-new `AsyncEngine`, with pooling disabled (`NullPool`).
+
+    Starlette's `TestClient` opens a **new anyio blocking portal — a new
+    event loop — for every `.request()` call** it makes, not once per
+    `TestClient` instance (`starlette.testclient.TestClient._portal_factory`
+    only reuses a portal inside a `with client:` lifespan context, which the
+    tests this module supports do not use). An asyncpg connection is bound
+    to the loop that opened it; handing a *pooled* connection opened on one
+    request's loop to the next request's (different) loop is exactly the
+    "Event loop is closed" / "'NoneType' object has no attribute 'send'"
+    failure this construction avoids. `NullPool` means every checkout opens
+    a fresh driver connection and every checkin closes it. This trades a
+    little latency (irrelevant for dev/test traffic) for correctness across
+    the request-per-loop test harness. Callers must dispose the engine when
+    done — `_dev_connection` below is the usual way to get that for free.
+    """
+
+    return create_async_engine(
+        _dev_database_url(),
+        poolclass=NullPool,
+        connect_args={"statement_cache_size": 0},
+    )
+
+
+@contextlib.asynccontextmanager
+async def _dev_connection():
+    """Open one transactional connection on a fresh, disposable engine.
+
+    Every connection-scoped repository method in this module uses this
+    instead of holding a shared engine, for the reason `_get_dev_engine`
+    documents: a shared engine would be bound to whichever event loop
+    created it, and the next `TestClient` request runs on a different loop.
+    """
+
+    engine = _get_dev_engine()
+    try:
+        async with engine.begin() as connection:
+            yield connection
+    finally:
+        await engine.dispose()
+
+
+class _ConnectionScopedFamilyNeedRepository:
+    """Opens one connection (as a transaction) per call, mirroring the
+    module-singleton shape the Family Need application service and dev
+    routes expect (a single object exposing every `FamilyNeedRepositoryPort`
+    method), while still giving each call its own PostgreSQL transaction —
+    the same per-call-connection approach
+    `course_content_wiring._ConnectionScopedCourseContentRepository` and
+    `improvement_candidate_wiring._ConnectionScopedImprovementCandidateRepository`
+    use in production wiring.
+    """
+
+    async def save_signal(self, signal) -> None:  # noqa: ANN001
+        async with _dev_connection() as connection:
+            await SqlAlchemyFamilyNeedRepository(connection).save_signal(signal)
+
+    async def get_signal(self, *, tenant_id: str, family_id: str, signal_id: str):
+        async with _dev_connection() as connection:
+            return await SqlAlchemyFamilyNeedRepository(connection).get_signal(
+                tenant_id=tenant_id, family_id=family_id, signal_id=signal_id
+            )
+
+    async def save_need(self, need) -> None:  # noqa: ANN001
+        async with _dev_connection() as connection:
+            await SqlAlchemyFamilyNeedRepository(connection).save_need(need)
+
+    async def get_need(self, *, tenant_id: str, family_id: str, need_id: str):
+        async with _dev_connection() as connection:
+            return await SqlAlchemyFamilyNeedRepository(connection).get_need(
+                tenant_id=tenant_id, family_id=family_id, need_id=need_id
+            )
+
+    async def save_profile(self, profile) -> None:  # noqa: ANN001
+        async with _dev_connection() as connection:
+            await SqlAlchemyFamilyNeedRepository(connection).save_profile(profile)
+
+    async def get_profile(self, *, tenant_id: str, family_id: str, profile_id: str):
+        async with _dev_connection() as connection:
+            return await SqlAlchemyFamilyNeedRepository(connection).get_profile(
+                tenant_id=tenant_id, family_id=family_id, profile_id=profile_id
+            )
+
+    async def save_solution_draft(self, draft) -> None:  # noqa: ANN001
+        async with _dev_connection() as connection:
+            await SqlAlchemyFamilyNeedRepository(connection).save_solution_draft(draft)
+
+    async def get_solution_draft(self, *, tenant_id: str, family_id: str, draft_id: str):
+        async with _dev_connection() as connection:
+            return await SqlAlchemyFamilyNeedRepository(connection).get_solution_draft(
+                tenant_id=tenant_id, family_id=family_id, draft_id=draft_id
+            )
+
+    async def save_assignment_plan(self, plan) -> None:  # noqa: ANN001
+        async with _dev_connection() as connection:
+            await SqlAlchemyFamilyNeedRepository(connection).save_assignment_plan(plan)
+
+    async def get_assignment_plan(self, *, tenant_id: str, family_id: str, plan_id: str):
+        async with _dev_connection() as connection:
+            return await SqlAlchemyFamilyNeedRepository(connection).get_assignment_plan(
+                tenant_id=tenant_id, family_id=family_id, plan_id=plan_id
+            )
+
+    async def save_outcome(self, outcome) -> None:  # noqa: ANN001
+        async with _dev_connection() as connection:
+            await SqlAlchemyFamilyNeedRepository(connection).save_outcome(outcome)
+
+    async def get_outcomes_for_need(self, *, tenant_id: str, family_id: str, need_id: str):
+        async with _dev_connection() as connection:
+            return await SqlAlchemyFamilyNeedRepository(connection).get_outcomes_for_need(
+                tenant_id=tenant_id, family_id=family_id, need_id=need_id
+            )
+
+    async def append_event(self, event) -> None:  # noqa: ANN001
+        async with _dev_connection() as connection:
+            await SqlAlchemyFamilyNeedRepository(connection).append_event(event)
+
+    async def find_by_idempotency_key(
+        self, *, tenant_id: str, family_id: str, idempotency_key: str
+    ):
+        async with _dev_connection() as connection:
+            return await SqlAlchemyFamilyNeedRepository(connection).find_by_idempotency_key(
+                tenant_id=tenant_id, family_id=family_id, idempotency_key=idempotency_key
+            )
+
+
+class _ConnectionScopedCourseContentRepositoryForDev:
+    """Same per-call-connection wrapper `course_content_wiring` uses in
+    production, kept as a separate class here (rather than importing that
+    module's private one) because it composes with `_get_dev_engine` and
+    exists for the reset lifecycle `reset_dev_state` owns."""
+
+    async def save_course_content(self, course) -> None:  # noqa: ANN001
+        async with _dev_connection() as connection:
+            await SqlAlchemyCourseContentRepository(connection).save_course_content(course)
+
+    async def load_course_content(self, course_id: str, tenant_scope: str):
+        async with _dev_connection() as connection:
+            return await SqlAlchemyCourseContentRepository(connection).load_course_content(
+                course_id, tenant_scope
+            )
+
+    async def list_published_course_content(self, tenant_scope: str):
+        async with _dev_connection() as connection:
+            return await SqlAlchemyCourseContentRepository(
+                connection
+            ).list_published_course_content(tenant_scope)
+
+
+class _ConnectionScopedImprovementCandidateRepositoryForDev:
+    async def save_improvement_candidate(self, candidate) -> None:  # noqa: ANN001
+        async with _dev_connection() as connection:
+            await SqlAlchemyImprovementCandidateRepository(connection).save_improvement_candidate(
+                candidate
+            )
+
+    async def list_improvement_candidates(self):
+        async with _dev_connection() as connection:
+            return await SqlAlchemyImprovementCandidateRepository(
+                connection
+            ).list_improvement_candidates()
+
+
+class _ConnectionScopedFamilyExperienceSignalRepositoryForDev:
+    async def save_family_experience_signal(self, signal) -> None:  # noqa: ANN001
+        async with _dev_connection() as connection:
+            await SqlAlchemyFamilyExperienceSignalRepository(
+                connection
+            ).save_family_experience_signal(signal)
+
+    async def list_family_experience_signals(self):
+        async with _dev_connection() as connection:
+            return await SqlAlchemyFamilyExperienceSignalRepository(
+                connection
+            ).list_family_experience_signals()
+
+    async def summarize_by_component(self, *, category):
+        async with _dev_connection() as connection:
+            return await SqlAlchemyFamilyExperienceSignalRepository(
+                connection
+            ).summarize_by_component(category=category)
+
+
+def _truncate_dev_tables() -> None:
+    """Clear the five domains' real PostgreSQL tables between tests.
+
+    Replaces the old "rebuild a fresh in-memory repository" reset: dev/test
+    state now lives in `aifamily-dev-postgres`, so clean-slate isolation
+    means truncating the tables, not discarding a Python object.
+    `family_service_providers` (the FGCN provider-admission read's backing
+    table) is deliberately absent from this list — see
+    `_DevProviderAdmissionQuery`'s docstring; that table is `service_booking`
+    master-data seeded by `ensure_mobile_master_data`, out of this task's
+    scope, and reset by the `service` domain's own fixtures.
+
+    No foreign keys exist between these tables (each migration's own
+    `op.drop_table` order documents intended dependency, not an enforced
+    constraint), so a single `TRUNCATE ... RESTART IDENTITY` statement is
+    safe regardless of ordering.
+
+    Runs on its own throwaway `AsyncEngine` (via `_get_dev_engine`, `NullPool`
+    — see that function's docstring), which is explicitly disposed at the end
+    of this function's loop rather than left for garbage collection.
+    """
+
+    async def _run() -> None:
+        engine = _get_dev_engine()
+        try:
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        """
+                        TRUNCATE TABLE
+                          family_need_events,
+                          family_need_confirmed_outcomes,
+                          family_need_assignment_plans,
+                          solution_drafts,
+                          need_profiles,
+                          family_needs,
+                          need_signals,
+                          course_content,
+                          product_improvement_candidates,
+                          family_experience_signals
+                        RESTART IDENTITY CASCADE
+                        """
+                    )
+                )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_run())
+
+    asyncio.run(_run())
+
+
 # One repository for the process, so a booking submitted by one request is
 # visible to the next. A per-request instance would make every read return
 # empty and look like a persistence bug.
+#
+# These four connection-scoped wrappers hold no engine reference of their
+# own — each method call resolves `_get_dev_engine()` fresh (see the classes
+# above) rather than capturing one at construction time. `TestClient`
+# creates a new anyio/asyncio event loop per instantiation, and an
+# `AsyncEngine`'s pooled asyncpg connections are bound to the loop that
+# created them; capturing the engine once at module-import time (before any
+# test's loop exists) would hand every later request a dead connection from
+# a closed loop ("Event loop is closed"). Resolving lazily, plus
+# `reset_dev_state`'s dispose-and-clear of `_dev_engine`, means each test's
+# first call creates (or re-creates) the engine on whichever loop is
+# actually running.
 _repository = FakeServiceRepository()
 _commerce_repository = FakeCommerceRepository()
-_family_need_repository = FakeFamilyNeedRepository()
+_family_need_repository = _ConnectionScopedFamilyNeedRepository()
 _family_need_policy = FakeFamilyNeedPolicy()
-_course_content_repository = InMemoryCourseContentRepository()
+_course_content_repository = _ConnectionScopedCourseContentRepositoryForDev()
 _course_human_gate = InMemoryHumanGate()
-_improvement_candidate_repository = InMemoryImprovementCandidateRepository()
-_family_experience_signal_repository = (
-    _family_experience_signal_repository_module.InMemoryFamilyExperienceSignalRepository()
-)
+_improvement_candidate_repository = _ConnectionScopedImprovementCandidateRepositoryForDev()
+_family_experience_signal_repository = _ConnectionScopedFamilyExperienceSignalRepositoryForDev()
 
 
 class _DevProviderAdmissionQuery:
@@ -1267,24 +1548,28 @@ def reset_dev_state() -> None:
 
     Resets assessment too: leaving its repository populated between tests is the
     same cross-test leak the service reset exists to prevent.
+
+    For family_need / course_content / improvement_candidate /
+    family_experience_signal, "clean state" now means the real
+    `aifamily-dev-postgres` tables are truncated (`_truncate_dev_tables`), not
+    that a fresh Python object replaces the old one — those four repositories
+    are thin connection-scoped wrappers around the same cached `AsyncEngine`
+    and do not need to be rebuilt on reset. The flagship seeded course is not
+    re-inserted here: `_dev_family_need_actor` re-seeds it (idempotently, via
+    `on conflict ... do update`) the next time any test resolves a family_need
+    actor, mirroring how course/teacher/product master data was already
+    re-seeded lazily per-request before this change.
     """
     global _repository, _commerce_repository, _assessment_repository
-    global _family_need_repository, _family_need_policy, _family_need_service
-    global _course_content_repository, _course_human_gate
-    global _improvement_candidate_repository
-    global _family_experience_signal_repository
+    global _family_need_policy, _family_need_service
+    global _course_human_gate
     global _experience_run_ledgers, _experience_context_brokers, _experience_draft_registries
     global _journey_outcome_loop
+    _truncate_dev_tables()
     _repository = FakeServiceRepository()
     _commerce_repository = FakeCommerceRepository()
-    _family_need_repository = FakeFamilyNeedRepository()
     _family_need_policy = FakeFamilyNeedPolicy()
-    _course_content_repository = InMemoryCourseContentRepository()
     _course_human_gate = InMemoryHumanGate()
-    _improvement_candidate_repository = InMemoryImprovementCandidateRepository()
-    _family_experience_signal_repository = (
-        _family_experience_signal_repository_module.InMemoryFamilyExperienceSignalRepository()
-    )
     _family_need_service = FamilyNeedApplicationService(
         _family_need_repository,
         _family_need_policy,

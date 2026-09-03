@@ -174,7 +174,12 @@ class SubjectDeletionWorker:
         key = (command.tenant_id, command.idempotency_key)
         existing = self._jobs.get(key)
         if existing is not None:
-            if existing.command != command:
+            # ``requested_at`` is transport metadata and is expected to differ
+            # when a caller reconstructs the same idempotent command.  The
+            # command identity below still includes every scope/action field,
+            # so changing the subject, tenant, or command id remains a
+            # fail-closed conflict.
+            if _command_identity(existing.command) != _command_identity(command):
                 raise DeletionContractError("IDEMPOTENCY_CONFLICT")
             return existing
         now = self._now()
@@ -281,6 +286,22 @@ class SubjectDeletionWorker:
         if now.tzinfo is None:
             raise DeletionContractError("worker clock must return timezone-aware datetime")
         return now
+
+
+def _command_identity(command: SubjectDeletionCommand) -> tuple[str, ...]:
+    """Return stable idempotency identity, excluding request timestamp."""
+
+    return (
+        command.command_id,
+        command.tenant_id,
+        command.family_id,
+        command.subject_id,
+        command.deletion_ref,
+        command.requested_by,
+        command.idempotency_key,
+        command.correlation_id,
+        command.causation_id,
+    )
 
 
 # Short aliases keep the adapter convenient for callers while retaining the

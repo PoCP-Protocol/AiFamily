@@ -9,8 +9,9 @@ checks on the AI main path.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from backend.intelligence.context_engine.async_port import (
@@ -27,8 +28,13 @@ from backend.intelligence.experience.multimodal_generation import (
     MultimodalExperienceCommand,
 )
 from backend.intelligence.experience.multimodal_routing import MultimodalRouteRequest
+from backend.intelligence.experience.run_http import FeedbackPreferenceSnapshot
 from backend.intelligence.experience.runs import DurableExperienceRun
-from backend.intelligence.model_gateway.contracts import MediaInput
+from backend.intelligence.model_gateway.contracts import (
+    MediaInput,
+    ModelReleaseBinding,
+    PromptExecutionPlan,
+)
 from backend.intelligence.model_gateway.provenance import (
     ModelDraftIdentity,
     ModelDraftNotFound,
@@ -53,7 +59,10 @@ class ContextBoundMultimodalCommand:
     media_inputs: tuple[MediaInput, ...] = ()
     session_id: str | None = None
     model_draft_subject_id: str | None = None
+    feedback_preferences: FeedbackPreferenceSnapshot | None = None
     snapshot_ttl: timedelta = timedelta(minutes=15)
+    release_binding: ModelReleaseBinding | None = None
+    prompt_execution_plan: PromptExecutionPlan | None = None
 
     def __post_init__(self) -> None:
         required = (self.run_id, self.prompt_version, self.schema_version)
@@ -72,6 +81,17 @@ class ContextBoundMultimodalCommand:
                 raise ValueError("model_draft_subject_id must not be blank")
             if self.model_draft_subject_id not in self.scope.subject_ids:
                 raise ValueError("model_draft_subject_id must belong to context scope")
+        if self.feedback_preferences is not None:
+            if not isinstance(self.feedback_preferences, FeedbackPreferenceSnapshot):
+                raise ValueError("feedback_preferences must be a FeedbackPreferenceSnapshot")
+            feedback_scope = self.feedback_preferences.scope
+            if (
+                feedback_scope.tenant_id != self.scope.tenant_id
+                or feedback_scope.family_id != self.scope.family_id
+                or tuple(sorted(feedback_scope.subject_ids))
+                != tuple(sorted(self.scope.subject_ids))
+            ):
+                raise ValueError("feedback_preferences scope must match context scope")
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +129,7 @@ class ContextBoundMultimodalExperienceService:
         context: ContextBroker | AsyncContextBrokerPort,
         routed: RoutedMultimodalExperienceService,
         registry: ModelDraftRegistryPort | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         if isinstance(context, ContextBroker):
             # Keep the deterministic synchronous broker available to tests and
@@ -118,8 +139,11 @@ class ContextBoundMultimodalExperienceService:
             self._context = context
         else:
             raise TypeError("context must implement AsyncContextBrokerPort")
+        if clock is not None and not callable(clock):
+            raise TypeError("clock must be callable")
         self._routed = routed
         self._registry = registry
+        self._clock = clock or (lambda: datetime.now(UTC))
 
     async def generate_draft(
         self,
@@ -134,18 +158,29 @@ class ContextBoundMultimodalExperienceService:
         ):
             raise ValueError("run scope must match context scope")
         stored = await self._resolve_existing(command)
+        now = self._clock()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("context clock must return a timezone-aware datetime")
         snapshot = (
             await self._context.read(
                 stored.draft.provenance.context_snapshot_ref,
                 command.scope,
+                now=now,
             )
             if stored is not None
             else await self._context.snapshot(
                 scope=command.scope,
-                now=None,
+                now=now,
                 snapshot_ttl=command.snapshot_ttl,
             )
         )
+        generation_payload = dict(command.payload)
+        # Server-derived aggregate context always wins over caller-provided
+        # content at this reserved key, preventing prompt-side forgery.
+        if command.feedback_preferences is not None:
+            generation_payload["experience_feedback"] = (
+                command.feedback_preferences.to_prompt_context()
+            )
         generation_command = MultimodalExperienceCommand(
             run_id=command.run_id,
             provider_id="context-router",
@@ -154,7 +189,7 @@ class ContextBoundMultimodalExperienceService:
             schema_version=command.schema_version,
             data_class=command.route_request.data_class,
             context_snapshot_ref=snapshot.snapshot_ref,
-            payload=dict(command.payload),
+            payload=generation_payload,
             output_schema=dict(command.output_schema),
             # A caller may already include an evidence ref that the broker
             # returns in ``source_refs``.  Preserve order while deduplicating so
@@ -163,6 +198,10 @@ class ContextBoundMultimodalExperienceService:
             media_inputs=command.media_inputs,
             session_id=command.session_id,
             model_draft_scope=self._draft_scope(command),
+            tenant_id=command.scope.tenant_id,
+            family_id=command.scope.family_id,
+            release_binding=command.release_binding,
+            prompt_execution_plan=command.prompt_execution_plan,
         )
         routed = await self._routed.generate_draft(
             generation_command, command.route_request, run=run

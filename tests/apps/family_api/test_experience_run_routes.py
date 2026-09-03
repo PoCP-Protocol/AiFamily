@@ -12,24 +12,26 @@ from backend.intelligence.experience.api import (
     router,
 )
 from backend.intelligence.experience.run_http import InMemoryExperienceRunLedger
+from backend.intelligence.experience.standard_assets import (
+    build_family_experience_assets,
+    family_experience_output_schema,
+)
 from backend.intelligence.experience.synthetic_runtime import (
     SyntheticRuntimeResolver,
     build_synthetic_runtime,
 )
 from backend.intelligence.model_gateway.errors import ModelGatewayError
 
+_ASSETS = build_family_experience_assets()
+
 
 def _body(run_id: str) -> dict[str, object]:
     return {
         "run_id": run_id,
-        "prompt_version": "prompt.v1",
-        "schema_version": "schema.v1",
+        "prompt_version": _ASSETS.prompt.version,
+        "schema_version": _ASSETS.schema.version,
         "payload": {"expression": "今天我们在一次小步骤上合作。"},
-        "output_schema": {
-            "type": "object",
-            "required": ["headline"],
-            "properties": {"headline": {"type": "string"}},
-        },
+        "output_schema": family_experience_output_schema(),
         "modalities": ["TEXT"],
         "estimated_input_tokens": 64,
     }

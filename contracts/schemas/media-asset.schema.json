@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aifamily.invalid/contracts/media-asset.schema.json",
+  "title": "AiFamily MediaAsset",
+  "description": "Original media reference. Raw bytes and provider objects stay outside the experience contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "asset_id": { "type": "string", "minLength": 1 },
+    "tenant_id": { "type": "string", "minLength": 1 },
+    "family_id": { "type": "string", "minLength": 1 },
+    "subject_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true },
+    "subject_scope": { "type": "string", "enum": ["CHILD", "GUARDIAN", "FAMILY_RELATIONSHIP", "FAMILY"] },
+    "media_type": { "type": "string", "enum": ["IMAGE", "AUDIO", "VOICE", "VIDEO", "TEXT", "FILE"] },
+    "storage_ref": { "type": "string", "pattern": "^(media|vault):[^\\s]+$" },
+    "original": { "const": true },
+    "purpose": { "type": "string", "enum": ["growth_support", "family_memory", "family_sharing", "contribution_review"] },
+    "consent": { "$ref": "#/$defs/consent" },
+    "retention": { "$ref": "#/$defs/retention" },
+    "deletion": { "$ref": "#/$defs/deletion" },
+    "derived_asset_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "creator_role": { "type": "string", "enum": ["CHILD", "GUARDIAN", "ADULT_CREATOR"] },
+    "commercial_use": { "type": "boolean" },
+    "age_band": { "type": "string", "enum": ["CHILD", "TEEN", "ADULT", "FAMILY"] },
+    "moderation_status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED", "HUMAN_REVIEW"] },
+    "moderation_ref": { "type": "string", "minLength": 1 },
+    "visibility": { "const": "FAMILY_PRIVATE" },
+    "correlation_id": { "type": "string", "minLength": 1 },
+    "causation_id": { "type": "string", "minLength": 1 }
+  },
+  "required": ["asset_id", "tenant_id", "family_id", "subject_ids", "subject_scope", "media_type", "storage_ref", "original", "purpose", "consent", "retention", "deletion", "derived_asset_ids", "creator_role", "commercial_use", "age_band", "moderation_status", "visibility", "correlation_id", "causation_id"],
+  "allOf": [
+    { "if": { "properties": { "creator_role": { "const": "CHILD" } } }, "then": { "properties": { "commercial_use": { "const": false } } } },
+    { "if": { "properties": { "moderation_status": { "const": "APPROVED" } } }, "then": { "required": ["moderation_ref"] } }
+  ],
+  "$defs": {
+    "consent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "consent_version": { "type": "string", "minLength": 1 },
+        "status": { "const": "GRANTED" },
+        "effective_from": { "type": "string", "format": "date-time" },
+        "effective_to": { "type": ["string", "null"], "format": "date-time" },
+        "purpose": { "type": "string", "minLength": 1 }
+      },
+      "required": ["consent_version", "status", "effective_from", "effective_to", "purpose"]
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "expires_at": { "type": "string", "format": "date-time" }, "on_expiry": { "const": "DELETE" } },
+      "required": ["expires_at", "on_expiry"]
+    },
+    "deletion": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "deletion_id": { "type": "string", "minLength": 1 }, "cascade_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true } },
+      "required": ["deletion_id", "cascade_ids"]
+    }
+  }
+}

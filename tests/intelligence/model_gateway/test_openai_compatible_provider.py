@@ -15,15 +15,20 @@ validated is not approved.
 from __future__ import annotations
 
 import json
+import threading
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
 
 from backend.intelligence.model_gateway.contracts import MediaInput
+from backend.intelligence.model_gateway.credentials import CredentialLease
 from backend.intelligence.model_gateway.errors import ModelGatewayError
 from backend.intelligence.model_gateway.providers.openai_compatible import (
     OpenAICompatibleProvider,
     build_openai_compatible_provider,
+    build_openai_compatible_provider_from_lease,
 )
 from tests.intelligence.model_gateway.test_fail_closed import make_request
 
@@ -74,7 +79,30 @@ class TestRequestConstruction:
         assert "prompt_version=v3" in system
         assert "schema_version=s1" in system
         assert "use_case=assessment_interpretation" in system
+        assert "Use the reviewed assessment interpretation instructions." in system
+        assert "system_policy_ref=family-safety.v1" in system
+        assert "knowledge_refs=[\"assessment-knowledge.v1\"]" in system
+        assert f"asset_digest={'a' * 64}" in system
+        assert "Only produce a reviewed draft." in system
+        assert "Reviewed assessment guidance." in system
+        assert '"source_ref": "source:test"' in system
+        assert f"material_digest={'d' * 64}" in system
         assert body["response_format"] == {"type": "json_object"}
+
+    async def test_missing_reviewed_execution_plan_blocks_before_network(self) -> None:
+        calls = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            return httpx.Response(200, json=VALID_ENVELOPE)
+
+        request = replace(make_request(), prompt_execution_plan=None)
+        with pytest.raises(ModelGatewayError) as excinfo:
+            await provider_with(handler).invoke(request, timeout_seconds=5.0)
+
+        assert excinfo.value.kind == "POLICY_REJECTED"
+        assert calls == 0
 
     async def test_image_media_is_forwarded_as_multimodal_part(self) -> None:
         seen: dict[str, object] = {}
@@ -122,6 +150,69 @@ class TestRequestConstruction:
         response = await provider_with(handler).invoke(make_request(), timeout_seconds=5.0)
         assert isinstance(response.text, str)
         assert response.text == '{"headline": "h", "hypotheses": ["a"]}'
+
+
+class TestCredentialLeaseBoundary:
+    async def test_lease_expiring_before_request_deadline_blocks_network_call(self) -> None:
+        calls = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            return httpx.Response(200, json=VALID_ENVELOPE)
+
+        lease = CredentialLease(
+            provider_id="openai-compatible-unassessed",
+            api_key="lease-secret",
+            expires_at=datetime.now(UTC) + timedelta(seconds=2),
+            lease_id="lease-deadline",
+        )
+        provider = build_openai_compatible_provider_from_lease(
+            provider_id=lease.provider_id,
+            model="test-model",
+            base_url="https://vendor.example.invalid/v1",
+            lease=lease,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+
+        with pytest.raises(ModelGatewayError) as excinfo:
+            await provider.invoke(make_request(), timeout_seconds=5.0)
+
+        assert excinfo.value.kind == "CREDENTIAL_EXPIRED"
+        assert calls == 0
+
+    async def test_sync_revocation_checker_runs_off_event_loop(self) -> None:
+        event_loop_thread = threading.get_ident()
+        checker_thread: int | None = None
+
+        def checker(provider_id: str, lease_id: str) -> bool:
+            nonlocal checker_thread
+            checker_thread = threading.get_ident()
+            return False
+
+        lease = CredentialLease(
+            provider_id="openai-compatible-unassessed",
+            api_key="lease-secret",
+            expires_at=datetime.now(UTC) + timedelta(minutes=5),
+            lease_id="lease-threaded-check",
+        )
+        provider = build_openai_compatible_provider_from_lease(
+            provider_id=lease.provider_id,
+            model="test-model",
+            base_url="https://vendor.example.invalid/v1",
+            lease=lease,
+            client=httpx.AsyncClient(
+                transport=httpx.MockTransport(
+                    lambda request: httpx.Response(200, json=VALID_ENVELOPE)
+                )
+            ),
+            revocation_checker=checker,
+        )
+
+        await provider.invoke(make_request(), timeout_seconds=5.0)
+
+        assert checker_thread is not None
+        assert checker_thread != event_loop_thread
 
 
 class TestFailureMapping:
@@ -252,3 +343,51 @@ class TestCredentialHandling:
         with pytest.raises(ModelGatewayError) as excinfo:
             await provider_with(handler).invoke(make_request(), timeout_seconds=5.0)
         assert "test-key-not-real" not in str(excinfo.value)
+
+    async def test_revocation_checker_blocks_provider_call_before_network(self) -> None:
+        called = False
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal called
+            called = True
+            return httpx.Response(200, json=VALID_ENVELOPE)
+
+        lease = CredentialLease(
+            provider_id="openai-compatible-unassessed",
+            api_key="lease-secret",
+            expires_at=datetime.now(UTC) + timedelta(minutes=5),
+            lease_id="lease-revocation-check",
+        )
+        provider = build_openai_compatible_provider_from_lease(
+            provider_id=lease.provider_id,
+            model="test-model",
+            base_url="https://vendor.example.invalid/v1",
+            lease=lease,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            revocation_checker=lambda provider_id, lease_id: True,
+        )
+        with pytest.raises(ModelGatewayError) as excinfo:
+            await provider.invoke(make_request(), timeout_seconds=5.0)
+        assert excinfo.value.kind == "CREDENTIAL_REVOKED"
+        assert called is False
+
+    async def test_revocation_checker_failure_fails_closed_without_secret(self) -> None:
+        lease = CredentialLease(
+            provider_id="openai-compatible-unassessed",
+            api_key="lease-secret",
+            expires_at=datetime.now(UTC) + timedelta(minutes=5),
+            lease_id="lease-revocation-error",
+        )
+        provider = build_openai_compatible_provider_from_lease(
+            provider_id=lease.provider_id,
+            model="test-model",
+            base_url="https://vendor.example.invalid/v1",
+            lease=lease,
+            revocation_checker=lambda provider_id, lease_id: (_ for _ in ()).throw(
+                RuntimeError("revocation secret")
+            ),
+        )
+        with pytest.raises(ModelGatewayError) as excinfo:
+            await provider.invoke(make_request(), timeout_seconds=5.0)
+        assert excinfo.value.kind == "CREDENTIAL_UNAVAILABLE"
+        assert "revocation secret" not in str(excinfo.value)
