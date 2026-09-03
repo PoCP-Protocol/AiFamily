@@ -22,6 +22,14 @@ CANONICAL_IDENTITY_SHA256 = "da7fe9d0ebc30b9f2aedd5fc55a08d04749d605e530137300e5
 CANONICAL_AUDIO_SHA256 = "bf0ecbe6af18235f872e1dc8f29061f4c67bb101a5de56bba3fd9efc0c684912"
 
 REAL_GATE1_ARTIFACT_NAME = "FAMILI_REAL_AVATAR_V1.mp4"
+# Per-candidate smoke name — only after verified real neural inference (not master).
+DITTO_GATE1_ARTIFACT_NAME = "FAMILI_DITTO_GATE1_R01.mp4"
+
+# Official Ditto upstream pin for FAMILY-MEDIA-003 verification (re-check before smoke).
+DITTO_UPSTREAM_URL = "https://github.com/antgroup/ditto-talkinghead"
+DITTO_UPSTREAM_COMMIT_PIN = "c3e47eee2e626500017a0556b470d6d4182f85e8"
+DITTO_CODE_LICENSE = "Apache-2.0"
+DITTO_FIRST_SMOKE_BACKEND = "pytorch"
 
 
 class MediaFactoryError(Exception):

@@ -15,11 +15,13 @@ from pathlib import Path
 from typing import Any
 
 from backend.intelligence.media_factory.contracts import (
+    DITTO_GATE1_ARTIFACT_NAME,
     REAL_GATE1_ARTIFACT_NAME,
     AvatarRenderRequest,
     FamiliAvatarBenchmarkInput,
     MediaFactoryError,
 )
+from backend.intelligence.media_factory.gpu_gate import evaluate_gpu_gate
 from backend.intelligence.media_factory.human_gate import empty_human_review_template
 from backend.intelligence.media_factory.provenance import build_run_provenance
 from backend.intelligence.media_factory.providers.avatar import AvatarProviderRegistry
@@ -62,20 +64,36 @@ class BenchmarkRunner:
         run_dir.mkdir(parents=True, exist_ok=False)
 
         caps = provider.capabilities
-        artifact_name = (
-            REAL_GATE1_ARTIFACT_NAME
-            if caps.gate1_eligible and caps.neural_avatar
-            else "fixture_output.bin"
-            if provider_id == "fixture"
-            else "output.mp4"
-        )
+        if provider_id == "fixture":
+            artifact_name = "fixture_output.bin"
+        elif provider_id == "ditto":
+            artifact_name = DITTO_GATE1_ARTIFACT_NAME
+        elif caps.gate1_eligible and caps.neural_avatar:
+            artifact_name = REAL_GATE1_ARTIFACT_NAME
+        else:
+            artifact_name = "output.mp4"
         if provider_id == "fixture" and artifact_name == REAL_GATE1_ARTIFACT_NAME:
             raise MediaFactoryError("fixture cannot use real Gate1 filename")
 
         output_path = run_dir / artifact_name
+        logs_dir = run_dir / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+
         input_manifest = benchmark_input.to_manifest()
         (run_dir / "input_manifest.json").write_text(
             json.dumps(input_manifest, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+        runtime_manifest = {
+            "benchmark_run_id": run_id,
+            "provider_id": provider_id,
+            "execution_target": self._execution_target,
+            "gpu_gate": evaluate_gpu_gate().to_manifest(),
+            "artifact_name": artifact_name,
+        }
+        (run_dir / "runtime_manifest.json").write_text(
+            json.dumps(runtime_manifest, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
 
@@ -98,6 +116,11 @@ class BenchmarkRunner:
             provider_id=provider.provider_id,
             input_manifest=input_manifest,
             execution_target=self._execution_target,
+        )
+        run_provenance["render_provenance"] = dict(result.provenance)
+        (run_dir / "provenance.json").write_text(
+            json.dumps(run_provenance, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
         )
 
         provider_manifest = {
@@ -132,8 +155,16 @@ class BenchmarkRunner:
             encoding="utf-8",
         )
 
+        human_review = empty_human_review_template()
+        human_review["artifact_path"] = str(result.artifact_path)
+        human_review["provider_id"] = provider.provider_id
+        human_review["ditto_gate1_status"] = (
+            "PENDING_HUMAN_REVIEW"
+            if result.real_neural_avatar and result.gate1_eligible
+            else "NOT_APPLICABLE"
+        )
         (run_dir / "human_review.json").write_text(
-            json.dumps(empty_human_review_template(), indent=2, ensure_ascii=False) + "\n",
+            json.dumps(human_review, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
 

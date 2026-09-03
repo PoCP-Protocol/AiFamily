@@ -89,6 +89,7 @@ def evaluate_gate1(review: HumanReviewScores) -> Gate1Verdict:
 def empty_human_review_template() -> dict[str, Any]:
     return {
         "schema": "FAMILI_GATE1_HUMAN_REVIEW_V0",
+        "status": "PENDING_HUMAN_REVIEW",
         "weights": dict(GATE1_WEIGHTS),
         "scores": {
             "IDENTITY_PRESERVATION": None,
@@ -107,5 +108,5 @@ def empty_human_review_template() -> dict[str, Any]:
             "temporal_stability": "NOT_MEASURED",
         },
         "gate1": None,
-        "notes": "",
+        "notes": "Machine must not auto-set gate1=PASS. Human review required.",
     }

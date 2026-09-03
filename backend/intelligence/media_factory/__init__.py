@@ -17,6 +17,7 @@ from backend.intelligence.media_factory.benchmark import (
     default_runs_root,
 )
 from backend.intelligence.media_factory.contracts import (
+    DITTO_GATE1_ARTIFACT_NAME,
     REAL_GATE1_ARTIFACT_NAME,
     AvatarProviderCapabilities,
     AvatarRenderRequest,
@@ -32,11 +33,13 @@ from backend.intelligence.media_factory.human_gate import (
 from backend.intelligence.media_factory.providers import (
     AvatarProvider,
     AvatarProviderRegistry,
+    DittoAvatarProvider,
     FixtureAvatarProvider,
 )
 
 __all__ = [
     "GATE1_WEIGHTS",
+    "DITTO_GATE1_ARTIFACT_NAME",
     "REAL_GATE1_ARTIFACT_NAME",
     "AvatarProvider",
     "AvatarProviderCapabilities",
@@ -44,6 +47,7 @@ __all__ = [
     "AvatarRenderRequest",
     "AvatarRenderResult",
     "BenchmarkRunner",
+    "DittoAvatarProvider",
     "FamiliAvatarBenchmarkInput",
     "FixtureAvatarProvider",
     "Gate1Verdict",
