@@ -7,13 +7,14 @@ may adopt a validated draft only through its own parent-confirmation action.
 
 from __future__ import annotations
 
+import inspect
 import json
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha256
-from typing import Any
+from typing import Any, Protocol
 
 from backend.intelligence.model_gateway.contracts import DataClass, StructuredRequest
 from backend.intelligence.model_gateway.validation import SchemaValidator
@@ -102,6 +103,46 @@ class PublishedPlanKnowledge:
             "scope": self.scope,
         }
 
+
+@dataclass(frozen=True, slots=True)
+class FamilyGrowthPlanScope:
+    tenant_id: str
+    family_id: str
+    subject_refs: tuple[str, ...]
+
+    @property
+    def key(self) -> tuple[str, str, tuple[str, ...]]:
+        return self.tenant_id, self.family_id, self.subject_refs
+
+
+@dataclass(frozen=True, slots=True)
+class PublishedKnowledgeSelection:
+    selection_ref: str
+    scope: FamilyGrowthPlanScope
+    purpose: str
+    items: tuple[PublishedPlanKnowledge, ...]
+
+
+class ConfirmedUnderstandingRepository(Protocol):
+    def load_confirmed(
+        self, *, scope: FamilyGrowthPlanScope, confirmation_ref: str
+    ) -> ConfirmedUnderstandingReceipt | Any: ...
+
+
+class PlanKnowledgeSelectionRepository(Protocol):
+    def load_published(
+        self, *, scope: FamilyGrowthPlanScope, selection_ref: str, purpose: str
+    ) -> PublishedKnowledgeSelection | Any: ...
+
+
+@dataclass(frozen=True, slots=True)
+class FamilyGrowthPlanPreparation:
+    request: StructuredRequest
+    scope: FamilyGrowthPlanScope
+    confirmation_ref: str
+    knowledge_selection_ref: str
+    request_fingerprint: str
+
 FAMILY_GROWTH_PLAN_INSTRUCTIONS = """你是 AiFamily 的家庭成长方案设计伙伴。
 
 输入已经经过家长确认，包含家庭希望发生的变化、仍待验证的理解、家庭已有能力，以及经审核的
@@ -138,25 +179,14 @@ _OPTIONAL_REFS: dict[str, Any] = {
 _OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": [
-        "result_status",
-        "information_needed",
-        "title",
-        "family_goal",
-        "why_this_plan",
-        "duration",
-        "stages",
-        "adjustable_choices",
-        "unknowns_to_watch",
-        "review_rhythm",
-        "limitations",
-    ],
+    "required": ["result_status"],
     "properties": {
         "result_status": {
             "type": "string",
             "enum": ["PLAN_DRAFT", "NEEDS_MORE_INFORMATION"],
         },
         "information_needed": {"type": "array", "minItems": 0, "items": _TEXT},
+        "known_context_summary": _TEXT,
         "title": _TEXT,
         "family_goal": {
             "type": "object",
@@ -290,14 +320,73 @@ def family_growth_plan_output_schema() -> dict[str, Any]:
     return deepcopy(_OUTPUT_SCHEMA)
 
 
-def build_family_growth_plan_request(
+async def prepare_family_growth_plan_request(
+    *,
+    confirmation_repository: ConfirmedUnderstandingRepository,
+    knowledge_repository: PlanKnowledgeSelectionRepository,
+    scope: FamilyGrowthPlanScope,
+    confirmation_ref: str,
+    knowledge_selection_ref: str,
+    run_id: str,
+    data_class: DataClass,
+    context_snapshot_ref: str,
+    locale: str = "zh-CN",
+) -> FamilyGrowthPlanPreparation:
+    confirmation = confirmation_repository.load_confirmed(
+        scope=scope, confirmation_ref=confirmation_ref
+    )
+    if inspect.isawaitable(confirmation):
+        confirmation = await confirmation
+    selection = knowledge_repository.load_published(
+        scope=scope,
+        selection_ref=knowledge_selection_ref,
+        purpose=FAMILY_GROWTH_PLAN_USE_CASE,
+    )
+    if inspect.isawaitable(selection):
+        selection = await selection
+    if not isinstance(confirmation, ConfirmedUnderstandingReceipt):
+        raise ValueError("canonical confirmation repository returned an invalid receipt")
+    if not isinstance(selection, PublishedKnowledgeSelection):
+        raise ValueError("canonical knowledge repository returned an invalid selection")
+    if (
+        (confirmation.tenant_id, confirmation.family_id, confirmation.subject_refs)
+        != scope.key
+        or selection.scope.key != scope.key
+    ):
+        raise ValueError("growth plan preparation scope mismatch")
+    if confirmation.receipt_ref != confirmation_ref:
+        raise ValueError("confirmation repository returned the wrong receipt")
+    if selection.selection_ref != knowledge_selection_ref:
+        raise ValueError("knowledge repository returned the wrong selection")
+    if selection.purpose != FAMILY_GROWTH_PLAN_USE_CASE:
+        raise ValueError("knowledge selection purpose mismatch")
+    request = _build_family_growth_plan_request(
+        run_id=run_id,
+        data_class=data_class,
+        context_snapshot_ref=context_snapshot_ref,
+        confirmation=confirmation,
+        reviewed_knowledge=selection.items,
+        knowledge_selection_ref=selection.selection_ref,
+        locale=locale,
+    )
+    return FamilyGrowthPlanPreparation(
+        request=request,
+        scope=scope,
+        confirmation_ref=confirmation_ref,
+        knowledge_selection_ref=knowledge_selection_ref,
+        request_fingerprint=_request_fingerprint(request),
+    )
+
+
+def _build_family_growth_plan_request(
     *,
     run_id: str,
     data_class: DataClass,
     context_snapshot_ref: str,
     confirmation: ConfirmedUnderstandingReceipt,
     reviewed_knowledge: tuple[PublishedPlanKnowledge, ...],
-    locale: str = "zh-CN",
+    knowledge_selection_ref: str,
+    locale: str,
 ) -> StructuredRequest:
     if not all(
         value.strip()
@@ -323,6 +412,7 @@ def build_family_growth_plan_request(
         },
         "confirmed_understanding": dict(confirmation.understanding),
         "reviewed_knowledge": [item.as_payload() for item in reviewed_knowledge],
+        "knowledge_selection_ref": knowledge_selection_ref,
         "allowed_evidence_refs": sorted(evidence_refs),
         "allowed_knowledge_refs": sorted(knowledge_refs),
         "generation_contract": {
@@ -348,17 +438,41 @@ def build_family_growth_plan_request(
 def validate_family_growth_plan_output(
     output: Mapping[str, Any],
     *,
-    request: StructuredRequest,
+    preparation: FamilyGrowthPlanPreparation,
 ) -> dict[str, Any]:
+    request = preparation.request
+    if (
+        request.use_case != FAMILY_GROWTH_PLAN_USE_CASE
+        or request.prompt_version != FAMILY_GROWTH_PLAN_PROMPT_VERSION
+        or request.schema_version != FAMILY_GROWTH_PLAN_SCHEMA_VERSION
+        or _request_fingerprint(request) != preparation.request_fingerprint
+    ):
+        raise ValueError("family growth plan preparation is not server-owned or was modified")
     validated = SchemaValidator().validate(
         dict(output), family_growth_plan_output_schema(), provider_id="family-growth-plan"
     )
     allowed_evidence_refs = frozenset(request.payload["allowed_evidence_refs"])
     allowed_knowledge_refs = frozenset(request.payload["allowed_knowledge_refs"])
     if validated["result_status"] == "NEEDS_MORE_INFORMATION":
-        if validated["stages"] or not validated["information_needed"]:
-            raise ValueError("information-needed result must not fabricate plan stages")
+        required = {"result_status", "information_needed", "known_context_summary", "limitations"}
+        if set(validated) != required or not validated["information_needed"]:
+            raise ValueError("information-needed result must be minimal and complete")
         return validated
+    required = {
+        "result_status",
+        "information_needed",
+        "title",
+        "family_goal",
+        "why_this_plan",
+        "duration",
+        "stages",
+        "adjustable_choices",
+        "unknowns_to_watch",
+        "review_rhythm",
+        "limitations",
+    }
+    if set(validated) != required:
+        raise ValueError("plan draft fields are incomplete or mixed with information-needed fields")
     if len(validated["stages"]) < 2 or validated["information_needed"]:
         raise ValueError("plan draft requires at least two stages and no information gap")
     cited_evidence = set(validated["family_goal"]["evidence_refs"])
@@ -424,14 +538,33 @@ def _content_digest(value: Mapping[str, Any]) -> str:
     return sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def _request_fingerprint(request: StructuredRequest) -> str:
+    value = {
+        "use_case": request.use_case,
+        "prompt_version": request.prompt_version,
+        "schema_version": request.schema_version,
+        "context_snapshot_ref": request.context_snapshot_ref,
+        "input_refs": request.input_refs,
+        "payload": request.payload,
+        "output_schema": request.output_schema,
+        "request_id": request.request_id,
+    }
+    return _content_digest(value)
+
+
 __all__ = [
     "FAMILY_GROWTH_PLAN_INSTRUCTIONS",
     "FAMILY_GROWTH_PLAN_PROMPT_VERSION",
     "FAMILY_GROWTH_PLAN_SCHEMA_VERSION",
     "FAMILY_GROWTH_PLAN_USE_CASE",
     "ConfirmedUnderstandingReceipt",
+    "ConfirmedUnderstandingRepository",
+    "FamilyGrowthPlanPreparation",
+    "FamilyGrowthPlanScope",
+    "PlanKnowledgeSelectionRepository",
+    "PublishedKnowledgeSelection",
     "PublishedPlanKnowledge",
-    "build_family_growth_plan_request",
+    "prepare_family_growth_plan_request",
     "family_growth_plan_output_schema",
     "validate_family_growth_plan_output",
 ]

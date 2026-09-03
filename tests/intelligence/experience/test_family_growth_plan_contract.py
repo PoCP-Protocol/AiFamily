@@ -1,3 +1,4 @@
+import asyncio
 import json
 from copy import deepcopy
 from hashlib import sha256
@@ -6,9 +7,11 @@ import pytest
 
 from backend.intelligence.experience.family_growth_plan_contract import (
     ConfirmedUnderstandingReceipt,
+    FamilyGrowthPlanScope,
+    PublishedKnowledgeSelection,
     PublishedPlanKnowledge,
-    build_family_growth_plan_request,
     family_growth_plan_output_schema,
+    prepare_family_growth_plan_request,
     validate_family_growth_plan_output,
 )
 
@@ -129,14 +132,33 @@ def _output() -> dict:
     }
 
 
+class _ConfirmationRepository:
+    def __init__(self, receipt=None):
+        self.receipt = receipt or _confirmation()
+
+    def load_confirmed(self, **_kwargs):
+        return self.receipt
+
+
+class _KnowledgeRepository:
+    def __init__(self, selection=None):
+        self.selection = selection or PublishedKnowledgeSelection(
+            selection_ref="selection:1",
+            scope=_scope(),
+            purpose="family_growth_plan_draft",
+            items=_knowledge(),
+        )
+
+    def load_published(self, **_kwargs):
+        return self.selection
+
+
+def _scope() -> FamilyGrowthPlanScope:
+    return FamilyGrowthPlanScope("tenant:1", "family:1", ("guardian:1", "child:1"))
+
+
 def test_builds_a_real_generation_request_without_fixed_plan_content() -> None:
-    request = build_family_growth_plan_request(
-        run_id="run:plan:1",
-        data_class="SYNTHETIC",
-        context_snapshot_ref="context:plan:1",
-        confirmation=_confirmation(),
-        reviewed_knowledge=_knowledge(),
-    )
+    request = _preparation().request
 
     assert request.use_case == "family_growth_plan_draft"
     assert request.payload["generation_contract"]["fixed_horizon_forbidden"] is True
@@ -152,7 +174,7 @@ def test_builds_a_real_generation_request_without_fixed_plan_content() -> None:
 
 def test_validates_generated_depth_and_reference_grounding() -> None:
     validated = validate_family_growth_plan_output(
-        _output(), request=_request()
+        _output(), preparation=_preparation()
     )
 
     assert validated["duration"]["days"] == 28
@@ -164,12 +186,12 @@ def test_rejects_invented_evidence_or_knowledge_refs() -> None:
     invented_evidence = deepcopy(_output())
     invented_evidence["family_goal"]["evidence_refs"] = ["input:invented"]
     with pytest.raises(ValueError, match="evidence outside"):
-        validate_family_growth_plan_output(invented_evidence, request=_request())
+        validate_family_growth_plan_output(invented_evidence, preparation=_preparation())
 
     invented_knowledge = deepcopy(_output())
     invented_knowledge["stages"][0]["knowledge_refs"] = ["knowledge:invented"]
     with pytest.raises(ValueError, match="knowledge outside"):
-        validate_family_growth_plan_output(invented_knowledge, request=_request())
+        validate_family_growth_plan_output(invented_knowledge, preparation=_preparation())
 
 
 def test_schema_copy_is_isolated_and_requires_meaningful_stages() -> None:
@@ -181,7 +203,7 @@ def test_schema_copy_is_isolated_and_requires_meaningful_stages() -> None:
     shallow = _output()
     shallow["stages"] = [shallow["stages"][0]]
     with pytest.raises(ValueError, match="at least two stages"):
-        validate_family_growth_plan_output(shallow, request=_request())
+        validate_family_growth_plan_output(shallow, preparation=_preparation())
 
 
 def test_rejects_unconfirmed_or_unpublished_inputs() -> None:
@@ -196,12 +218,16 @@ def test_rejects_unconfirmed_or_unpublished_inputs() -> None:
 
 
 def test_information_gap_does_not_fabricate_a_plan() -> None:
-    output = _output()
-    output["result_status"] = "NEEDS_MORE_INFORMATION"
-    output["information_needed"] = ["孩子愿意如何参与这段计划"]
-    output["stages"] = []
+    output = {
+        "result_status": "NEEDS_MORE_INFORMATION",
+        "information_needed": ["孩子愿意如何参与这段计划"],
+        "known_context_summary": "家庭希望减少晚间开始学习前的拉扯。",
+        "limitations": ["目前缺少孩子愿意参与的方式。"],
+    }
 
-    assert validate_family_growth_plan_output(output, request=_request())["stages"] == []
+    validated = validate_family_growth_plan_output(output, preparation=_preparation())
+    assert "duration" not in validated
+    assert "stages" not in validated
 
 
 def test_rejects_duplicate_or_generic_practices() -> None:
@@ -210,19 +236,67 @@ def test_rejects_duplicate_or_generic_practices() -> None:
         duplicate["stages"][0]["practices"][0]["description"]
     )
     with pytest.raises(ValueError, match="must not repeat"):
-        validate_family_growth_plan_output(duplicate, request=_request())
+        validate_family_growth_plan_output(duplicate, preparation=_preparation())
 
     generic = _output()
     generic["stages"][0]["practices"][0]["description"] = "多沟通"
     with pytest.raises(ValueError, match="generic practice"):
-        validate_family_growth_plan_output(generic, request=_request())
+        validate_family_growth_plan_output(generic, preparation=_preparation())
 
 
-def _request():
-    return build_family_growth_plan_request(
-        run_id="run:plan:1",
-        data_class="SYNTHETIC",
-        context_snapshot_ref="context:plan:1",
-        confirmation=_confirmation(),
-        reviewed_knowledge=_knowledge(),
+def test_repositories_cannot_return_cross_family_or_wrong_purpose_records() -> None:
+    wrong_scope = FamilyGrowthPlanScope("tenant:1", "family:other", ("guardian:1",))
+    with pytest.raises(ValueError, match="scope mismatch"):
+        asyncio.run(
+            prepare_family_growth_plan_request(
+                confirmation_repository=_ConfirmationRepository(),
+                knowledge_repository=_KnowledgeRepository(),
+                scope=wrong_scope,
+                confirmation_ref="confirmation:understanding:1",
+                knowledge_selection_ref="selection:1",
+                run_id="run:plan:1",
+                data_class="SYNTHETIC",
+                context_snapshot_ref="context:plan:1",
+            )
+        )
+    wrong = PublishedKnowledgeSelection(
+        selection_ref="selection:1",
+        scope=_scope(),
+        purpose="marketing",
+        items=_knowledge(),
+    )
+    with pytest.raises(ValueError, match="purpose mismatch"):
+        asyncio.run(
+            prepare_family_growth_plan_request(
+                confirmation_repository=_ConfirmationRepository(),
+                knowledge_repository=_KnowledgeRepository(wrong),
+                scope=_scope(),
+                confirmation_ref="confirmation:understanding:1",
+                knowledge_selection_ref="selection:1",
+                run_id="run:plan:1",
+                data_class="SYNTHETIC",
+                context_snapshot_ref="context:plan:1",
+            )
+        )
+
+
+def test_validator_rejects_modified_preparation_request() -> None:
+    preparation = _preparation()
+    preparation.request.payload["allowed_evidence_refs"].append("input:invented")
+    with pytest.raises(ValueError, match="modified"):
+        validate_family_growth_plan_output(_output(), preparation=preparation)
+
+
+def _preparation():
+    return asyncio.run(
+        prepare_family_growth_plan_request(
+            confirmation_repository=_ConfirmationRepository(),
+            knowledge_repository=_KnowledgeRepository(),
+            scope=_scope(),
+            confirmation_ref="confirmation:understanding:1",
+            knowledge_selection_ref="selection:1",
+            run_id="run:plan:1",
+            data_class="SYNTHETIC",
+            context_snapshot_ref="context:plan:1",
+        )
     )
