@@ -3,6 +3,7 @@ import { MarketEvidenceWorkbench } from "./MarketEvidenceWorkbench";
 import { ProductConceptDecisionWorkbench } from "./ProductConceptDecisionWorkbench";
 import { CourseContentWorkbench } from "./CourseContentWorkbench";
 import { CourseContentGovernancePanel } from "./CourseContentGovernancePanel";
+import { CourseReleaseBaselineWorkbench } from "./CourseReleaseBaselineWorkbench";
 import { ProductDefinitionOperatorReviewWorkbench } from "./ProductDefinitionOperatorReviewWorkbench";
 import { ProductFactoryComposer } from "./ProductFactoryComposer";
 import { ProductPackageReviewWorkbench } from "./ProductPackageReviewWorkbench";
@@ -109,6 +110,7 @@ export function ProductStudioWorkspace() {
         <div className="course-content-stage">
           <CourseContentWorkbench contractPreview />
           <CourseContentGovernancePanel contractPreview />
+          <CourseReleaseBaselineWorkbench />
         </div>
       </div>
       <div aria-labelledby="workspace-tab-sandbox" hidden={activeTab !== "sandbox"} id="workspace-panel-sandbox" role="tabpanel" tabIndex={0}>

@@ -70,6 +70,8 @@ describe("ProductStudioWorkspace", () => {
     expect(screen.getByRole("button", { name: "保存 CourseContent DRAFT" })).toBeDisabled();
     expect(screen.getByRole("heading", { name: "已发布课程治理观察台" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "读取已发布课程" })).toBeDisabled();
+    expect(screen.getByRole("heading", { name: "课程发布基线与课件 BOM" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "提交人工发布门禁" })).toBeDisabled();
     await user.click(screen.getByRole("tab", { name: /Sandbox/ }));
     expect(screen.getByRole("heading", { name: "产品设计工厂" })).toBeInTheDocument();
   });
