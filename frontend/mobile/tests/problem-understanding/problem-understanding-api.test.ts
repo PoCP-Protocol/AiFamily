@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildMultimodalDraftRequest,
+  isAuthorizedMediaAttachment,
   type MultimodalDraftResponse,
   toUnderstandingDraft,
 } from "../../features/problem-understanding/api";
@@ -258,6 +259,75 @@ describe("S3 multimodal family-understanding mobile contract", () => {
     });
     expect(JSON.stringify(request.output_schema)).not.toContain("next_step");
     expect(JSON.stringify(request)).not.toContain("base64");
+  });
+
+  it("accepts authorized animation and video references without embedding media bytes", () => {
+    const request = buildMultimodalDraftRequest({
+      runId: "run-video-1",
+      sessionId: "session-video-1",
+      expression: "这段过程更容易从视频里看清。",
+      revision: 1,
+      conversationTurns: [
+        {
+          inputRef: "input:run-video-1",
+          kind: "CONCERN",
+          text: "这段过程更容易从视频里看清。",
+          createdAt: "2026-09-03T10:00:00Z",
+        },
+      ],
+      priorRunId: null,
+      attachments: [
+        {
+          mediaType: "IMAGE",
+          uri: "media:family/animation-1",
+          mimeType: "image/gif",
+          sha256: "b".repeat(64),
+        },
+        {
+          mediaType: "VIDEO",
+          uri: "media:family/video-1",
+          mimeType: "video/mp4",
+          sha256: "c".repeat(64),
+        },
+      ],
+    });
+
+    expect(request.modalities).toEqual(["TEXT", "IMAGE", "VIDEO"]);
+    expect(request.media_inputs).toEqual([
+      {
+        media_type: "IMAGE",
+        uri: "media:family/animation-1",
+        mime_type: "image/gif",
+        sha256: "b".repeat(64),
+      },
+      {
+        media_type: "VIDEO",
+        uri: "media:family/video-1",
+        mime_type: "video/mp4",
+        sha256: "c".repeat(64),
+      },
+    ]);
+    expect(JSON.stringify(request.output_schema)).toContain("AUTHORIZED_VIDEO");
+    expect(JSON.stringify(request)).not.toContain("base64");
+  });
+
+  it("rejects mismatched or unsupported animation and video mime types", () => {
+    expect(
+      isAuthorizedMediaAttachment({
+        mediaType: "VIDEO",
+        uri: "media:family/video-1",
+        mimeType: "image/gif",
+        sha256: "d".repeat(64),
+      }),
+    ).toBe(false);
+    expect(
+      isAuthorizedMediaAttachment({
+        mediaType: "IMAGE",
+        uri: "media:family/animation-1",
+        mimeType: "image/svg+xml",
+        sha256: "e".repeat(64),
+      }),
+    ).toBe(false);
   });
 
   it("calls create, rewrite, human-review, delete, and replay endpoints", async () => {

@@ -37,7 +37,8 @@ describe("Problem Understanding standalone Expo route", () => {
     expect(route).toContain("familyApi.requestMultimodalHumanReview");
     expect(route).toContain("familyApi.deleteMultimodalUnderstandingRun");
     expect(route).toContain("replayMultimodalUnderstandingRun");
-    expect(route).toContain("选择测试图片（仅沙盒）");
+    expect(route).toContain("family-routine-animation-v1");
+    expect(route).toContain("family-evening-transition-video-v1");
     expect(route).toContain("asset:sandbox/family-homework-transition-v1");
     expect(route).toContain('process.env.NODE_ENV !== "production"');
     expect(route).not.toContain("createSyntheticUnderstanding");
@@ -119,10 +120,13 @@ describe("Problem Understanding standalone Expo route", () => {
   });
 
   it("offers an interactive multimodal composer without pretending production media support", () => {
-    expect(components).toContain('"TEXT" | "VOICE" | "IMAGE"');
+    expect(components).toContain('| "ANIMATION"');
+    expect(components).toContain('| "VIDEO"');
     expect(components).toContain("写下来");
     expect(components).toContain("说一说");
     expect(components).toContain("加图片");
+    expect(components).toContain("看动画");
+    expect(components).toContain("加视频");
     expect(components).toContain("已转成可编辑文字");
     expect(components).toContain("你确认文字后，才会交给 AI 整理");
     expect(components).toContain("当前页面不会自行读取相册");

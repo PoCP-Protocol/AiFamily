@@ -61,7 +61,7 @@ export interface UnderstandingDraft {
 }
 
 export interface AuthorizedMediaAttachment {
-  mediaType: "IMAGE";
+  mediaType: "IMAGE" | "VIDEO";
   uri: string;
   mimeType: string;
   sha256: string;

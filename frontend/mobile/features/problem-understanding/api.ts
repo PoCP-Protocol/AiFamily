@@ -20,12 +20,12 @@ export interface MultimodalDraftRequest {
     prior_run_id: string | null;
   };
   output_schema: Record<string, unknown>;
-  modalities: ("TEXT" | "IMAGE")[];
+  modalities: ("TEXT" | "IMAGE" | "VIDEO")[];
   estimated_input_tokens: number;
   strategy: "balanced";
   input_refs: string[];
   media_inputs: {
-    media_type: "IMAGE";
+    media_type: "IMAGE" | "VIDEO";
     uri: string;
     mime_type: string;
     sha256: string;
@@ -86,7 +86,7 @@ export const FAMILY_UNDERSTANDING_OUTPUT_SCHEMA: Record<string, unknown> = {
               properties: {
                 source_type: {
                   type: "string",
-                  enum: ["PARENT_TEXT", "AUTHORIZED_IMAGE"],
+                  enum: ["PARENT_TEXT", "AUTHORIZED_IMAGE", "AUTHORIZED_VIDEO"],
                 },
                 source_ref: { type: "string", minLength: 1 },
                 observation: { type: "string", minLength: 1 },
@@ -204,7 +204,7 @@ export interface FamilyUnderstandingOutput {
     statement: string;
     rationale: string;
     evidence: {
-      source_type: "PARENT_TEXT" | "AUTHORIZED_IMAGE";
+      source_type: "PARENT_TEXT" | "AUTHORIZED_IMAGE" | "AUTHORIZED_VIDEO";
       source_ref: string;
       observation: string;
     }[];
@@ -301,7 +301,10 @@ export function buildMultimodalDraftRequest(input: {
       prior_run_id: input.priorRunId,
     },
     output_schema: FAMILY_UNDERSTANDING_OUTPUT_SCHEMA,
-    modalities: mediaInputs.length > 0 ? ["TEXT", "IMAGE"] : ["TEXT"],
+    modalities: [
+      "TEXT",
+      ...new Set(mediaInputs.map((item) => item.media_type)),
+    ],
     estimated_input_tokens: Math.max(
       64,
       Math.ceil(input.expression.length * 1.5),
@@ -475,7 +478,9 @@ function assertFamilyUnderstandingOutput(
       knowledgeRefs.length === 0 ||
       evidence.some(
         (item) =>
-          !["PARENT_TEXT", "AUTHORIZED_IMAGE"].includes(item?.source_type) ||
+          !["PARENT_TEXT", "AUTHORIZED_IMAGE", "AUTHORIZED_VIDEO"].includes(
+            item?.source_type,
+          ) ||
           !readText(item?.source_ref) ||
           !allowedSourceRefs.has(item.source_ref) ||
           !readText(item?.observation),
@@ -538,12 +543,16 @@ function assertFamilyUnderstandingOutput(
 export function isAuthorizedMediaAttachment(
   attachment: AuthorizedMediaAttachment,
 ): boolean {
+  const mimeMatchesType =
+    (attachment.mediaType === "IMAGE" &&
+      /^(?:image\/(?:gif|jpeg|png|webp))$/i.test(attachment.mimeType)) ||
+    (attachment.mediaType === "VIDEO" &&
+      /^(?:video\/(?:mp4|quicktime|webm))$/i.test(attachment.mimeType));
   return (
-    attachment.mediaType === "IMAGE" &&
+    mimeMatchesType &&
     /^(?:media|asset|object|opaque):[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/i.test(
       attachment.uri,
     ) &&
-    attachment.mimeType.startsWith("image/") &&
     /^[a-f0-9]{64}$/i.test(attachment.sha256)
   );
 }

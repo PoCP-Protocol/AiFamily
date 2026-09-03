@@ -60,10 +60,31 @@ const SANDBOX_IMAGE_ATTACHMENT: AuthorizedMediaAttachment = {
   mimeType: "image/png",
   sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 };
+const SANDBOX_ANIMATION_ATTACHMENT: AuthorizedMediaAttachment = {
+  mediaType: "IMAGE",
+  uri: "asset:sandbox/family-routine-animation-v1",
+  mimeType: "image/gif",
+  sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+};
+const SANDBOX_VIDEO_ATTACHMENT: AuthorizedMediaAttachment = {
+  mediaType: "VIDEO",
+  uri: "asset:sandbox/family-evening-transition-video-v1",
+  mimeType: "video/mp4",
+  sha256: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+};
+
+type SandboxMediaMode = "IMAGE" | "ANIMATION" | "VIDEO";
+
+const SANDBOX_MEDIA: Record<SandboxMediaMode, AuthorizedMediaAttachment> = {
+  IMAGE: SANDBOX_IMAGE_ATTACHMENT,
+  ANIMATION: SANDBOX_ANIMATION_ATTACHMENT,
+  VIDEO: SANDBOX_VIDEO_ATTACHMENT,
+};
 
 export default function ProblemUnderstandingRoute() {
   const session = useFamilyApiSession();
   const mediaParams = useLocalSearchParams<{
+    media_type?: string;
     media_uri?: string;
     media_mime_type?: string;
     media_sha256?: string;
@@ -76,7 +97,8 @@ export default function ProblemUnderstandingRoute() {
     "human-review" | "delete" | "decision" | null
   >(null);
   const [connectionBusy, setConnectionBusy] = useState(false);
-  const [sandboxImageSelected, setSandboxImageSelected] = useState(false);
+  const [sandboxMediaMode, setSandboxMediaMode] =
+    useState<SandboxMediaMode | null>(null);
   const [inputMode, setInputMode] = useState<MultimodalInputMode>("TEXT");
   const [voiceCaptureState, setVoiceCaptureState] =
     useState<VoiceCaptureState>("IDLE");
@@ -87,18 +109,23 @@ export default function ProblemUnderstandingRoute() {
   const currentDraft = useMemo(() => selectCurrentDraft(state), [state]);
   const attachments = useMemo<AuthorizedMediaAttachment[]>(() => {
     const attachment: AuthorizedMediaAttachment = {
-      mediaType: "IMAGE",
+      mediaType:
+        mediaParams.media_type === "VIDEO" ||
+        mediaParams.media_mime_type?.startsWith("video/")
+          ? "VIDEO"
+          : "IMAGE",
       uri: mediaParams.media_uri ?? "",
       mimeType: mediaParams.media_mime_type ?? "",
       sha256: mediaParams.media_sha256 ?? "",
     };
     if (isAuthorizedMediaAttachment(attachment)) return [attachment];
-    return sandboxImageSelected ? [SANDBOX_IMAGE_ATTACHMENT] : [];
+    return sandboxMediaMode ? [SANDBOX_MEDIA[sandboxMediaMode]] : [];
   }, [
+    mediaParams.media_type,
     mediaParams.media_mime_type,
     mediaParams.media_sha256,
     mediaParams.media_uri,
-    sandboxImageSelected,
+    sandboxMediaMode,
   ]);
   const hasIncompleteAttachment =
     Boolean(
@@ -554,40 +581,24 @@ export default function ProblemUnderstandingRoute() {
         {attachments.length > 0 ? (
           <View accessibilityRole="summary" style={styles.attachmentNotice}>
             <Text style={styles.attachmentTitle}>
-              {sandboxImageSelected ? "已附加 1 张测试图片" : "已附加 1 张图片"}
+              {sandboxMediaMode
+                ? `已附加 1 个测试${attachmentLabel(attachments[0])}`
+                : `已附加 1 个${attachmentLabel(attachments[0])}`}
             </Text>
             <Text style={styles.confirmedBody}>
-              {sandboxImageSelected
+              {sandboxMediaMode
                 ? "仅用于本地沙盒验证，不代表任何真实家庭资料。"
-                : "只会把已授权的图片引用交给家庭理解服务，不会上传页面中的原始图片内容。"}
+                : "只会把已授权的媒体引用交给家庭理解服务，不会由这个页面自行读取相册或视频库。"}
             </Text>
-            {sandboxImageSelected ? (
+            {sandboxMediaMode ? (
               <Pressable
                 accessibilityRole="button"
-                onPress={() => setSandboxImageSelected(false)}
+                onPress={() => setSandboxMediaMode(null)}
                 style={styles.secondaryButton}
               >
-                <Text style={styles.secondaryButtonText}>移除测试图片</Text>
+                <Text style={styles.secondaryButtonText}>移除测试媒体</Text>
               </Pressable>
             ) : null}
-          </View>
-        ) : null}
-
-        {process.env.NODE_ENV !== "production" && attachments.length === 0 ? (
-          <View style={styles.attachmentNotice}>
-            <Text style={styles.attachmentTitle}>可选：添加一张图片</Text>
-            <Text style={styles.confirmedBody}>
-              当前只提供明确标记的沙盒测试图片。真实图片仍需从已授权的家庭媒体入口选择。
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setSandboxImageSelected(true)}
-              style={styles.secondaryButton}
-            >
-              <Text style={styles.secondaryButtonText}>
-                选择测试图片（仅沙盒）
-              </Text>
-            </Pressable>
           </View>
         ) : null}
 
@@ -635,18 +646,40 @@ export default function ProblemUnderstandingRoute() {
 
         {state.inputs.length === 0 ? (
           <ConcernComposer
-            canRemoveImage={sandboxImageSelected}
+            attachedMediaMimeType={attachments[0]?.mimeType ?? null}
+            canRemoveImage={sandboxMediaMode !== null}
             canUseSandboxImage={
               process.env.NODE_ENV !== "production" && attachments.length === 0
             }
             imageAttached={attachments.length > 0}
             inputMode={inputMode}
             onChangeText={(value) => setState(updateConcernDraft(state, value))}
-            onChangeInputMode={setInputMode}
+            onChangeInputMode={(mode) => {
+              setInputMode(mode);
+              if (
+                mode !== "IMAGE" &&
+                mode !== "ANIMATION" &&
+                mode !== "VIDEO"
+              ) {
+                return;
+              }
+              if (sandboxMediaMode && sandboxMediaMode !== mode) {
+                setSandboxMediaMode(null);
+              }
+            }}
             onSubmit={handleConcernSubmit}
-            onToggleSandboxImage={() =>
-              setSandboxImageSelected((selected) => !selected)
-            }
+            onToggleSandboxImage={() => {
+              if (
+                inputMode !== "IMAGE" &&
+                inputMode !== "ANIMATION" &&
+                inputMode !== "VIDEO"
+              ) {
+                return;
+              }
+              setSandboxMediaMode((selected) =>
+                selected === inputMode ? null : inputMode,
+              );
+            }}
             onVoiceCapture={() => void handleVoiceCapture()}
             phase={state.phase}
             value={state.concernDraft}
@@ -792,6 +825,20 @@ function userMessageForError(
   if (action === "replay")
     return "暂时无法核对上次状态。已保存内容仍保留在本机。";
   return "这次理解暂时没有完成。你说过的内容已经保留，可以稍后继续。";
+}
+
+function attachmentLabel(
+  attachment: AuthorizedMediaAttachment | undefined,
+): string {
+  if (!attachment) return "媒体";
+  if (attachment.mediaType === "VIDEO") return "视频";
+  if (
+    attachment.mimeType === "image/gif" ||
+    attachment.mimeType === "image/webp"
+  ) {
+    return "动图";
+  }
+  return "图片";
 }
 
 const styles = StyleSheet.create({

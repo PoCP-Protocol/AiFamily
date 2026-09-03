@@ -21,6 +21,7 @@ interface ConcernComposerProps {
   voiceCaptureState: VoiceCaptureState;
   voiceMessage: string | null;
   imageAttached: boolean;
+  attachedMediaMimeType: string | null;
   canUseSandboxImage: boolean;
   canRemoveImage: boolean;
   onChangeText: TextInputProps["onChangeText"];
@@ -30,7 +31,12 @@ interface ConcernComposerProps {
   onSubmit: () => void;
 }
 
-export type MultimodalInputMode = "TEXT" | "VOICE" | "IMAGE";
+export type MultimodalInputMode =
+  | "TEXT"
+  | "VOICE"
+  | "IMAGE"
+  | "ANIMATION"
+  | "VIDEO";
 export type VoiceCaptureState = "IDLE" | "CAPTURING" | "READY" | "UNAVAILABLE";
 
 const INPUT_MODES: readonly {
@@ -41,6 +47,8 @@ const INPUT_MODES: readonly {
   { mode: "TEXT", label: "写下来", cue: "文字" },
   { mode: "VOICE", label: "说一说", cue: "语音" },
   { mode: "IMAGE", label: "加图片", cue: "图片" },
+  { mode: "ANIMATION", label: "看动画", cue: "动图" },
+  { mode: "VIDEO", label: "加视频", cue: "视频" },
 ];
 
 export function ConcernComposer({
@@ -50,6 +58,7 @@ export function ConcernComposer({
   voiceCaptureState,
   voiceMessage,
   imageAttached,
+  attachedMediaMimeType,
   canUseSandboxImage,
   canRemoveImage,
   onChangeText,
@@ -60,6 +69,8 @@ export function ConcernComposer({
 }: ConcernComposerProps) {
   const busy = phase === "UNDERSTANDING";
   const disabled = busy || value.trim().length === 0;
+  const mediaInputSelected =
+    inputMode === "IMAGE" || inputMode === "ANIMATION" || inputMode === "VIDEO";
 
   return (
     <View style={styles.surface}>
@@ -142,27 +153,51 @@ export function ConcernComposer({
           />
         </View>
       ) : null}
-      {inputMode === "IMAGE" ? (
+      {mediaInputSelected ? (
         <View style={styles.imagePanel}>
-          <View style={styles.imagePreview}>
+          <View
+            style={[
+              styles.imagePreview,
+              inputMode === "VIDEO" && styles.videoPreview,
+              inputMode === "ANIMATION" && styles.animationPreview,
+            ]}
+          >
             <View style={styles.imageSun} />
             <View style={styles.imageMountainLeft} />
             <View style={styles.imageMountainRight} />
+            {inputMode === "VIDEO" ? (
+              <View style={styles.playButton}>
+                <Text style={styles.playButtonText}>▶</Text>
+              </View>
+            ) : null}
+            {inputMode === "ANIMATION" ? (
+              <Text style={styles.animationMark}>GIF</Text>
+            ) : null}
           </View>
           <View style={styles.imageCopy}>
             <Text style={styles.voiceTitle}>
-              {imageAttached ? "图片已加入这次表达" : "图片可以补充当时的情境"}
+              {imageAttached
+                ? `${mediaLabel(attachedMediaMimeType)}已加入这次表达`
+                : inputMode === "VIDEO"
+                  ? "视频可以保留事情发生的过程"
+                  : inputMode === "ANIMATION"
+                    ? "动图可以呈现反复出现的互动"
+                    : "图片可以补充当时的情境"}
             </Text>
             <Text style={styles.voiceBody}>
               {imageAttached
-                ? "AI 只能引用已授权的图片标识；结论仍需你核对。"
+                ? `AI 只能引用已授权的${mediaLabel(attachedMediaMimeType)}标识；结论仍需你核对。`
                 : canUseSandboxImage
-                  ? "当前可用一张明确标记的沙盒图片验证完整交互。"
-                  : "请从家庭媒体库选择已授权图片；当前页面不会自行读取相册。"}
+                  ? `当前可用一个明确标记的沙盒${inputMode === "VIDEO" ? "视频" : inputMode === "ANIMATION" ? "动图" : "图片"}验证完整交互。`
+                  : "请从家庭媒体库选择已授权媒体；当前页面不会自行读取相册或视频库。"}
             </Text>
             {canUseSandboxImage || canRemoveImage ? (
               <ActionButton
-                label={canRemoveImage ? "移除图片" : "加入沙盒图片"}
+                label={
+                  canRemoveImage
+                    ? `移除${mediaLabel(attachedMediaMimeType)}`
+                    : `加入沙盒${inputMode === "VIDEO" ? "视频" : inputMode === "ANIMATION" ? "动图" : "图片"}`
+                }
                 onPress={onToggleSandboxImage}
                 secondary
               />
@@ -173,7 +208,7 @@ export function ConcernComposer({
       <Text style={styles.inputLabel}>
         {inputMode === "VOICE"
           ? "检查并修改转写"
-          : inputMode === "IMAGE"
+          : mediaInputSelected
             ? "再补一句你希望我们注意什么"
             : "最近发生的事"}
       </Text>
@@ -520,6 +555,12 @@ function confidenceLabel(value: "LOW" | "MEDIUM" | "HIGH"): string {
   return "初步";
 }
 
+function mediaLabel(mimeType: string | null): string {
+  if (mimeType?.startsWith("video/")) return "视频";
+  if (mimeType === "image/gif" || mimeType === "image/webp") return "动图";
+  return "图片";
+}
+
 function ActionButton({
   disabled = false,
   label,
@@ -601,6 +642,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     flex: 1,
+    flexBasis: 92,
     gap: 2,
     minHeight: 64,
     justifyContent: "center",
@@ -615,7 +657,20 @@ const styles = StyleSheet.create({
   inputModeCueSelected: { color: "#A74624" },
   inputModeLabel: { color: "#4A3D34", fontSize: 14, fontWeight: "800" },
   inputModeLabelSelected: { color: "#8B3E22" },
-  inputModeRow: { flexDirection: "row", gap: 9 },
+  inputModeRow: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
+  animationMark: {
+    backgroundColor: "#FFFFFFDD",
+    borderRadius: 8,
+    bottom: 8,
+    color: "#6C4B86",
+    fontSize: 11,
+    fontWeight: "900",
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    position: "absolute",
+    right: 8,
+  },
+  animationPreview: { backgroundColor: "#E9DDF4" },
   imageCopy: { flex: 1, gap: 6, minWidth: 180 },
   imageMountainLeft: {
     backgroundColor: "#A9BE9D",
@@ -663,6 +718,18 @@ const styles = StyleSheet.create({
     top: 15,
     width: 28,
   },
+  playButton: {
+    alignItems: "center",
+    backgroundColor: "#1F2937CC",
+    borderRadius: 22,
+    height: 44,
+    justifyContent: "center",
+    left: 34,
+    position: "absolute",
+    top: 34,
+    width: 44,
+  },
+  playButtonText: { color: "#FFFFFF", fontSize: 18, marginLeft: 2 },
   highlightSection: { backgroundColor: "#FFF4EC", borderColor: "#EBC3A9" },
   hypothesisCard: {
     backgroundColor: "#FFFDFC",
@@ -765,6 +832,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     lineHeight: 23,
   },
+  videoPreview: { backgroundColor: "#DCE7F4" },
   waveBar: { backgroundColor: "#B8A4C7", borderRadius: 999, width: 5 },
   waveBarActive: { backgroundColor: "#8D55B0" },
   waveform: { alignItems: "center", flexDirection: "row", gap: 5, height: 44 },
