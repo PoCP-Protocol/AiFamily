@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -28,6 +29,7 @@ from poc.media_adapter_sandbox.replay_harness import (
     SandboxPlayerServer,
     SyntheticMediaAdapter,
     SyntheticVideoFactory,
+    main,
 )
 
 
@@ -71,6 +73,60 @@ def test_real_playable_video_ingest_adapter_player_and_replay(
         assert b"<video" in player
         media = urllib.request.urlopen(adapter.playback_url(server, capability), timeout=2).read()
         assert media[4:8] == b"ftyp"
+
+
+def test_player_cors_accepts_local_web_ports_and_rejects_external_origins(
+    video: Path, adapter: SyntheticMediaAdapter
+) -> None:
+    session = adapter.start(SyntheticSource(video), "family.synthetic.alpha")
+    capability = adapter.playback_capability(session.media_session_ref, session.family_ref, 30)
+
+    with SandboxPlayerServer(adapter) as server:
+        local = urllib.request.Request(
+            adapter.playback_url(server, capability),
+            method="OPTIONS",
+            headers={"Origin": "http://127.0.0.1:4192"},
+        )
+        with urllib.request.urlopen(local, timeout=2) as response:
+            assert response.status == 204
+            assert response.headers["Access-Control-Allow-Origin"] == "http://127.0.0.1:4192"
+
+        external = urllib.request.Request(
+            f"{server.base_url}/health",
+            method="OPTIONS",
+            headers={"Origin": "https://unverified.example"},
+        )
+        with pytest.raises(urllib.error.HTTPError) as rejected:
+            urllib.request.urlopen(external, timeout=2)
+        assert rejected.value.code == 403
+
+
+def test_cli_writes_a_machine_readable_playback_descriptor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    descriptor = tmp_path / "runtime" / "media.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "replay_harness.py",
+            "--output",
+            str(tmp_path / "live.mp4"),
+            "--descriptor",
+            str(descriptor),
+            "--duration",
+            "0.25",
+            "--ttl",
+            "60",
+        ],
+    )
+
+    assert main() == 0
+    payload = json.loads(descriptor.read_text(encoding="utf-8"))
+    assert payload["state"] == "LIVE"
+    assert payload["source"] == "synthetic"
+    assert payload["fixture_only"] is True
+    assert payload["sha256"] == SyntheticVideoFactory.sha256(tmp_path / "live.mp4")
 
 
 def test_lifecycle_covers_live_disconnected_restarted_stopped_and_revoked(
