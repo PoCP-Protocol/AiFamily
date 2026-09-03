@@ -406,6 +406,25 @@ entries:
       数据库验证 UI-04 Priority→Preview→Plan→Confirm 以及 UI-05 service-journey
       私有过程投影的真实 HTTP 闭环。
 
+  - capability: action
+    canonical_path: backend/domains/action
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "database/baseline/0039_family_90_day_journey_actions.sql, database/baseline/0045_ui09_growth_action_execution_lifecycle.sql"
+    scope: >
+      UI-09 单次家庭成长行动的持久化生命周期：AI 计划经 Guardian 确认后初始化第一个
+      NOT_STARTED 行动，家庭成员可开始、暂停、继续、取消和完成；CheckIn 与 Reflection
+      是过程事实，不是 Outcome、评分、排名或诊断。
+    tests:
+      - tests/domains/action/test_daily_action_state_machine.py
+      - tests/domains/action/test_daily_action_postgres.py
+    known_gaps: >
+      生产 SQL 状态机、幂等、Audit/Outbox、重启回读、Bearer/tenant/family/subject/Consent
+      HTTP 边界和 row_version 乐观锁已实现；AI 草案摘要、provenance 与 consent version
+      通过 0061 固化。main 挂载和 Action outbox 到 ExperienceEvent/feedback/achievement
+      的消费链仍在迭代 3 后续完成。
+    adr: governance/ADR/ADR-0153-ui09-growth-action-domain-and-ai-plan-bridge.md
+
   - capability: design_copilot
     canonical_path: backend/intelligence/design_copilot
     status: MIGRATED_STRUCTURE_ONLY

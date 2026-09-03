@@ -314,6 +314,7 @@ entries:
       - backend/apps/family_api/growth_plan_activation_wiring.py
       - backend/apps/family_api/growth_plan_ai_api.py
       - backend/apps/family_api/production_growth_plan_http_wiring.py
+      - backend/apps/family_api/production_growth_plan_action_wiring.py
       - backend/apps/family_api/accepted_action_wiring.py
       - backend/apps/family_api/production_growth_plan_ai_wiring.py
       - database/migrations/versions/0057_ai_growth_plan_draft_reviews.py
@@ -330,11 +331,41 @@ entries:
       - "accepted-action handler 执行时重新加载当前 ContextScope 与 review digest，只调用 Journey create，并拒绝任何返回 ACTIVE 的实现"
       - "共享 worker 注册 CREATE_JOURNEY_PLAN_FROM_AI_DRAFT 与 CONFIRM_AI_JOURNEY_PLAN；两次 Guardian HumanTask 分别控制 DRAFT 创建和 ACTIVE 激活"
       - "认证 HTTP router 与 PostgreSQL bearer/tenant/family/guardian/subject/GROWTH_TRACKING Consent 解析组合已建立"
+      - "生产 worker scope resolver 在执行时由 HumanDecision actor 反查当前 guardian account、tenant/family binding、subject 与 GROWTH_TRACKING Consent，不依赖过期 HTTP bearer"
       - "真实 PostgreSQL 已验证 0057 逐版本 upgrade、回退到 0015 后重建到 head，以及 BEFORE UPDATE 不可变触发器"
     reason: "依据 UI-05 蓝图把 AI 规划草案接入可追溯、可过期、防篡改的人工闸门，同时维持 Journey 领域事实所有权"
     known_gaps:
       - "部署 main 挂载、常驻 worker 调度、真实 Evidence Reader PostgreSQL E2E 与 UI-05 展示仍待后续迭代"
       - "review envelope 到期删除的 retention worker 尚待实现"
+
+  - capability: ui09_daily_growth_action_lifecycle
+    disposition: REIMPLEMENT
+    source:
+      - database/baseline/0039_family_90_day_journey_actions.sql
+      - database/baseline/0045_ui09_growth_action_execution_lifecycle.sql
+    target:
+      - backend/domains/action
+      - backend/domains/action/application/daily_action.py
+      - backend/domains/action/domain/errors.py
+      - backend/domains/action/infrastructure/postgres.py
+      - backend/domains/action/api/routes.py
+      - backend/apps/family_api/production_daily_action_http_wiring.py
+      - backend/apps/family_api/growth_plan_activation_wiring.py
+      - database/migrations/versions/0061_growth_action_ai_provenance.py
+      - tests/domains/action/test_daily_action_state_machine.py
+      - tests/domains/action/test_daily_action_postgres.py
+      - governance/ADR/ADR-0153-ui09-growth-action-domain-and-ai-plan-bridge.md
+    status: MIGRATED_TESTED
+    evidence:
+      - "Action 域拥有 NOT_STARTED/IN_PROGRESS/PAUSED/COMPLETED/PARTIAL/NOT_COMPLETED/CANCELLED 状态机，Journey 只提供 ACTIVE plan"
+      - "真实 PostgreSQL 验证 Journey activation → AI 来源 Action → GET /today → start/pause/resume/check-in → restart read"
+      - "Bearer、tenant/family/guardian/subject 与 GROWTH_TRACKING Consent 每个请求重新校验，跨范围 fail-closed"
+      - "状态变更使用 row_version 乐观锁；同 key 同 payload 重放，旧版本和 key 冲突返回 409"
+      - "Action、Audit、Outbox 和幂等 response 同事务，AI 草案 digest/provenance/consent version 固化到 Action 行"
+    reason: "依据蓝图 UI-09 L4 契约建立生产等价的家庭今日行动事实链，且行动过程不等于成长结果"
+    known_gaps:
+      - "尚未挂载到共享 main；不得在并发 WIP 未协调前修改 main"
+      - "DailyAction outbox 到 ExperienceEvent、feedback 与非比较性 achievement 的消费链待下一增量"
 
   - capability: tool_runtime
     disposition: REIMPLEMENT
