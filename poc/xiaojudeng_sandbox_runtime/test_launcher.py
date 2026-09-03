@@ -12,6 +12,7 @@ from poc.xiaojudeng_sandbox_runtime.launcher import (
     assert_ports_available,
     build_service_specs,
     seed_live_session,
+    stop_runtime,
     web_environment,
 )
 
@@ -103,3 +104,47 @@ def test_seed_live_session_requires_three_human_roles(monkeypatch: pytest.Monkey
         "LIVE_OPERATOR",
     ]
     assert all(payload for _, _, payload in calls)
+
+
+def test_stop_runtime_requires_verified_manifest_and_kills_only_launcher_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "runtime.json").write_text(
+        json.dumps(
+            {
+                "source": "SANDBOX_SYNTHETIC",
+                "fixture_only": True,
+                "external_effect": False,
+                "launcher_pid": 43210,
+            }
+        ),
+        encoding="utf-8",
+    )
+    calls: list[tuple[str, ...]] = []
+
+    class Result:
+        returncode = 0
+        stderr = ""
+
+    def run_process(command: tuple[str, ...], **_kwargs: object) -> Result:
+        calls.append(command)
+        return Result()
+
+    monkeypatch.setattr("poc.xiaojudeng_sandbox_runtime.launcher.os.name", "nt")
+    monkeypatch.setattr("poc.xiaojudeng_sandbox_runtime.launcher.subprocess.run", run_process)
+
+    receipt = stop_runtime(tmp_path)
+
+    assert calls == [("taskkill", "/PID", "43210", "/T", "/F")]
+    assert receipt["launcher_pid"] == 43210
+    assert json.loads((tmp_path / "stopped.json").read_text())["fixture_only"] is True
+
+
+def test_stop_runtime_rejects_unverified_manifest(tmp_path: Path) -> None:
+    (tmp_path / "runtime.json").write_text(
+        json.dumps({"source": "production", "fixture_only": False, "external_effect": True}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="unverified runtime"):
+        stop_runtime(tmp_path)

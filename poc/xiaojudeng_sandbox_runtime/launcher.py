@@ -5,12 +5,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.request
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -42,6 +44,7 @@ class RuntimeEvidence:
     source: str
     fixture_only: bool
     external_effect: bool
+    launcher_pid: int
     runtime_dir: str
     web_url: str
     media_descriptor: str
@@ -347,6 +350,45 @@ def terminate(processes: list[subprocess.Popen[bytes]]) -> None:
                 process.kill()
 
 
+def stop_runtime(runtime_dir: Path) -> dict[str, object]:
+    manifest_path = runtime_dir / "runtime.json"
+    if not manifest_path.is_file():
+        raise RuntimeError(f"sandbox runtime manifest is missing: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if (
+        manifest.get("source") != "SANDBOX_SYNTHETIC"
+        or manifest.get("fixture_only") is not True
+        or manifest.get("external_effect") is not False
+    ):
+        raise RuntimeError("refusing to stop an unverified runtime")
+    launcher_pid = manifest.get("launcher_pid")
+    if not isinstance(launcher_pid, int) or launcher_pid <= 0 or launcher_pid == os.getpid():
+        raise RuntimeError("sandbox launcher pid is invalid")
+    if os.name == "nt":
+        result = subprocess.run(
+            ("taskkill", "/PID", str(launcher_pid), "/T", "/F"),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode not in {0, 128}:
+            raise RuntimeError(f"sandbox stop failed: {result.stderr.strip()}")
+    else:
+        with suppress(ProcessLookupError):
+            os.kill(launcher_pid, signal.SIGTERM)
+    receipt = {
+        "source": "SANDBOX_SYNTHETIC",
+        "fixture_only": True,
+        "external_effect": False,
+        "launcher_pid": launcher_pid,
+        "stopped_at": datetime.now(UTC).isoformat(),
+    }
+    (runtime_dir / "stopped.json").write_text(
+        json.dumps(receipt, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    return receipt
+
+
 def run(runtime_dir: Path, ports: dict[str, int]) -> int:
     repo_root = Path(__file__).resolve().parents[2]
     runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -435,6 +477,7 @@ def run(runtime_dir: Path, ports: dict[str, int]) -> int:
             source="SANDBOX_SYNTHETIC",
             fixture_only=True,
             external_effect=False,
+            launcher_pid=os.getpid(),
             runtime_dir=str(runtime_dir.resolve()),
             web_url=f"http://127.0.0.1:{ports['web']}/#live-home",
             media_descriptor=str(media_descriptor.resolve()),
@@ -462,10 +505,16 @@ def run(runtime_dir: Path, ports: dict[str, int]) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the complete synthetic Xiao Ju Deng sandbox")
     parser.add_argument("--serve", action="store_true")
+    parser.add_argument("--stop", action="store_true")
     parser.add_argument("--runtime-dir", type=Path)
     args = parser.parse_args()
+    if args.stop:
+        if args.runtime_dir is None:
+            raise SystemExit("--stop requires --runtime-dir")
+        print(json.dumps(stop_runtime(args.runtime_dir), sort_keys=True))
+        return 0
     if not args.serve:
-        raise SystemExit("use --serve")
+        raise SystemExit("use --serve or --stop")
     runtime_dir = args.runtime_dir or Path(tempfile.mkdtemp(prefix="xiaojudeng-runtime-"))
     return run(runtime_dir, DEFAULT_PORTS)
 
