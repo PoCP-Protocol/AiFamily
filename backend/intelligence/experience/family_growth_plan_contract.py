@@ -183,6 +183,64 @@ class FamilyGrowthPlanPreparation:
     knowledge_selection_ref: str
     request_fingerprint: str
 
+
+@dataclass(frozen=True, slots=True)
+class PreparedGrowthPlanRequest:
+    preparation_ref: str
+    request: StructuredRequest
+
+
+class FamilyGrowthPlanContractService:
+    """Only public preparation/validation path for this model contract."""
+
+    def __init__(
+        self,
+        confirmation_repository: ConfirmedUnderstandingRepository,
+        knowledge_repository: PlanKnowledgeSelectionRepository,
+    ) -> None:
+        self._confirmation_repository = confirmation_repository
+        self._knowledge_repository = knowledge_repository
+        self._preparations: dict[str, FamilyGrowthPlanPreparation] = {}
+
+    async def prepare(
+        self,
+        *,
+        preparation_ref: str,
+        scope: FamilyGrowthPlanScope,
+        confirmation_ref: str,
+        knowledge_selection_ref: str,
+        run_id: str,
+        data_class: DataClass,
+        context_snapshot_ref: str,
+        locale: str = "zh-CN",
+    ) -> PreparedGrowthPlanRequest:
+        if not preparation_ref.strip():
+            raise ValueError("growth plan preparation ref is required")
+        if preparation_ref in self._preparations:
+            raise ValueError("growth plan preparation ref already exists")
+        preparation = await _prepare_family_growth_plan_request(
+            confirmation_repository=self._confirmation_repository,
+            knowledge_repository=self._knowledge_repository,
+            scope=scope,
+            confirmation_ref=confirmation_ref,
+            knowledge_selection_ref=knowledge_selection_ref,
+            run_id=run_id,
+            data_class=data_class,
+            context_snapshot_ref=context_snapshot_ref,
+            locale=locale,
+        )
+        self._preparations[preparation_ref] = preparation
+        return PreparedGrowthPlanRequest(preparation_ref, preparation.request)
+
+    def validate_output(
+        self, *, preparation_ref: str, output: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        try:
+            preparation = self._preparations[preparation_ref]
+        except KeyError as exc:
+            raise ValueError("growth plan preparation is unknown") from exc
+        return _validate_family_growth_plan_output(output, preparation=preparation)
+
 FAMILY_GROWTH_PLAN_INSTRUCTIONS = """你是 AiFamily 的家庭成长方案设计伙伴。
 
 输入已经经过家长确认，包含家庭希望发生的变化、仍待验证的理解、家庭已有能力，以及经审核的
@@ -360,7 +418,7 @@ def family_growth_plan_output_schema() -> dict[str, Any]:
     return deepcopy(_OUTPUT_SCHEMA)
 
 
-async def prepare_family_growth_plan_request(
+async def _prepare_family_growth_plan_request(
     *,
     confirmation_repository: ConfirmedUnderstandingRepository,
     knowledge_repository: PlanKnowledgeSelectionRepository,
@@ -481,7 +539,7 @@ def _build_family_growth_plan_request(
     )
 
 
-def validate_family_growth_plan_output(
+def _validate_family_growth_plan_output(
     output: Mapping[str, Any],
     *,
     preparation: FamilyGrowthPlanPreparation,
@@ -620,12 +678,11 @@ __all__ = [
     "FAMILY_GROWTH_PLAN_USE_CASE",
     "ConfirmedUnderstandingReceipt",
     "ConfirmedUnderstandingRepository",
-    "FamilyGrowthPlanPreparation",
+    "FamilyGrowthPlanContractService",
     "FamilyGrowthPlanScope",
     "PlanKnowledgeSelectionRepository",
+    "PreparedGrowthPlanRequest",
     "PublishedKnowledgeSelection",
     "PublishedPlanKnowledge",
-    "prepare_family_growth_plan_request",
     "family_growth_plan_output_schema",
-    "validate_family_growth_plan_output",
 ]

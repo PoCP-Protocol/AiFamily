@@ -8,12 +8,11 @@ import pytest
 
 from backend.intelligence.experience.family_growth_plan_contract import (
     ConfirmedUnderstandingReceipt,
+    FamilyGrowthPlanContractService,
     FamilyGrowthPlanScope,
     PublishedKnowledgeSelection,
     PublishedPlanKnowledge,
     family_growth_plan_output_schema,
-    prepare_family_growth_plan_request,
-    validate_family_growth_plan_output,
 )
 
 
@@ -166,7 +165,7 @@ def _scope() -> FamilyGrowthPlanScope:
 
 
 def test_builds_a_real_generation_request_without_fixed_plan_content() -> None:
-    request = _preparation().request
+    request = _prepared()[1].request
 
     assert request.use_case == "family_growth_plan_draft"
     assert request.payload["generation_contract"]["fixed_horizon_forbidden"] is True
@@ -181,9 +180,7 @@ def test_builds_a_real_generation_request_without_fixed_plan_content() -> None:
 
 
 def test_validates_generated_depth_and_reference_grounding() -> None:
-    validated = validate_family_growth_plan_output(
-        _output(), preparation=_preparation()
-    )
+    validated = _validate(_output())
 
     assert validated["duration"]["days"] == 28
     assert len(validated["stages"]) == 2
@@ -194,12 +191,12 @@ def test_rejects_invented_evidence_or_knowledge_refs() -> None:
     invented_evidence = deepcopy(_output())
     invented_evidence["family_goal"]["evidence_refs"] = ["input:invented"]
     with pytest.raises(ValueError, match="evidence outside"):
-        validate_family_growth_plan_output(invented_evidence, preparation=_preparation())
+        _validate(invented_evidence)
 
     invented_knowledge = deepcopy(_output())
     invented_knowledge["stages"][0]["knowledge_refs"] = ["knowledge:invented"]
     with pytest.raises(ValueError, match="knowledge outside"):
-        validate_family_growth_plan_output(invented_knowledge, preparation=_preparation())
+        _validate(invented_knowledge)
 
 
 def test_schema_copy_is_isolated_and_requires_meaningful_stages() -> None:
@@ -211,7 +208,7 @@ def test_schema_copy_is_isolated_and_requires_meaningful_stages() -> None:
     shallow = _output()
     shallow["stages"] = [shallow["stages"][0]]
     with pytest.raises(ValueError, match="at least two stages"):
-        validate_family_growth_plan_output(shallow, preparation=_preparation())
+        _validate(shallow)
 
 
 def test_rejects_unconfirmed_or_unpublished_inputs() -> None:
@@ -237,7 +234,7 @@ def test_information_gap_does_not_fabricate_a_plan() -> None:
         "limitations": ["目前缺少孩子愿意参与的方式。"],
     }
 
-    validated = validate_family_growth_plan_output(output, preparation=_preparation())
+    validated = _validate(output)
     assert "duration" not in validated
     assert "stages" not in validated
 
@@ -248,21 +245,22 @@ def test_rejects_duplicate_or_generic_practices() -> None:
         duplicate["stages"][0]["practices"][0]["description"]
     )
     with pytest.raises(ValueError, match="must not repeat"):
-        validate_family_growth_plan_output(duplicate, preparation=_preparation())
+        _validate(duplicate)
 
     generic = _output()
     generic["stages"][0]["practices"][0]["description"] = "多沟通"
     with pytest.raises(ValueError, match="generic practice"):
-        validate_family_growth_plan_output(generic, preparation=_preparation())
+        _validate(generic)
 
 
 def test_repositories_cannot_return_cross_family_or_wrong_purpose_records() -> None:
     wrong_scope = FamilyGrowthPlanScope("tenant:1", "family:other", ("guardian:1",))
     with pytest.raises(ValueError, match="scope mismatch"):
         asyncio.run(
-            prepare_family_growth_plan_request(
-                confirmation_repository=_ConfirmationRepository(),
-                knowledge_repository=_KnowledgeRepository(),
+            FamilyGrowthPlanContractService(
+                _ConfirmationRepository(), _KnowledgeRepository()
+            ).prepare(
+                preparation_ref="preparation:wrong-scope",
                 scope=wrong_scope,
                 confirmation_ref="confirmation:understanding:1",
                 knowledge_selection_ref="selection:1",
@@ -279,9 +277,10 @@ def test_repositories_cannot_return_cross_family_or_wrong_purpose_records() -> N
     )
     with pytest.raises(ValueError, match="purpose mismatch"):
         asyncio.run(
-            prepare_family_growth_plan_request(
-                confirmation_repository=_ConfirmationRepository(),
-                knowledge_repository=_KnowledgeRepository(wrong),
+            FamilyGrowthPlanContractService(
+                _ConfirmationRepository(), _KnowledgeRepository(wrong)
+            ).prepare(
+                preparation_ref="preparation:wrong-purpose",
                 scope=_scope(),
                 confirmation_ref="confirmation:understanding:1",
                 knowledge_selection_ref="selection:1",
@@ -298,9 +297,10 @@ def test_repositories_cannot_return_cross_family_or_wrong_purpose_records() -> N
     )
     with pytest.raises(ValueError, match="item purpose or scope mismatch"):
         asyncio.run(
-            prepare_family_growth_plan_request(
-                confirmation_repository=_ConfirmationRepository(),
-                knowledge_repository=_KnowledgeRepository(wrong_item),
+            FamilyGrowthPlanContractService(
+                _ConfirmationRepository(), _KnowledgeRepository(wrong_item)
+            ).prepare(
+                preparation_ref="preparation:wrong-item",
                 scope=_scope(),
                 confirmation_ref="confirmation:understanding:1",
                 knowledge_selection_ref="selection:1",
@@ -312,29 +312,51 @@ def test_repositories_cannot_return_cross_family_or_wrong_purpose_records() -> N
 
 
 def test_validator_rejects_modified_preparation_request() -> None:
-    preparation = _preparation()
-    preparation.request.payload["allowed_evidence_refs"].append("input:invented")
+    service, prepared = _prepared()
+    prepared.request.payload["allowed_evidence_refs"].append("input:invented")
     with pytest.raises(ValueError, match="modified"):
-        validate_family_growth_plan_output(_output(), preparation=preparation)
+        service.validate_output(preparation_ref=prepared.preparation_ref, output=_output())
 
-    preparation = _preparation()
-    changed = replace(preparation.request, data_class="FAMILY_PRIVATE_TEXT")
+    service, prepared = _prepared()
+    internal = service._preparations[prepared.preparation_ref]
+    service._preparations[prepared.preparation_ref] = replace(
+        internal, request=replace(internal.request, data_class="FAMILY_PRIVATE_TEXT")
+    )
     with pytest.raises(ValueError, match="modified"):
-        validate_family_growth_plan_output(
-            _output(), preparation=replace(preparation, request=changed)
-        )
+        service.validate_output(preparation_ref=prepared.preparation_ref, output=_output())
 
 
-def _preparation():
-    return asyncio.run(
-        prepare_family_growth_plan_request(
-            confirmation_repository=_ConfirmationRepository(),
-            knowledge_repository=_KnowledgeRepository(),
+def test_public_service_rejects_unknown_or_duplicate_preparation_refs() -> None:
+    service = FamilyGrowthPlanContractService(
+        _ConfirmationRepository(), _KnowledgeRepository()
+    )
+    with pytest.raises(ValueError, match="unknown"):
+        service.validate_output(preparation_ref="preparation:handmade", output=_output())
+    asyncio.run(_prepare_with(service, "preparation:1"))
+    with pytest.raises(ValueError, match="already exists"):
+        asyncio.run(_prepare_with(service, "preparation:1"))
+
+
+def _prepare_with(service, preparation_ref):
+    return service.prepare(
+            preparation_ref=preparation_ref,
             scope=_scope(),
             confirmation_ref="confirmation:understanding:1",
             knowledge_selection_ref="selection:1",
             run_id="run:plan:1",
             data_class="SYNTHETIC",
             context_snapshot_ref="context:plan:1",
-        )
     )
+
+
+def _prepared():
+    service = FamilyGrowthPlanContractService(
+        _ConfirmationRepository(), _KnowledgeRepository()
+    )
+    prepared = asyncio.run(_prepare_with(service, "preparation:1"))
+    return service, prepared
+
+
+def _validate(output):
+    service, prepared = _prepared()
+    return service.validate_output(preparation_ref=prepared.preparation_ref, output=output)
