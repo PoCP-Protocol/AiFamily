@@ -1,8 +1,9 @@
-"""Minimal structural validation of model output.
+"""Structural validation of model output.
 
-Scope is deliberately narrow: `type`, `required`, `properties` (recursively),
-`items`, and `enum`. That covers what output schemas in this platform actually
-need — "the required fields are present and are the right shape" — and it adds no
+The validator implements the schema subset used by AiFamily model contracts:
+`type`, `required`, `properties`, `additionalProperties`, `items`, `minItems`,
+`maxItems`, `minLength`, and `enum`.  These constraints are enough to reject
+shallow template-shaped output and undeclared model fields without adding a new
 dependency.
 
 Why not a full JSON Schema library: adding one is an R11 dependency decision that
@@ -85,12 +86,23 @@ class SchemaValidator:
         if isinstance(enum, list) and value not in enum:
             problems.append(f"{path}: {value!r} is not one of {enum}")
 
+        if isinstance(value, str):
+            min_length = schema.get("minLength")
+            if isinstance(min_length, int) and len(value) < min_length:
+                problems.append(
+                    f"{path}: string length {len(value)} is below minLength {min_length}"
+                )
+
         if isinstance(value, dict):
             for name in schema.get("required") or []:
                 if name not in value:
                     problems.append(f"{path}: missing required property {name!r}")
             properties = schema.get("properties")
             if isinstance(properties, dict):
+                if schema.get("additionalProperties") is False:
+                    extras = sorted(set(value) - set(properties))
+                    if extras:
+                        problems.append(f"{path}: undeclared properties {extras}")
                 for name, sub_schema in properties.items():
                     if name in value and isinstance(sub_schema, dict):
                         self._check(
@@ -98,6 +110,12 @@ class SchemaValidator:
                         )
 
         if isinstance(value, list):
+            min_items = schema.get("minItems")
+            if isinstance(min_items, int) and len(value) < min_items:
+                problems.append(f"{path}: item count {len(value)} is below minItems {min_items}")
+            max_items = schema.get("maxItems")
+            if isinstance(max_items, int) and len(value) > max_items:
+                problems.append(f"{path}: item count {len(value)} exceeds maxItems {max_items}")
             items = schema.get("items")
             if isinstance(items, dict):
                 for index, element in enumerate(value):

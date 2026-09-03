@@ -148,7 +148,9 @@ def test_server_builds_deep_multimodal_request_without_client_prompt_or_schema()
         "input:concern-1",
         "input:follow-up-1",
         "media:authorized:homework-scene",
-        "knowledge:transition:reviewed:v1",
+    )
+    assert request.payload["reviewed_knowledge"][0]["knowledge_ref"] == (
+        "knowledge:transition:reviewed:v1"
     )
     assert request.output_schema["required"] == [
         "understanding",
@@ -185,6 +187,49 @@ def test_schema_accepts_deep_generated_understanding_and_rejects_shallow_copy() 
     assert excinfo.value.kind == "SCHEMA_INVALID"
 
 
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda value: value.update({"next_step": "浅层模板动作"}),
+        lambda value: value.update({"hypotheses": []}),
+        lambda value: value.update({"limitations": []}),
+        lambda value: value.update({"hypotheses": value["hypotheses"] * 4}),
+    ],
+    ids=["undeclared-field", "empty-hypotheses", "empty-limitations", "too-many-hypotheses"],
+)
+def test_schema_rejects_extra_fields_and_invalid_collection_sizes(mutate) -> None:
+    value = _valid_output()
+    mutate(value)
+
+    with pytest.raises(ModelGatewayError) as excinfo:
+        SchemaValidator().validate(
+            value,
+            family_problem_understanding_output_schema(),
+            provider_id="contract-test",
+        )
+    assert excinfo.value.kind == "SCHEMA_INVALID"
+
+
+def test_schema_rejects_blank_nested_strings_and_non_evidence_source_types() -> None:
+    blank = _valid_output()
+    blank["understanding"]["central_tension"] = ""
+    with pytest.raises(ModelGatewayError, match="minLength"):
+        SchemaValidator().validate(
+            blank,
+            family_problem_understanding_output_schema(),
+            provider_id="contract-test",
+        )
+
+    invalid_source = _valid_output()
+    invalid_source["hypotheses"][0]["evidence"][0]["source_type"] = "KNOWLEDGE"
+    with pytest.raises(ModelGatewayError, match="not one of"):
+        SchemaValidator().validate(
+            invalid_source,
+            family_problem_understanding_output_schema(),
+            provider_id="contract-test",
+        )
+
+
 def test_follow_up_requires_lineage_and_server_schema_copies_are_isolated() -> None:
     with pytest.raises(ValueError, match="prior_run_id"):
         build_family_problem_understanding_request(
@@ -198,6 +243,23 @@ def test_follow_up_requires_lineage_and_server_schema_copies_are_isolated() -> N
     second = family_problem_understanding_output_schema()
     first["required"].append("client_override")
     assert "client_override" not in second["required"]
+
+
+def test_conversation_turn_requires_rfc3339_timezone() -> None:
+    with pytest.raises(ValueError, match="timezone"):
+        FamilyConversationTurn(
+            input_ref="input:no-timezone",
+            kind="CONCERN",
+            text="今天写作业前发生了争吵。",
+            created_at="2026-09-03T09:00:00",
+        )
+    with pytest.raises(ValueError, match="RFC3339"):
+        FamilyConversationTurn(
+            input_ref="input:invalid-time",
+            kind="CONCERN",
+            text="今天写作业前发生了争吵。",
+            created_at="not-a-time",
+        )
 
 
 @pytest.mark.asyncio

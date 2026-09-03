@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Literal
 
 from backend.intelligence.model_gateway.contracts import (
@@ -57,6 +58,12 @@ class FamilyConversationTurn:
             raise ValueError("conversation turn fields must be non-empty")
         if self.kind not in {"CONCERN", "FOLLOW_UP", "CORRECTION"}:
             raise ValueError(f"unsupported conversation turn kind: {self.kind!r}")
+        try:
+            parsed = datetime.fromisoformat(self.created_at.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("conversation turn created_at must be RFC3339") from exc
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError("conversation turn created_at must include a timezone")
 
     def as_payload(self) -> dict[str, str]:
         return {
@@ -105,21 +112,26 @@ class ReviewedKnowledgeExcerpt:
         }
 
 
+_NON_EMPTY_STRING: dict[str, Any] = {"type": "string", "minLength": 1}
+
 _EVIDENCE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["source_type", "source_ref", "observation"],
+    "additionalProperties": False,
     "properties": {
         "source_type": {
             "type": "string",
-            "enum": ["PARENT_TEXT", "AUTHORIZED_IMAGE", "CONTEXT", "KNOWLEDGE"],
+            "minLength": 1,
+            "enum": ["PARENT_TEXT", "AUTHORIZED_IMAGE"],
         },
-        "source_ref": {"type": "string"},
-        "observation": {"type": "string"},
+        "source_ref": _NON_EMPTY_STRING,
+        "observation": _NON_EMPTY_STRING,
     },
 }
 
 _OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
+    "additionalProperties": False,
     "required": [
         "understanding",
         "hypotheses",
@@ -133,14 +145,17 @@ _OUTPUT_SCHEMA: dict[str, Any] = {
         "understanding": {
             "type": "object",
             "required": ["lived_experience", "central_tension", "care_intent"],
+            "additionalProperties": False,
             "properties": {
-                "lived_experience": {"type": "string"},
-                "central_tension": {"type": "string"},
-                "care_intent": {"type": "string"},
+                "lived_experience": _NON_EMPTY_STRING,
+                "central_tension": _NON_EMPTY_STRING,
+                "care_intent": _NON_EMPTY_STRING,
             },
         },
         "hypotheses": {
             "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
             "items": {
                 "type": "object",
                 "required": [
@@ -152,22 +167,33 @@ _OUTPUT_SCHEMA: dict[str, Any] = {
                     "confidence",
                     "disconfirming_evidence_needed",
                 ],
+                "additionalProperties": False,
                 "properties": {
-                    "hypothesis_id": {"type": "string"},
-                    "statement": {"type": "string"},
-                    "rationale": {"type": "string"},
-                    "evidence": {"type": "array", "items": _EVIDENCE_SCHEMA},
-                    "knowledge_refs": {"type": "array", "items": {"type": "string"}},
+                    "hypothesis_id": _NON_EMPTY_STRING,
+                    "statement": _NON_EMPTY_STRING,
+                    "rationale": _NON_EMPTY_STRING,
+                    "evidence": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": _EVIDENCE_SCHEMA,
+                    },
+                    "knowledge_refs": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": _NON_EMPTY_STRING,
+                    },
                     "confidence": {
                         "type": "string",
+                        "minLength": 1,
                         "enum": ["LOW", "MEDIUM", "HIGH"],
                     },
-                    "disconfirming_evidence_needed": {"type": "string"},
+                    "disconfirming_evidence_needed": _NON_EMPTY_STRING,
                 },
             },
         },
         "unknowns": {
             "type": "array",
+            "minItems": 1,
             "items": {
                 "type": "object",
                 "required": [
@@ -176,56 +202,81 @@ _OUTPUT_SCHEMA: dict[str, Any] = {
                     "why_it_matters",
                     "related_hypothesis_ids",
                 ],
+                "additionalProperties": False,
                 "properties": {
-                    "unknown_id": {"type": "string"},
-                    "description": {"type": "string"},
-                    "why_it_matters": {"type": "string"},
+                    "unknown_id": _NON_EMPTY_STRING,
+                    "description": _NON_EMPTY_STRING,
+                    "why_it_matters": _NON_EMPTY_STRING,
                     "related_hypothesis_ids": {
                         "type": "array",
-                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "items": _NON_EMPTY_STRING,
                     },
                 },
             },
         },
         "follow_up_questions": {
             "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
             "items": {
                 "type": "object",
                 "required": ["question_id", "question", "purpose", "answers_unknown_ids"],
+                "additionalProperties": False,
                 "properties": {
-                    "question_id": {"type": "string"},
-                    "question": {"type": "string"},
-                    "purpose": {"type": "string"},
+                    "question_id": _NON_EMPTY_STRING,
+                    "question": _NON_EMPTY_STRING,
+                    "purpose": _NON_EMPTY_STRING,
                     "answers_unknown_ids": {
                         "type": "array",
-                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "items": _NON_EMPTY_STRING,
                     },
                 },
             },
         },
         "strengths": {
             "type": "array",
+            "minItems": 1,
             "items": {
                 "type": "object",
                 "required": ["statement", "evidence_refs", "why_it_matters"],
+                "additionalProperties": False,
                 "properties": {
-                    "statement": {"type": "string"},
-                    "evidence_refs": {"type": "array", "items": {"type": "string"}},
-                    "why_it_matters": {"type": "string"},
+                    "statement": _NON_EMPTY_STRING,
+                    "evidence_refs": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": _NON_EMPTY_STRING,
+                    },
+                    "why_it_matters": _NON_EMPTY_STRING,
                 },
             },
         },
         "desired_change": {
             "type": "object",
             "required": ["statement", "basis", "observable_signs", "confirmation_question"],
+            "additionalProperties": False,
             "properties": {
-                "statement": {"type": "string"},
-                "basis": {"type": "string", "enum": ["EXPLICIT", "INFERRED"]},
-                "observable_signs": {"type": "array", "items": {"type": "string"}},
-                "confirmation_question": {"type": "string"},
+                "statement": _NON_EMPTY_STRING,
+                "basis": {
+                    "type": "string",
+                    "minLength": 1,
+                    "enum": ["EXPLICIT", "INFERRED"],
+                },
+                "observable_signs": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": _NON_EMPTY_STRING,
+                },
+                "confirmation_question": _NON_EMPTY_STRING,
             },
         },
-        "limitations": {"type": "array", "items": {"type": "string"}},
+        "limitations": {
+            "type": "array",
+            "minItems": 1,
+            "items": _NON_EMPTY_STRING,
+        },
     },
 }
 
@@ -266,9 +317,8 @@ def build_family_problem_understanding_request(
 
     input_refs = tuple(item.input_ref for item in conversation_turns)
     media_refs = tuple(item.uri for item in media_inputs)
-    knowledge_refs = tuple(item.knowledge_ref for item in reviewed_knowledge)
-    all_refs = input_refs + media_refs + knowledge_refs
-    if len(set(all_refs)) != len(all_refs):
+    evidence_refs = input_refs + media_refs
+    if len(set(evidence_refs)) != len(evidence_refs):
         raise ValueError("request evidence refs must be unique")
 
     payload: dict[str, object] = {
@@ -291,7 +341,7 @@ def build_family_problem_understanding_request(
         payload=payload,
         output_schema=family_problem_understanding_output_schema(),
         context_snapshot_ref=context_snapshot_ref,
-        input_refs=all_refs,
+        input_refs=evidence_refs,
         media_inputs=media_inputs,
         request_id=run_id,
     )
