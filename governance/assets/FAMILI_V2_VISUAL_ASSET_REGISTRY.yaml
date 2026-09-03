@@ -1,0 +1,75 @@
+# Famili V2 Visual Asset Registry
+#
+# RESEARCH / GOVERNANCE — asset identity, not binary storage.
+# FAMILI_V2_STORAGE_DECISION = LOCAL_REFERENCE_PLUS_REGISTRY
+# (see ADR-0018). Binaries stay outside the AiFamily git worktree until
+# Git LFS or an approved asset store exists. .gitattributes marks *.png as
+# binary but the repo has no Git LFS policy.
+#
+# DO NOT delete historical V1 smoke assets in D:\Family.
+
+schema_version: "1.0"
+updated: "2026-09-03"
+storage_decision: LOCAL_REFERENCE_PLUS_REGISTRY
+storage_rationale: >
+  AiFamily has no Git LFS. Identity/Office/Interaction masters are ~2MB PNG each.
+  Committing them would bloat the canonical repo without an approved large-file
+  pipeline. Hashes + local absolute/relative locator are the Gate1 contract;
+  migration into git or object storage requires a later ADR.
+
+assets:
+  - asset_id: FAMILI_V2_IDENTITY_MASTER_R01
+    role: IDENTITY_MASTER
+    version: R01
+    file_name: FAMILI_V2_IDENTITY_MASTER_R01.png
+    local_locator: "D:/Famili-V2-Reference/FAMILI_V2_IDENTITY_MASTER_R01.png"
+    sha256: da7fe9d0ebc30b9f2aedd5fc55a08d04749d605e530137300e55719d498535aa
+    dimensions: {width: 1122, height: 1402}
+    approval_status: HUMAN_APPROVED_LOCAL
+    provenance: "Local Famili V2 reference set provided for Gate1"
+    usage_scope:
+      - GATE1_AVATAR_BENCHMARK_PRIMARY_IDENTITY
+      - IDENTITY_LOCK
+    gate1_primary: true
+
+  - asset_id: FAMILI_V2_OFFICE_MASTER_R01
+    role: OFFICE_MASTER
+    version: R01
+    file_name: FAMILI_V2_OFFICE_MASTER_R01.png
+    local_locator: "D:/Famili-V2-Reference/FAMILI_V2_OFFICE_MASTER_R01.png"
+    sha256: c190d69fd355b2104ec9d73edb8a3eaad64981bfe60c20ebb7aa97deee14d37e
+    approval_status: HUMAN_APPROVED_LOCAL
+    provenance: "Local Famili V2 reference set"
+    usage_scope:
+      - WORLD_APPEARANCE_REFERENCE
+      - UPPER_BODY_WARDROBE_CONTEXT
+    gate1_primary: false
+
+  - asset_id: FAMILI_V2_INTERACTION_REFERENCE_R01
+    role: INTERACTION_REFERENCE
+    version: R01
+    file_name: FAMILI_V2_INTERACTION_REFERENCE_R01.png
+    local_locator: "D:/Famili-V2-Reference/FAMILI_V2_INTERACTION_REFERENCE_R01.png"
+    sha256: edc71603789ad0942e9d44f1b4ede828d7a60dbc5d67e47ad0937cc27ba7aec6
+    approval_status: HUMAN_APPROVED_LOCAL
+    provenance: "Local Famili V2 reference set"
+    usage_scope:
+      - GATE2_ALIVENESS_REFERENCE
+      - RELATIONAL_POSTURE_REFERENCE
+    gate1_primary: false
+
+frozen_audio_for_gate1:
+  asset_id: FAMILI_RDH_SMOKE_AUDIO_V0
+  role: GATE1_FIXED_AUDIO
+  file_name: FAMILI_RDH_SMOKE_AUDIO_V0.wav
+  local_locator: >
+    D:/Family/50_开发_dev/experiments/rdh-benchmark/assets/audio-v1/FAMILI_RDH_SMOKE_AUDIO_V0.wav
+  sha256: bf0ecbe6af18235f872e1dc8f29061f4c67bb101a5de56bba3fd9efc0c684912
+  sample_rate_hz: 16000
+  channels: 1
+  duration_ms: 8811
+  source_repo: "D:/Family (READ ONLY)"
+  modifications: FORBIDDEN
+  note: >
+    Gate1 must not retune TTS in parallel with avatar engines.
+    Bytes match RDH_SMOKE_INPUT_CONTRACT_V1 / VOICE_BASELINE_CLEAN_FINAL copy.

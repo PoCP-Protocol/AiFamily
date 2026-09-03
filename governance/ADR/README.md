@@ -21,6 +21,7 @@
 | [0007](ADR-0007-product-zone-scoring-v0.md) | Product Zone Scoring Model V0 | Accepted | 2026-08-29 | 三区战略引擎打分数学模型：六维度方向语义（replaceability 唯一负向）、组内归一化加权 Differentiation/Defensibility 两指数、floor-gate 分区规则、algorithm_version 可追溯；迁自 family-ai PR-002/PR-002R |
 | [0008](ADR-0008-product-zone-governance-v0.md) | Product Zone Assessment Governance V0 | Accepted | 2026-08-29 | 三区评估治理外壳：证据硬门槛复用既有体系、recommended_zone≠approved_zone 永不覆盖、ZonePolicyVersion 重算不重写历史、Human Gate 权限模式（如实记录"研究不支持仅 UNIQUE 双签"）、Portfolio 严格六桶口径；迁自 family-ai PR-002/PR-002R |
 | [0009](ADR-0009-ruff-format-as-repo-standard.md) | 采纳 ruff format 为格式化标准 | Accepted | 2026-08-29 | T-01 清理 388 个 ruff 错误时 86% 是 E501；定向格式化 35 个文件后仓库进入"部分已格式化"混合态，判为三态中最差；采纳 ruff format 为唯一标准但**推迟全量 sweep**（多 agent 在飞，全量重排会覆盖他人未提交工作）。本 ADR 原取号 0007，与 product-zone-scoring 撞号后按本 README 的改号规则重编为 0009 |
+| [0018](ADR-0018-media-avatar-provider-and-gate1-benchmark.md) | Media Avatar Provider 与 Gate1 Offline Benchmark | Accepted | 2026-09-03 | Avatar/Media Offline 落 `backend/intelligence`；Provider 化；不硬绑引擎；人眼 Gate 不可被单测替代；AUTOavantar 仅概念重写；V2 Identity Master 为主参考；不得写 Family canonical truth |
 
 ### 决定之间的关系
 
@@ -59,7 +60,7 @@ ADR-0005 (AI 原生)      ◀──实质张力──▶  ADR-0006 (合规：能
 ## 编号规则
 
 - 格式：`ADR-NNNN-kebab-case-slug.md`，`NNNN` 为四位零填充十进制序号。
-- **严格顺序分配，永不复用。** 下一个可用编号 = 本目录现有最大编号 + 1（当前为 **0009**）。
+- **严格顺序分配，永不复用。** 下一个可用编号 = 本目录现有最大编号 + 1（当前为 **0019**）。
 - 编号一经分配即永久绑定该决定，**即使 ADR 后来被 Superseded 也不回收、不删除文件**。被取代的 ADR 保留在原位，改 `Status: Superseded` 并填 `Superseded By`——历史决定的存在本身是信息。
 - slug 描述决定的对象，不描述结论的方向（`python-only-backend` 而非 `dont-use-nestjs`）。
 - 并发写作时若两人取到同号，后合并者改号。**不允许 `ADR-0007a` 之类的分号形式。**

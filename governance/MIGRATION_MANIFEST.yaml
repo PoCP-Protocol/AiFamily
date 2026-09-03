@@ -1963,6 +1963,24 @@ entries:
     known_gaps:
       - "当前仅为进程内契约，无持久化 ProductCharter、运营审批工作流、版本发布与 family_api 运行时接线"
 
+  - capability: media_factory_gate1_benchmark
+    disposition: REIMPLEMENT
+    source: []
+    target: [backend/intelligence/media_factory]
+    status: FOUNDATION_TESTED
+    adr: governance/ADR/ADR-0018-media-avatar-provider-and-gate1-benchmark.md
+    reason: >
+      Greenfield Gate1 Offline Avatar Benchmark Foundation under R10. Not a
+      wholesale import of D:/Family multimodal TS packages. AUTOavantar is
+      code-level reference only (selective reimplementation of run isolation /
+      provenance / provider lifecycle concepts).
+    evidence:
+      - "FAMILY-MEDIA-001 reality audit: REAL_NEURAL_AVATAR_INFERENCE=ABSENT"
+      - "tests/intelligence/media_factory/test_gate1_benchmark_foundation.py"
+    note: >
+      Does NOT authorize Ditto/MuseTalk/HeyGem install, model weights, CUDA
+      changes, full Media Workflow, realtime, or Family canonical writes.
+
 # ============ 待人工裁决清单（disposition = REVIEW_REQUIRED 的完整索引） ============
 review_required_index:
   - docs_current_baseline_CONTRADICTION   # 最高优先级——与源仓库既有Python迁移计划的关系
