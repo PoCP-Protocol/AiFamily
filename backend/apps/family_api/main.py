@@ -8,13 +8,26 @@ machines, errors or governance gates.
 
 from __future__ import annotations
 
+import contextlib
 import os
+from collections.abc import Callable
 
 from fastapi import FastAPI
 
+from backend.apps.family_api.dev_operator_query_wiring import install_dev_operator_query_wiring
 from backend.apps.family_api.dev_wiring import install_dev_wiring, is_dev_environment
+from backend.apps.family_api.evaluation_query_api import router as evaluation_query_router
+from backend.apps.family_api.evaluation_query_wiring import install_evaluation_query_service
+from backend.apps.family_api.experience_operations_query_api import (
+    router as experience_operations_query_router,
+)
+from backend.apps.family_api.experience_operations_query_wiring import (
+    install_experience_operations_query,
+)
 from backend.apps.family_api.experience_wiring import (
+    install_engagement_runtime_resolver,
     install_experience_runtime_resolver,
+    install_feedback_runtime_resolver,
     mount_experience_router,
 )
 from backend.apps.family_api.growth_onboarding_wiring import (
@@ -35,6 +48,9 @@ from backend.domains.family_need.api.routes import (
     register_exception_handlers as register_family_need_exception_handlers,
 )
 from backend.domains.family_need.api.routes import router as family_need_router
+from backend.domains.family_need.infrastructure.wiring import (
+    install_family_need_production_wiring,
+)
 from backend.domains.journey.api.growth_onboarding_routes import (
     router as growth_onboarding_router,
 )
@@ -43,6 +59,25 @@ from backend.domains.journey.api.routes import (
 )
 from backend.domains.journey.api.routes import router as journey_router
 from backend.domains.membership.api.routes import router as membership_router
+from backend.domains.product_intelligence.api.course_routes import (
+    configure_course_content_gate,
+    configure_course_content_repository,
+)
+from backend.domains.product_intelligence.api.course_routes import (
+    router as course_content_router,
+)
+from backend.domains.product_intelligence.api.dependencies import (
+    configure_actor_resolver as configure_product_intelligence_actor_resolver,
+)
+from backend.domains.product_intelligence.application.context import (
+    ActorContext as ProductIntelligenceActorContext,
+)
+from backend.domains.product_intelligence.infrastructure.course_content_repository import (
+    InMemoryCourseContentRepository,
+)
+from backend.domains.product_intelligence.infrastructure.course_content_wiring import (
+    install_course_content_production_wiring,
+)
 from backend.domains.service.api.routes import router as service_router
 from backend.domains.service.fgcn.api.dependencies import (
     clear_session_factory as clear_fgcn_session_factory,
@@ -54,9 +89,18 @@ from backend.domains.service.fgcn.api.routes import (
     register_exception_handlers as register_fgcn_exception_handlers,
 )
 from backend.domains.service.fgcn.api.routes import router as fgcn_router
+from backend.intelligence.evaluation.query import AuthorizedEvaluationQueryService
 from backend.intelligence.experience.api import MultimodalDraftRuntimeResolver
+from backend.intelligence.experience.engagement_api import EngagementDraftRuntimeResolver
+from backend.intelligence.experience.feedback_api import AchievementFeedbackRuntimeResolver
+from backend.intelligence.experience.operations_query import (
+    AuthorizedExperienceOperationsQueryService,
+    HmacExperienceOperationsCursorSigner,
+)
+from backend.intelligence.human_gate.gate import InMemoryHumanGate
 from backend.platform.persistence.session import (
     DATABASE_URL_ENV_VAR,
+    get_engine,
     get_sessionmaker,
     is_postgres_url,
 )
@@ -131,15 +175,113 @@ def _mount_growth_onboarding(
     application.include_router(growth_onboarding_router)
 
 
+def _mount_family_need(application: FastAPI, *, database_url: str | None = None) -> None:
+    """Mount Family Need once, selecting only an explicit environment seam.
+
+    Dev/test's fake actor/service overrides are installed by
+    `install_dev_wiring` (they share process-local state with the mobile
+    SERVICE journey's teacher/offering master data, which is what lets a
+    Family Need solution draft resolve a real supply reference). This
+    function only adds the branch `install_dev_wiring` does not own:
+    production gets the PostgreSQL installer when an explicit PostgreSQL URL
+    exists; without one, or without a real policy adapter, the route stays
+    discoverable but keeps its 503 fail-closed defaults — see
+    `install_family_need_production_wiring`'s own docstring for why it
+    currently always raises.
+    """
+
+    application.include_router(family_need_router)
+    register_family_need_exception_handlers(application)
+
+    if is_dev_environment():
+        # `install_dev_wiring` (called later in `create_app`) installs the
+        # fake actor/service overrides for this router; nothing else to do
+        # here.
+        return
+
+    configured_url = database_url or _runtime_database_url()
+    if configured_url is not None and is_postgres_url(configured_url):
+        with contextlib.suppress(RuntimeError):
+            # No real FamilyNeedPolicyPort adapter exists yet (see the
+            # installer's docstring). Keep the route mounted with its 503
+            # fail-closed defaults rather than crash the whole process for a
+            # documented, in-progress gap.
+            install_family_need_production_wiring(
+                application,
+                database_url=configured_url,
+                engine=get_engine(configured_url),
+            )
+
+
+def _mount_course_content(application: FastAPI, *, database_url: str | None = None) -> None:
+    """Mount only the Course Content endpoints of `product_intelligence`.
+
+    The rest of `product_intelligence`'s router (`api/routes.py`) stays
+    unmounted — that gap is tracked separately in
+    `governance/DOMAIN_REGISTRY.yaml`. This function fixes it for exactly the
+    course-authoring/publication slice: dev/test installs an in-memory
+    repository and Human Gate plus a synthetic OPERATOR actor resolver so the
+    draft -> review -> published chain is actually callable; outside dev,
+    production installs a PostgreSQL-backed repository when an explicit
+    PostgreSQL URL exists (see `course_content_wiring.py`). The Human Gate
+    and actor resolver have no production adapter yet, so those two
+    dependencies keep their fail-closed `RuntimeError` defaults regardless —
+    a caller still gets a fail-closed error rather than a silently invented
+    tenant/actor or a synthesized review decision.
+    """
+
+    application.include_router(course_content_router)
+    if not is_dev_environment():
+        configured_url = database_url or _runtime_database_url()
+        if configured_url is not None and is_postgres_url(configured_url):
+            install_course_content_production_wiring(engine=get_engine(configured_url))
+        return
+
+    configure_course_content_repository(InMemoryCourseContentRepository())
+    configure_course_content_gate(InMemoryHumanGate())
+
+    def _dev_product_intelligence_actor(request) -> ProductIntelligenceActorContext:  # noqa: ANN001
+        tenant_scope = request.headers.get("x-tenant-scope", "dev-tenant")
+        actor_id = request.headers.get("x-actor-id", "dev-operator")
+        return ProductIntelligenceActorContext(
+            actor_id=actor_id,
+            actor_type="HUMAN",
+            tenant_scope=tenant_scope,
+            permissions=frozenset(
+                {
+                    "product_intelligence.course_content.author",
+                    "product_intelligence.course_content.review",
+                }
+            ),
+        )
+
+    configure_product_intelligence_actor_resolver(_dev_product_intelligence_actor)
+
+
 def create_app(
     *,
     experience_runtime_resolver: MultimodalDraftRuntimeResolver | None = None,
+    experience_runtime_wiring: Callable[[FastAPI], None] | None = None,
+    engagement_runtime_resolver: EngagementDraftRuntimeResolver | None = None,
+    engagement_runtime_wiring: Callable[[FastAPI], None] | None = None,
+    feedback_runtime_resolver: AchievementFeedbackRuntimeResolver | None = None,
     growth_onboarding_runtime: FakeGrowthOnboardingRuntime | None = None,
     growth_onboarding_actor_resolver: InMemoryGrowthOnboardingActorResolver | None = None,
     growth_onboarding_database_url: str | None = None,
+    evaluation_query_service: AuthorizedEvaluationQueryService | None = None,
+    experience_operations_query_service: AuthorizedExperienceOperationsQueryService | None = None,
+    experience_operations_cursor_signer: HmacExperienceOperationsCursorSigner | None = None,
+    experience_operations_query_wiring: Callable[[FastAPI], None] | None = None,
 ) -> FastAPI:
     _configure_fgcn_persistence()
     application = FastAPI(title="AiFamily family_api", version="0.1.0")
+    # Operator-only evaluation evidence is mounted in every environment for
+    # contract parity; without an explicitly composed identity-bound service,
+    # the routes remain fail-closed with 503.
+    application.include_router(evaluation_query_router)
+    # Operator-only Experience delivery metadata is mounted for contract
+    # parity; without explicit service and cursor signer it remains fail-closed.
+    application.include_router(experience_operations_query_router)
     mount_experience_router(application)
     application.include_router(router)
     # Assessment carries the only end-to-end usable business chain (UI-02 →
@@ -176,11 +318,16 @@ def create_app(
     # adapters; the route and business contract remain identical to production.
     application.include_router(commerce_router)
     # Family Need closes the first platform-level vertical slice: an explicit
-    # family expression becomes an N1 need aggregate. The default actor and
-    # application dependencies fail closed; dev/test installs synthetic
-    # adapters with the same route, errors and gates as production.
-    application.include_router(family_need_router)
-    register_family_need_exception_handlers(application)
+    # family expression becomes an N1 need aggregate, is clarified, profiled
+    # and matched against a real Product/Service supply reference. The default
+    # actor and application dependencies fail closed; dev/test installs
+    # synthetic adapters with the same route, errors and gates as production.
+    _mount_family_need(application)
+    # Course Content: the first fix for product_intelligence's "route never
+    # mounted" gap (governance/DOMAIN_REGISTRY.yaml). Only the course
+    # draft -> Human Gate review -> published slice is mounted; the rest of
+    # product_intelligence's router stays deliberately unmounted.
+    _mount_course_content(application)
     # FGCN's AI draft -> Human Gate -> Named Action control plane. Its default
     # identity/session/worker dependencies fail closed; no client can inject
     # actor or scope fields into these routes.
@@ -225,11 +372,63 @@ def create_app(
     # and uses an in-memory repository (R5: must never be reachable in production).
     if is_dev_environment():
         install_dev_wiring(application)
+        # Dev/test use the same operator API contracts with synthetic records;
+        # this module refuses installation outside the explicit allow-list.
+        install_dev_operator_query_wiring(application)
+    if engagement_runtime_resolver is not None and engagement_runtime_wiring is not None:
+        raise ValueError(
+            "engagement_runtime_resolver and engagement_runtime_wiring are mutually exclusive"
+        )
+    if experience_runtime_resolver is not None and experience_runtime_wiring is not None:
+        raise ValueError(
+            "experience_runtime_resolver and experience_runtime_wiring are mutually exclusive"
+        )
     # An explicitly supplied resolver is the composition root's authority.
     # Install it after dev wiring so a caller cannot accidentally have its
     # durable/production resolver replaced by the synthetic test override.
     if experience_runtime_resolver is not None:
         install_experience_runtime_resolver(application, experience_runtime_resolver)
+    if experience_runtime_wiring is not None:
+        if not callable(experience_runtime_wiring):
+            raise TypeError("experience_runtime_wiring must be callable")
+        experience_runtime_wiring(application)
+    if engagement_runtime_resolver is not None:
+        install_engagement_runtime_resolver(application, engagement_runtime_resolver)
+    if engagement_runtime_wiring is not None:
+        if not callable(engagement_runtime_wiring):
+            raise TypeError("engagement_runtime_wiring must be callable")
+        engagement_runtime_wiring(application)
+    if feedback_runtime_resolver is not None:
+        install_feedback_runtime_resolver(application, feedback_runtime_resolver)
+    if evaluation_query_service is not None:
+        install_evaluation_query_service(application, evaluation_query_service)
+    if experience_operations_query_wiring is not None and (
+        experience_operations_query_service is not None
+        or experience_operations_cursor_signer is not None
+    ):
+        raise ValueError(
+            "experience operations query wiring and explicit dependencies are mutually exclusive"
+        )
+    if experience_operations_query_wiring is not None:
+        if not callable(experience_operations_query_wiring):
+            raise TypeError("experience_operations_query_wiring must be callable")
+        experience_operations_query_wiring(application)
+    elif (
+        experience_operations_query_service is not None
+        or experience_operations_cursor_signer is not None
+    ):
+        if (
+            experience_operations_query_service is None
+            or experience_operations_cursor_signer is None
+        ):
+            raise TypeError(
+                "experience operations service and cursor signer must be provided together"
+            )
+        install_experience_operations_query(
+            application,
+            experience_operations_query_service,
+            experience_operations_cursor_signer,
+        )
     return application
 
 
