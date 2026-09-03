@@ -17,6 +17,9 @@ from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.domains.product_intelligence.application.improvement_candidate import (
+    record_improvement_candidate,
+)
 from backend.intelligence.model_gateway.errors import ModelGatewayError
 
 from ..application.ai_coach import request_coach_perspective
@@ -698,6 +701,23 @@ async def confirm_solution_draft(
         family_need_repository=service._repository,
         fgcn_provider_admission=fulfillment.fgcn_provider_admission,
     )
+
+    # N4 (continued): once fulfilment actually succeeded, replace the
+    # assignment plan with one that records *what it was really assigned
+    # to* — the real slot/booking/order-intent — not merely the family's
+    # authorization to attempt it. A failed fulfilment leaves the plan
+    # exactly as `create_assignment_plan` left it above: authorized, but
+    # honestly not yet (or never) resolved to a real resource.
+    if result.succeeded and (
+        result.availability_slot_id or result.booking_id or result.order_intent_id
+    ):
+        assignment_plan = assignment_plan.resolve(
+            resolved_slot_id=result.availability_slot_id,
+            resolved_booking_ref=result.booking_service_record_id or result.booking_id,
+            resolved_order_intent_ref=result.order_intent_id,
+        )
+        await service._repository.save_assignment_plan(assignment_plan)
+
     return {
         "action": "CONFIRM_SOLUTION_DRAFT",
         "boundary": "REAL_ORDER_INTENT_AND_OR_BOOKING_NO_COMPENSATION_ON_PARTIAL_FAILURE",
@@ -708,6 +728,9 @@ async def confirm_solution_draft(
             "draft_id": assignment_plan.draft_id,
             "authorization_basis": assignment_plan.authorization_basis,
             "created_at": assignment_plan.created_at.isoformat(),
+            "resolved_slot_id": assignment_plan.resolved_slot_id,
+            "resolved_booking_ref": assignment_plan.resolved_booking_ref,
+            "resolved_order_intent_ref": assignment_plan.resolved_order_intent_ref,
         },
         "fulfillment": _serialize_fulfillment(result),
     }
@@ -990,11 +1013,44 @@ async def confirm_family_outcome(
         "N8_RETRIAGE_SUGGESTED" if body.decision is FamilyOutcomeDecision.DID_NOT_HELP else None
     )
     if body.decision is FamilyOutcomeDecision.DID_NOT_HELP:
-        # N8: re-open the need through the exact same intake use case a
-        # brand-new family request uses — no parallel "retriage" pipeline —
-        # with `causation_id` naming the outcome-confirmed need this grew out
-        # of, and scope (tenant/family) identical to the original, so nothing
-        # crosses into any shared/public store.
+        # N8 (product/content side): a *separate*, cross-family,
+        # de-identified "this component did not help" signal — see
+        # `backend.domains.product_intelligence.domain.improvement_candidate`'s
+        # module docstring for why this must never carry family_id/tenant_id/
+        # child identity/the family's own free-text note. Only written when
+        # the draft that was confirmed is still resolvable (it names the
+        # actual component/shape) and the process has wired a repository;
+        # a missing draft_id or an unwired repository skips this write
+        # honestly rather than fabricating a component reference.
+        if body.draft_id and fulfillment.improvement_candidate_repository is not None:
+            resolved_draft = await service._repository.get_solution_draft(
+                tenant_id=actor.tenant_id, family_id=family_id, draft_id=body.draft_id
+            )
+            if resolved_draft is not None and resolved_draft.components:
+                resolved_profile = await service._repository.get_profile(
+                    tenant_id=actor.tenant_id,
+                    family_id=family_id,
+                    profile_id=resolved_draft.need_profile_id,
+                )
+                for component in resolved_draft.components:
+                    await record_improvement_candidate(
+                        fulfillment.improvement_candidate_repository,
+                        component_id=component.component_id,
+                        component_shape=component.shape.value,
+                        decision=body.decision.value,
+                        category=existing_need.category.value,
+                        intervention_tier=(
+                            resolved_profile.intervention_tier.value
+                            if resolved_profile is not None
+                            else "LIGHT_GUIDANCE"
+                        ),
+                    )
+
+        # N8 (family side): re-open the need through the exact same intake
+        # use case a brand-new family request uses — no parallel "retriage"
+        # pipeline — with `causation_id` naming the outcome-confirmed need
+        # this grew out of, and scope (tenant/family) identical to the
+        # original, so nothing crosses into any shared/public store.
         retriage_context = replace(
             _to_operation_context(
                 purpose="FAMILY_NEED",

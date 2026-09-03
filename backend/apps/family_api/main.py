@@ -69,6 +69,12 @@ from backend.domains.product_intelligence.api.course_routes import (
 from backend.domains.product_intelligence.api.dependencies import (
     configure_actor_resolver as configure_product_intelligence_actor_resolver,
 )
+from backend.domains.product_intelligence.api.improvement_candidate_routes import (
+    configure_improvement_candidate_repository,
+)
+from backend.domains.product_intelligence.api.improvement_candidate_routes import (
+    router as improvement_candidate_router,
+)
 from backend.domains.product_intelligence.application.context import (
     ActorContext as ProductIntelligenceActorContext,
 )
@@ -77,6 +83,9 @@ from backend.domains.product_intelligence.infrastructure.course_content_reposito
 )
 from backend.domains.product_intelligence.infrastructure.course_content_wiring import (
     install_course_content_production_wiring,
+)
+from backend.domains.product_intelligence.infrastructure.improvement_candidate_wiring import (
+    install_improvement_candidate_production_wiring,
 )
 from backend.domains.service.api.routes import router as service_router
 from backend.domains.service.fgcn.api.dependencies import (
@@ -258,6 +267,35 @@ def _mount_course_content(application: FastAPI, *, database_url: str | None = No
     configure_product_intelligence_actor_resolver(_dev_product_intelligence_actor)
 
 
+def _mount_improvement_candidates(application: FastAPI, *, database_url: str | None = None) -> None:
+    """Mount the cross-family, de-identified N8 product-improvement query.
+
+    Mirrors `_mount_course_content`'s dev/production split: dev/test installs
+    an in-memory repository so `confirm_family_outcome`'s DID_NOT_HELP write
+    and this query are visible in the same process; production installs a
+    PostgreSQL-backed repository only when an explicit PostgreSQL URL exists.
+    No actor/tenant dependency is wired here — this router carries no
+    family-scoped data by design (see
+    `backend.domains.product_intelligence.domain.improvement_candidate`).
+    """
+
+    application.include_router(improvement_candidate_router)
+    if is_dev_environment():
+        # Reuse `dev_wiring`'s own singleton (already wired into
+        # `FulfillmentDeps.improvement_candidate_repository` by
+        # `_dev_fulfillment_deps`) rather than a second, disconnected
+        # instance — otherwise `confirm_family_outcome`'s DID_NOT_HELP write
+        # would go to one repository while this query reads from another.
+        from backend.apps.family_api import dev_wiring as _dev_wiring
+
+        configure_improvement_candidate_repository(_dev_wiring._improvement_candidate_repository)
+        return
+
+    configured_url = database_url or _runtime_database_url()
+    if configured_url is not None and is_postgres_url(configured_url):
+        install_improvement_candidate_production_wiring(engine=get_engine(configured_url))
+
+
 def create_app(
     *,
     experience_runtime_resolver: MultimodalDraftRuntimeResolver | None = None,
@@ -328,6 +366,9 @@ def create_app(
     # draft -> Human Gate review -> published slice is mounted; the rest of
     # product_intelligence's router stays deliberately unmounted.
     _mount_course_content(application)
+    # N8 (product side): cross-family, de-identified "did not help" signal
+    # query for product/content teams. See `_mount_improvement_candidates`.
+    _mount_improvement_candidates(application)
     # FGCN's AI draft -> Human Gate -> Named Action control plane. Its default
     # identity/session/worker dependencies fail closed; no client can inject
     # actor or scope fields into these routes.

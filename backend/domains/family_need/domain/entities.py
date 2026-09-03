@@ -769,6 +769,18 @@ class AssignmentPlan:
     whether an AI decided this on its own — it did not (see
     `FamilyNeedApplicationService.create_assignment_plan`, which is only ever
     called after the family's own draft approval).
+
+    ``resolved_slot_id`` / ``resolved_booking_ref`` / ``resolved_order_intent_ref``
+    are the *actual outcome* of fulfilment, not the authorization basis: which
+    real `service.domain.entities.AvailabilitySlot` was booked, which real
+    booking, and which real commerce order intent. All three start `None`
+    (this plan exists before fulfilment runs) and are filled in exactly once,
+    via `resolve()`, right after `need_fulfillment_flow.fulfil_confirmed_draft`
+    returns a `FulfillmentResult` with `succeeded=True` — see
+    `backend/domains/family_need/api/routes.py::confirm_solution_draft`. Before
+    this existed, "what was this need actually assigned to" was answerable
+    only by cross-referencing the N5 booking record; `resolve()` makes it a
+    fact this aggregate itself carries.
     """
 
     plan_id: str
@@ -779,6 +791,9 @@ class AssignmentPlan:
     component_refs: tuple[SolutionComponentRef, ...]
     authorization_basis: str
     created_at: datetime
+    resolved_slot_id: str | None = None
+    resolved_booking_ref: str | None = None
+    resolved_order_intent_ref: str | None = None
 
     def __post_init__(self) -> None:
         if not self.plan_id.strip():
@@ -814,6 +829,27 @@ class AssignmentPlan:
             component_refs=tuple(component_refs),
             authorization_basis=authorization_basis,
             created_at=created_at or utcnow(),
+        )
+
+    def resolve(
+        self,
+        *,
+        resolved_slot_id: str | None = None,
+        resolved_booking_ref: str | None = None,
+        resolved_order_intent_ref: str | None = None,
+    ) -> AssignmentPlan:
+        """Attach the real resource(s) fulfilment actually assigned this plan
+        to. Only ever called after fulfilment succeeded (see class docstring);
+        callers must pass at least one real reference — calling this with
+        nothing to record is a caller bug, not a valid "no-op resolve"."""
+
+        if not any((resolved_slot_id, resolved_booking_ref, resolved_order_intent_ref)):
+            raise FamilyNeedValidationError("assignment_plan_resolution_requires_a_real_reference")
+        return replace(
+            self,
+            resolved_slot_id=resolved_slot_id or self.resolved_slot_id,
+            resolved_booking_ref=resolved_booking_ref or self.resolved_booking_ref,
+            resolved_order_intent_ref=resolved_order_intent_ref or self.resolved_order_intent_ref,
         )
 
 

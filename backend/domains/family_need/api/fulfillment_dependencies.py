@@ -26,6 +26,9 @@ from backend.domains.journey.application.outcome_loop import GrowthOutcomeLoop
 from backend.domains.product_intelligence.application.course_publication import (
     CourseContentRepository,
 )
+from backend.domains.product_intelligence.application.improvement_candidate import (
+    ImprovementCandidateRepository,
+)
 from backend.domains.service.application.ports import ConsentQueryPort, ServiceRepositoryPort
 from backend.domains.service.fgcn.admission import ProviderAdmissionQuery
 from backend.platform.audit.recorder import AuditRecorder
@@ -85,6 +88,13 @@ class FulfillmentDeps:
     # direct-booking behaviour exactly as before.
     family_need_repository: FamilyNeedRepositoryPort | None = None
     fgcn_provider_admission: ProviderAdmissionQuery | None = None
+    # N8 (continued): the cross-family, de-identified "did not help" signal
+    # sink `confirm_family_outcome` writes to in addition to the family's own
+    # private N8 re-triage signal. `None` means the process has not wired
+    # `product_intelligence`'s improvement-candidate store — the route skips
+    # writing this signal rather than failing the family's own outcome
+    # confirmation over a missing product-analytics sink.
+    improvement_candidate_repository: ImprovementCandidateRepository | None = None
 
 
 def get_fulfillment_deps() -> FulfillmentDeps:

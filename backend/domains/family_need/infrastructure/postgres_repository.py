@@ -562,6 +562,9 @@ class SqlAlchemyFamilyNeedRepository:
             "component_refs": _dump(_components_to_json(plan.component_refs)),
             "authorization_basis": plan.authorization_basis,
             "created_at": plan.created_at,
+            "resolved_slot_id": plan.resolved_slot_id,
+            "resolved_booking_ref": plan.resolved_booking_ref,
+            "resolved_order_intent_ref": plan.resolved_order_intent_ref,
         }
         try:
             await self._connection.execute(
@@ -569,12 +572,23 @@ class SqlAlchemyFamilyNeedRepository:
                     """
                     insert into family_need_assignment_plans(
                       plan_id, tenant_id, family_id, need_id, draft_id, component_refs,
-                      authorization_basis, created_at
+                      authorization_basis, created_at, resolved_slot_id, resolved_booking_ref,
+                      resolved_order_intent_ref
                     ) values (
                       :plan_id, :tenant_id, :family_id, :need_id, :draft_id, :component_refs,
-                      :authorization_basis, :created_at
+                      :authorization_basis, :created_at, :resolved_slot_id, :resolved_booking_ref,
+                      :resolved_order_intent_ref
                     )
-                    on conflict (tenant_id, plan_id) do nothing
+                    on conflict (tenant_id, plan_id) do update set
+                      resolved_slot_id=excluded.resolved_slot_id,
+                      resolved_booking_ref=excluded.resolved_booking_ref,
+                      resolved_order_intent_ref=excluded.resolved_order_intent_ref
+                    where family_need_assignment_plans.resolved_slot_id is distinct from
+                          excluded.resolved_slot_id
+                       or family_need_assignment_plans.resolved_booking_ref is distinct from
+                          excluded.resolved_booking_ref
+                       or family_need_assignment_plans.resolved_order_intent_ref is distinct from
+                          excluded.resolved_order_intent_ref
                     """
                 ),
                 params,
@@ -890,6 +904,9 @@ def _assignment_plan_from_row(row) -> AssignmentPlan:
         component_refs=_components_from_json(row["component_refs"]),
         authorization_basis=row["authorization_basis"],
         created_at=row["created_at"],
+        resolved_slot_id=row["resolved_slot_id"],
+        resolved_booking_ref=row["resolved_booking_ref"],
+        resolved_order_intent_ref=row["resolved_order_intent_ref"],
     )
 
 

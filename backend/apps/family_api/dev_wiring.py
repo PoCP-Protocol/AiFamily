@@ -116,6 +116,9 @@ from backend.domains.product_intelligence.domain.course_content import CourseLes
 from backend.domains.product_intelligence.infrastructure.course_content_repository import (
     InMemoryCourseContentRepository,
 )
+from backend.domains.product_intelligence.infrastructure.improvement_candidate_repository import (
+    InMemoryImprovementCandidateRepository,
+)
 from backend.domains.service.api import dependencies as service_deps
 from backend.domains.service.application.context import ActionContext
 from backend.domains.service.application.master_data import ensure_mobile_master_data
@@ -178,6 +181,7 @@ _family_need_repository = FakeFamilyNeedRepository()
 _family_need_policy = FakeFamilyNeedPolicy()
 _course_content_repository = InMemoryCourseContentRepository()
 _course_human_gate = InMemoryHumanGate()
+_improvement_candidate_repository = InMemoryImprovementCandidateRepository()
 
 
 class _DevProviderAdmissionQuery:
@@ -972,6 +976,7 @@ def _dev_fulfillment_deps() -> family_need_fulfillment_deps.FulfillmentDeps:
         course_catalog_tenant_scope=DEV_COURSE_CATALOG_TENANT_SCOPE,
         family_need_repository=_family_need_repository,
         fgcn_provider_admission=_dev_fgcn_provider_admission,
+        improvement_candidate_repository=_improvement_candidate_repository,
     )
 
 
@@ -1253,6 +1258,7 @@ def reset_dev_state() -> None:
     global _repository, _commerce_repository, _assessment_repository
     global _family_need_repository, _family_need_policy, _family_need_service
     global _course_content_repository, _course_human_gate
+    global _improvement_candidate_repository
     global _experience_run_ledgers, _experience_context_brokers, _experience_draft_registries
     global _journey_outcome_loop
     _repository = FakeServiceRepository()
@@ -1261,6 +1267,7 @@ def reset_dev_state() -> None:
     _family_need_policy = FakeFamilyNeedPolicy()
     _course_content_repository = InMemoryCourseContentRepository()
     _course_human_gate = InMemoryHumanGate()
+    _improvement_candidate_repository = InMemoryImprovementCandidateRepository()
     _family_need_service = FamilyNeedApplicationService(
         _family_need_repository,
         _family_need_policy,
