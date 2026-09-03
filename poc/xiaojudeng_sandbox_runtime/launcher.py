@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -69,6 +71,16 @@ def atomic_json(path: Path, payload: dict[str, object]) -> None:
     temporary.replace(path)
 
 
+def payload_digest(payload: dict[str, object]) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def signed_payload_digest(payload: dict[str, object], secret: str) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return hmac.new(secret.encode("utf-8"), encoded.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
 def dynamic_ports() -> dict[str, int]:
     ports: dict[str, int] = {}
     reserved: set[int] = set()
@@ -121,6 +133,13 @@ class RuntimeControlServer:
                     or body.get("runtime_id") != owner.runtime_id
                 ):
                     self.send_error(403)
+                    return
+                expected_digest = payload_digest(owner.identity)
+                supplied_digest = body.get("identity_digest")
+                if not isinstance(supplied_digest, str) or not secrets.compare_digest(
+                    supplied_digest, expected_digest
+                ):
+                    self.send_error(409)
                     return
                 payload = json.dumps(owner.identity, sort_keys=True).encode("utf-8")
                 self.send_response(202)
@@ -466,6 +485,9 @@ def stop_runtime(runtime_dir: Path) -> dict[str, object]:
         or manifest.get("control_url") != control.get("control_url")
     ):
         raise RuntimeError("refusing to stop an unverified runtime")
+    secret = control.get("secret")
+    if not isinstance(secret, str) or len(secret) < 32:
+        raise RuntimeError("sandbox runtime control secret is invalid")
     launcher_pid = manifest.get("launcher_pid")
     if not isinstance(launcher_pid, int) or launcher_pid <= 0 or launcher_pid == os.getpid():
         raise RuntimeError("sandbox launcher pid is invalid")
@@ -479,9 +501,26 @@ def stop_runtime(runtime_dir: Path) -> dict[str, object]:
     ports = set(manifest["ports"].values())
     media = json.loads(Path(manifest["media_descriptor"]).read_text(encoding="utf-8"))
     ports.add(int(urllib.parse.urlsplit(media["control_url"]).port))
+    expected_identity = {
+        key: manifest[key]
+        for key in (
+            "runtime_id",
+            "generation",
+            "launcher_pid",
+            "started_at",
+            "executable",
+            "runtime_dir",
+        )
+    }
+    expected_identity["service_pids"] = service_pids
     request = urllib.request.Request(
         f"{control['control_url']}/stop",
-        data=json.dumps({"runtime_id": control["runtime_id"]}).encode("utf-8"),
+        data=json.dumps(
+            {
+                "runtime_id": control["runtime_id"],
+                "identity_digest": payload_digest(expected_identity),
+            }
+        ).encode("utf-8"),
         method="POST",
         headers={
             "Content-Type": "application/json",
@@ -496,14 +535,25 @@ def stop_runtime(runtime_dir: Path) -> dict[str, object]:
             if all(not process_exists(process_id) for process_id in service_pids.values()) and all(
                 port_is_free(port) for port in ports
             ):
-                return {"status": "ALREADY_STOPPED", "launcher_pid": launcher_pid}
+                receipt_path = runtime_dir / "stopped.json"
+                if not receipt_path.is_file():
+                    raise RuntimeError("stopped runtime is missing a trusted receipt") from exc
+                receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+                signature = receipt.pop("receipt_digest", None)
+                if (
+                    not isinstance(signature, str)
+                    or not secrets.compare_digest(signature, signed_payload_digest(receipt, secret))
+                    or receipt.get("status") != "STOPPED"
+                    or receipt.get("runtime_id") != manifest["runtime_id"]
+                    or receipt.get("generation") != manifest["generation"]
+                    or receipt.get("launcher_pid") != launcher_pid
+                    or receipt.get("service_pids") != service_pids
+                    or receipt.get("released_ports") != sorted(ports)
+                ):
+                    raise RuntimeError("stopped runtime receipt identity mismatch") from exc
+                return {**receipt, "receipt_digest": signature, "status": "ALREADY_STOPPED"}
             raise RuntimeError("sandbox launcher stopped but verified resources remain") from exc
         raise RuntimeError(f"verified sandbox stop endpoint failed: {exc}") from exc
-    expected_identity = {
-        key: manifest[key]
-        for key in ("runtime_id", "launcher_pid", "started_at", "executable", "runtime_dir")
-    }
-    expected_identity["service_pids"] = service_pids
     if identity != expected_identity:
         raise RuntimeError("runtime control identity mismatch")
     deadline = time.monotonic() + 15
@@ -528,6 +578,7 @@ def stop_runtime(runtime_dir: Path) -> dict[str, object]:
         "service_pids": expected_identity["service_pids"],
         "stopped_at": datetime.now(UTC).isoformat(),
     }
+    receipt["receipt_digest"] = signed_payload_digest(receipt, secret)
     atomic_json(runtime_dir / "stopped.json", receipt)
     return receipt
 
@@ -588,6 +639,7 @@ def run(runtime_dir: Path, ports: dict[str, int]) -> int:
     started_at = datetime.now(UTC).isoformat()
     identity: dict[str, object] = {
         "runtime_id": runtime_id,
+        "generation": generation,
         "launcher_pid": os.getpid(),
         "started_at": started_at,
         "executable": str(Path(sys.executable).resolve()),

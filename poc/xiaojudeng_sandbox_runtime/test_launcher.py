@@ -17,9 +17,13 @@ from poc.xiaojudeng_sandbox_runtime.launcher import (
     parse_port_overrides,
     process_exists,
     seed_live_session,
+    signed_payload_digest,
     stop_runtime,
+    wait_for_health,
     web_environment,
 )
+
+TEST_SECRET = "sandbox-test-secret-" * 3
 
 
 def test_process_exists_handles_current_and_invalid_processes() -> None:
@@ -122,13 +126,14 @@ def test_stop_runtime_requires_verified_control_identity_and_released_resources(
 ) -> None:
     identity = {
         "runtime_id": "runtime-test",
+        "generation": "generation-test",
         "launcher_pid": 43210,
         "started_at": "2026-09-03T00:00:00+00:00",
         "executable": str(Path(sys.executable).resolve()),
         "runtime_dir": str(tmp_path.resolve()),
         "service_pids": {"media": 43211},
     }
-    control = RuntimeControlServer("runtime-test", "secret-test", identity)
+    control = RuntimeControlServer("runtime-test", TEST_SECRET, identity)
     control.start()
     media = tmp_path / "media.json"
     media.write_text(json.dumps({"control_url": "http://127.0.0.1:54321/control/live"}))
@@ -137,7 +142,6 @@ def test_stop_runtime_requires_verified_control_identity_and_released_resources(
         "fixture_only": True,
         "external_effect": False,
         **{key: value for key, value in identity.items() if key != "service_pids"},
-        "generation": "generation-test",
         "control_url": control.url,
         "ports": {"web": 54320},
         "media_descriptor": str(media),
@@ -146,7 +150,7 @@ def test_stop_runtime_requires_verified_control_identity_and_released_resources(
     (tmp_path / "runtime.json").write_text(json.dumps(manifest), encoding="utf-8")
     (tmp_path / ".runtime-control.json").write_text(
         json.dumps(
-            {"runtime_id": "runtime-test", "control_url": control.url, "secret": "secret-test"}
+            {"runtime_id": "runtime-test", "control_url": control.url, "secret": TEST_SECRET}
         ),
         encoding="utf-8",
     )
@@ -161,8 +165,18 @@ def test_stop_runtime_requires_verified_control_identity_and_released_resources(
 
     assert control.stop_event.is_set()
     assert receipt["status"] == "STOPPED"
+    assert receipt["receipt_digest"] == signed_payload_digest(
+        {key: value for key, value in receipt.items() if key != "receipt_digest"}, TEST_SECRET
+    )
     assert receipt["service_pids"] == {"media": 43211}
     assert receipt["released_ports"] == [54320, 54321]
+    receipt_bytes = (tmp_path / "stopped.json").read_bytes()
+
+    repeated = stop_runtime(tmp_path)
+
+    assert repeated["status"] == "ALREADY_STOPPED"
+    assert repeated["receipt_digest"] == receipt["receipt_digest"]
+    assert (tmp_path / "stopped.json").read_bytes() == receipt_bytes
 
 
 def test_stop_runtime_rejects_unverified_manifest(tmp_path: Path) -> None:
@@ -202,7 +216,11 @@ def test_stop_runtime_rejects_dead_launcher_with_live_orphan(
     (tmp_path / "runtime.json").write_text(json.dumps(manifest), encoding="utf-8")
     (tmp_path / ".runtime-control.json").write_text(
         json.dumps(
-            {"runtime_id": "runtime-test", "control_url": "http://127.0.0.1:1", "secret": "x"}
+            {
+                "runtime_id": "runtime-test",
+                "control_url": "http://127.0.0.1:1",
+                "secret": TEST_SECRET,
+            }
         ),
         encoding="utf-8",
     )
@@ -213,6 +231,117 @@ def test_stop_runtime_rejects_dead_launcher_with_live_orphan(
 
     with pytest.raises(RuntimeError, match="resources remain"):
         stop_runtime(tmp_path)
+
+
+def test_manifest_identity_rewrite_does_not_trigger_stop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    identity = {
+        "runtime_id": "runtime-test",
+        "generation": "generation-test",
+        "launcher_pid": 43210,
+        "started_at": "2026-09-03T00:00:00+00:00",
+        "executable": str(Path(sys.executable).resolve()),
+        "runtime_dir": str(tmp_path.resolve()),
+        "service_pids": {"media": 43211},
+    }
+    control = RuntimeControlServer("runtime-test", TEST_SECRET, identity)
+    control.start()
+    media = tmp_path / "media.json"
+    media.write_text(json.dumps({"control_url": "http://127.0.0.1:54321/control/live"}))
+    manifest = {
+        "source": "SANDBOX_SYNTHETIC",
+        "fixture_only": True,
+        "external_effect": False,
+        **{key: value for key, value in identity.items() if key != "service_pids"},
+        "started_at": "2099-01-01T00:00:00+00:00",
+        "control_url": control.url,
+        "ports": {"web": 54320},
+        "media_descriptor": str(media),
+        "services": {"media": {"pid": 43211}},
+    }
+    (tmp_path / "runtime.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (tmp_path / ".runtime-control.json").write_text(
+        json.dumps(
+            {"runtime_id": "runtime-test", "control_url": control.url, "secret": TEST_SECRET}
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "poc.xiaojudeng_sandbox_runtime.launcher.process_exists", lambda _pid: True
+    )
+    try:
+        with pytest.raises(RuntimeError, match="stop endpoint failed"):
+            stop_runtime(tmp_path)
+        assert control.stop_event.is_set() is False
+    finally:
+        control.close()
+
+
+def test_dead_launcher_with_occupied_port_cannot_claim_already_stopped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    media = tmp_path / "media.json"
+    media.write_text(json.dumps({"control_url": "http://127.0.0.1:54321/control/live"}))
+    manifest = {
+        "source": "SANDBOX_SYNTHETIC",
+        "fixture_only": True,
+        "external_effect": False,
+        "runtime_id": "runtime-test",
+        "generation": "generation-test",
+        "launcher_pid": 43210,
+        "started_at": "2026-09-03T00:00:00+00:00",
+        "executable": str(Path(sys.executable).resolve()),
+        "runtime_dir": str(tmp_path.resolve()),
+        "control_url": "http://127.0.0.1:1",
+        "ports": {"web": 54320},
+        "media_descriptor": str(media),
+        "services": {"media": {"pid": 43211}},
+    }
+    (tmp_path / "runtime.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (tmp_path / ".runtime-control.json").write_text(
+        json.dumps(
+            {"runtime_id": "runtime-test", "control_url": "http://127.0.0.1:1", "secret": "x" * 48}
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "poc.xiaojudeng_sandbox_runtime.launcher.process_exists", lambda _pid: False
+    )
+    monkeypatch.setattr("poc.xiaojudeng_sandbox_runtime.launcher.port_is_free", lambda _port: False)
+
+    with pytest.raises(RuntimeError, match="resources remain"):
+        stop_runtime(tmp_path)
+
+
+def test_health_check_retries_after_initial_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = 0
+
+    class Response:
+        status = 200
+
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"status":"ok","fixture_only":true}'
+
+    def open_health(_url: str, timeout: float) -> Response:
+        nonlocal calls
+        calls += 1
+        assert timeout == 1
+        if calls == 1:
+            raise TimeoutError("cold start")
+        return Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", open_health)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert wait_for_health("http://127.0.0.1:54320/health", 1)["status"] == "ok"
+    assert calls == 2
 
 
 def test_dynamic_ports_and_explicit_overrides_are_valid() -> None:
