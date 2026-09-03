@@ -73,6 +73,7 @@ def published():
         "e1", "knowledge:transition", "1", 1, None, "INGESTED", NOW, "actor", "1"
     )
     state = advance_lifecycle(None, event)
+    state = replace(state, scope="family_growth")
     for sequence, status in enumerate(
         ("PARSED", "CHUNKED", "GROUNDED", "REVIEWED", "PUBLISHED"), 2
     ):
@@ -98,6 +99,31 @@ def test_lifecycle_rejects_jump_revival_and_wrong_sequence() -> None:
         advance_lifecycle(
             None, KnowledgeLifecycleEvent("e", "c", "1", 1, None, "PUBLISHED", NOW, "a", "1")
         )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"event_id": ""},
+        {"claim_id": ""},
+        {"actor_ref": ""},
+    ],
+)
+def test_lifecycle_event_rejects_empty_identity_refs(changes) -> None:
+    values = dict(
+        event_id="event:1",
+        claim_id="knowledge:transition",
+        version="1",
+        sequence=1,
+        previous_status=None,
+        status="INGESTED",
+        occurred_at=NOW,
+        actor_ref="actor:owner",
+        expected_version="1",
+    )
+    values.update(changes)
+    with pytest.raises(ValueError, match="references"):
+        KnowledgeLifecycleEvent(**values)
     retired = advance_lifecycle(
         published(),
         KnowledgeLifecycleEvent(
@@ -147,6 +173,12 @@ def test_receipt_can_only_be_created_by_controlled_factory() -> None:
     assert receipt.policy_version == "knowledge-selection.v1"
     assert not hasattr(receipt.items[0], "text")
     assert len(receipt.items[0].provenance_hash) == 64
+
+
+def test_selection_rejects_published_projection_borrowed_from_another_claim() -> None:
+    borrowed = replace(published(), claim_id="knowledge:other")
+    with pytest.raises(ValueError, match="identity"):
+        create_selection_receipt(command(), ((claim(), borrowed, source()),))
 
 
 @pytest.mark.parametrize(
