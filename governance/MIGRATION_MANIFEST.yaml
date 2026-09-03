@@ -707,9 +707,13 @@ entries:
     evidence:
       - "FAMILY-MEDIA-001 reality audit: REAL_NEURAL_AVATAR_INFERENCE=ABSENT"
       - "tests/intelligence/media_factory/test_gate1_benchmark_foundation.py"
+      - "tests/intelligence/media_factory/test_ditto_provider.py"
+      - "docs/11_delivery/media_factory/DITTO_GATE1_GPU_RUNBOOK.md"
     note: >
-      Does NOT authorize Ditto/MuseTalk/HeyGem install, model weights, CUDA
-      changes, full Media Workflow, realtime, or Family canonical writes.
+      DittoAvatarProvider adapter is in-tree; engine stays external via
+      DITTO_ENGINE_ROOT. Local GPU_GATE=FAIL blocks inference. Does NOT
+      authorize EchoMimic/SadTalker install, cloud auto-purchase, realtime,
+      or Family canonical writes.
 
 # ============ 待人工裁决清单（disposition = REVIEW_REQUIRED 的完整索引） ============
 review_required_index:

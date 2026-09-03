@@ -195,10 +195,7 @@ def test_provenance_required(tiny_assets: tuple[Path, Path], tmp_path: Path) -> 
 
 def test_candidate_quality_scores_are_not_prepopulated() -> None:
     candidates_dir = (
-        Path(__file__).resolve().parents[3]
-        / "governance"
-        / "media_factory"
-        / "candidates"
+        Path(__file__).resolve().parents[3] / "governance" / "media_factory" / "candidates"
     )
     active_expected = {"DITTO", "ECHOMIMIC_V3_FLASH", "SADTALKER"}
     deferred_expected = {"MUSETALK", "HEYGEM"}

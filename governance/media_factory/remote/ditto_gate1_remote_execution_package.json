@@ -1,0 +1,57 @@
+{
+  "package_id": "DITTO_GATE1_REMOTE_EXECUTION_V0",
+  "purpose": "Reproduce first real neural Famili Gate1 smoke on a GPU node",
+  "verified_at": "2026-09-03",
+  "local_gpu_gate_at_authoring": {
+    "status": "FAIL",
+    "gpu_model": "GeForce GT 730",
+    "vram_total_mib": 2048,
+    "driver_version": "456.71",
+    "cuda_reported": "11.1",
+    "local_real_inference_allowed": false
+  },
+  "upstream": {
+    "url": "https://github.com/antgroup/ditto-talkinghead",
+    "commit_sha": "c3e47eee2e626500017a0556b470d6d4182f85e8",
+    "code_license": "Apache-2.0",
+    "weights_url": "https://huggingface.co/digital-avatar/ditto-talkinghead",
+    "weights_license": "LICENSE_REVIEW_REQUIRED",
+    "windows_support": "UNKNOWN",
+    "linux_support": "YES"
+  },
+  "first_smoke_backend": "pytorch",
+  "recommended_gpu_spec": {
+    "priority": "Nvidia",
+    "MINIMUM_EXPERIMENTAL": {"vram_gb": 12},
+    "RECOMMENDED_DEVELOPMENT": {"vram_gb": 16},
+    "COMFORTABLE_BENCHMARK": {"vram_gb": 24},
+    "official_tested": {
+      "gpu": "A100",
+      "os": "Centos 7.2",
+      "python": "3.10",
+      "pytorch": "2.5.1+cuda12.1",
+      "tensorrt": "8.6.1"
+    }
+  },
+  "engine_isolation": {
+    "DITTO_ENGINE_ROOT": "/opt/aifamily-engines/ditto-talkinghead",
+    "DITTO_PYTHON": "/opt/aifamily-engines/ditto-talkinghead/.venv/bin/python",
+    "DITTO_MODEL_ROOT": "/opt/aifamily-engines/ditto-talkinghead/checkpoints",
+    "DITTO_DEVICE": "cuda",
+    "do_not_absorb_into_aifamily_pyproject": true
+  },
+  "frozen_inputs": {
+    "image_sha256": "da7fe9d0ebc30b9f2aedd5fc55a08d04749d605e530137300e55719d498535aa",
+    "audio_sha256": "bf0ecbe6af18235f872e1dc8f29061f4c67bb101a5de56bba3fd9efc0c684912",
+    "image_file": "FAMILI_V2_IDENTITY_MASTER_R01.png",
+    "audio_file": "FAMILI_RDH_SMOKE_AUDIO_V0.wav"
+  },
+  "expected_output_name": "FAMILI_DITTO_GATE1_R01.mp4",
+  "runbook": "docs/11_delivery/media_factory/DITTO_GATE1_GPU_RUNBOOK.md",
+  "forbidden": [
+    "automatic_cloud_purchase",
+    "fake_static_mux_mp4",
+    "vendor_ditto_into_aifamily_tree",
+    "auto_gate1_pass"
+  ]
+}
