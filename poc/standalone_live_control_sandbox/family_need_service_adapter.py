@@ -144,6 +144,8 @@ class LiveNeedServiceAdapter:
         self._require_adult(guardian)
         if not feedback_ref or service_record.status != "COMPLETED":
             raise LiveNeedBridgeRejected("completed service and feedback reference are required")
+        if service_record.source != SANDBOX_SOURCE or not service_record.fixture_only:
+            raise LiveNeedBridgeRejected("service feedback receipt is outside the sandbox boundary")
         self._confirmed_need_id(service_record.need_id, guardian, now)
         if (
             service_record.tenant_id != guardian.tenant_id
@@ -170,6 +172,8 @@ class LiveNeedServiceAdapter:
         )
         if need is None or need.status not in {"CONFIRMED", "PROFILED", "SOLUTIONING"}:
             raise LiveNeedBridgeRejected("confirmed FamilyNeed is required")
+        if not need.growth_theme:
+            raise LiveNeedBridgeRejected("FamilyNeed must provide a growth theme")
         if need.expires_at.astimezone(UTC) <= now.astimezone(UTC):
             raise LiveNeedBridgeRejected("FamilyNeed projection has expired")
         if need.tenant_id != guardian.tenant_id or need.family_id != guardian.family_id:

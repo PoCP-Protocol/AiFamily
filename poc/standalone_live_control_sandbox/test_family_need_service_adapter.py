@@ -107,7 +107,10 @@ def test_guardian_choice_consumes_confirmed_need_and_delegates_service_record():
     assert service.choices[0]["consent_ref"] == "consent.synthetic.live-service"
 
 
-@pytest.mark.parametrize("projected_need", [None, need(status="CAPTURED"), need(expires_at=NOW)])
+@pytest.mark.parametrize(
+    "projected_need",
+    [None, need(status="CAPTURED"), need(expires_at=NOW), need(growth_theme="")],
+)
 def test_unconfirmed_or_expired_need_fails_before_service_mutation(projected_need):
     adapter, service = bridge(projected_need=projected_need)
     with pytest.raises(LiveNeedBridgeRejected):
@@ -160,5 +163,12 @@ def test_feedback_requires_completed_scoped_service_and_confirmed_need():
             service_record=service_receipt(family_id="family.other"),
             guardian=GUARDIAN,
             feedback_ref="feedback.synthetic.3",
+            now=NOW,
+        )
+    with pytest.raises(LiveNeedBridgeRejected):
+        adapter.record_feedback(
+            service_record=service_receipt(fixture_only=False),
+            guardian=GUARDIAN,
+            feedback_ref="feedback.synthetic.4",
             now=NOW,
         )
