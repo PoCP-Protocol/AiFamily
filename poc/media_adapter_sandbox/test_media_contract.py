@@ -149,6 +149,16 @@ def test_refresh_issues_a_new_short_lived_capability_without_changing_state(
             assert response.read()[4:8] == b"ftyp"
 
 
+def test_media_adapter_can_bind_to_an_explicit_synthetic_live_session(video: Path) -> None:
+    adapter = SyntheticMediaAdapter(media_session_ref="live.synthetic.runtime.1")
+
+    session = adapter.start(SyntheticSource(video), "family.synthetic.alpha")
+
+    assert session.media_session_ref == "live.synthetic.runtime.1"
+    with pytest.raises(ValueError, match="duplicate media session"):
+        adapter.start(SyntheticSource(video), "family.synthetic.alpha")
+
+
 def test_lifecycle_covers_live_disconnected_restarted_stopped_and_revoked(
     video: Path, adapter: SyntheticMediaAdapter
 ) -> None:

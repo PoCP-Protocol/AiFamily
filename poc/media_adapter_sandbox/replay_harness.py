@@ -84,18 +84,22 @@ class SyntheticMediaAdapter:
         provider: FakeMediaProvider | None = None,
         authority: CapabilityAuthority | None = None,
         faults: FaultInjector | None = None,
+        media_session_ref: str | None = None,
     ) -> None:
         self.faults = faults or FaultInjector()
         self.provider = provider or FakeMediaProvider(self.faults)
         self.authority = authority or CapabilityAuthority()
         self.sessions: dict[str, MediaSession] = {}
         self.admission_open = True
+        self.media_session_ref = media_session_ref
 
     def start(self, source: SyntheticSource, family_ref: str) -> MediaSession:
         if not self.admission_open or self.faults.enabled(FaultKind.STOP_SWITCH):
             raise ProviderFailure("media admission stopped by stop switch")
         source.validate()
-        media_session_ref = f"media.synthetic.{len(self.sessions) + 1}"
+        media_session_ref = self.media_session_ref or f"media.synthetic.{len(self.sessions) + 1}"
+        if media_session_ref in self.sessions:
+            raise ValueError(f"duplicate media session: {media_session_ref}")
         session = MediaSession(
             media_session_ref=media_session_ref,
             family_ref=family_ref,
@@ -358,6 +362,9 @@ def main() -> int:
     parser.add_argument("--serve", action="store_true", help="keep the local player server running")
     parser.add_argument("--output", type=Path, help="write the synthetic MP4 at this path")
     parser.add_argument("--descriptor", type=Path, help="write the sandbox playback DTO as JSON")
+    parser.add_argument(
+        "--session-ref", help="bind the media capability to a synthetic live session"
+    )
     parser.add_argument("--duration", type=float, default=2.0)
     parser.add_argument(
         "--ttl", type=int, default=30, help="playback capability TTL in seconds (max 60)"
@@ -367,7 +374,9 @@ def main() -> int:
     output = args.output or Path(tempfile.mkdtemp(prefix="media-sandbox-")) / "synthetic.mp4"
     artifact = SyntheticVideoFactory.create(output, args.duration)
     source = SyntheticSource(artifact)
-    adapter: MediaAdapter = SyntheticMediaAdapter()
+    if args.session_ref is not None and not args.session_ref.startswith("live.synthetic."):
+        raise SystemExit("--session-ref must use the live.synthetic.* namespace")
+    adapter: MediaAdapter = SyntheticMediaAdapter(media_session_ref=args.session_ref)
     session = adapter.start(source, family_ref="family.synthetic.alpha")
     capability = adapter.playback_capability(
         session.media_session_ref,
