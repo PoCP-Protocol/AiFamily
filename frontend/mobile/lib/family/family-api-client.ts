@@ -417,6 +417,33 @@ export class FamilyApiClient {
     return this.request<JourneyPlanProjection>(`/families/${familyId}/growth/journey-plan`, { token });
   }
 
+  getGenerativeGrowthPlan<T>(token: string, familyId: string) {
+    return this.request<T>(`/families/${familyId}/growth/generative-plan`, { token });
+  }
+
+  adoptGenerativeGrowthPlan<T>(
+    token: string,
+    familyId: string,
+    body: {
+      draft_ref: string;
+      draft_version?: string;
+      selected_choices: Record<string, string>;
+      parent_note?: string;
+    },
+    idempotencyKey: string,
+  ) {
+    return this.request<T>(`/families/${familyId}/growth/generative-plan/adopt`, {
+      method: "POST",
+      token,
+      body,
+      headers: {
+        "idempotency-key": idempotencyKey,
+        "x-correlation-id": createMobileRequestId("family-mobile-generative-plan"),
+        "x-source": "family-ai-mobile",
+      },
+    });
+  }
+
   getGrowthPriority(token: string, familyId: string, onboardingId: string) {
     return this.request<GrowthPriorityProjection>(`/families/${familyId}/growth/onboardings/${onboardingId}/priority`, { token });
   }
