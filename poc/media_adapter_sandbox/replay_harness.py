@@ -262,6 +262,21 @@ class _PlayerHandler(BaseHTTPRequestHandler):
             return
         _, session_ref, action = parts
         try:
+            if action == "refresh":
+                session = self.adapter._session(session_ref)
+                capability = self.adapter.playback_capability(
+                    session.media_session_ref, session.family_ref, ttl_seconds=60
+                )
+                payload = {
+                    "state": session.state.value,
+                    "playback_url": self.adapter.playback_url(self.server_ref, capability),
+                }
+                self._send(
+                    200,
+                    json.dumps(payload).encode("utf-8"),
+                    "application/json",
+                )
+                return
             if action == "disconnect":
                 self.adapter.disconnect(session_ref)
             elif action == "recover":

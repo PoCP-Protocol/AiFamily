@@ -176,6 +176,10 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
   await expect(page.locator("video")).toHaveAttribute("preload", "none");
   await expect(page.locator("video")).not.toHaveAttribute("autoplay");
   await expect(page.getByText("可以播放")).toBeVisible();
+  await page.getByRole("button", { name: "开始播放" }).click();
+  await expect.poll(async () => page.locator("video").evaluate((video) => video.readyState)).toBeGreaterThanOrEqual(2);
+  await expect.poll(async () => page.locator("video").evaluate((video) => video.currentTime)).toBeGreaterThan(0);
+  await expect(page.locator("video")).toHaveJSProperty("paused", false);
   await page.screenshot({ path: testInfo.outputPath("desktop-live.png"), fullPage: true });
 
   await page.getByText("连接演练工具").click();
@@ -215,7 +219,7 @@ test("desktop media cold-start covers live, disconnect, recover, stop, and revok
   await page.getByRole("button", { name: "结束本场" }).click();
   await expect(page.getByText("本场直播已经停止。")).toBeVisible();
   await expect(page.locator("video")).toHaveCount(0);
-  await expect(page.getByText("仅限成人")).toBeVisible();
+  await expect(page.getByText("仅限成人", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "需要继续支持？先了解专家服务方式" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "把一场直播，留下能反复用的方法" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "把冲突变成一次共同练习" })).toBeVisible();

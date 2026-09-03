@@ -129,6 +129,26 @@ def test_cli_writes_a_machine_readable_playback_descriptor(
     assert payload["sha256"] == SyntheticVideoFactory.sha256(tmp_path / "live.mp4")
 
 
+def test_refresh_issues_a_new_short_lived_capability_without_changing_state(
+    video: Path, adapter: SyntheticMediaAdapter
+) -> None:
+    session = adapter.start(SyntheticSource(video), "family.synthetic.alpha")
+
+    with SandboxPlayerServer(adapter) as server:
+        request = urllib.request.Request(
+            f"{server.base_url}/control/{session.media_session_ref}/refresh",
+            method="POST",
+            headers={"Origin": "http://127.0.0.1:4192"},
+        )
+        with urllib.request.urlopen(request, timeout=2) as response:
+            payload = json.loads(response.read())
+
+        assert payload["state"] == "LIVE"
+        assert payload["playback_url"].startswith(server.base_url)
+        with urllib.request.urlopen(payload["playback_url"], timeout=2) as response:
+            assert response.read()[4:8] == b"ftyp"
+
+
 def test_lifecycle_covers_live_disconnected_restarted_stopped_and_revoked(
     video: Path, adapter: SyntheticMediaAdapter
 ) -> None:

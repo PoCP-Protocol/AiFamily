@@ -263,10 +263,12 @@ describe("Xiao Ju Deng live product surface", () => {
     expect(video?.getAttribute("aria-label")).toBe("小橘灯合成视频播放区域");
     expect(video?.getAttribute("src")).toContain("http://127.0.0.1:43123/");
     expect(video?.hasAttribute("controls")).toBe(true);
+    expect(video?.muted).toBe(true);
     expect(video?.hasAttribute("playsinline")).toBe(true);
     expect(video?.getAttribute("poster")).toMatch(/^data:image\/svg\+xml,/);
     expect(video?.getAttribute("preload")).toBe("none");
     expect(video?.hasAttribute("autoplay")).toBe(false);
+    expect(screen.getByRole("button", { name: "开始播放" })).toBeInTheDocument();
     expect(screen.getByText("可以播放")).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "直播间信息" })).toBeInTheDocument();
     expect(screen.getByText("直播讨论")).toBeInTheDocument();
@@ -350,7 +352,7 @@ describe("Xiao Ju Deng live product surface", () => {
     ["RESTARTED", "连接已经恢复，可以继续观看。", true],
     ["STOPPED", "本场直播已经停止。", false],
     ["REVOKED", "观看权限已经撤回。", false],
-    ["FAILED", "视频暂时不可用。", false],
+    ["FAILED", "视频暂时不可用。", true],
   ] as const)("renders the expected safe video surface for %s", (state, message, showsVideo) => {
     const record = {
       ...XIAO_JU_DENG_FIXTURE,

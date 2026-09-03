@@ -156,10 +156,14 @@ export function LiveDetailPage({
   );
   const [registrationRef, setRegistrationRef] = useState("");
   const hasStartedPlayback = useRef(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [playbackStartState, setPlaybackStartState] = useState<"idle" | "starting" | "error">(
+    "idle",
+  );
   const canRenderVideo =
     playback?.source === "synthetic" &&
     playback.fixture_only &&
-    ["LIVE", "LOADING", "RESTARTED"].includes(surfaceState) &&
+    ["LIVE", "LOADING", "RESTARTED", "FAILED"].includes(surfaceState) &&
     isLocalPlaybackUrl(mediaUrl);
   const playbackMessage = getPlaybackMessage(surfaceState);
   const showAdultNextStep = ["ENDED", "STOPPED", "REVOKED"].includes(surfaceState);
@@ -273,8 +277,10 @@ export function LiveDetailPage({
             <div className="live-video-frame live-video-authorized">
             <h4 id="live-video-heading" className="visually-hidden">视频播放区域</h4>
             <video
+              ref={videoRef}
               aria-label="小橘灯合成视频播放区域"
               controls
+              muted
               playsInline
               poster={SYNTHETIC_VIDEO_POSTER}
               preload="none"
@@ -291,6 +297,7 @@ export function LiveDetailPage({
               }}
               onPlaying={() => {
                 hasStartedPlayback.current = true;
+                setPlaybackStartState("idle");
                 setSurfaceState("LIVE");
               }}
               onStalled={() => {
@@ -300,6 +307,17 @@ export function LiveDetailPage({
                 if (hasStartedPlayback.current) setSurfaceState("DISCONNECTED");
               }}
             />
+            <button
+              className="live-video-start"
+              type="button"
+              disabled={playbackStartState === "starting"}
+              onClick={() => void startPlayback()}
+            >
+              {playbackStartState === "starting" ? "正在连接视频…" : "开始播放"}
+            </button>
+            {playbackStartState === "error" ? (
+              <p role="alert">视频连接失败，请重试。</p>
+            ) : null}
             <div className="live-video-caption" role="status" aria-live="polite">
               <span className="live-video-state">{getPlaybackLabel(surfaceState)}</span>
               <p>{playbackMessage}</p>
@@ -580,9 +598,49 @@ export function LiveDetailPage({
       const response = await fetch(`${playback.control_url}/${action}`, { method: "POST" });
       if (!response.ok) throw new Error("control failed");
       const result = (await response.json()) as { state: MediaPlaybackState; playback_url?: string };
-      if (result.playback_url) setMediaUrl(result.playback_url);
+      if (result.playback_url) {
+        hasStartedPlayback.current = false;
+        setPlaybackStartState("idle");
+        setMediaUrl(result.playback_url);
+      }
       setSurfaceState(result.state);
     } catch {
+      setSurfaceState("FAILED");
+    }
+  }
+
+  async function startPlayback() {
+    if (!playback?.control_url || !isLocalPlaybackUrl(playback.control_url)) {
+      setPlaybackStartState("error");
+      return;
+    }
+    setPlaybackStartState("starting");
+    try {
+      if (!videoRef.current) throw new Error("video element missing");
+      try {
+        await videoRef.current.play();
+        return;
+      } catch {
+        // A short-lived capability may have expired while the detail page was open.
+      }
+      const response = await fetch(`${playback.control_url}/refresh`, { method: "POST" });
+      if (!response.ok) throw new Error("playback refresh failed");
+      const result = (await response.json()) as {
+        state: MediaPlaybackState;
+        playback_url?: string;
+      };
+      if (!result.playback_url || !isLocalPlaybackUrl(result.playback_url)) {
+        throw new Error("playback URL rejected");
+      }
+      setMediaUrl(result.playback_url);
+      setSurfaceState(result.state);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      if (!videoRef.current) throw new Error("video element missing");
+      videoRef.current.load();
+      await waitForMediaReady(videoRef.current);
+      await videoRef.current.play();
+    } catch {
+      setPlaybackStartState("error");
       setSurfaceState("FAILED");
     }
   }
@@ -915,6 +973,24 @@ function isLocalPlaybackUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function waitForMediaReady(video: HTMLVideoElement): Promise<void> {
+  if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => finish(new Error("media load timed out")), 5_000);
+    const onReady = () => finish();
+    const onError = () => finish(new Error("media load failed"));
+    const finish = (error?: Error) => {
+      window.clearTimeout(timeout);
+      video.removeEventListener("loadeddata", onReady);
+      video.removeEventListener("error", onError);
+      if (error) reject(error);
+      else resolve();
+    };
+    video.addEventListener("loadeddata", onReady, { once: true });
+    video.addEventListener("error", onError, { once: true });
+  });
 }
 
 function parseRealtimeQuestion(value: unknown): LiveQuestion {
