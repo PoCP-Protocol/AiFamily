@@ -31,6 +31,15 @@ from backend.intelligence.context_engine.sql_store import (
     ContextSnapshotRow,
 )
 from backend.intelligence.experience.api import MultimodalDraftRuntime
+from backend.intelligence.experience.family_problem_understanding_contract import (
+    FamilyConversationTurn,
+)
+from backend.intelligence.experience.family_problem_understanding_knowledge import (
+    FamilyUnderstandingKnowledgeRetriever,
+)
+from backend.intelligence.experience.family_problem_understanding_preparation import (
+    FamilyProblemUnderstandingPreparer,
+)
 from backend.intelligence.experience.multimodal_application import (
     RoutedMultimodalExperienceService,
 )
@@ -44,12 +53,16 @@ from backend.intelligence.experience.multimodal_routing import (
     QWEN_MULTIMODAL_CANDIDATE,
     MultimodalRouter,
 )
+from backend.intelligence.experience.run_http import RunScope
 from backend.intelligence.experience.run_store import ExperienceRunRow
 from backend.intelligence.experience.sql_run_ledger import (
     CommittedExperienceRunLedger,
     ExperienceRunInteractionRow,
+    SessionPerCallExperienceRunLedger,
     SqlAlchemyExperienceRunLedger,
 )
+from backend.intelligence.knowledge.contracts import KnowledgeClaim, KnowledgeSource
+from backend.intelligence.knowledge.registry import KnowledgeRegistry
 from backend.intelligence.model_gateway.contracts import StructuredRequest
 from backend.intelligence.model_gateway.gateway import ModelGateway
 from backend.intelligence.model_gateway.provenance import (
@@ -67,6 +80,7 @@ from backend.intelligence.model_gateway.providers.fake import (
 from backend.intelligence.model_gateway.providers.openai_compatible import (
     OpenAICompatibleProvider,
 )
+from backend.packages.contracts.evidence import Provenance
 from backend.platform.persistence.session import DATABASE_URL_ENV_VAR
 from tests.support.postgres import SKIP_REASON, postgres_test_url
 
@@ -858,3 +872,99 @@ async def test_openai_compatible_generation_changes_with_follow_up_and_persists(
         await session.close()
         await engine.dispose()
         await provider_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_postgres_replay_supplies_the_actual_prior_draft_to_follow_up(
+    migrated_database_url: str,
+) -> None:
+    scope = RunScope(
+        tenant_id=TENANT_ID,
+        family_id=FAMILY_ID,
+        subject_ids=("guardian-s3-http", SUBJECT_ID),
+    )
+    first_run_id = "run-family-understanding-memory-1"
+    prior_draft = _family_understanding_output(
+        text_ref=f"input:{first_run_id}:concern",
+        expression="孩子每天写作业前都很难开始",
+    )
+    engine = create_async_engine(migrated_database_url)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    ledger = SessionPerCallExperienceRunLedger(factory)
+    await ledger.create_draft(
+        scope=scope,
+        run_id=first_run_id,
+        request_ref="request:family-understanding-memory-1",
+        draft_payload=prior_draft,
+        idempotency_key="create:family-understanding-memory-1",
+    )
+    await engine.dispose()
+
+    _restart_postgres_if_requested(migrated_database_url)
+    restarted_engine = create_async_engine(migrated_database_url)
+    restarted_factory = async_sessionmaker(restarted_engine, expire_on_commit=False)
+    replay = await SessionPerCallExperienceRunLedger(restarted_factory).replay(
+        scope=scope,
+        run_id=first_run_id,
+    )
+
+    source = KnowledgeSource(
+        source_id="source:task-transition-review",
+        title="Task transition review",
+        license_ref="license:reviewed",
+        owner="knowledge-team",
+        scope="shared",
+        verified=True,
+    )
+    claim = KnowledgeClaim(
+        claim_id="knowledge:task-transition-reviewed-v1",
+        text="作业开始困难可能与活动转换、选择感或任务难度有关。",
+        source_id=source.source_id,
+        provenance=Provenance(level="E6", source_ref=source.source_id),
+        scope="family_growth",
+        status="PUBLISHED",
+        allowed_purposes=("family_problem_understanding",),
+        metadata={
+            "version": "1.0",
+            "chunk_ref": "chunk:task-transition",
+            "applicability": "家庭学习任务开始阶段",
+            "limitations": ("不能凭一次表达判断孩子能力",),
+            "keywords": ("作业", "开始", "切换", "选择"),
+        },
+    )
+    preparer = FamilyProblemUnderstandingPreparer(
+        FamilyUnderstandingKnowledgeRetriever(
+            KnowledgeRegistry(sources=(source,), claims=(claim,)),
+            minimum_relevance=0.02,
+        )
+    )
+    prepared = preparer.prepare_follow_up_from_replay(
+        scope=scope,
+        prior_replay=replay,
+        run_id="run-family-understanding-memory-2",
+        data_class="SYNTHETIC",
+        context_snapshot_ref="context:family-understanding-memory-2",
+        conversation_turns=(
+            FamilyConversationTurn(
+                input_ref=f"input:{first_run_id}:concern",
+                kind="CONCERN",
+                text="孩子每天写作业前都很难开始",
+                created_at="2026-09-03T09:00:00+08:00",
+            ),
+            FamilyConversationTurn(
+                input_ref="input:family-understanding-memory-2:follow-up",
+                kind="FOLLOW_UP",
+                text="周末让孩子自己选择科目时通常能开始",
+                created_at="2026-09-03T09:10:00+08:00",
+            ),
+        ),
+        knowledge_scope="family_growth",
+    )
+
+    assert replay.draft_payload == prior_draft
+    assert prepared.request.payload["prior_run_id"] == first_run_id
+    assert prepared.request.payload["prior_draft"] == prior_draft
+    assert prepared.eval_spec.prior_hypothesis_statements == (
+        "作业启动前的转换可能比作业本身更困难。",
+    )
+    await restarted_engine.dispose()

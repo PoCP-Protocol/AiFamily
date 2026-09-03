@@ -7,6 +7,7 @@ against knowledge or observations that the model never received.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -21,6 +22,7 @@ from backend.intelligence.experience.family_problem_understanding_knowledge impo
     FamilyUnderstandingKnowledgeRetriever,
     FamilyUnderstandingKnowledgeSelection,
 )
+from backend.intelligence.experience.run_http import RunReplaySnapshot, RunScope
 from backend.intelligence.model_gateway.contracts import DataClass, MediaInput, StructuredRequest
 from backend.packages.contracts.evidence import EvidenceLevel
 
@@ -63,7 +65,7 @@ class FamilyProblemUnderstandingPreparer:
         knowledge_scope: str,
         media_inputs: tuple[MediaInput, ...] = (),
         prior_run_id: str | None = None,
-        prior_hypothesis_statements: tuple[str, ...] = (),
+        prior_draft: Mapping[str, object] | None = None,
         expected_signal_terms: tuple[frozenset[str], ...] = (),
         parent_felt_understood: float | None = None,
         minimum_evidence: EvidenceLevel | None = None,
@@ -84,8 +86,10 @@ class FamilyProblemUnderstandingPreparer:
             media_inputs=media_inputs,
             reviewed_knowledge=selection.excerpts,
             prior_run_id=prior_run_id,
+            prior_draft=prior_draft,
             locale=locale,
         )
+        prior_hypothesis_statements = _hypothesis_statements(prior_draft)
         eval_spec = FamilyUnderstandingEvalSpec(
             allowed_evidence_refs=frozenset(request.input_refs),
             allowed_knowledge_refs=frozenset(selection.trace.selected_claim_ids),
@@ -99,6 +103,61 @@ class FamilyProblemUnderstandingPreparer:
             knowledge_selection=selection,
             eval_spec=eval_spec,
         )
+
+    def prepare_follow_up_from_replay(
+        self,
+        *,
+        scope: RunScope,
+        prior_replay: RunReplaySnapshot,
+        run_id: str,
+        data_class: DataClass,
+        context_snapshot_ref: str,
+        conversation_turns: tuple[FamilyConversationTurn, ...],
+        knowledge_scope: str,
+        media_inputs: tuple[MediaInput, ...] = (),
+        expected_signal_terms: tuple[frozenset[str], ...] = (),
+        parent_felt_understood: float | None = None,
+        minimum_evidence: EvidenceLevel | None = None,
+        at: datetime | None = None,
+        locale: str = "zh-CN",
+    ) -> FamilyProblemUnderstandingPreparation:
+        """Prepare a true revision from one scoped, replayed durable draft."""
+
+        if prior_replay.scope.key != scope.key:
+            raise ValueError("prior replay scope mismatch")
+        if prior_replay.deletion_state != "active" or prior_replay.draft_payload is None:
+            raise ValueError("prior replay draft is unavailable")
+        return self.prepare(
+            run_id=run_id,
+            data_class=data_class,
+            context_snapshot_ref=context_snapshot_ref,
+            conversation_turns=conversation_turns,
+            knowledge_scope=knowledge_scope,
+            media_inputs=media_inputs,
+            prior_run_id=prior_replay.run_id,
+            prior_draft=prior_replay.draft_payload,
+            expected_signal_terms=expected_signal_terms,
+            parent_felt_understood=parent_felt_understood,
+            minimum_evidence=minimum_evidence,
+            at=at,
+            locale=locale,
+        )
+
+
+def _hypothesis_statements(prior_draft: Mapping[str, object] | None) -> tuple[str, ...]:
+    if prior_draft is None:
+        return ()
+    hypotheses = prior_draft.get("hypotheses")
+    if not isinstance(hypotheses, list):
+        return ()
+    statements: list[str] = []
+    for item in hypotheses:
+        if not isinstance(item, Mapping):
+            continue
+        statement = item.get("statement")
+        if isinstance(statement, str) and statement.strip():
+            statements.append(statement)
+    return tuple(statements)
 
 
 __all__ = [

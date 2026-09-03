@@ -8,6 +8,7 @@ client supplies observations; it never selects the prompt or output schema.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
@@ -18,6 +19,7 @@ from backend.intelligence.model_gateway.contracts import (
     MediaInput,
     StructuredRequest,
 )
+from backend.intelligence.model_gateway.validation import SchemaValidator
 
 FAMILY_PROBLEM_UNDERSTANDING_USE_CASE = "family_problem_understanding"
 FAMILY_PROBLEM_UNDERSTANDING_PROMPT_VERSION = "family-understanding.v2"
@@ -296,6 +298,7 @@ def build_family_problem_understanding_request(
     media_inputs: tuple[MediaInput, ...] = (),
     reviewed_knowledge: tuple[ReviewedKnowledgeExcerpt, ...] = (),
     prior_run_id: str | None = None,
+    prior_draft: Mapping[str, Any] | None = None,
     locale: str = "zh-CN",
 ) -> StructuredRequest:
     """Build the only model request shape accepted by the S3 use case."""
@@ -314,6 +317,15 @@ def build_family_problem_understanding_request(
         raise ValueError("follow-up or correction requires prior_run_id")
     if prior_run_id is not None and len(conversation_turns) < 2:
         raise ValueError("prior_run_id requires conversation history")
+    if (prior_run_id is None) != (prior_draft is None):
+        raise ValueError("prior_run_id and prior_draft must be provided together")
+    validated_prior_draft = None
+    if prior_draft is not None:
+        validated_prior_draft = SchemaValidator().validate(
+            dict(prior_draft),
+            family_problem_understanding_output_schema(),
+            provider_id="prior-family-understanding-draft",
+        )
 
     input_refs = tuple(item.input_ref for item in conversation_turns)
     media_refs = tuple(item.uri for item in media_inputs)
@@ -326,6 +338,7 @@ def build_family_problem_understanding_request(
         "locale": locale,
         "conversation_turns": [item.as_payload() for item in conversation_turns],
         "prior_run_id": prior_run_id,
+        "prior_draft": validated_prior_draft,
         "reviewed_knowledge": [item.as_payload() for item in reviewed_knowledge],
         "generation_contract": {
             "regenerate_all_hypotheses_on_follow_up": True,

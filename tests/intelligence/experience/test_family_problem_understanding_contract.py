@@ -130,6 +130,7 @@ def test_server_builds_deep_multimodal_request_without_client_prompt_or_schema()
         media_inputs=(media,),
         reviewed_knowledge=(_knowledge(),),
         prior_run_id="run-understanding-1",
+        prior_draft=_valid_output(),
     )
 
     assert request.use_case == FAMILY_PROBLEM_UNDERSTANDING_USE_CASE
@@ -139,6 +140,7 @@ def test_server_builds_deep_multimodal_request_without_client_prompt_or_schema()
     assert "固定模板" in FAMILY_PROBLEM_UNDERSTANDING_INSTRUCTIONS
     assert "小步骤" not in FAMILY_PROBLEM_UNDERSTANDING_INSTRUCTIONS
     assert request.payload["prior_run_id"] == "run-understanding-1"
+    assert request.payload["prior_draft"] == _valid_output()
     assert request.payload["generation_contract"] == {
         "regenerate_all_hypotheses_on_follow_up": True,
         "cite_only_supplied_refs": True,
@@ -238,6 +240,14 @@ def test_follow_up_requires_lineage_and_server_schema_copies_are_isolated() -> N
             context_snapshot_ref="context:invalid",
             conversation_turns=(_concern(), _follow_up()),
         )
+    with pytest.raises(ValueError, match="provided together"):
+        build_family_problem_understanding_request(
+            run_id="run-missing-prior-draft",
+            data_class="SYNTHETIC",
+            context_snapshot_ref="context:invalid",
+            conversation_turns=(_concern(), _follow_up()),
+            prior_run_id="run-prior",
+        )
 
     first = family_problem_understanding_output_schema()
     second = family_problem_understanding_output_schema()
@@ -317,6 +327,7 @@ async def test_server_contract_drives_openai_compatible_generation() -> None:
                 conversation_turns=(_concern(), _follow_up()),
                 reviewed_knowledge=(_knowledge(),),
                 prior_run_id="run-generative-contract-prior",
+                prior_draft=_valid_output(),
             ),
             provider_id=provider.provider_id,
         )
