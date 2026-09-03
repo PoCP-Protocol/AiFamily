@@ -63,9 +63,8 @@ EXPECTED_0008_COUNTS = {
     "enums": EXPECTED_ENUM_TYPES,
 }
 
-# 0009 and 0010 are additive AI-runtime migrations. They are recognized
-# explicitly when present, but are not silently folded into the 0004-0008
-# responsibility boundary.
+# AI-runtime heads are recognized explicitly, but are not silently folded into
+# the 0004-0008 responsibility boundary.
 EXPECTED_HEAD_COUNTS_BY_REVISION = {
     "0008_experience_runs": EXPECTED_0008_COUNTS,
     "0009_ai_model_drafts": {
@@ -75,6 +74,62 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
     },
     "0010_experience_run_interactions": {
         "tables": EXPECTED_0008_COUNTS["tables"] + 2,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0011 only adds Human Gate claim columns; 0012 adds the AgentRun and
+    # Trace runtime-owned tables on top of the same additive chain.
+    "0012_ai_agent_runs": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 4,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0013 adds authorization lease/audit tables; 0011 only changes Human
+    # Gate columns, so the additive table count increases by two.
+    "0013_ai_authorization_leases": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 6,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0014 adds the pending ToolCall/Named Action outbox table.
+    "0014_tool_action_outbox": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 7,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0015 adds the durable evidence-bound achievement projection table.
+    "0015_ai_achievement_projections": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 8,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0016-0053 add 42 runtime-owned tables after the eight tables owned by
+    # 0009-0015. Alter-only revisions do not change the object count. Keeping
+    # 0054 adds the durable engagement-review envelope. Keeping the current
+    # head explicit makes a future migration fail until its object ownership
+    # has been reviewed instead of silently accepting schema drift.
+    "0054_ai_engagement_draft_reviews": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 51,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0055 owns the family_need domain's first PostgreSQL persistence: five
+    # tables (need_signals, family_needs, need_profiles, solution_drafts,
+    # family_need_events).
+    "0055_family_need_domain": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 56,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0056 owns product_intelligence's course_content table (one table).
+    "0056_course_content": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 57,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0057 adds the immutable UI-05 growth-plan review companion envelope.
+    "0057_ai_growth_plan_draft_reviews": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 58,
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
@@ -91,6 +146,28 @@ _EXPERIENCE_INTERACTIONS_ADR = (
 )
 _EXPERIENCE_INTERACTIONS_MIGRATION = (
     REPO_ROOT / "database" / "migrations" / "versions" / "0010_experience_run_interactions.py"
+)
+_AGENT_RUNS_ADR = (
+    REPO_ROOT / "governance" / "ADR" / "ADR-0053-agent-run-trace-durable-persistence.md"
+)
+_AGENT_RUNS_MIGRATION = REPO_ROOT / "database" / "migrations" / "versions" / "0012_ai_agent_runs.py"
+_AUTHORIZATION_LEASE_ADR = (
+    REPO_ROOT / "governance" / "ADR" / "ADR-0055-agent-authorization-lease-persistence.md"
+)
+_AUTHORIZATION_LEASE_MIGRATION = (
+    REPO_ROOT / "database" / "migrations" / "versions" / "0013_ai_authorization_leases.py"
+)
+_TOOL_ACTION_OUTBOX_ADR = (
+    REPO_ROOT / "governance" / "ADR" / "ADR-0057-tool-action-durable-outbox.md"
+)
+_TOOL_ACTION_OUTBOX_MIGRATION = (
+    REPO_ROOT / "database" / "migrations" / "versions" / "0014_tool_action_outbox.py"
+)
+_ACHIEVEMENT_PROJECTION_ADR = (
+    REPO_ROOT / "governance" / "ADR" / "ADR-0058-durable-achievement-projection.md"
+)
+_ACHIEVEMENT_PROJECTION_MIGRATION = (
+    REPO_ROOT / "database" / "migrations" / "versions" / "0015_ai_achievement_projections.py"
 )
 _MIGRATION_MANIFEST = REPO_ROOT / "governance" / "MIGRATION_MANIFEST.yaml"
 
@@ -218,6 +295,102 @@ def _experience_interactions_head_is_approved() -> bool:
     )
 
 
+def _agent_runs_head_is_approved() -> bool:
+    """Require ADR-0053 and its explicit migration-manifest registration."""
+
+    if (
+        not _migration_is_tracked(_AGENT_RUNS_MIGRATION)
+        or not _AGENT_RUNS_ADR.is_file()
+        or not _MIGRATION_MANIFEST.is_file()
+    ):
+        return False
+    try:
+        manifest = yaml.safe_load(_MIGRATION_MANIFEST.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        return False
+    entries = manifest.get("entries", []) if isinstance(manifest, dict) else []
+    approved_statuses = {"APPROVED", "ACCEPTED", "DONE", "MIGRATED", "MIGRATED_TESTED"}
+    return any(
+        isinstance(entry, dict)
+        and "agent_runtime" in repr(entry)
+        and "0012_ai_agent_runs.py" in repr(entry)
+        and str(entry.get("status", "")).upper() in approved_statuses
+        for entry in entries
+    )
+
+
+def _authorization_lease_head_is_approved() -> bool:
+    """Require ADR-0055 and its explicit migration-manifest registration."""
+
+    if (
+        not _migration_is_tracked(_AUTHORIZATION_LEASE_MIGRATION)
+        or not _AUTHORIZATION_LEASE_ADR.is_file()
+        or not _MIGRATION_MANIFEST.is_file()
+    ):
+        return False
+    try:
+        manifest = yaml.safe_load(_MIGRATION_MANIFEST.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        return False
+    entries = manifest.get("entries", []) if isinstance(manifest, dict) else []
+    approved_statuses = {"APPROVED", "ACCEPTED", "DONE", "MIGRATED", "MIGRATED_TESTED"}
+    return any(
+        isinstance(entry, dict)
+        and "0013_ai_authorization_leases.py" in repr(entry)
+        and "ADR-0055-agent-authorization-lease-persistence.md" in repr(entry)
+        and str(entry.get("status", "")).upper() in approved_statuses
+        for entry in entries
+    )
+
+
+def _tool_action_outbox_head_is_approved() -> bool:
+    """Require ADR-0057 and its explicit migration-manifest registration."""
+
+    if (
+        not _migration_is_tracked(_TOOL_ACTION_OUTBOX_MIGRATION)
+        or not _TOOL_ACTION_OUTBOX_ADR.is_file()
+        or not _MIGRATION_MANIFEST.is_file()
+    ):
+        return False
+    try:
+        manifest = yaml.safe_load(_MIGRATION_MANIFEST.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        return False
+    entries = manifest.get("entries", []) if isinstance(manifest, dict) else []
+    approved_statuses = {"APPROVED", "ACCEPTED", "DONE", "MIGRATED", "MIGRATED_TESTED"}
+    return any(
+        isinstance(entry, dict)
+        and "0014_tool_action_outbox.py" in repr(entry)
+        and "ADR-0057-tool-action-durable-outbox.md" in repr(entry)
+        and str(entry.get("status", "")).upper() in approved_statuses
+        for entry in entries
+    )
+
+
+def _achievement_projection_head_is_approved() -> bool:
+    """Require ADR-0058 and its explicit migration-manifest registration."""
+
+    if (
+        not _migration_is_tracked(_ACHIEVEMENT_PROJECTION_MIGRATION)
+        or not _ACHIEVEMENT_PROJECTION_ADR.is_file()
+        or not _MIGRATION_MANIFEST.is_file()
+    ):
+        return False
+    try:
+        manifest = yaml.safe_load(_MIGRATION_MANIFEST.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        return False
+    entries = manifest.get("entries", []) if isinstance(manifest, dict) else []
+    approved_statuses = {"APPROVED", "ACCEPTED", "DONE", "MIGRATED", "MIGRATED_TESTED"}
+    return any(
+        isinstance(entry, dict)
+        and "0015_ai_achievement_projections.py" in repr(entry)
+        and "ADR-0058-durable-achievement-projection.md" in repr(entry)
+        and str(entry.get("status", "")).upper() in approved_statuses
+        for entry in entries
+    )
+
+
 def _assert_accepted_head(head: str) -> str:
     """Validate one registered head and reject unregistered concurrent WIP."""
 
@@ -235,6 +408,30 @@ def _assert_accepted_head(head: str) -> str:
         assert _experience_interactions_head_is_approved(), (
             "0010_experience_run_interactions is present as head but is not approved: require "
             "governance/ADR/ADR-0047-async-sql-experience-run-ledger.md and an approved "
+            "MIGRATION_MANIFEST entry"
+        )
+    if head == "0012_ai_agent_runs":
+        assert _agent_runs_head_is_approved(), (
+            "0012_ai_agent_runs is present as head but is not approved: require "
+            "governance/ADR/ADR-0053-agent-run-trace-durable-persistence.md and an approved "
+            "MIGRATION_MANIFEST entry"
+        )
+    if head == "0013_ai_authorization_leases":
+        assert _authorization_lease_head_is_approved(), (
+            "0013_ai_authorization_leases is present as head but is not approved: require "
+            "governance/ADR/ADR-0055-agent-authorization-lease-persistence.md and an approved "
+            "MIGRATION_MANIFEST entry"
+        )
+    if head == "0014_tool_action_outbox":
+        assert _tool_action_outbox_head_is_approved(), (
+            "0014_tool_action_outbox is present as head but is not approved: require "
+            "governance/ADR/ADR-0057-tool-action-durable-outbox.md and an approved "
+            "MIGRATION_MANIFEST entry"
+        )
+    if head == "0015_ai_achievement_projections":
+        assert _achievement_projection_head_is_approved(), (
+            "0015_ai_achievement_projections is present as head but is not approved: require "
+            "governance/ADR/ADR-0058-durable-achievement-projection.md and an approved "
             "MIGRATION_MANIFEST entry"
         )
     return head
@@ -289,14 +486,12 @@ async def test_upgrade_baseline_applies_to_empty_postgres(throwaway_database_url
         "upgrade", "0001_legacy_schema_baseline", database_url=throwaway_database_url
     )
     assert result.returncode == 0, (
-        "alembic upgrade 0001_legacy_schema_baseline failed:\n"
-        f"{result.stdout}\n{result.stderr}"
+        f"alembic upgrade 0001_legacy_schema_baseline failed:\n{result.stdout}\n{result.stderr}"
     )
 
     after = await _count_objects(throwaway_database_url)
     assert after == EXPECTED_BASELINE_COUNTS, (
-        "replayed baseline schema does not match the psql-measured reference: "
-        f"{after}"
+        f"replayed baseline schema does not match the psql-measured reference: {after}"
     )
 
     current = _run_alembic("current", database_url=throwaway_database_url)
@@ -308,18 +503,14 @@ async def test_upgrade_0008_applies_fgcn_human_gate_additive_revisions(
 ) -> None:
     """0004-0008 add seven owned tables without changing views or enums."""
 
-    result = _run_alembic(
-        "upgrade", "0008_experience_runs", database_url=throwaway_database_url
-    )
+    result = _run_alembic("upgrade", "0008_experience_runs", database_url=throwaway_database_url)
     assert result.returncode == 0, (
-        "alembic upgrade 0008_experience_runs failed:\n"
-        f"{result.stdout}\n{result.stderr}"
+        f"alembic upgrade 0008_experience_runs failed:\n{result.stdout}\n{result.stderr}"
     )
 
     after = await _count_objects(throwaway_database_url)
     assert after == EXPECTED_0008_COUNTS, (
-        "0008 schema does not match the baseline plus additive migration object reference: "
-        f"{after}"
+        f"0008 schema does not match the baseline plus additive migration object reference: {after}"
     )
 
     current = _run_alembic("current", database_url=throwaway_database_url)
@@ -357,6 +548,50 @@ def test_unknown_migration_head_is_blocked() -> None:
 
     with pytest.raises(AssertionError, match="unknown migration head"):
         _assert_accepted_head("0011_unreviewed_future")
+
+
+def test_untracked_0012_head_is_blocked() -> None:
+    """An unapproved AgentRun migration cannot pass the head approval gate."""
+
+    if not _AGENT_RUNS_MIGRATION.is_file():
+        pytest.skip("0012_ai_agent_runs is not present in this checkout")
+    if _agent_runs_head_is_approved():
+        pytest.skip("0012_ai_agent_runs is registered and approved in this checkout")
+    with pytest.raises(AssertionError, match="0012_ai_agent_runs.*not approved"):
+        _assert_accepted_head("0012_ai_agent_runs")
+
+
+def test_untracked_0013_head_is_blocked() -> None:
+    """An unapproved authorization lease migration cannot pass the head gate."""
+
+    if not _AUTHORIZATION_LEASE_MIGRATION.is_file():
+        pytest.skip("0013_ai_authorization_leases is not present in this checkout")
+    if _authorization_lease_head_is_approved():
+        pytest.skip("0013_ai_authorization_leases is registered and approved in this checkout")
+    with pytest.raises(AssertionError, match="0013_ai_authorization_leases.*not approved"):
+        _assert_accepted_head("0013_ai_authorization_leases")
+
+
+def test_untracked_0014_head_is_blocked() -> None:
+    """An unapproved Tool Action outbox migration cannot pass the head gate."""
+
+    if not _TOOL_ACTION_OUTBOX_MIGRATION.is_file():
+        pytest.skip("0014_tool_action_outbox is not present in this checkout")
+    if _tool_action_outbox_head_is_approved():
+        pytest.skip("0014_tool_action_outbox is registered and approved in this checkout")
+    with pytest.raises(AssertionError, match="0014_tool_action_outbox.*not approved"):
+        _assert_accepted_head("0014_tool_action_outbox")
+
+
+def test_untracked_0015_head_is_blocked() -> None:
+    """An unapproved achievement projection migration cannot pass the head gate."""
+
+    if not _ACHIEVEMENT_PROJECTION_MIGRATION.is_file():
+        pytest.skip("0015_ai_achievement_projections is not present in this checkout")
+    if _achievement_projection_head_is_approved():
+        pytest.skip("0015_ai_achievement_projections is registered and approved in this checkout")
+    with pytest.raises(AssertionError, match="0015_ai_achievement_projections.*not approved"):
+        _assert_accepted_head("0015_ai_achievement_projections")
 
 
 async def test_downgrade_then_upgrade_is_repeatable(throwaway_database_url: str) -> None:

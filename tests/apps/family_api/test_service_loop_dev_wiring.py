@@ -45,11 +45,25 @@ from backend.apps.family_api.dev_wiring import (
 )
 from backend.apps.family_api.main import create_app
 from backend.domains.service.api import dependencies as service_deps
+from backend.intelligence.experience.api import get_multimodal_draft_runtime_resolver
+from backend.intelligence.experience.standard_assets import (
+    FAMILY_EXPERIENCE_PROMPT_VERSION,
+    FAMILY_EXPERIENCE_SCHEMA_VERSION,
+    family_experience_output_schema,
+)
 from backend.platform.identity.context import ActorContext, ActorType
 
 FAMILY = "family-a"
 OTHER_FAMILY = "family-zzz"
 ACCOUNT = "parent-a"
+
+
+@pytest.fixture(autouse=True)
+def _dev_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `current_environment()` now fails closed when unset (see
+    # test_environment_wiring_acceptance.py); this file must declare its
+    # environment explicitly rather than rely on an implicit dev default.
+    monkeypatch.setenv(ENV_VAR, "dev")
 
 
 @pytest.fixture()
@@ -218,3 +232,137 @@ def test_production_app_keeps_service_endpoints_fail_closed(
     assert service_deps.get_consent_query not in app.dependency_overrides
     assert service_deps.get_action_context not in app.dependency_overrides
     assert service_deps.get_actor_context not in app.dependency_overrides
+    assert get_multimodal_draft_runtime_resolver not in app.dependency_overrides
+
+
+def test_dev_wiring_installs_experience_resolver_from_authenticated_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Synthetic AI runtime uses the bearer identity, never a client scope."""
+
+    monkeypatch.setenv(ENV_VAR, "test")
+    reset_dev_state()
+    app = create_app()
+    assert get_multimodal_draft_runtime_resolver in app.dependency_overrides
+
+    payload = {
+        "run_id": "run-dev-wiring-001",
+        "prompt_version": FAMILY_EXPERIENCE_PROMPT_VERSION,
+        "schema_version": FAMILY_EXPERIENCE_SCHEMA_VERSION,
+        "payload": {"media_ref": "fixture:image-001"},
+        "output_schema": family_experience_output_schema(),
+        "modalities": ["TEXT", "IMAGE"],
+        "estimated_input_tokens": 128,
+        "media_inputs": [
+            {
+                "media_type": "IMAGE",
+                "uri": "media:fixture:dev-wiring-001",
+                "mime_type": "image/jpeg",
+                "sha256": "a" * 64,
+            }
+        ],
+    }
+
+    with TestClient(app) as client:
+        session = client.post(
+            "/auth/account-session",
+            json={"external_ref": "guardian-dev:family-dev"},
+            headers={"idempotency-key": "experience-session-1"},
+        )
+        assert session.status_code == 200, session.text
+        token = session.json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        draft = client.post(
+            "/families/family-dev/experience/multimodal/drafts",
+            headers=headers,
+            json=payload,
+        )
+        assert draft.status_code == 200, draft.text
+        result = draft.json()
+        assert result["scope"]["tenant_id"] == "family-dev"
+        assert result["scope"]["family_id"] == "family-dev"
+        assert result["scope"]["subject_ids"] == [
+            "guardian-dev",
+            "dev-child:family-dev",
+        ]
+        assert result["status"] == "DRAFT"
+        assert result["requires_human_confirmation"] is True
+
+        cross_family = client.post(
+            "/families/family-other/experience/multimodal/drafts",
+            headers=headers,
+            json=payload | {"run_id": "run-dev-wiring-cross-family"},
+        )
+        assert cross_family.status_code == 403, cross_family.text
+
+
+def test_dev_experience_run_ledger_survives_create_decision_and_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The test runtime preserves a run across separately resolved requests."""
+
+    monkeypatch.setenv(ENV_VAR, "test")
+    reset_dev_state()
+    app = create_app()
+    payload = {
+        "run_id": "run-dev-wiring-persistent-001",
+        "prompt_version": FAMILY_EXPERIENCE_PROMPT_VERSION,
+        "schema_version": FAMILY_EXPERIENCE_SCHEMA_VERSION,
+        "payload": {"message": "请生成家庭成长草案"},
+        "output_schema": family_experience_output_schema(),
+        "modalities": ["TEXT"],
+        "estimated_input_tokens": 64,
+    }
+
+    with TestClient(app) as client:
+        session = client.post(
+            "/auth/account-session",
+            json={"external_ref": "guardian-persist:family-persist"},
+            headers={"idempotency-key": "experience-session-persist"},
+        )
+        assert session.status_code == 200, session.text
+        token = session.json()["token"]
+        auth_headers = {"Authorization": f"Bearer {token}"}
+
+        created = client.post(
+            "/families/family-persist/experience/multimodal/drafts",
+            headers=auth_headers | {"Idempotency-Key": "draft-persist-1"},
+            json=payload,
+        )
+        assert created.status_code == 200, created.text
+
+        decision = client.post(
+            "/families/family-persist/experience/multimodal/runs/"
+            "run-dev-wiring-persistent-001/decisions",
+            headers=auth_headers | {"Idempotency-Key": "decision-persist-1"},
+            json={"decision": "confirm"},
+        )
+        assert decision.status_code == 200, decision.text
+        assert decision.json()["status"] == "recorded"
+
+        replay = client.get(
+            "/families/family-persist/experience/multimodal/runs/"
+            "run-dev-wiring-persistent-001/replay",
+            headers=auth_headers,
+        )
+        assert replay.status_code == 200, replay.text
+        projection = replay.json()
+        assert projection["run_id"] == "run-dev-wiring-persistent-001"
+        assert projection["status"] == "DRAFT"
+        assert projection["deletion_state"] == "active"
+        assert projection["draft_payload"]["understanding"] == (
+            "这是由生产同构测试链路生成的合成草案"
+        )
+        assert projection["entries"][-1]["interaction_type"] == "decision"
+        assert projection["entries"][-1]["payload"]["decision"] == "accepted"
+
+        replayed_decision = client.post(
+            "/families/family-persist/experience/multimodal/runs/"
+            "run-dev-wiring-persistent-001/decisions",
+            headers=auth_headers | {"Idempotency-Key": "decision-persist-1"},
+            json={"decision": "confirm"},
+        )
+        assert replayed_decision.status_code == 200, replayed_decision.text
+        assert replayed_decision.json()["status"] == "replayed"
+        assert replayed_decision.json()["idempotency_replayed"] is True
