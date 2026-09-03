@@ -248,6 +248,22 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .live-slo-metrics > div { background: rgb(255 247 237 / 9%); border-radius: 14px; display: grid; gap: 8px; padding: 14px; }
 .live-slo-metrics span { color: #fdba74; font-size: 0.72rem; font-weight: 750; }
 .live-slo-metrics strong { font-size: 1rem; }
+.live-multimodal-timeline {
+  background: #fff;
+  border: 1px solid #fed7aa;
+  border-radius: 18px;
+  margin-top: 16px;
+  padding: 18px;
+}
+.live-multimodal-timeline header { align-items: start; display: flex; justify-content: space-between; }
+.live-multimodal-timeline header span { color: #c2410c; font-size: 0.7rem; font-weight: 850; text-transform: uppercase; }
+.live-multimodal-timeline h3 { color: #431407; margin: 5px 0 0; }
+.live-multimodal-timeline ol { display: grid; gap: 10px; list-style: none; padding: 0; }
+.live-multimodal-timeline li { border-left: 3px solid #f97316; display: grid; gap: 12px; grid-template-columns: 74px 1fr; padding: 8px 0 8px 14px; }
+.live-multimodal-timeline time { color: #c2410c; font-size: 0.78rem; font-weight: 800; }
+.live-multimodal-timeline li div { display: grid; gap: 5px; }
+.live-multimodal-timeline li p, .live-multimodal-timeline li small { margin: 0; }
+.live-multimodal-timeline > p { background: #fff7ed; border-radius: 12px; color: #7c2d12; padding: 12px; }
 
 @media (max-width: 620px) {
   .live-ops-shell { padding: 28px 14px; }

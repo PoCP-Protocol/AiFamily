@@ -27,6 +27,17 @@ from poc.standalone_live_ai_sandbox.draft_flow import (
     ReviewDecision,
     SyntheticTranscript,
 )
+from poc.standalone_live_ai_sandbox.multimodal_timeline import (
+    MultimodalRejected,
+    MultimodalTimelineDraft,
+    MultimodalTimelinePipeline,
+    OcrObservation,
+    SpeechWindow,
+    SyntheticMediaInput,
+    TimelineCue,
+    TranscriptSegment,
+    VideoKeyframe,
+)
 
 
 class Actor(BaseModel):
@@ -69,6 +80,114 @@ class DraftView(BaseModel):
     external_effect: Literal[False] = False
     fact_write: Literal[False] = False
     audit_mode: Literal["SANDBOX_RECEIPT_ONLY"] = "SANDBOX_RECEIPT_ONLY"
+
+
+class SpeechWindowInput(BaseModel):
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(gt=0)
+    confidence: float = Field(ge=0, le=1)
+
+
+class TranscriptSegmentInput(SpeechWindowInput):
+    text: str = Field(min_length=1, max_length=4_000)
+    speaker_ref: str = Field(min_length=1, max_length=160)
+    evidence_ref: str = Field(min_length=1, max_length=160)
+
+
+class VideoKeyframeInput(BaseModel):
+    at_ms: int = Field(ge=0)
+    frame_ref: str = Field(min_length=1, max_length=160)
+    scene_ref: str = Field(min_length=1, max_length=160)
+    evidence_ref: str = Field(min_length=1, max_length=160)
+
+
+class OcrObservationInput(BaseModel):
+    frame_ref: str = Field(min_length=1, max_length=160)
+    text: str = Field(min_length=1, max_length=4_000)
+    confidence: float = Field(ge=0, le=1)
+    evidence_ref: str = Field(min_length=1, max_length=160)
+
+
+class MultimodalTimelineRequest(BaseModel):
+    session_ref: str = Field(min_length=1, max_length=160)
+    media_ref: str = Field(min_length=1, max_length=160)
+    audio_ref: str = Field(min_length=1, max_length=160)
+    video_ref: str = Field(min_length=1, max_length=160)
+    duration_ms: int = Field(gt=0, le=14_400_000)
+    speech_windows: list[SpeechWindowInput] = Field(min_length=1, max_length=2_000)
+    transcript_segments: list[TranscriptSegmentInput] = Field(min_length=1, max_length=2_000)
+    video_keyframes: list[VideoKeyframeInput] = Field(min_length=1, max_length=2_000)
+    ocr_observations: list[OcrObservationInput] = Field(default_factory=list, max_length=4_000)
+    contains_real_person: bool = False
+    contains_biometric_data: bool = False
+    idempotency_key: str = Field(min_length=1, max_length=160)
+
+
+class TimelineCueView(BaseModel):
+    start_ms: int
+    end_ms: int
+    speaker_ref: str
+    transcript: str
+    frame_ref: str | None
+    scene_ref: str | None
+    ocr_text: list[str]
+    evidence_refs: list[str]
+
+
+class MultimodalTimelineView(BaseModel):
+    timeline_ref: str
+    session_ref: str
+    media_ref: str
+    cues: list[TimelineCueView]
+    evidence_digest: str
+    modalities: list[str]
+    risk_flags: list[str]
+    status: Literal["DRAFT"] = "DRAFT"
+    human_review_required: Literal[True] = True
+    may_mutate_business_state: Literal[False] = False
+    source: Literal["SANDBOX_SYNTHETIC"] = SANDBOX_SOURCE
+    fixture_only: Literal[True] = True
+    external_effect: Literal[False] = False
+
+
+class StaticVad:
+    def __init__(self, values: list[SpeechWindow]) -> None:
+        self._values = values
+
+    def detect(self, media: SyntheticMediaInput) -> list[SpeechWindow]:
+        del media
+        return self._values
+
+
+class StaticAsr:
+    def __init__(self, values: list[TranscriptSegment]) -> None:
+        self._values = values
+
+    def transcribe(
+        self, media: SyntheticMediaInput, windows: list[SpeechWindow]
+    ) -> list[TranscriptSegment]:
+        del media, windows
+        return self._values
+
+
+class StaticFrames:
+    def __init__(self, values: list[VideoKeyframe]) -> None:
+        self._values = values
+
+    def sample(self, media: SyntheticMediaInput) -> list[VideoKeyframe]:
+        del media
+        return self._values
+
+
+class StaticOcr:
+    def __init__(self, values: list[OcrObservation]) -> None:
+        self._values = values
+
+    def extract(
+        self, media: SyntheticMediaInput, frames: list[VideoKeyframe]
+    ) -> list[OcrObservation]:
+        del media, frames
+        return self._values
 
 
 def actor_headers():
@@ -203,6 +322,74 @@ def create_app(database_path: Path) -> FastAPI:
             database.commit()
             row = require_draft(database, draft_ref)
         return draft_view(row)
+
+    @app.post(
+        "/sandbox/live-ai/multimodal-timelines",
+        response_model=MultimodalTimelineView,
+    )
+    def generate_multimodal_timeline(
+        request: MultimodalTimelineRequest,
+        response: Response,
+        actor: Annotated[Actor, Depends(actor_headers())],
+    ) -> MultimodalTimelineView:
+        response.headers["Cache-Control"] = "no-store"
+        require_role(actor, {"CREATOR", "AI_OPERATOR"})
+        fingerprint = multimodal_fingerprint(request, actor)
+        with connect(database_path) as database:
+            replay = database.execute(
+                "SELECT request_fingerprint, result_json FROM multimodal_timelines "
+                "WHERE idempotency_key = ?",
+                (request.idempotency_key,),
+            ).fetchone()
+            if replay is not None:
+                if replay["request_fingerprint"] != fingerprint:
+                    raise HTTPException(status_code=409, detail="idempotency conflict")
+                return MultimodalTimelineView.model_validate_json(replay["result_json"])
+
+        pipeline = MultimodalTimelinePipeline(
+            vad=StaticVad([SpeechWindow(**item.model_dump()) for item in request.speech_windows]),
+            asr=StaticAsr(
+                [TranscriptSegment(**item.model_dump()) for item in request.transcript_segments]
+            ),
+            frames=StaticFrames(
+                [VideoKeyframe(**item.model_dump()) for item in request.video_keyframes]
+            ),
+            ocr=StaticOcr(
+                [OcrObservation(**item.model_dump()) for item in request.ocr_observations]
+            ),
+        )
+        try:
+            generated = pipeline.build(
+                SyntheticMediaInput(
+                    tenant_id=actor.tenant_id,
+                    family_id=actor.family_id,
+                    session_ref=request.session_ref,
+                    media_ref=request.media_ref,
+                    audio_ref=request.audio_ref,
+                    video_ref=request.video_ref,
+                    duration_ms=request.duration_ms,
+                    contains_real_person=request.contains_real_person,
+                    contains_biometric_data=request.contains_biometric_data,
+                )
+            )
+        except MultimodalRejected as exc:
+            raise HTTPException(status_code=422, detail="multimodal evidence rejected") from exc
+        view = multimodal_view(generated.cues, generated)
+        with connect(database_path) as database:
+            database.execute(
+                "INSERT INTO multimodal_timelines "
+                "(idempotency_key, request_fingerprint, tenant_id, family_id, result_json) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    request.idempotency_key,
+                    fingerprint,
+                    actor.tenant_id,
+                    actor.family_id,
+                    view.model_dump_json(),
+                ),
+            )
+            database.commit()
+        return view
 
     @app.post("/sandbox/live-ai/drafts/{draft_ref}/review", response_model=DraftView)
     def review_draft(
@@ -371,6 +558,42 @@ def review_fingerprint(request: ReviewRequest, actor: Actor, draft_ref: str) -> 
     ).hexdigest()
 
 
+def multimodal_fingerprint(request: MultimodalTimelineRequest, actor: Actor) -> str:
+    return sha256(
+        json.dumps(
+            {"request": request.model_dump(), "actor": actor.model_dump()},
+            ensure_ascii=False,
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+
+
+def multimodal_view(
+    cues: tuple[TimelineCue, ...], generated: MultimodalTimelineDraft
+) -> MultimodalTimelineView:
+    return MultimodalTimelineView(
+        timeline_ref=generated.timeline_ref,
+        session_ref=generated.session_ref,
+        media_ref=generated.media_ref,
+        cues=[
+            TimelineCueView(
+                start_ms=cue.start_ms,
+                end_ms=cue.end_ms,
+                speaker_ref=cue.speaker_ref,
+                transcript=cue.transcript,
+                frame_ref=cue.frame_ref,
+                scene_ref=cue.scene_ref,
+                ocr_text=list(cue.ocr_text),
+                evidence_refs=list(cue.evidence_refs),
+            )
+            for cue in cues
+        ],
+        evidence_digest=generated.evidence_digest,
+        modalities=list(generated.modalities),
+        risk_flags=list(generated.risk_flags),
+    )
+
+
 def append_receipt(
     database: sqlite3.Connection,
     draft_ref: str,
@@ -426,6 +649,11 @@ def initialise(database_path: Path) -> None:
                 sequence INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id TEXT NOT NULL,
                 family_id TEXT NOT NULL, actor_id TEXT NOT NULL,
                 transcript_ref TEXT NOT NULL, reason TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS multimodal_timelines (
+                idempotency_key TEXT PRIMARY KEY, request_fingerprint TEXT NOT NULL,
+                tenant_id TEXT NOT NULL, family_id TEXT NOT NULL,
+                result_json TEXT NOT NULL
             );
             """
         )

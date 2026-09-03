@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -60,7 +60,9 @@ describe("LiveSessionControlConsole", () => {
     await user.click(screen.getByRole("button", { name: "检查摄像头和麦克风" }));
     expect(await screen.findByText("摄像头和麦克风已就绪，可以开播。")).toBeInTheDocument();
     expect(await screen.findByText("WebRTC 低延迟通道已建立。")).toBeInTheDocument();
-    expect(startButton).toBeEnabled();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "开始直播" })).toBeEnabled();
+    });
     await user.click(screen.getByRole("button", { name: "开始直播" }));
     expect(await screen.findByText("直播已开始，符合范围的家庭可以发现。")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "人工停止直播" }));

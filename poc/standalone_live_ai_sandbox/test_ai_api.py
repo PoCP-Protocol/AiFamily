@@ -27,6 +27,63 @@ def request_payload(**overrides):
     return payload
 
 
+def multimodal_payload(**overrides):
+    payload = {
+        "session_ref": "live.synthetic.1",
+        "media_ref": "media.synthetic.1",
+        "audio_ref": "audio.synthetic.1",
+        "video_ref": "video.synthetic.1",
+        "duration_ms": 12_000,
+        "speech_windows": [
+            {"start_ms": 0, "end_ms": 5_000, "confidence": 0.98},
+            {"start_ms": 5_000, "end_ms": 11_000, "confidence": 0.97},
+        ],
+        "transcript_segments": [
+            {
+                "start_ms": 0,
+                "end_ms": 5_000,
+                "text": "先复述对方的感受",
+                "speaker_ref": "expert.synthetic.1",
+                "confidence": 0.96,
+                "evidence_ref": "asr.synthetic.1",
+            },
+            {
+                "start_ms": 5_000,
+                "end_ms": 11_000,
+                "text": "再一起确认一个小行动",
+                "speaker_ref": "expert.synthetic.1",
+                "confidence": 0.95,
+                "evidence_ref": "asr.synthetic.2",
+            },
+        ],
+        "video_keyframes": [
+            {
+                "at_ms": 2_000,
+                "frame_ref": "frame.synthetic.1",
+                "scene_ref": "scene.synthetic.1",
+                "evidence_ref": "video.synthetic.evidence.1",
+            },
+            {
+                "at_ms": 8_000,
+                "frame_ref": "frame.synthetic.2",
+                "scene_ref": "scene.synthetic.2",
+                "evidence_ref": "video.synthetic.evidence.2",
+            },
+        ],
+        "ocr_observations": [
+            {
+                "frame_ref": "frame.synthetic.1",
+                "text": "事实 ≠ 评价",
+                "confidence": 0.94,
+                "evidence_ref": "ocr.synthetic.1",
+            }
+        ],
+        "idempotency_key": "multimodal:1",
+    }
+    payload.update(overrides)
+    return payload
+
+
 def test_generate_review_audit_and_restart(tmp_path: Path) -> None:
     database = tmp_path / "ai.sqlite3"
     client = TestClient(create_app(database))
@@ -67,6 +124,73 @@ def test_generate_review_audit_and_restart(tmp_path: Path) -> None:
         "AI_DRAFT_CREATED",
         "HUMAN_EDIT",
     ]
+
+
+def test_multimodal_timeline_aligns_audio_video_asr_and_ocr(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "ai.sqlite3"))
+
+    response = client.post(
+        "/sandbox/live-ai/multimodal-timelines",
+        headers=headers(),
+        json=multimodal_payload(),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["modalities"] == ["audio", "video", "transcript", "ocr"]
+    assert body["cues"][0]["ocr_text"] == ["事实 ≠ 评价"]
+    assert body["cues"][0]["evidence_refs"] == [
+        "asr.synthetic.1",
+        "video.synthetic.evidence.1",
+        "ocr.synthetic.1",
+    ]
+    assert body["status"] == "DRAFT"
+    assert body["human_review_required"] is True
+    assert body["may_mutate_business_state"] is False
+    assert body["external_effect"] is False
+
+
+def test_multimodal_timeline_replays_and_rejects_idempotency_conflict(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "ai.sqlite3"))
+
+    first = client.post(
+        "/sandbox/live-ai/multimodal-timelines",
+        headers=headers(),
+        json=multimodal_payload(),
+    )
+    replay = client.post(
+        "/sandbox/live-ai/multimodal-timelines",
+        headers=headers(),
+        json=multimodal_payload(),
+    )
+    conflict = client.post(
+        "/sandbox/live-ai/multimodal-timelines",
+        headers=headers(),
+        json=multimodal_payload(duration_ms=13_000),
+    )
+
+    assert replay.json() == first.json()
+    assert conflict.status_code == 409
+
+
+def test_multimodal_timeline_rejects_real_person_and_bad_evidence(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "ai.sqlite3"))
+
+    real_person = client.post(
+        "/sandbox/live-ai/multimodal-timelines",
+        headers=headers(),
+        json=multimodal_payload(contains_real_person=True),
+    )
+    outside_timeline = multimodal_payload(idempotency_key="multimodal:outside")
+    outside_timeline["video_keyframes"][0]["at_ms"] = 99_000
+    invalid = client.post(
+        "/sandbox/live-ai/multimodal-timelines",
+        headers=headers(),
+        json=outside_timeline,
+    )
+
+    assert real_person.status_code == 422
+    assert invalid.status_code == 422
 
 
 def test_scope_role_idempotency_and_injection_fail_closed(tmp_path: Path) -> None:
