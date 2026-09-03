@@ -229,6 +229,49 @@ entries:
       - "课程内容目前是单一共享目录（无按租户隔离的课程作者体系），CourseSupplyAdapter
          匹配时不按 tenant_id 过滤，是记录在案的简化，非遗漏"
 
+  - capability: improvement_candidate
+    canonical_path: backend/domains/product_intelligence
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "N8 新需求回流的产品侧信号，本仓库新建，非从旧仓库迁移"
+    scope: >
+      N8"回到需求池、知识和产品改进"的产品侧落点：家庭确认 DID_NOT_HELP 时，
+      写入一条去标识化的 ImprovementCandidate（component_id/component_shape/
+      decision/category/intervention_tier，无 family_id/tenant_id/家庭原文），
+      供产品/内容团队查询"这个课程/服务是否需要改进或退场"。真实 PostgreSQL
+      已验证 round-trip。
+    tests:
+      - tests/domains/product_intelligence/test_improvement_candidate_postgres_repository_integration.py
+      - tests/apps/family_api/test_need_fulfillment_e2e.py
+    known_gaps:
+      - "只是信号沉淀，未接任何自动化的'产品/内容改进'决策流程——查询到信号后
+         仍需人工判断要不要改，不做自动下线/自动改写"
+
+  - capability: family_experience_signal
+    canonical_path: backend/domains/product_intelligence
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "对标小红书'看看其他家庭怎么解决类似问题'的经验价值，
+      本仓库新建的去标识化聚合方案，非 UGC，非从旧仓库迁移"
+    scope: >
+      家庭确认结果（HELPED/PARTIALLY_HELPED/DID_NOT_HELP，全部而非仅负面）
+      写入的去标识化跨家庭信号，`family_experience_signals`表在数据库层面
+      物理上没有任何 family/tenant/child 列（不是应用层过滤，是表结构本身
+      不存在该列）。`GET /product-intelligence/experience-signals/summary?
+      category=X`用真实 SQL GROUP BY 返回每个 component 的
+      helped/partially_helped/did_not_help 计数与 helped_rate，替代小红书式
+      UGC 个人故事（家庭隐私文本即使去标识化也有识别风险，改用真实结构化
+      结果聚合）。与 improvement_candidate 是两个独立聚合：后者只答"要不要
+      改这个产品"，前者答"这对像我一样的家庭有没有用"。
+    tests:
+      - tests/apps/family_api/test_need_fulfillment_e2e.py
+    known_gaps:
+      - "只在 confirm_family_outcome 端点写入，尚未接入 family_need 域外
+         任何其他确认结果来源；查询端点无分页/排序参数，数据量增大后需补"
+      - "尚未补一份专属的真实 PostgreSQL gated 集成测试文件（已用手工脚本
+         验证过真实 round-trip + SQL 聚合正确，但没有固化成 tests/ 下的
+         可重复运行测试——记录在案的缺口，不是没验证过）"
+
   - capability: membership
     canonical_path: backend/domains/membership
     status: MIGRATED_TESTED
@@ -421,8 +464,9 @@ entries:
     known_gaps: >
       生产 SQL 状态机、幂等、Audit/Outbox、重启回读、Bearer/tenant/family/subject/Consent
       HTTP 边界和 row_version 乐观锁已实现；AI 草案摘要、provenance 与 consent version
-      通过 0061 固化。main 挂载和 Action outbox 到 ExperienceEvent/feedback/achievement
-      的消费链仍在迭代 3 后续完成。
+      通过 0061 固化。workflow worker 已把 Action outbox 投影到 ExperienceEvent 与
+      非比较性 achievement；append-only feedback 与 request_human→HumanTask 已通过真实
+      PostgreSQL，main 挂载、feedback/HumanTask 删除 worker 与部署 scheduler/告警仍待完成。
     adr: governance/ADR/ADR-0153-ui09-growth-action-domain-and-ai-plan-bridge.md
 
   - capability: design_copilot
