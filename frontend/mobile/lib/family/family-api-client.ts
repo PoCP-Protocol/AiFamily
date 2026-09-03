@@ -332,7 +332,7 @@ export class FamilyApiClient {
   adoptGenerativeGrowthPlan<T>(
     token: string,
     familyId: string,
-    body: { draft_ref: string; selected_choices: Record<string, string>; parent_note?: string },
+    body: { draft_ref: string; draft_version: number; selected_choices: Record<string, string>; parent_note?: string },
     idempotencyKey: string,
   ) {
     return this.request<T>(`/families/${familyId}/growth/generative-plan/adopt`, {
