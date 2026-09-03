@@ -998,10 +998,8 @@ async def test_postgres_replay_supplies_the_actual_prior_draft_to_follow_up(
     assert feedback_projection.latest_correction_ref == (
         "input:family-understanding-memory-1:correction"
     )
-    assert (
-        apply_parent_feedback_to_eval_spec(
-            prepared.eval_spec, feedback_projection
-        ).parent_felt_understood
-        == 0.75
+    enriched_spec = apply_parent_feedback_to_eval_spec(
+        prepared.eval_spec, feedback_projection
     )
+    assert enriched_spec.parent_feedback_evidence_status == "INSUFFICIENT_N"
     await restarted_engine.dispose()

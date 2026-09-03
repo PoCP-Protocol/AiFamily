@@ -84,7 +84,6 @@ async def test_records_and_projects_bounded_parent_feedback() -> None:
         allowed_knowledge_refs=frozenset(),
     )
     enriched = apply_parent_feedback_to_eval_spec(spec, projection)
-    assert enriched.parent_felt_understood is None
     assert enriched.parent_feedback_evidence_status == "INSUFFICIENT_N"
 
 
@@ -124,8 +123,8 @@ async def test_feedback_only_enters_eval_after_minimum_count_and_coverage() -> N
 
     policy = FeedbackEvalPolicy("test.v1", 2, 0.8, 0.1)
     enriched = apply_parent_feedback_to_eval_spec(spec, projection, policy=policy)
-    assert enriched.parent_felt_understood is None
     assert enriched.parent_feedback_evidence_status == "DESCRIPTIVE_READY"
+    assert enriched.parent_feedback_policy_version == "test.v1"
     assert enriched.parent_feedback_rating_distribution == projection.rating_distribution
 
 

@@ -40,7 +40,6 @@ def _spec(*, revision: bool = False) -> FamilyUnderstandingEvalSpec:
         ),
         prior_hypothesis_statements=("孩子缺乏学习动力。",) if revision else (),
         requires_revision=revision,
-        parent_felt_understood=0.9,
     )
 
 
@@ -180,13 +179,36 @@ def test_revision_score_requires_follow_up_to_change_the_hypothesis() -> None:
     assert evaluator.evaluate(_case(), _result(output)).revision_quality == 0.0
 
 
-def test_missing_case_spec_and_invalid_feedback_fail_closed() -> None:
+def test_missing_case_spec_and_invalid_feedback_evidence_fail_closed() -> None:
     evaluator = FamilyProblemUnderstandingEvaluator({"another-case": _spec()})
     with pytest.raises(MultimodalEvalError, match="missing eval spec"):
         evaluator(_case(), _result(_output()))
-    with pytest.raises(MultimodalEvalError, match="parent feedback"):
+    with pytest.raises(MultimodalEvalError, match="evidence status"):
         FamilyUnderstandingEvalSpec(
             allowed_evidence_refs=frozenset({"input:1"}),
             allowed_knowledge_refs=frozenset(),
-            parent_felt_understood=1.1,
+            parent_feedback_evidence_status="WINNER",
         )
+
+
+def test_parent_feedback_cannot_change_model_quality_score() -> None:
+    baseline = FamilyProblemUnderstandingEvaluator({_case().case_id: _spec()}).evaluate(
+        _case(), _result(_output())
+    )
+    descriptive_spec = FamilyUnderstandingEvalSpec(
+        allowed_evidence_refs=_spec().allowed_evidence_refs,
+        allowed_knowledge_refs=_spec().allowed_knowledge_refs,
+        expected_signal_terms=_spec().expected_signal_terms,
+        parent_feedback_evidence_status="DESCRIPTIVE_READY",
+        parent_feedback_policy_version="test.v1",
+        parent_feedback_response_count=10,
+        parent_feedback_coverage_rate=1.0,
+        parent_feedback_rating_distribution=((1, 5), (5, 5)),
+        parent_feedback_high_understanding_rate=0.5,
+        parent_feedback_low_understanding_rate=0.5,
+    )
+    descriptive = FamilyProblemUnderstandingEvaluator(
+        {_case().case_id: descriptive_spec}
+    ).evaluate(_case(), _result(_output()))
+
+    assert descriptive.score == baseline.score

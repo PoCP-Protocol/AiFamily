@@ -73,7 +73,6 @@ class FamilyProblemUnderstandingPreparer:
         prior_run_id: str | None = None,
         prior_draft: Mapping[str, object] | None = None,
         expected_signal_terms: tuple[frozenset[str], ...] = (),
-        parent_felt_understood: float | None = None,
         minimum_evidence: EvidenceLevel | None = None,
         at: datetime | None = None,
         locale: str = "zh-CN",
@@ -102,7 +101,6 @@ class FamilyProblemUnderstandingPreparer:
             expected_signal_terms=expected_signal_terms,
             prior_hypothesis_statements=prior_hypothesis_statements,
             requires_revision=prior_run_id is not None,
-            parent_felt_understood=parent_felt_understood,
         )
         return FamilyProblemUnderstandingPreparation(
             request=request,
@@ -123,7 +121,6 @@ class FamilyProblemUnderstandingPreparer:
         knowledge_scope: str,
         media_inputs: tuple[MediaInput, ...] = (),
         expected_signal_terms: tuple[frozenset[str], ...] = (),
-        parent_felt_understood: float | None = None,
         minimum_evidence: EvidenceLevel | None = None,
         at: datetime | None = None,
         locale: str = "zh-CN",
@@ -149,7 +146,6 @@ class FamilyProblemUnderstandingPreparer:
             prior_run_id=prior_run_id,
             prior_draft=prior_replay.draft_payload,
             expected_signal_terms=expected_signal_terms,
-            parent_felt_understood=parent_felt_understood,
             minimum_evidence=minimum_evidence,
             at=at,
             locale=locale,

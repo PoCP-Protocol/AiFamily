@@ -38,8 +38,8 @@ class FamilyUnderstandingEvalSpec:
     expected_signal_terms: tuple[frozenset[str], ...] = ()
     prior_hypothesis_statements: tuple[str, ...] = ()
     requires_revision: bool = False
-    parent_felt_understood: float | None = None
     parent_feedback_evidence_status: str = "NOT_MEASURED"
+    parent_feedback_policy_version: str | None = None
     parent_feedback_response_count: int = 0
     parent_feedback_coverage_rate: float | None = None
     parent_feedback_rating_distribution: tuple[tuple[int, int], ...] = ()
@@ -60,13 +60,30 @@ class FamilyUnderstandingEvalSpec:
             raise MultimodalEvalError("expected signal terms must be non-empty")
         if self.requires_revision and not self.prior_hypothesis_statements:
             raise MultimodalEvalError("revision evaluation requires prior hypotheses")
-        if (
-            self.parent_felt_understood is not None
-            and not 0.0 <= self.parent_felt_understood <= 1.0
-        ):
-            raise MultimodalEvalError("parent feedback must be between 0 and 1")
+        if self.parent_feedback_evidence_status not in {
+            "NOT_MEASURED",
+            "INSUFFICIENT_N",
+            "LOW_COVERAGE",
+            "ARM_IMBALANCED",
+            "DESCRIPTIVE_READY",
+        }:
+            raise MultimodalEvalError("parent feedback evidence status is invalid")
         if self.parent_feedback_response_count < 0:
             raise MultimodalEvalError("parent feedback response count must be non-negative")
+        if self.parent_feedback_coverage_rate is not None and not (
+            0.0 <= self.parent_feedback_coverage_rate <= 1.0
+        ):
+            raise MultimodalEvalError("parent feedback coverage rate is invalid")
+        if sum(count for _, count in self.parent_feedback_rating_distribution) != (
+            self.parent_feedback_response_count
+        ):
+            raise MultimodalEvalError("parent feedback distribution count mismatch")
+        for rate in (
+            self.parent_feedback_high_understanding_rate,
+            self.parent_feedback_low_understanding_rate,
+        ):
+            if rate is not None and not 0.0 <= rate <= 1.0:
+                raise MultimodalEvalError("parent feedback rate is invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +96,6 @@ class FamilyUnderstandingQualityReport:
     follow_up_information_gain: float
     revision_quality: float
     strengths_and_goal_grounding: float
-    parent_felt_understood: float | None
     generic_response_penalty: float
     unsupported_certainty_penalty: float
 
@@ -93,10 +109,7 @@ class FamilyUnderstandingQualityReport:
             + self.revision_quality * 0.12
             + self.strengths_and_goal_grounding * 0.12
         )
-        feedback_weight = 0.08 if self.parent_felt_understood is not None else 0.0
-        if self.parent_felt_understood is not None:
-            weighted += self.parent_felt_understood * feedback_weight
-        normalizer = 0.92 + feedback_weight
+        normalizer = 0.92
         penalties = self.generic_response_penalty + self.unsupported_certainty_penalty
         return round(max(0.0, min(1.0, weighted / normalizer - penalties)), 6)
 
@@ -120,7 +133,7 @@ class FamilyProblemUnderstandingEvaluator:
         except KeyError as exc:
             raise MultimodalEvalError(f"missing eval spec for case {case.case_id!r}") from exc
         if result.refused or result.output is None:
-            return _zero_report(spec.parent_felt_understood)
+            return _zero_report()
 
         output = result.output
         hypotheses = _objects(output.get("hypotheses"))
@@ -186,14 +199,13 @@ class FamilyProblemUnderstandingEvaluator:
             follow_up_information_gain=follow_up_information_gain,
             revision_quality=revision_quality,
             strengths_and_goal_grounding=strengths_and_goal_grounding,
-            parent_felt_understood=spec.parent_felt_understood,
             generic_response_penalty=generic_response_penalty,
             unsupported_certainty_penalty=unsupported_certainty_penalty,
         )
 
 
-def _zero_report(parent_feedback: float | None) -> FamilyUnderstandingQualityReport:
-    return FamilyUnderstandingQualityReport(0, 0, 0, 0, 0, 0, parent_feedback, 0, 0)
+def _zero_report() -> FamilyUnderstandingQualityReport:
+    return FamilyUnderstandingQualityReport(0, 0, 0, 0, 0, 0, 0, 0)
 
 
 def _reference_score(

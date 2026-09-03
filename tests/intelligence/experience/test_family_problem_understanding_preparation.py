@@ -134,7 +134,6 @@ def test_preparation_uses_exact_same_evidence_for_generation_and_evaluation() ->
         knowledge_scope="family_growth",
         media_inputs=(image,),
         expected_signal_terms=(frozenset({"切换", "转换"}),),
-        parent_felt_understood=0.8,
     )
 
     assert prepared.request.input_refs == ("input:concern", "media:authorized:desk")

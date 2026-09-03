@@ -281,8 +281,8 @@ def apply_parent_feedback_to_eval_spec(
         spec,
         # Parent feedback remains descriptive evidence. It must not silently
         # change a model-quality score or choose an experiment winner.
-        parent_felt_understood=None,
         parent_feedback_evidence_status=evidence_status,
+        parent_feedback_policy_version=policy.policy_version,
         parent_feedback_response_count=projection.response_count,
         parent_feedback_coverage_rate=projection.coverage_rate,
         parent_feedback_rating_distribution=projection.rating_distribution,
