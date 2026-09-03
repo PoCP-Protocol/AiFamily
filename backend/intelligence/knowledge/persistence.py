@@ -17,6 +17,7 @@ from backend.packages.contracts.evidence import EvidenceLevel, Provenance
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _REF = re.compile(r"^(?P<claim>[^@\s]+)@(?P<version>[^@\s]+)$")
+_SHARED_SCOPE = "shared"
 _TRANSITIONS: dict[KnowledgeStatus | None, frozenset[KnowledgeStatus]] = {
     None: frozenset({"INGESTED"}),
     "INGESTED": frozenset({"PARSED", "RETIRED"}),
@@ -55,6 +56,8 @@ class PersistedKnowledgeClaimVersion:
         )
         if any(not value.strip() for value in required):
             raise ValueError("claim version fields must be non-empty")
+        if self.scope == "*":
+            raise ValueError("claim scope must be explicit")
         if not _SHA256.fullmatch(self.content_digest) or self.content_digest != content_digest(
             self.text
         ):
@@ -80,6 +83,7 @@ class KnowledgeLifecycleEvent:
     event_id: str
     claim_id: str
     version: str
+    scope: str
     sequence: int
     previous_status: KnowledgeStatus | None
     status: KnowledgeStatus
@@ -90,9 +94,11 @@ class KnowledgeLifecycleEvent:
     def __post_init__(self) -> None:
         if any(
             not value.strip()
-            for value in (self.event_id, self.claim_id, self.version, self.actor_ref)
+            for value in (self.event_id, self.claim_id, self.version, self.scope, self.actor_ref)
         ):
             raise ValueError("lifecycle event references are required")
+        if self.scope == "*":
+            raise ValueError("lifecycle scope must be explicit")
         if self.sequence <= 0 or self.expected_version != self.version:
             raise ValueError("lifecycle sequence and expected version are required")
         if self.occurred_at.tzinfo is None:
@@ -123,6 +129,8 @@ class KnowledgeSelectionCommand:
     minimum_evidence: EvidenceLevel
 
     def __post_init__(self) -> None:
+        if not self.scope.strip() or self.scope == "*":
+            raise ValueError("selection scope must be explicit")
         if not _SHA256.fullmatch(self.request_fingerprint):
             raise ValueError("request_fingerprint must be lowercase sha256")
         if self.selected_at.tzinfo is None:
@@ -178,9 +186,11 @@ def advance_lifecycle(
     current = projection.status if projection else None
     expected_sequence = projection.sequence + 1 if projection else 1
     if projection is not None and (
-        projection.claim_id != event.claim_id or projection.version != event.expected_version
+        projection.claim_id != event.claim_id
+        or projection.version != event.expected_version
+        or projection.scope != event.scope
     ):
-        raise ValueError("lifecycle aggregate version mismatch")
+        raise ValueError("lifecycle aggregate identity/version/scope mismatch")
     if event.previous_status != current or event.sequence != expected_sequence:
         raise ValueError("lifecycle optimistic sequence mismatch")
     if event.status not in _TRANSITIONS[current]:
@@ -188,7 +198,7 @@ def advance_lifecycle(
     return KnowledgeClaimStatusProjection(
         event.claim_id,
         event.version,
-        projection.scope if projection else "*",
+        event.scope,
         event.status,
         event.sequence,
         event.event_id,
@@ -229,13 +239,16 @@ def create_selection_receipt(
         if (claim.claim_id, claim.version) != (
             projection.claim_id,
             projection.version,
-        ) or projection.scope not in {claim.scope, "*"}:
+        ) or projection.scope != claim.scope:
             raise ValueError("claim and projection identity/version/scope mismatch")
         if projection.status != "PUBLISHED" or projection.withdrawn:
             raise ValueError("only published claims may be selected")
         if source.status != "ACTIVE" or not source.verified or not source.license_ref.strip():
             raise ValueError("source is not selectable")
-        if claim.source_id != source.source_id or claim.scope not in {command.scope, "*"}:
+        if claim.source_id != source.source_id or claim.scope not in {
+            command.scope,
+            _SHARED_SCOPE,
+        }:
             raise ValueError("claim source or scope mismatch")
         if claim.allowed_purposes and command.purpose not in claim.allowed_purposes:
             raise ValueError("claim purpose mismatch")

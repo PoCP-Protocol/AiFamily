@@ -70,10 +70,18 @@ def command(**changes):
 
 def published():
     event = KnowledgeLifecycleEvent(
-        "e1", "knowledge:transition", "1", 1, None, "INGESTED", NOW, "actor", "1"
+        "e1",
+        "knowledge:transition",
+        "1",
+        "family_growth",
+        1,
+        None,
+        "INGESTED",
+        NOW,
+        "actor",
+        "1",
     )
     state = advance_lifecycle(None, event)
-    state = replace(state, scope="family_growth")
     for sequence, status in enumerate(
         ("PARSED", "CHUNKED", "GROUNDED", "REVIEWED", "PUBLISHED"), 2
     ):
@@ -83,6 +91,7 @@ def published():
                 f"e{sequence}",
                 state.claim_id,
                 state.version,
+                state.scope,
                 sequence,
                 state.status,
                 status,
@@ -97,7 +106,10 @@ def published():
 def test_lifecycle_rejects_jump_revival_and_wrong_sequence() -> None:
     with pytest.raises(ValueError, match="transition"):
         advance_lifecycle(
-            None, KnowledgeLifecycleEvent("e", "c", "1", 1, None, "PUBLISHED", NOW, "a", "1")
+            None,
+            KnowledgeLifecycleEvent(
+                "e", "c", "1", "family_growth", 1, None, "PUBLISHED", NOW, "a", "1"
+            ),
         )
 
 
@@ -114,6 +126,7 @@ def test_lifecycle_event_rejects_empty_identity_refs(changes) -> None:
         event_id="event:1",
         claim_id="knowledge:transition",
         version="1",
+        scope="family_growth",
         sequence=1,
         previous_status=None,
         status="INGESTED",
@@ -127,23 +140,89 @@ def test_lifecycle_event_rejects_empty_identity_refs(changes) -> None:
     retired = advance_lifecycle(
         published(),
         KnowledgeLifecycleEvent(
-            "r", "knowledge:transition", "1", 7, "PUBLISHED", "RETIRED", NOW, "a", "1"
+            "r",
+            "knowledge:transition",
+            "1",
+            "family_growth",
+            7,
+            "PUBLISHED",
+            "RETIRED",
+            NOW,
+            "a",
+            "1",
         ),
     )
     with pytest.raises(ValueError, match="transition"):
         advance_lifecycle(
             retired,
             KnowledgeLifecycleEvent(
-                "x", retired.claim_id, "1", 8, "RETIRED", "PUBLISHED", NOW, "a", "1"
+                "x",
+                retired.claim_id,
+                "1",
+                retired.scope,
+                8,
+                "RETIRED",
+                "PUBLISHED",
+                NOW,
+                "a",
+                "1",
             ),
         )
     with pytest.raises(ValueError, match="sequence"):
         advance_lifecycle(
             published(),
             KnowledgeLifecycleEvent(
-                "x", "knowledge:transition", "1", 9, "PUBLISHED", "RETIRED", NOW, "a", "1"
+                "x",
+                "knowledge:transition",
+                "1",
+                "family_growth",
+                9,
+                "PUBLISHED",
+                "RETIRED",
+                NOW,
+                "a",
+                "1",
             ),
         )
+
+
+def test_lifecycle_binds_real_scope_on_first_event_and_rejects_cross_scope_reuse() -> None:
+    first = KnowledgeLifecycleEvent(
+        "e1", "knowledge:transition", "1", "family:a", 1, None, "INGESTED", NOW, "actor", "1"
+    )
+    state = advance_lifecycle(None, first)
+    assert state.scope == "family:a"
+
+    with pytest.raises(ValueError, match="scope"):
+        advance_lifecycle(
+            state,
+            KnowledgeLifecycleEvent(
+                "e2",
+                "knowledge:transition",
+                "1",
+                "family:b",
+                2,
+                "INGESTED",
+                "PARSED",
+                NOW,
+                "actor",
+                "1",
+            ),
+        )
+
+
+def test_lifecycle_rejects_implicit_wildcard_scope() -> None:
+    with pytest.raises(ValueError, match="explicit"):
+        KnowledgeLifecycleEvent(
+            "e1", "knowledge:transition", "1", "*", 1, None, "INGESTED", NOW, "actor", "1"
+        )
+
+
+def test_claim_and_selection_reject_implicit_wildcard_scope() -> None:
+    with pytest.raises(ValueError, match="explicit"):
+        claim(scope="*")
+    with pytest.raises(ValueError, match="explicit"):
+        command(scope="*")
 
 
 def test_replacement_requires_format_existence_scope_and_no_cycle() -> None:
@@ -179,6 +258,12 @@ def test_selection_rejects_published_projection_borrowed_from_another_claim() ->
     borrowed = replace(published(), claim_id="knowledge:other")
     with pytest.raises(ValueError, match="identity"):
         create_selection_receipt(command(), ((claim(), borrowed, source()),))
+
+
+def test_selection_rejects_same_claim_version_projection_from_another_scope() -> None:
+    other_scope_projection = replace(published(), scope="family:other")
+    with pytest.raises(ValueError, match="scope"):
+        create_selection_receipt(command(), ((claim(), other_scope_projection, source()),))
 
 
 @pytest.mark.parametrize(
