@@ -563,8 +563,14 @@ entries:
          乐观锁/幂等约束通过；生产环境挂载分支（_mount_family_need）已写但尚未在真实
          生产部署中启用过"
       - "FamilyNeedPolicyPort（同意/授权真实存储）仍是 dev/test 合成实现，未接生产同意存储"
-      - "N4 目前只是分配决策事实的记录层，不是真正的资源容量调度/并发争用处理；
-         N8 只回流到新 NeedSignal 层面，未接到知识库/产品改进闭环"
+      - "N4 目前只是分配决策事实的记录层，不是真正的资源容量调度/并发争用处理"
+      - "（已核实更正，2026-09-04）N8 回流曾记录为'只回流到新 NeedSignal 层面，
+         未接知识库/产品改进闭环'，通读 confirm_family_outcome 端点后确认此说法过时：
+         record_family_experience_signal 与 record_improvement_candidate 均已在该端点
+         真实调用，经 FulfillmentDeps 注入的 Protocol 端口（非跨域直接 import），
+         dev_wiring.py 里两个 repository 均接了真实 Postgres 实现。闭环已打通，
+         非缺口——见 backend/domains/product_intelligence 域下 improvement_candidate
+         与 family_experience_signal 两个 capability 条目的 scope 说明"
       - "跨域履约协调器（need_fulfillment_flow.py）是同步顺序调用，无分布式事务补偿；
          中途失败只如实返回 failed_step/failure_reason，不做自动回滚"
       - "FGCN provider 准入（教师资质是否被 admitted）本次未单独建表持久化，调用方
