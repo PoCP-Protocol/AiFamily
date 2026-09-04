@@ -6,7 +6,7 @@ status: current
 version: 2.0
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-08-30
+updated: 2026-09-04
 canonical: true
 supersedes: docs/00_foundation/MASTER_BLUEPRINT.md
 superseded_by: null
@@ -53,6 +53,35 @@ V1 是 `MASTER_BLUEPRINT.md` 直接重命名而来，内容以"蓝图/愿景"为
 ### 0.3 一句话现状
 
 **治理体系与文档架构已建立；Python 平台内核骨架可运行（只会回答 `/health` 与 `/ready`）；5 个 Python 域与整个 Mobile 前端已迁入 —— 但零业务 API，34 个 UI 屏幕全部无法工作，数据库尚未建立，没有任何域上线。**
+
+### 0.4 现状核实追记（2026-09-04，本条不是全量 V3 改写）
+
+**上面 §0.3 的"零业务 API / 数据库尚未建立"这两句话已经不成立**，本条只如实记录新证据，不改动 §1–§4 的既有四分区结构（那需要 chief-architect 做一次完整的 V3 重写，逐域核对，本条追记是给那次重写用的输入，不是替代品）。
+
+以 `AIFAMILY_ENV=test` 起 `create_app()`，用 `app.openapi()['paths']` 实测（不是数它声称有多少条，是真的把 app 起起来读它的 OpenAPI spec）：
+
+```text
+真实业务 HTTP operations 数    85（不是 0）
+覆盖的域                       family_need（signals/clarify/profile/solution-drafts/
+                               outcomes/ai-coach）、service/fgcn（human-tasks/
+                               assignment-proposals）、assessment、product_intelligence
+                               （courses/experience-signals/improvement-candidates）、
+                               experience（achievements/notifications/multimodal）、
+                               growth（onboardings/journey-plan）、auth
+真实 PostgreSQL migration 数   66（database/migrations/versions/），本会话验证过
+                               upgrade→downgrade→upgrade 循环成功
+架构护栏测试                    tests/architecture 111 passed / 1 skipped（含 lint
+                               债务棘轮、Domain/Capability Registry 一致性）
+```
+
+本周（2026-09-01～09-04）落地并有真实 Postgres 测试覆盖的具体闭环：
+
+- `family_need` N0–N8 全生命周期（需求信号→澄清→分级→方案→确认→履约→结果确认→回流），端到端 e2e + Postgres 集成测试
+- `service/fgcn` 人工授权派单——本周内从"仅内存态 `FGCNEngine`（进程重启即丢失）"切换为可选的 durable 路径（真实写入 case/task/assignment/audit，教师资质从 `family_service_providers` 表读取，含过期时间 fail-closed 校验）
+- AI Coach 苏格拉底式引导接入跨轮次会话记忆（`M1_SESSION`，30 天 TTL）
+- `product_intelligence` 的去标识化跨家庭信号（`family_experience_signal`/`improvement_candidate`），含小样本伪共识防护
+
+**本条追记没有核实的部分**（不代表"没问题"，是"这次没查"）：Mobile/Web 前端能否真的调用这些端点、远端 CI、生产环境部署、§4 列出的其余 Not Implemented 项（社区、商品/订单/会员权益等）是否有变化。下一次全量核实应覆盖这些。
 
 ---
 

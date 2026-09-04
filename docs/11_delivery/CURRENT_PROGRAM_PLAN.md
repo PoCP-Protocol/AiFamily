@@ -6,7 +6,7 @@ status: current
 version: 1.1
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-08-30
+updated: 2026-09-04
 canonical: true
 supersedes: null
 superseded_by: null
@@ -28,6 +28,21 @@ superseded_by: null
 源仓库 `50_开发_dev` 下同时存在三份互不引用、各自自称"当前基线"的文档（`CURRENT_SPRINT.md`、`governance/PROGRAM_STATUS_PLATFORM_V1.md`、`architecture/FAMILY_PLATFORM_V3_BLUEPRINT.md`），且源仓库自己已有一份 `architecture/FAMILY_AI_PYTHON_ONLY_MIGRATION_PLAN_V1.md`（2026-08-28），`CURRENT_SPRINT.md` 记录了 7 条项目所有者 Override 正按它推进 Batch 1-6。本计划（AiFamily/AIFAMILY-000 起）与该计划是同一决定被重复下达、还是两个并行/冲突的方案，**尚未裁决**。详见 `governance/MIGRATION_MANIFEST.yaml` 的 `docs_current_baseline_CONTRADICTION` 条目（`review_required_index` 首位，最高优先级）。
 
 在此裁决完成前，本文件登记的 Wave 序列是**一份计划**，不是"唯一在推进的迁移工作"的宣称。
+
+---
+
+## 现状核实追记（2026-09-04）
+
+本节只追加本会话实测的证据，不改动上方 Wave/Sprint/P0-P6 结构，也不裁决 `docs_current_baseline_CONTRADICTION`——那仍待人工裁决。
+
+`family_need`/FGCN/AI Coach/product_intelligence 这条主线（对应上方 `VS-GROWTH-01`/GROWTH 相关行）本周有实质进展，与该矩阵里记录的"未挂载 `family_api`、`production_ready=False`"不再一致：
+
+- `AIFAMILY_ENV=test` 起 `create_app()`，`app.openapi()['paths']` 实测 **85 个真实业务 HTTP operations**（含 `/families/{family_id}/needs/signals`、`.../ai-coach/messages`、FGCN human-tasks/assignment-proposals、experience/assessment/growth 各端点），不是矩阵里记录的"未挂载"。
+- FGCN 那一行记录的"admission→Human Gate→Named Action→TaskAssignment"链路：本会话把 `need_fulfillment_flow.fulfil_confirmed_draft` 唯一 HTTP 可达调用点，从内存态 `FGCNEngine` 切换为可选的 durable 路径（真实落库 case/task/assignment/audit + 真实 provider-admission 读取），旧内存路径保留作未配置时的兼容行为。
+- AI Coach 那一行的"单轮对话"已接入跨轮次记忆（M1_SESSION）。
+- 架构护栏 `tests/architecture`：111 passed / 1 skipped（此前记录的 Ruff debt ratchet 1 failed 已修复）。
+
+**未核实部分**：本条追记不覆盖 Mobile/Web 端能否真的消费这些端点、远端 CI、六门 P0 阻断（ENV-01/DATA-01/IDP-01/LEDGER-01/AI-01/CLIENT-01）里其余尚未验证的项、以及 P1-P6 的其余航次。下一次矩阵刷新应由对应 owner 逐行核实后更新，而不是整体假设"已完成"。
 
 ---
 
