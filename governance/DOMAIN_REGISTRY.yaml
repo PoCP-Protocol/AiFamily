@@ -573,8 +573,20 @@ entries:
          与 family_experience_signal 两个 capability 条目的 scope 说明"
       - "跨域履约协调器（need_fulfillment_flow.py）是同步顺序调用，无分布式事务补偿；
          中途失败只如实返回 failed_step/failure_reason，不做自动回滚"
-      - "FGCN provider 准入（教师资质是否被 admitted）本次未单独建表持久化，调用方
-         传入的 AsyncProviderAdmissionQuery 仍是简化实现，留作后续增量"
+      - "（已接线，2026-09-04）FGCN provider 准入与真实教师分派的整条链路曾只在
+         `FGCNEngine` 内存实例里发生（`need_fulfillment_flow.fulfil_confirmed_draft`
+         唯一真实 HTTP 可达调用点用的是同步 `authorize_real_teacher_assignment` +
+         内存态 `_dev_fgcn_provider_admission`），进程重启即丢失；同时存在的
+         `authorize_real_teacher_assignment_durable`/`SqlAlchemyProviderAdmissionQuery`
+         是协议不兼容的另一条异步 durable 路径，此前只被专属 Postgres 集成测试
+         调用，从未接入任何 HTTP 可达流程——这是本仓库里「能力已建好但从未被
+         组合根引用」的又一例。已把 `fulfil_confirmed_draft` 改为新增可选参数
+         `fgcn_session_factory`：供给时（`dev_wiring._dev_fgcn_session`）走
+         durable 路径（真实 case/task/assignment/audit 落库 + 真实
+         `family_service_providers` 表读取资质，含新加的过期时间字段），
+         未供给则保留旧的内存路径行为不变。同批加了
+         `qualification_type`/`qualification_expires_at` 两列（migration 0066），
+         过期资质现在真正 fail-closed。"
       - "（已接线，2026-09-04）AI Coach 曾只有单轮对话；backend/intelligence/memory/
          的 M1_SESSION 记忆能力本身早已完整实现，缺口只是 family_need 应用层
          （request_coach_perspective/AiCoachDeps）没有转发 memory_store/need_id/

@@ -32,6 +32,8 @@ FGCN attributes is a refusal (``None``), not an implicit allow — matching
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,6 +79,18 @@ class SqlAlchemyProviderAdmissionQuery:
             return None
         if row.status != "ACTIVE" or row.qualification_status != "ACTIVE":
             return None
+        if row.qualification_expires_at is not None:
+            expires_at = row.qualification_expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=UTC)
+            if expires_at <= datetime.now(UTC):
+                # An expired credential is a refusal regardless of what
+                # `qualification_status` still says — that column is not
+                # automatically revisited when a certificate lapses, so this
+                # date check is the only thing that actually fails closed on
+                # expiry (see this module's own docstring for why the column
+                # was added rather than trusted from `attributes` JSONB).
+                return None
 
         attributes = row.attributes if isinstance(row.attributes, dict) else {}
         raw_capability_keys = attributes.get(_FGCN_CAPABILITY_KEYS_ATTR)

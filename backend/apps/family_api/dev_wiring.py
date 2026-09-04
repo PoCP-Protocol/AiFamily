@@ -269,6 +269,30 @@ async def _dev_connection():
         await engine.dispose()
 
 
+@contextlib.asynccontextmanager
+async def _dev_fgcn_session():
+    """Open one `AsyncSession` (not a bare `Connection`) on a fresh,
+    disposable engine — the durable FGCN authorization path needs ORM
+    session semantics (`SqlAlchemyFGCNRepository`/`SqlAlchemyProviderAdmissionQuery`
+    both take a `Session`), same reasoning as `_dev_connection` for why the
+    engine is created fresh per call rather than shared. Unlike
+    `_ConnectionScopedCoachMemoryStoreForDev`, no `session.begin()` wrapper
+    here — `authorize_real_teacher_assignment_durable` calls
+    `repo.commit()` itself at the points that need it, matching the real
+    Postgres integration test's own usage (`test_family_need_durable_
+    assignment_postgres.py`: `async with session_factory() as session: ...`,
+    no explicit `begin()`).
+    """
+
+    engine = _get_dev_engine()
+    try:
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with factory() as session:
+            yield session
+    finally:
+        await engine.dispose()
+
+
 class _ConnectionScopedFamilyNeedRepository:
     """Opens one connection (as a transaction) per call, mirroring the
     module-singleton shape the Family Need application service and dev
@@ -1321,6 +1345,7 @@ def _dev_fulfillment_deps() -> family_need_fulfillment_deps.FulfillmentDeps:
         course_catalog_tenant_scope=DEV_COURSE_CATALOG_TENANT_SCOPE,
         family_need_repository=_family_need_repository,
         fgcn_provider_admission=_dev_fgcn_provider_admission,
+        fgcn_session_factory=_dev_fgcn_session,
         improvement_candidate_repository=_improvement_candidate_repository,
         family_experience_signal_repository=_family_experience_signal_repository,
     )

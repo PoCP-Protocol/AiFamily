@@ -25,7 +25,7 @@ pattern as `test_family_need_durable_assignment_postgres.py` and
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -181,3 +181,107 @@ async def test_suspended_provider_is_a_refusal() -> None:
             )
 
         assert snapshot is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(postgres_test_url() is None, reason=SKIP_REASON)
+async def test_expired_qualification_is_a_refusal_even_when_status_still_says_active() -> None:
+    """`qualification_status` is never automatically revisited when a real
+    certificate lapses — `qualification_expires_at` is the only thing that
+    actually fails closed on expiry (see this adapter's own docstring)."""
+
+    async with postgres_schema_engine(Base.metadata) as engine:
+        session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        now = datetime.now(UTC).replace(tzinfo=None)
+        expired = ServiceProvider(
+            provider_id="provider-fgcn-admission-postgres-expired",
+            scope_type="TENANT",
+            tenant_id=TENANT_ID,
+            provider_ref="TEACHER_EXPIRED",
+            display_name="资质过期教师",
+            provider_kind="TEACHER",
+            qualification_status="ACTIVE",
+            qualification_type="TEACHING_CERTIFICATE",
+            qualification_expires_at=now - timedelta(days=1),
+            admission_status="ADMITTED",
+            source_ref="test.fgcn.provider_admission_postgres",
+            effective_from=now,
+            created_at=now,
+            created_by="system:test",
+            updated_at=now,
+            updated_by="system:test",
+            attributes={
+                "fgcn_capability_keys": ["parent_communication_support"],
+                "fgcn_allowed_purposes": ["family_service_collaboration"],
+            },
+        )
+
+        async with session_factory() as writer_session:
+            repo = SqlAlchemyServiceRepository(writer_session)
+            await repo.save_provider(expired)
+            await repo.commit()
+
+        async with session_factory() as reader_session:
+            query = SqlAlchemyProviderAdmissionQuery(reader_session)
+            snapshot = await query.resolve(
+                provider_ref="TEACHER_EXPIRED",
+                assignee_kind="COACH",
+                required_capability_keys=(),
+                scope=_scope(),
+            )
+
+        assert snapshot is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(postgres_test_url() is None, reason=SKIP_REASON)
+async def test_future_expiry_still_admits() -> None:
+    """A qualification with a future expiry date must not be rejected —
+    proves the check is a real date comparison, not an accidental
+    always-reject on any non-null `qualification_expires_at`."""
+
+    async with postgres_schema_engine(Base.metadata) as engine:
+        session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        now = datetime.now(UTC).replace(tzinfo=None)
+        still_valid = ServiceProvider(
+            provider_id="provider-fgcn-admission-postgres-valid-expiry",
+            scope_type="TENANT",
+            tenant_id=TENANT_ID,
+            provider_ref="TEACHER_VALID_EXPIRY",
+            display_name="资质有效教师",
+            provider_kind="TEACHER",
+            qualification_status="ACTIVE",
+            qualification_type="TEACHING_CERTIFICATE",
+            qualification_expires_at=now + timedelta(days=365),
+            admission_status="ADMITTED",
+            source_ref="test.fgcn.provider_admission_postgres",
+            effective_from=now,
+            created_at=now,
+            created_by="system:test",
+            updated_at=now,
+            updated_by="system:test",
+            attributes={
+                "fgcn_capability_keys": ["parent_communication_support"],
+                "fgcn_allowed_purposes": ["family_service_collaboration"],
+                "fgcn_capacity_available": 1,
+            },
+        )
+
+        async with session_factory() as writer_session:
+            repo = SqlAlchemyServiceRepository(writer_session)
+            await repo.save_provider(still_valid)
+            await repo.commit()
+
+        async with session_factory() as reader_session:
+            query = SqlAlchemyProviderAdmissionQuery(reader_session)
+            snapshot = await query.resolve(
+                provider_ref="TEACHER_VALID_EXPIRY",
+                assignee_kind="COACH",
+                required_capability_keys=(),
+                scope=_scope(),
+            )
+
+        assert snapshot is not None
+        assert snapshot.provider_ref == "TEACHER_VALID_EXPIRY"

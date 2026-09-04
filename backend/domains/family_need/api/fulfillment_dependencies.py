@@ -15,10 +15,13 @@ layer still never imports commerce or service.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import Protocol
 
 from fastapi import HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.domains.commerce.application.ports import CommerceRepositoryPort
 from backend.domains.family_need.application.ports import FamilyNeedRepositoryPort
@@ -54,6 +57,8 @@ class DraftFulfiller(Protocol):
         environment: str,
         family_need_repository: FamilyNeedRepositoryPort | None = None,
         fgcn_provider_admission: ProviderAdmissionQuery | None = None,
+        fgcn_session_factory: Callable[[], AbstractAsyncContextManager[AsyncSession]]
+        | None = None,
     ): ...
 
 
@@ -91,6 +96,12 @@ class FulfillmentDeps:
     # direct-booking behaviour exactly as before.
     family_need_repository: FamilyNeedRepositoryPort | None = None
     fgcn_provider_admission: ProviderAdmissionQuery | None = None
+    # When supplied, switches FGCN authorization to the durable path (real
+    # case/task/assignment/audit rows + real provider-admission read from
+    # `family_service_providers`, see `need_fulfillment_flow.py`'s own
+    # docstring) instead of the in-memory `FGCNEngine` the two fields above
+    # feed. `None` keeps the previous in-memory behaviour unchanged.
+    fgcn_session_factory: Callable[[], AbstractAsyncContextManager[AsyncSession]] | None = None
     # N8 (continued): the cross-family, de-identified "did not help" signal
     # sink `confirm_family_outcome` writes to in addition to the family's own
     # private N8 re-triage signal. `None` means the process has not wired

@@ -703,6 +703,7 @@ async def confirm_solution_draft(
         environment="DEV" if actor.environment != "PRODUCTION" else "TEST",
         family_need_repository=service._repository,
         fgcn_provider_admission=fulfillment.fgcn_provider_admission,
+        fgcn_session_factory=fulfillment.fgcn_session_factory,
     )
 
     # N4 (continued): once fulfilment actually succeeded, replace the

@@ -276,6 +276,10 @@ capabilities:
       - "one-shot durable worker handler 已有；尚未挂载 FastAPI、常驻队列/lease 或重启重建完整 engine"
       - "真实 PostgreSQL round-trip 已有环境门禁测试；当前未配置 AIFAMILY_TEST_DATABASE_URL，因此本轮为 skip"
       - "返工、争议、资源准入、质量池释放和真实资金通道未实现"
+      - "（已接线，2026-09-04）need_fulfillment_flow.fulfil_confirmed_draft 的真实
+         教师分派授权曾只走 FGCNEngine 内存实例；现已可选切换到
+         authorize_real_teacher_assignment_durable（真实落库），见
+         governance/DOMAIN_REGISTRY.yaml 的 family_need_orchestration 条目"
 
   - capability: service_fgcn_quality_contribution
     business_capability: service_delivery

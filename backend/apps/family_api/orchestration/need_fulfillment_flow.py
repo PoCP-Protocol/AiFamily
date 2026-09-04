@@ -21,11 +21,16 @@ resend, but this module does not itself retry or reverse anything.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from backend.apps.family_api.orchestration.fgcn_assignment_flow import (
     authorize_real_teacher_assignment,
+    authorize_real_teacher_assignment_durable,
 )
 from backend.domains.commerce.application.commands import submit_order_intent
 from backend.domains.commerce.application.ports import CommerceRepositoryPort
@@ -34,6 +39,7 @@ from backend.domains.family_need.application.ports import FamilyNeedRepositoryPo
 from backend.domains.family_need.domain.entities import SolutionDraft
 from backend.domains.family_need.domain.value_objects import FamilyOutcomeDecision, SupplyShape
 from backend.domains.family_need.infrastructure.fgcn_case_entry_adapter import (
+    AsyncFamilyNeedCaseEntryDependencyStub,
     FamilyNeedCaseEntryDependencyStub,
 )
 from backend.domains.service.application.commands import (
@@ -45,7 +51,16 @@ from backend.domains.service.application.ports import ConsentQueryPort, ServiceR
 from backend.domains.service.domain.errors import ServiceDomainError
 from backend.domains.service.fgcn.admission import ProviderAdmissionQuery
 from backend.domains.service.fgcn.contracts import GateServiceScope
+from backend.domains.service.fgcn.infrastructure.sqlalchemy_provider_admission import (
+    SqlAlchemyProviderAdmissionQuery,
+)
 from backend.platform.audit.recorder import AuditRecorder
+
+#: Factory the durable FGCN path uses to open one `AsyncSession` per call —
+#: same "open, use, dispose" shape `backend.apps.family_api.dev_wiring`'s
+#: `_dev_connection`/`_ConnectionScopedCoachMemoryStoreForDev` already use for
+#: the same reason (a session is bound to the event loop that opened it).
+FgcnSessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 
 #: The only commerce source page this orchestrator is entitled to claim. A
 #: family confirming a solution draft is neither UI-14 nor UI-17 (those are
@@ -109,6 +124,7 @@ async def fulfil_confirmed_draft(
     environment: str = "DEV",
     family_need_repository: FamilyNeedRepositoryPort | None = None,
     fgcn_provider_admission: ProviderAdmissionQuery | None = None,
+    fgcn_session_factory: FgcnSessionFactory | None = None,
 ) -> FulfillmentResult:
     """Turn one confirmed `SolutionDraft` into a real order intent and/or booking.
 
@@ -127,17 +143,26 @@ async def fulfil_confirmed_draft(
     family already has a real N6/N7 `FamilyOutcomeDecision.DID_NOT_HELP`
     outcome recorded against this need (self-help failed). If it does, the
     real teacher match must first be authorized through FGCN's own
-    AI-suggests/human-approves Human Gate flow
-    (`fgcn_assignment_flow.authorize_real_teacher_assignment`) — a family
-    escalating from a failed self-help attempt to a real human teacher must
-    not skip that authorization step. If FGCN authorization fails (e.g. the
-    provider is not admitted), booking is refused with
+    AI-suggests/human-approves Human Gate flow. If FGCN authorization fails
+    (e.g. the provider is not admitted), booking is refused with
     `failed_step="fgcn_authorization_failed"`. If no such outcome exists —
     this is an ordinary first-time SERVICE match, not a self-help escalation —
     FGCN is deliberately skipped and booking proceeds exactly as before;
     FGCN's stricter gate only strengthens authorization when the escalation
     evidence is real, it does not block families who have never tried
     self-help.
+
+    `fgcn_session_factory`, when supplied, switches this authorization to the
+    **durable** path (`fgcn_assignment_flow.authorize_real_teacher_assignment_durable`):
+    the case/task/assignment/audit facts are written through
+    `SqlAlchemyFGCNRepository` on a real, committed `AsyncSession` this
+    factory opens, and provider admission is read from the real
+    `family_service_providers` table (`SqlAlchemyProviderAdmissionQuery`) —
+    not the `FGCNEngine` in-memory instance the non-durable path uses, which
+    disappears with the process. Omitting `fgcn_session_factory` keeps the
+    previous in-memory (`fgcn_assignment_flow.authorize_real_teacher_assignment`)
+    behaviour unchanged, so existing callers/tests that do not wire it are
+    unaffected.
     """
 
     if not draft.commercial_intent:
@@ -233,16 +258,36 @@ async def fulfil_confirmed_draft(
                     consent_version="consent.v1",
                     correlation_id=correlation_id,
                 )
-                fgcn_result = await authorize_real_teacher_assignment(
-                    scope=scope,
-                    intent_ref=draft.need_id,
-                    case_entry_dependencies=FamilyNeedCaseEntryDependencyStub(fgcn_outcome),
-                    provider_admission=fgcn_provider_admission,
-                    provider_ref=provider.provider_ref,
-                    required_capability_keys=(),
-                    guardian_actor_id=actor,
-                    blueprint_ref=f"fgcn-real-teacher-escalation:{draft.need_id}",
-                )
+                if fgcn_session_factory is not None:
+                    # Durable path: real case/task/assignment/audit rows,
+                    # real provider-admission read — see this function's own
+                    # docstring for why this is not the same as the
+                    # in-memory branch below.
+                    async with fgcn_session_factory() as fgcn_session:
+                        fgcn_result = await authorize_real_teacher_assignment_durable(
+                            session=fgcn_session,
+                            scope=scope,
+                            intent_ref=draft.need_id,
+                            case_entry_dependencies=AsyncFamilyNeedCaseEntryDependencyStub(
+                                fgcn_outcome
+                            ),
+                            provider_admission=SqlAlchemyProviderAdmissionQuery(fgcn_session),
+                            provider_ref=provider.provider_ref,
+                            required_capability_keys=(),
+                            guardian_actor_id=actor,
+                            blueprint_ref=f"fgcn-real-teacher-escalation:{draft.need_id}",
+                        )
+                else:
+                    fgcn_result = await authorize_real_teacher_assignment(
+                        scope=scope,
+                        intent_ref=draft.need_id,
+                        case_entry_dependencies=FamilyNeedCaseEntryDependencyStub(fgcn_outcome),
+                        provider_admission=fgcn_provider_admission,
+                        provider_ref=provider.provider_ref,
+                        required_capability_keys=(),
+                        guardian_actor_id=actor,
+                        blueprint_ref=f"fgcn-real-teacher-escalation:{draft.need_id}",
+                    )
                 if not fgcn_result.succeeded:
                     return FulfillmentResult(
                         draft_id=draft.draft_id,
