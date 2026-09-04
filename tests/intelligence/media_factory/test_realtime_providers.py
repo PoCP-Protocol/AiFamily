@@ -269,6 +269,26 @@ def test_turn_completion_reports_what_the_turn_actually_did(
     assert completed[0].payload["missing_audio_sequences"] == []
 
 
+def test_an_in_process_provider_drains_its_turn_in_a_single_pass(
+    provider: FixtureRealtimeAvatarProvider,
+) -> None:
+    """The drain seam costs a synchronous provider one poll and no error.
+
+    The fixture generates its frames inside the push, so its default final-drain
+    hook reports the turn complete immediately. If that ever regressed into the
+    bounded fallback, the completion would say so.
+    """
+    session = provider.start_session(_session_spec())
+    session.push_audio_chunk(_chunk(0))
+    completion = session.end_turn()
+
+    assert completion.drain_complete is True
+    assert completion.to_manifest()["drain_complete"] is True
+    completed = [e for e in session.events() if e.event_type is RealtimeEventType.TURN_COMPLETED]
+    assert completed[0].payload["final_drain_polls"] == 1
+    assert not [e for e in session.events() if e.event_type is RealtimeEventType.PROVIDER_ERROR]
+
+
 def test_turn_completion_reports_gaps_left_by_lost_chunks(
     provider: FixtureRealtimeAvatarProvider,
 ) -> None:
@@ -377,6 +397,38 @@ def test_provider_close_closes_open_sessions(provider: FixtureRealtimeAvatarProv
     provider.close()
     assert session.state is _S.CLOSED
     assert provider.health()["open_sessions"] == 0
+
+
+def test_a_terminal_session_stops_counting_against_the_provider(
+    provider: FixtureRealtimeAvatarProvider,
+) -> None:
+    """Capacity accounting is about live sessions, not sessions ever created."""
+    assert provider.active_session_count == 0
+
+    closed = provider.start_session(_session_spec())
+    assert provider.active_session_count == 1
+    closed.close()
+    assert provider.active_session_count == 0
+
+    cancelled = provider.start_session(_session_spec(session_id="sess-2", trace_id="trace-2"))
+    cancelled.cancel(reason="barge_in")
+    assert provider.active_session_count == 0
+
+    failed = provider.start_session(_session_spec(session_id="sess-3", trace_id="trace-3"))
+    failed.fail("engine reported a decode failure")
+    assert provider.active_session_count == 0
+    assert provider.health()["open_sessions"] == 0
+
+
+def test_closing_a_session_twice_releases_it_once(
+    provider: FixtureRealtimeAvatarProvider,
+) -> None:
+    session = provider.start_session(_session_spec())
+    session.close()
+    session.close()
+    assert provider.active_session_count == 0
+    closed = [e for e in session.events() if e.event_type is RealtimeEventType.SESSION_CLOSED]
+    assert len(closed) == 1
 
 
 def test_provider_error_event_is_available(provider: FixtureRealtimeAvatarProvider) -> None:

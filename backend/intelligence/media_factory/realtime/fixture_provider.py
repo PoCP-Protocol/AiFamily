@@ -68,6 +68,11 @@ class FixtureRealtimeAvatarProvider:
         self._sessions: dict[str, FixtureRealtimeAvatarSession] = {}
         self._identities: dict[str, PreparedIdentity] = {}
 
+    @property
+    def active_session_count(self) -> int:
+        """Sessions the provider still owns. Terminal ones release themselves."""
+        return len(self._sessions)
+
     def capabilities(self) -> RealtimeProviderCapabilities:
         return RealtimeProviderCapabilities(
             provider_id=self.provider_id,
@@ -92,7 +97,7 @@ class FixtureRealtimeAvatarProvider:
             "REAL_NEURAL_INFERENCE": "FALSE",
             "REALTIME_GATE_ELIGIBLE": "FALSE",
             "synthetic_fixture": True,
-            "open_sessions": len(self._sessions),
+            "open_sessions": self.active_session_count,
             "note": "Fixture tests passing must never be read as a realtime avatar PASS",
         }
 
@@ -123,11 +128,18 @@ class FixtureRealtimeAvatarProvider:
             real_neural_inference=False,
             frame_format="FIXTURE_SYNTHETIC",
         )
-        session.start()
         self._sessions[spec.session_id] = session
+        session.bind_owner(self._release_session)
+        session.start()
         return session
 
     def close(self) -> None:
+        # A snapshot: each close releases itself from the registry as we iterate.
         for session in list(self._sessions.values()):
             session.close()
         self._sessions.clear()
+
+    def _release_session(self, session: BaseRealtimeAvatarSession) -> None:
+        """Reclaim capacity from a terminal session, by identity not by id."""
+        if self._sessions.get(session.session_id) is session:
+            del self._sessions[session.session_id]

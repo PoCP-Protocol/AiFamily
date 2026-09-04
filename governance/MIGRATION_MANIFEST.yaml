@@ -750,6 +750,8 @@ entries:
       - "No turn-level barge-in: cancel() ends the session (FAMILY-REALTIME-002)"
       - "No WebSocket/WebRTC server: transport bindings are declared shapes only"
       - "No orchestrator, no ASR/TTS/LLM wiring, no concurrency (max_concurrent_sessions=1)"
+      - "The progressive poll and bounded final drain (ADR-0019 decision 13) are an architecture seam, not evidence that any engine streams frames"
+      - "Final-drain bound of 8 polls is an unmeasured safety limit, not a measured production optimum"
 
 # ============ 待人工裁决清单（disposition = REVIEW_REQUIRED 的完整索引） ============
 review_required_index:

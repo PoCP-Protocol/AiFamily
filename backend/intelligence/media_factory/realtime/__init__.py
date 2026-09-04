@@ -49,6 +49,7 @@ from backend.intelligence.media_factory.realtime.ditto_provider import (
     DittoRealtimeAvatarProvider,
     DittoRealtimeTransport,
     RemoteEngineAttestation,
+    RemoteFrameBatch,
     RemoteFramePayload,
 )
 from backend.intelligence.media_factory.realtime.fixture_provider import (
@@ -125,6 +126,7 @@ __all__ = [
     "RealtimeSessionSpec",
     "RealtimeSessionState",
     "RemoteEngineAttestation",
+    "RemoteFrameBatch",
     "RemoteFramePayload",
     "SessionStateMachine",
     "TurnCompletion",

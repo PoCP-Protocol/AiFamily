@@ -45,13 +45,20 @@ from backend.intelligence.media_factory.realtime.contracts import (
     RealtimeProviderCapabilities,
     RealtimeProviderUnavailableError,
     RealtimeSessionSpec,
-    TurnCompletion,
 )
 from backend.intelligence.media_factory.realtime.metrics import RealtimeMetricsRecorder
-from backend.intelligence.media_factory.realtime.session import BaseRealtimeAvatarSession
-from backend.intelligence.media_factory.realtime.session_state import RealtimeSessionState
+from backend.intelligence.media_factory.realtime.session import (
+    BaseRealtimeAvatarSession,
+    FinalFrameBatch,
+)
 
 DITTO_REALTIME_PROVIDER_ID = "ditto_realtime"
+
+#: Final-drain safety bound for this adapter. Deliberately small and deliberately
+#: unmeasured — see `DEFAULT_MAX_FINAL_DRAIN_POLLS` in `session.py`. A node that
+#: has not confirmed the turn after this many asks is reported as undrained, not
+#: waited on.
+DITTO_FINAL_DRAIN_MAX_POLLS = 8
 
 #: Every path this provider may learn comes from one of these. No default points
 #: inside the AiFamily worktree.
@@ -110,12 +117,35 @@ class RemoteFramePayload:
     payload_ref: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class RemoteFrameBatch:
+    """The node's answer to a final-drain request.
+
+    An empty `poll_frames` result is ambiguous — the engine may be mid-inference
+    or may be finished — and that ambiguity is fatal exactly once: at the end of
+    a turn, when something has to decide whether to keep asking. `turn_complete`
+    is the node saying which it is, so the adapter never has to guess and never
+    has to wait forever to find out.
+
+    Provider-internal by design: it names a draining protocol only this adapter
+    speaks, and `RealtimeAvatarProvider` must stay engine-neutral (ADR-0019).
+    """
+
+    frames: tuple[RemoteFramePayload, ...] = ()
+    turn_complete: bool = False
+
+
 class DittoRealtimeTransport(Protocol):
     """The GPU-node boundary. Implementations live on the deployment side.
 
     Nothing here mentions HTTP or WebSocket: the transport binding is a separate
     concern (`transport.py`), and this Protocol is what a node integration must
     satisfy however it is wired.
+
+    `poll_frames` and `drain_turn` are separate verbs because they ask different
+    questions. Mid-turn, "nothing right now" is the expected answer and the
+    caller simply asks again later. At the end of a turn the caller needs to know
+    when to stop asking, which only `drain_turn` reports.
     """
 
     def attest(self) -> RemoteEngineAttestation: ...
@@ -129,6 +159,8 @@ class DittoRealtimeTransport(Protocol):
     def poll_frames(self, *, session_id: str) -> Sequence[RemoteFramePayload]: ...
 
     def end_turn(self, *, session_id: str, turn_id: str) -> None: ...
+
+    def drain_turn(self, *, session_id: str, turn_id: str) -> RemoteFrameBatch: ...
 
     def close_session(self, *, session_id: str) -> None: ...
 
@@ -144,6 +176,7 @@ class DittoRealtimeAvatarSession(BaseRealtimeAvatarSession):
         metrics_recorder: RealtimeMetricsRecorder,
         transport: DittoRealtimeTransport,
         attestation: RemoteEngineAttestation,
+        max_final_drain_polls: int = DITTO_FINAL_DRAIN_MAX_POLLS,
     ) -> None:
         super().__init__(
             spec=spec,
@@ -151,34 +184,68 @@ class DittoRealtimeAvatarSession(BaseRealtimeAvatarSession):
             metrics_recorder=metrics_recorder,
             real_neural_inference=attestation.real_neural_inference,
             frame_format=spec.frame_format,
+            max_final_drain_polls=max_final_drain_polls,
         )
         self._transport = transport
         self.attestation = attestation
+        self._remote_closed = False
+
+    # ------------------------------------------------------------ engine hooks
 
     def _generate_frames(self, chunks: Sequence[AudioChunk]) -> Sequence[AvatarFrame]:
         self._transport.push_audio(session_id=self.session_id, chunks=list(chunks))
-        remote_frames = self._transport.poll_frames(session_id=self.session_id)
+        return self._adopt(self._transport.poll_frames(session_id=self.session_id))
+
+    def _poll_progressive_frames(self, turn_id: str) -> Sequence[AvatarFrame]:
+        return self._adopt(self._transport.poll_frames(session_id=self.session_id))
+
+    def _finalize_turn(self, turn_id: str) -> None:
+        self._transport.end_turn(session_id=self.session_id, turn_id=turn_id)
+
+    def _poll_final_frames(self, turn_id: str) -> FinalFrameBatch:
+        batch = self._transport.drain_turn(session_id=self.session_id, turn_id=turn_id)
+        return FinalFrameBatch(
+            frames=tuple(self._adopt(batch.frames)),
+            turn_complete=batch.turn_complete,
+        )
+
+    def _adopt(self, remote_frames: Sequence[RemoteFramePayload]) -> list[AvatarFrame]:
+        """Give node-reported payloads this session's frame identity."""
         return [
             self._build_frame(payload=remote.payload, payload_ref=remote.payload_ref)
             for remote in remote_frames
         ]
 
-    def end_turn(self) -> TurnCompletion:
-        turn_id = self.turn_id
-        completion = super().end_turn()
-        if turn_id is not None:
-            self._transport.end_turn(session_id=self.session_id, turn_id=turn_id)
-        return completion
+    # ------------------------------------------------------------- termination
 
     def cancel(self, *, reason: str) -> None:
         super().cancel(reason=reason)
-        self._transport.close_session(session_id=self.session_id)
+        self._close_remote_once()
 
     def close(self) -> None:
-        already_closed = self.state is RealtimeSessionState.CLOSED
         super().close()
-        if not already_closed:
+        self._close_remote_once()
+
+    def fail(self, message: str) -> None:
+        super().fail(message)
+        # Best effort: the node has usually just failed us, and a second failure
+        # while tidying up must not replace the error already being reported.
+        self._close_remote_once(best_effort=True)
+
+    def _close_remote_once(self, *, best_effort: bool = False) -> None:
+        """Release the node-side session exactly once per local session.
+
+        Cancel-then-close is the normal shutdown, and both verbs want the node
+        released; the node should hear about it once.
+        """
+        if self._remote_closed:
+            return
+        self._remote_closed = True
+        try:
             self._transport.close_session(session_id=self.session_id)
+        except Exception:
+            if not best_effort:
+                raise
 
 
 class DittoRealtimeAvatarProvider:
@@ -209,6 +276,11 @@ class DittoRealtimeAvatarProvider:
         self.upstream_commit = upstream_commit
         self._transport = transport
         self._sessions: dict[str, DittoRealtimeAvatarSession] = {}
+
+    @property
+    def active_session_count(self) -> int:
+        """Sessions the provider still owns. Terminal ones release themselves."""
+        return len(self._sessions)
 
     # ------------------------------------------------------------------- mode
 
@@ -273,7 +345,7 @@ class DittoRealtimeAvatarProvider:
                 "PENDING_NODE_REPORT" if attestation is not None else "NOT_RUN"
             ),
             "attestation": None if attestation is None else attestation.to_manifest(),
-            "open_sessions": len(self._sessions),
+            "open_sessions": self.active_session_count,
             "environment_variables": list(DITTO_REALTIME_ENV_VARS),
         }
 
@@ -309,7 +381,7 @@ class DittoRealtimeAvatarProvider:
                 "REMOTE_ENGINE_NOT_ONLINE: node does not attest online_mode; a realtime "
                 "session cannot be served by an offline batch pipeline"
             )
-        if len(self._sessions) >= self.capabilities().max_concurrent_sessions:
+        if self.active_session_count >= self.capabilities().max_concurrent_sessions:
             raise RealtimeProviderUnavailableError(
                 f"SESSION_LIMIT: {self.provider_id} serves "
                 f"{self.capabilities().max_concurrent_sessions} concurrent session(s)"
@@ -340,16 +412,29 @@ class DittoRealtimeAvatarProvider:
             transport=transport,
             attestation=attestation,
         )
-        session.start()
         self._sessions[spec.session_id] = session
+        session.bind_owner(self._release_session)
+        session.start()
         return session
 
     def close(self) -> None:
+        # A snapshot, because each close releases itself from the registry while
+        # we are standing in it. The clear() afterwards is belt and braces.
         for session in list(self._sessions.values()):
             session.close()
         self._sessions.clear()
 
     # --------------------------------------------------------------- internals
+
+    def _release_session(self, session: BaseRealtimeAvatarSession) -> None:
+        """Reclaim capacity from a session that has reached a terminal state.
+
+        Compared by identity, not by id: a caller holding a stale handle must not
+        be able to evict the session the provider currently owns merely by
+        closing an older one that answered to the same session_id.
+        """
+        if self._sessions.get(session.session_id) is session:
+            del self._sessions[session.session_id]
 
     def _require_transport(self) -> DittoRealtimeTransport:
         mode = self.mode

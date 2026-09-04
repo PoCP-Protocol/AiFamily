@@ -393,7 +393,14 @@ class AudioChunkAcceptance:
 
 @dataclass(frozen=True, slots=True)
 class TurnCompletion:
-    """What `end_turn` reports once a turn has drained."""
+    """What `end_turn` reports once a turn has drained.
+
+    `drain_complete` is False when the turn ended because the session stopped
+    asking rather than because the engine said it was finished. It is separate
+    from `cancelled` because nobody asked for it, and it is reported rather than
+    hidden: a completion that quietly omits frames the engine was still
+    producing is the failure mode this field exists to make visible.
+    """
 
     session_id: str
     turn_id: str
@@ -402,6 +409,7 @@ class TurnCompletion:
     frames_emitted: int
     first_frame_emitted: bool
     cancelled: bool = False
+    drain_complete: bool = True
 
     def to_manifest(self) -> dict[str, Any]:
         return {
@@ -412,4 +420,5 @@ class TurnCompletion:
             "frames_emitted": self.frames_emitted,
             "first_frame_emitted": self.first_frame_emitted,
             "cancelled": self.cancelled,
+            "drain_complete": self.drain_complete,
         }

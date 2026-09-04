@@ -758,6 +758,8 @@ capabilities:
       - "FixtureRealtimeAvatarProvider 恒为 realtime_gate_eligible=false（设计如此）"
       - "无 turn 级 barge-in：cancel() 结束整个会话，留给 FAMILY-REALTIME-002"
       - "无调用方：无 orchestrator、无路由使用本能力"
+      - "渐进帧缝与有界排空（ADR-0019 决定 13）是架构能力，不是真实引擎会流式产帧的证据"
+      - "最终排空上限 8 次为未测量的安全上限，非生产最优值；真实 deadline 待 FAMILY-REALTIME-002"
 
   - capability: stream_realtime_avatar_frames
     business_capability: PLATFORM_INTERNAL
@@ -820,7 +822,8 @@ capabilities:
     known_gaps:
       - "REAL_DITTO_ONLINE_SMOKE=NOT_RUN — harness 已备，从未执行"
       - "Ditto online chunk API UNVERIFIED：pinned 源码不在本机（见 docs/13_research/technology/FAMILY_REALTIME_001_DITTO_ONLINE_AUDIT.md）"
-      - "DittoRealtimeTransport 在仓库内无实现体；远端模式需节点侧集成"
+      - "DittoRealtimeTransport 在仓库内无实现体；远端模式需节点侧集成（含新增的 drain_turn）"
+      - "drain_turn/turn_complete 的节点侧语义未与真实 Ditto online 管线核验（REAL_DITTO_ONLINE_SMOKE=NOT_RUN）"
       - "LOCAL_SUBPROCESS 模式被识别但拒绝执行，非已实现"
       - "GPU 节点边界目前只在函数级强制；无部署清单可机械校验真实节点上放了什么"
 
