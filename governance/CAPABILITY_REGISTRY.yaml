@@ -724,6 +724,106 @@ capabilities:
       note: "Human gate schema itself is not model inference"
     status: IMPLEMENTED_TESTED
 
+  - capability: open_realtime_avatar_session
+    business_capability: PLATFORM_INTERNAL
+    domain: intelligence/media_factory/realtime
+    purpose: >
+      在 provider 中立契约下开启一个实时 avatar 会话：分块音频进、渐进帧出，
+      带显式状态机（CREATED→PREPARING→READY→RECEIVING_AUDIO→GENERATING→
+      TURN_COMPLETING）与乱序/重复/越窗音频块处置。当前仅 fixture provider 可跑通；
+      真实引擎帧 NOT_RUN。
+    actor: [system, operator]
+    command: null
+    api: null
+    code:
+      domain: backend/intelligence/media_factory/realtime/contracts.py
+      application: backend/intelligence/media_factory/realtime/session.py
+      infrastructure: backend/intelligence/media_factory/realtime/fixture_provider.py
+    tests:
+      - tests/intelligence/media_factory/test_realtime_contracts.py
+      - tests/intelligence/media_factory/test_realtime_session_state.py
+      - tests/intelligence/media_factory/test_realtime_providers.py
+    consent: {required: false, note: "本阶段无真实用户音频路径；接入麦克风前必须补 consent 判据"}
+    audit: {required: false, note: "只产 ephemeral 帧与指标，不写业务权威状态"}
+    idempotency:
+      required: true
+      note: "音频块按 (turn_id, sequence) 幂等：重复块 DUPLICATE_IGNORED，不重复生成帧"
+    ai:
+      involved: true
+      may_mutate_business_state: false
+      note: "AIUC 待登记；AI_USE_CASE_REGISTRY.yaml still MISSING"
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - "REAL_NEURAL_REALTIME_FRAMES=NO — 本包从未产出任何真实引擎帧"
+      - "FixtureRealtimeAvatarProvider 恒为 realtime_gate_eligible=false（设计如此）"
+      - "无 turn 级 barge-in：cancel() 结束整个会话，留给 FAMILY-REALTIME-002"
+      - "无调用方：无 orchestrator、无路由使用本能力"
+
+  - capability: stream_realtime_avatar_frames
+    business_capability: PLATFORM_INTERNAL
+    domain: intelligence/media_factory/realtime
+    purpose: >
+      以 provider 中立事件（session.started / audio.accepted / avatar.first_frame /
+      avatar.frame / turn.completed / session.cancelled / session.closed /
+      provider.error）描述会话进展，每条 envelope 必带 session_id/turn_id/trace_id/
+      sequence。Transport 绑定（WebSocket 控制+二进制载荷；WebRTC=PLANNED）与契约分离，
+      本轮不含服务端实现。
+    actor: [system]
+    command: null
+    api: null
+    code:
+      domain: backend/intelligence/media_factory/realtime/protocol.py
+      infrastructure: backend/intelligence/media_factory/realtime/transport.py
+    tests:
+      - tests/intelligence/media_factory/test_realtime_contracts.py
+      - tests/architecture/test_realtime_boundaries.py
+    consent: {required: false}
+    audit: {required: false}
+    idempotency:
+      required: true
+      note: "avatar.first_frame 每 turn 仅可发一次，重复发射抛 DUPLICATE_FIRST_FRAME"
+    ai:
+      involved: false
+      note: "协议本身不是模型推理"
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - "无 WebSocket/WebRTC 服务端：transport 只声明绑定形状，server_implemented=false"
+      - "WEBRTC 绑定为 PLANNED，未实现"
+
+  - capability: bridge_remote_avatar_engine
+    business_capability: PLATFORM_INTERNAL
+    domain: intelligence/media_factory/realtime
+    purpose: >
+      把实时会话桥接到外部 GPU Media Compute Node 上的 avatar 引擎，并声明该节点的
+      状态边界（可存 ephemeral 媒体状态；禁止把 user memory / family profile /
+      course / assessment / authorization / business truth / Principal 长期记忆
+      作为 canonical 状态）。real_neural_inference 由节点 attest，不由适配器假设。
+    actor: [system, operator]
+    command: null
+    api: null
+    code:
+      infrastructure: backend/intelligence/media_factory/realtime/ditto_provider.py
+      domain: backend/intelligence/media_factory/realtime/gpu_node_boundary.py
+      application: backend/intelligence/media_factory/realtime/ditto_online_smoke.py
+    tests:
+      - tests/intelligence/media_factory/test_ditto_realtime_provider.py
+      - tests/intelligence/media_factory/test_realtime_smoke_harness.py
+      - tests/architecture/test_realtime_boundaries.py
+    consent: {required: false, note: "节点只接收 identity 参考图与当轮音频块，保留期 EPHEMERAL_PER_SESSION"}
+    audit: {required: false}
+    idempotency: {required: false}
+    ai:
+      involved: true
+      may_mutate_business_state: false
+      note: "远端引擎只产帧，永不写 Family canonical truth（R9）"
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - "REAL_DITTO_ONLINE_SMOKE=NOT_RUN — harness 已备，从未执行"
+      - "Ditto online chunk API UNVERIFIED：pinned 源码不在本机（见 docs/13_research/technology/FAMILY_REALTIME_001_DITTO_ONLINE_AUDIT.md）"
+      - "DittoRealtimeTransport 在仓库内无实现体；远端模式需节点侧集成"
+      - "LOCAL_SUBPROCESS 模式被识别但拒绝执行，非已实现"
+      - "GPU 节点边界目前只在函数级强制；无部署清单可机械校验真实节点上放了什么"
+
 # ---------------------------------------------------------------------------
 # 待登记（有代码但仅为骨架，不构成能力，故不给 capability 条目）
 # ---------------------------------------------------------------------------

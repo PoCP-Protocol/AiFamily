@@ -715,6 +715,42 @@ entries:
       authorize EchoMimic/SadTalker install, cloud auto-purchase, realtime,
       or Family canonical writes.
 
+  - capability: media_factory_realtime_avatar_foundation
+    disposition: REIMPLEMENT
+    source: []
+    target: [backend/intelligence/media_factory/realtime]
+    status: FOUNDATION_TESTED
+    adr: governance/ADR/ADR-0019-realtime-avatar-provider-and-gpu-node-boundary.md
+    reason: >
+      Greenfield Realtime Avatar Runtime foundation under R10, registered as a
+      SEPARATE capability from media_factory_gate1_benchmark because ADR-0018 §3
+      and ADR-0019 freeze Offline Media Factory != Realtime Avatar Runtime. Not a
+      migration: no Ditto source is vendored, and D:/Family's realtime session /
+      viseme layer is not imported (FAMILY-MEDIA-001 recorded it as never having
+      reached neural avatar output).
+    evidence:
+      - "tests/intelligence/media_factory/test_realtime_contracts.py"
+      - "tests/intelligence/media_factory/test_realtime_session_state.py"
+      - "tests/intelligence/media_factory/test_realtime_providers.py"
+      - "tests/intelligence/media_factory/test_ditto_realtime_provider.py"
+      - "tests/intelligence/media_factory/test_realtime_smoke_harness.py"
+      - "tests/architecture/test_realtime_boundaries.py"
+      - "docs/11_delivery/media_factory/DITTO_REALTIME_ONLINE_SMOKE_RUNBOOK.md"
+    note: >
+      Ditto engine, model weights and any node-side frame bridge stay OUTSIDE this
+      worktree; paths come only from DITTO_ENGINE_ROOT / DITTO_MODEL_ROOT /
+      DITTO_PYTHON / DITTO_DEVICE / DITTO_REALTIME_ENDPOINT. No GPU dependency
+      enters AiFamily's pyproject.toml.
+    known_gaps:
+      - "REAL_NEURAL_REALTIME_FRAMES=NO — no real engine frame has passed through this package"
+      - "REAL_DITTO_ONLINE_SMOKE=NOT_RUN — harness prepared, never executed"
+      - "Ditto online chunk API UNVERIFIED: pinned source is not on the authoring machine (see docs/13_research/technology/FAMILY_REALTIME_001_DITTO_ONLINE_AUDIT.md)"
+      - "DittoRealtimeTransport has no implementation in-tree; remote mode requires a node-side integration"
+      - "LOCAL_SUBPROCESS mode is recognised and refused, not implemented"
+      - "No turn-level barge-in: cancel() ends the session (FAMILY-REALTIME-002)"
+      - "No WebSocket/WebRTC server: transport bindings are declared shapes only"
+      - "No orchestrator, no ASR/TTS/LLM wiring, no concurrency (max_concurrent_sessions=1)"
+
 # ============ 待人工裁决清单（disposition = REVIEW_REQUIRED 的完整索引） ============
 review_required_index:
   - docs_current_baseline_CONTRADICTION   # 最高优先级——与源仓库既有Python迁移计划的关系

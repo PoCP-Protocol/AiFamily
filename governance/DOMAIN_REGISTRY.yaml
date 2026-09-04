@@ -324,6 +324,39 @@ entries:
       full Media Workflow, realtime, or Family canonical writes.
     adr: governance/ADR/ADR-0018-media-avatar-provider-and-gate1-benchmark.md
 
+  - capability: media_factory_realtime_avatar
+    canonical_path: backend/intelligence/media_factory/realtime
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: >
+      NEW (ADR-0019). Not a migration. D:/Family's Realtime Session / Viseme layer is
+      NOT imported — FAMILY-MEDIA-001 recorded that it never reached neural avatar
+      output, so importing it would carry the failure mode, not the capability.
+    tests:
+      - tests/intelligence/media_factory
+      - tests/architecture/test_realtime_boundaries.py
+    scope: >
+      Realtime Avatar Runtime foundation only: provider-neutral RealtimeAvatarProvider /
+      RealtimeAvatarSession contract, session state machine, audio chunk sequencing,
+      Realtime Protocol V0 (transport-neutral events), metrics schema, fixture provider
+      (realtime_gate_eligible=false), remote-first Ditto adapter skeleton, GPU media
+      compute node boundary, and a prepared-not-executed online smoke harness.
+      Does NOT include: engine install, model weights, WebSocket/WebRTC server,
+      orchestrator, ASR/TTS/LLM selection, concurrency, or Family canonical writes.
+    r2_note: >
+      Registered separately from media_factory_gate1_benchmark (canonical_path
+      backend/intelligence/media_factory) rather than folded into it. These are two
+      capabilities, not one capability with two implementations: ADR-0018 §3 and
+      ADR-0019 §1 freeze Offline Media Factory != Realtime Avatar Runtime, and
+      tests/architecture/test_realtime_boundaries.py enforces that neither side
+      imports the other's pipeline.
+    known_gaps:
+      - "REAL_NEURAL_REALTIME_FRAMES=NO; REAL_DITTO_ONLINE_SMOKE=NOT_RUN"
+      - "Ditto online chunk API UNVERIFIED (pinned source not on the authoring machine)"
+      - "No DittoRealtimeTransport implementation in-tree; remote mode needs a node-side integration"
+      - "No consumer: no orchestrator or route uses this package. Per R4 this is 'capability exists and is tested', not 'in use'."
+    adr: governance/ADR/ADR-0019-realtime-avatar-provider-and-gpu-node-boundary.md
+
   - capability: packages_contracts_provenance
     canonical_path: backend/packages/contracts
     status: MIGRATED_UNTESTED
