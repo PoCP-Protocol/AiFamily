@@ -6,7 +6,7 @@ status: current
 version: 1.0
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-08-30
+updated: 2026-09-04
 canonical: true
 supersedes: null
 superseded_by: null
@@ -29,13 +29,32 @@ superseded_by: null
 | `MIGRATED_TESTED` | 有实质代码 + 可在 CI 真实运行的测试 | 满足 R4 |
 | `PRODUCTION` | 已真正上线服务真实家庭 | 有生产运行记录 |
 
-**当前没有任何一个 Domain 达到 `PRODUCTION`。** 前提条件（业务 API、数据库 baseline、远端 CI）全部缺失，见 `CURRENT_SYSTEM_BASELINE.md` §4。
+**当前没有任何一个 Domain 达到 `PRODUCTION`。** 前提条件（业务 API、数据库 baseline、远端 CI）全部缺失，见 `CURRENT_SYSTEM_BASELINE.md` §4（**但该节"零业务 API"的具体断言已被 §0.4 追记纠正**，本文件下方 §3.2-§3.7 描述的域拆分方案本身也已过期，见本节下方追记）。
+
+### 0.1 现状核实追记（2026-09-04，本条不改动 §1-§7 既有结构）
+
+**§3.2-§3.6（growth/assessment/journey/action/outcome 五个分离域）与 §3.7（service）标注的 `NOT_STARTED` 已经不准确**，且这五个分离域描述的拆分方案，实际实现走了另一条路径——本条只如实记录 `governance/DOMAIN_REGISTRY.yaml`（本文件自己声明的机器可执行真相源）里的真实登记，不重写 §3 的域边界叙述（那需要 chief-architect 判断"分离五域"与"统一 family_need"两个方案哪个是当前决策，属架构裁决，不是文档勘误）：
+
+```text
+DOMAIN_REGISTRY.yaml 真实登记（2026-09-04 核实）：
+  capability: family_need_orchestration
+  canonical_path: backend/domains/family_need
+  status: MIGRATED_TESTED
+```
+
+`backend/domains/family_need` 是一个**统一域**，覆盖 N0-N8 全生命周期（信号→澄清→分级→方案→资源分配→交付→质量确认→回流），语义上横跨本文件 §3.2 growth、§3.3 assessment、§3.4 journey、§3.5 action、§3.6 outcome 五节描述的职责——但不是按这五个各自独立的 `backend/domains/{growth,assessment,journey,action,outcome}` 落地的，那五个目录仍然不存在。这是一次未被本文件记录的架构选择，不是本文件"预测错了会怎么建"，而是"建的时候走了另一条路，文档没跟上"。
+
+`backend/domains/service`（含 `backend/domains/service/fgcn`）同样已是 `MIGRATED_TESTED` 级别，有完整的 admission/case/task/assignment/quality/contribution 链路与真实 Postgres 集成测试，不是 §3.7 标注的 `NOT_STARTED`。`product_intelligence`（§3.12）也已远超"21文件/1492行 V0.1"的描述，新增了 `family_experience_signal`/`improvement_candidate` 两个去标识化跨家庭信号能力，均有真实 Postgres 持久化。
+
+**未核实部分**：identity/consent/tenancy 业务域、commerce/community/teacher/institution 是否仍是 `NOT_STARTED`——本条追记没有重新核实这几个，§3.17-§3.19 及 §3.8-§3.11 暂按原文对待。
 
 **`MIGRATED_STRUCTURE_ONLY` / `MIGRATED_UNTESTED` 不是"接近完成"**，按 `governance/REPOSITORY_CONSTITUTION.md` R4（无测试不得称能力）与 R14（架构测试强制）的伤疤记录，它们等价于"能力不存在，但代码占了位置"。代码行数不是成熟度。
 
 ---
 
 ## 1. 状态总览
+
+**⚠ 见 §0.1 追记（2026-09-04）**：下表把 growth/assessment/journey/action/outcome/service 计入 `NOT_STARTED` 已不准确——`family_need`（统一域，覆盖前五者语义）与 `service`（含 fgcn）在 `DOMAIN_REGISTRY.yaml` 均已是 `MIGRATED_TESTED`。本表保留原文本，不在此处直接改数字，避免在没有 chief-architect 裁决"五分域 vs 统一域"之前，用一次文档勘误掩盖需要架构决策的问题。
 
 ```text
 MIGRATED_TESTED           1  (product_intelligence)

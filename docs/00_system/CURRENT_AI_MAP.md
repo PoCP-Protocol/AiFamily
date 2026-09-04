@@ -6,7 +6,7 @@ status: current
 version: 2.1
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-09-01
+updated: 2026-09-04
 canonical: true
 supersedes: docs/00_foundation/CURRENT_AI_ARCHITECTURE.md
 superseded_by: null
@@ -55,6 +55,8 @@ backend/intelligence/
 ```
 
 详见 §3 表格第 1 项与 **§3.3（落地后仍然为真的话）**。
+
+**2026-09-04 追记（本条不改写 §2/§4 的既有 Agent 分类）**：`family_need` 域下已落地一个本文件 §2/§4 未登记的能力——**AI Coach**（`backend/intelligence/experience/family_ai_coach.py` + `backend/domains/family_need/application/ai_coach.py`），苏格拉底式引导（不直接给答案，只反馈+提问），本周接入了跨轮次会话记忆（`M1_SESSION`）。它有一份**真实供应商验证测试**（`tests/intelligence/experience/test_family_ai_coach_real_model.py`，设置 `AI_COACH_MODEL_API_KEY`/`AI_COACH_MODEL_BASE_URL` 后跑真实 DeepSeek，未设置则 skip），这与 §3.3 第1点"零个外部供应商可调用"存在需要澄清的细微差别：AI Coach 有一条**可选、已验证**的真实供应商接入路径，不是"完全没有能力接通外部供应商"，但默认仍是 FakeProvider、未在生产默认启用——这仍然是 EXPERIMENT，不是 PILOT/PRODUCTION，本追记不推翻 §3.3 的结论，只是指出它没有覆盖到这个新增能力。是否要把 AI Coach 作为第六个"业务 Agent"正式登记进 §4 表格，属 chief-architect 的分类决策，本条不代做。
 
 **源仓库 TS 侧有真实实现（`packages/ai-gateway/src/index.ts`，894 行）不等于 AiFamily 有。** 按 `governance/REPOSITORY_CONSTITUTION.md` R1（唯一后端真相 = Python），TS 实现只能作为**参考实现**（reference implementation），不是 AiFamily 的能力。
 

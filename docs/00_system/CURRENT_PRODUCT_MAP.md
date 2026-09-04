@@ -6,7 +6,7 @@ status: current
 version: 1.0
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-08-29
+updated: 2026-09-04
 canonical: true
 supersedes: null
 superseded_by: null
@@ -50,8 +50,8 @@ Mobile 前端依赖端点数 ≈ 40+ 业务路径 + 4 个 /auth/* 端点
 
 | 产品 / 端 | 代码是否在 AiFamily | 位置 | 状态 |
 |---|---|---|---|
-| **Family App**（家长端，移动） | 是 | `frontend/mobile/` | 代码已迁入（411 文件 / 35.62MB，34 UI 屏幕 + 35 测试文件 + 99 张设计基线图），**后端未就绪** |
-| **Family API**（后端服务） | 是 | `backend/apps/family_api/` | 真实 FastAPI 实例，仅 `/health` `/ready`，**零业务 API** |
+| **Family App**（家长端，移动） | 是 | `frontend/mobile/` | 代码已迁入（411 文件 / 35.62MB，34 UI 屏幕 + 35 测试文件 + 99 张设计基线图），**Mobile 端能否真的消费下方后端端点尚未核实**（2026-09-04，见 `CURRENT_SYSTEM_BASELINE.md` §0.4） |
+| **Family API**（后端服务） | 是 | `backend/apps/family_api/` | 真实 FastAPI 实例，2026-09-04 实测 `app.openapi()['paths']` = **85 个真实业务 operations**（family_need/FGCN/AI Coach/product_intelligence/assessment/experience/growth 等），不是"仅 `/health` `/ready`、零业务 API"——本行下方 §2 起的逐屏状态表仍按原调研（源仓库 NestJS 后端下测得）保留，未逐屏重新核实 AiFamily 侧真实可用性 |
 | Teacher Workspace（教师工作台） | **否** | — | **PLANNED_NO_CODE** |
 | Institution Console（机构控制台，B2B2C） | **否** | — | **PLANNED_NO_CODE** |
 | Operations Console（运营控制台） | **否** | — | **PLANNED_NO_CODE** |
