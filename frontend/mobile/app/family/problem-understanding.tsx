@@ -71,6 +71,7 @@ const SANDBOX_VIDEO_ATTACHMENT: AuthorizedMediaAttachment = {
   uri: "asset:sandbox/family-evening-transition-video-v1",
   mimeType: "video/mp4",
   sha256: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  byteSize: 1_024_000,
 };
 
 type SandboxMediaMode = "IMAGE" | "ANIMATION" | "VIDEO";
@@ -85,6 +86,7 @@ export default function ProblemUnderstandingRoute() {
   const session = useFamilyApiSession();
   const mediaParams = useLocalSearchParams<{
     media_type?: string;
+    media_size_bytes?: string;
     media_uri?: string;
     media_mime_type?: string;
     media_sha256?: string;
@@ -117,12 +119,14 @@ export default function ProblemUnderstandingRoute() {
       uri: mediaParams.media_uri ?? "",
       mimeType: mediaParams.media_mime_type ?? "",
       sha256: mediaParams.media_sha256 ?? "",
+      byteSize: parseMediaByteSize(mediaParams.media_size_bytes),
     };
     if (isAuthorizedMediaAttachment(attachment)) return [attachment];
     return sandboxMediaMode ? [SANDBOX_MEDIA[sandboxMediaMode]] : [];
   }, [
     mediaParams.media_type,
     mediaParams.media_mime_type,
+    mediaParams.media_size_bytes,
     mediaParams.media_sha256,
     mediaParams.media_uri,
     sandboxMediaMode,
@@ -839,6 +843,12 @@ function attachmentLabel(
     return "动图";
   }
   return "图片";
+}
+
+function parseMediaByteSize(value: string | undefined): number | undefined {
+  if (value === undefined || !/^\d+$/.test(value)) return undefined;
+  const size = Number(value);
+  return Number.isSafeInteger(size) ? size : undefined;
 }
 
 const styles = StyleSheet.create({

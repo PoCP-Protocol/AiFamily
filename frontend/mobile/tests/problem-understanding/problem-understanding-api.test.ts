@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildMultimodalDraftRequest,
   isAuthorizedMediaAttachment,
+  MAX_AUTHORIZED_VIDEO_BYTES,
   type MultimodalDraftResponse,
   toUnderstandingDraft,
 } from "../../features/problem-understanding/api";
@@ -288,6 +289,7 @@ describe("S3 multimodal family-understanding mobile contract", () => {
           uri: "media:family/video-1",
           mimeType: "video/mp4",
           sha256: "c".repeat(64),
+          byteSize: 1_024,
         },
       ],
     });
@@ -309,6 +311,7 @@ describe("S3 multimodal family-understanding mobile contract", () => {
     ]);
     expect(JSON.stringify(request.output_schema)).toContain("AUTHORIZED_VIDEO");
     expect(JSON.stringify(request)).not.toContain("base64");
+    expect(JSON.stringify(request)).not.toContain("byteSize");
   });
 
   it("rejects mismatched or unsupported animation and video mime types", () => {
@@ -318,6 +321,7 @@ describe("S3 multimodal family-understanding mobile contract", () => {
         uri: "media:family/video-1",
         mimeType: "image/gif",
         sha256: "d".repeat(64),
+        byteSize: 1_024,
       }),
     ).toBe(false);
     expect(
@@ -326,6 +330,41 @@ describe("S3 multimodal family-understanding mobile contract", () => {
         uri: "media:family/animation-1",
         mimeType: "image/svg+xml",
         sha256: "e".repeat(64),
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects local, data, base64, and oversized video references before a request", () => {
+    for (const uri of [
+      "file:///private/family-video.mp4",
+      "data:video/mp4;base64,AAAA",
+      "base64:AAAA",
+    ]) {
+      expect(
+        isAuthorizedMediaAttachment({
+          mediaType: "VIDEO",
+          uri,
+          mimeType: "video/mp4",
+          sha256: "f".repeat(64),
+          byteSize: 1_024,
+        }),
+      ).toBe(false);
+    }
+    expect(
+      isAuthorizedMediaAttachment({
+        mediaType: "VIDEO",
+        uri: "media:family/too-large-video",
+        mimeType: "video/mp4",
+        sha256: "a".repeat(64),
+        byteSize: MAX_AUTHORIZED_VIDEO_BYTES + 1,
+      }),
+    ).toBe(false);
+    expect(
+      isAuthorizedMediaAttachment({
+        mediaType: "VIDEO",
+        uri: "media:family/unknown-size-video",
+        mimeType: "video/mp4",
+        sha256: "b".repeat(64),
       }),
     ).toBe(false);
   });

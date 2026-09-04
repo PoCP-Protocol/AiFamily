@@ -186,7 +186,9 @@ export function ConcernComposer({
             </Text>
             <Text style={styles.voiceBody}>
               {imageAttached
-                ? `AI 只能引用已授权的${mediaLabel(attachedMediaMimeType)}标识；结论仍需你核对。`
+                ? attachedMediaMimeType === "image/webp"
+                  ? "WebP 只作为受控图片引用；是否为动画由媒体服务判定，结论仍需你核对。"
+                  : `AI 只能引用已授权的${mediaLabel(attachedMediaMimeType)}标识；结论仍需你核对。`
                 : canUseSandboxImage
                   ? `当前可用一个明确标记的沙盒${inputMode === "VIDEO" ? "视频" : inputMode === "ANIMATION" ? "动图" : "图片"}验证完整交互。`
                   : "请从家庭媒体库选择已授权媒体；当前页面不会自行读取相册或视频库。"}
@@ -557,7 +559,7 @@ function confidenceLabel(value: "LOW" | "MEDIUM" | "HIGH"): string {
 
 function mediaLabel(mimeType: string | null): string {
   if (mimeType?.startsWith("video/")) return "视频";
-  if (mimeType === "image/gif" || mimeType === "image/webp") return "动图";
+  if (mimeType === "image/gif") return "动图";
   return "图片";
 }
 

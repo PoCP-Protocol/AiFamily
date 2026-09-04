@@ -4,6 +4,8 @@ import type {
   UnderstandingInput,
 } from "./model";
 
+export const MAX_AUTHORIZED_VIDEO_BYTES = 50 * 1024 * 1024;
+
 export interface MultimodalDraftRequest {
   run_id: string;
   prompt_version: string;
@@ -548,8 +550,14 @@ export function isAuthorizedMediaAttachment(
       /^(?:image\/(?:gif|jpeg|png|webp))$/i.test(attachment.mimeType)) ||
     (attachment.mediaType === "VIDEO" &&
       /^(?:video\/(?:mp4|quicktime|webm))$/i.test(attachment.mimeType));
+  const videoSizeIsAllowed =
+    attachment.mediaType !== "VIDEO" ||
+    (Number.isSafeInteger(attachment.byteSize) &&
+      (attachment.byteSize ?? 0) > 0 &&
+      (attachment.byteSize ?? 0) <= MAX_AUTHORIZED_VIDEO_BYTES);
   return (
     mimeMatchesType &&
+    videoSizeIsAllowed &&
     /^(?:media|asset|object|opaque):[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/i.test(
       attachment.uri,
     ) &&

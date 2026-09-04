@@ -65,6 +65,8 @@ export interface AuthorizedMediaAttachment {
   uri: string;
   mimeType: string;
   sha256: string;
+  /** Known only after the authorized media service has inspected the asset. */
+  byteSize?: number;
 }
 
 export interface DraftBinding {
