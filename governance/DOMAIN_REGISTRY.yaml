@@ -575,8 +575,14 @@ entries:
          中途失败只如实返回 failed_step/failure_reason，不做自动回滚"
       - "FGCN provider 准入（教师资质是否被 admitted）本次未单独建表持久化，调用方
          传入的 AsyncProviderAdmissionQuery 仍是简化实现，留作后续增量"
-      - "AI Coach 目前只有单轮对话（每次调用独立，不带跨轮次记忆）；
-         backend/intelligence/memory/ 已有的 M1_SESSION 记忆能力尚未接入"
+      - "（已接线，2026-09-04）AI Coach 曾只有单轮对话；backend/intelligence/memory/
+         的 M1_SESSION 记忆能力本身早已完整实现，缺口只是 family_need 应用层
+         （request_coach_perspective/AiCoachDeps）没有转发 memory_store/need_id/
+         subject_ids/consent_version。已接线：dev_wiring 注入真实
+         SqlAlchemyMemoryStore，跨轮次对话历史现在真实生效（见
+         tests/domains/family_need/test_ai_coach_route.py 的
+         test_ai_coach_second_turn_sees_first_turn_history_when_memory_store_wired）。
+         记忆写入不触碰 family_need canonical 状态（R9），30天TTL+删除级联"
 
   - capability: auth_identity
     canonical_path: backend/platform/identity

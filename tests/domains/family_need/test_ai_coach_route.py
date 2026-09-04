@@ -45,6 +45,33 @@ _ACTOR_ID = "guardian-1"
 _COACH_USE_CASE = "FAMILY_AI_COACH_SOCRATIC_PERSPECTIVE"
 
 
+class _FakeCoachMemoryStore:
+    """Minimal in-process `CoachMemoryStore` — enough to prove cross-turn
+    history round-trips through the route without needing real Postgres.
+    Mirrors `SqlAlchemyMemoryStore`'s two methods the coach actually calls."""
+
+    def __init__(self) -> None:
+        self.saved: list = []
+
+    async def put(self, memory):  # noqa: ANN001
+        self.saved.append(memory)
+        return memory
+
+    async def list_recent_by_source_prefix(
+        self, source_ref_prefix, scope, *, purpose, limit=3, moment=None
+    ):  # noqa: ANN001
+        matches = [
+            memory
+            for memory in self.saved
+            if memory.source_ref.startswith(source_ref_prefix)
+            and memory.tenant_id == scope.tenant_id
+            and memory.family_id == scope.family_id
+            and memory.purpose == purpose
+        ]
+        matches.sort(key=lambda memory: memory.created_at, reverse=True)
+        return matches[:limit]
+
+
 def _capture_body() -> dict:
     # `data_class: PUBLIC` here is deliberate, not a shortcut: it is what maps
     # to the gateway's `OPERATIONAL_TEXT`, the only class `fake-deterministic`
@@ -67,7 +94,7 @@ def _capture_body() -> dict:
 
 
 def _build_client(
-    *, fake_provider: FakeProvider | None = None
+    *, fake_provider: FakeProvider | None = None, memory_store: _FakeCoachMemoryStore | None = None
 ) -> tuple[TestClient, FakeFamilyNeedRepository, FakeProvider]:
     repository = FakeFamilyNeedRepository()
     policy = FakeFamilyNeedPolicy()
@@ -107,6 +134,7 @@ def _build_client(
         gateway=gateway,
         repository=repository,
         provider_id="fake-deterministic",
+        memory_store=memory_store,
     )
     return TestClient(app), repository, provider
 
@@ -233,3 +261,48 @@ def test_ai_coach_route_404s_for_unknown_need() -> None:
     )
 
     assert response.status_code == 404
+
+
+def test_ai_coach_second_turn_sees_first_turn_history_when_memory_store_wired() -> None:
+    memory_store = _FakeCoachMemoryStore()
+    client, _, provider = _build_client(memory_store=memory_store)
+    need_id = _capture_need(client)
+
+    first = client.post(
+        f"/families/{_FAMILY_ID}/needs/{need_id}/ai-coach/messages",
+        json={"parent_message": "孩子今天又没写作业"},
+        headers={"Idempotency-Key": "coach-msg-history-1"},
+    )
+    assert first.status_code == 200
+    assert len(memory_store.saved) == 1
+
+    client.post(
+        f"/families/{_FAMILY_ID}/needs/{need_id}/ai-coach/messages",
+        json={"parent_message": "还是没写，我快没耐心了"},
+        headers={"Idempotency-Key": "coach-msg-history-2"},
+    )
+
+    assert len(memory_store.saved) == 2
+    assert len(provider.invocations) == 2
+    second_request_payload = provider.invocations[1].payload
+    assert "孩子今天又没写作业" in second_request_payload["conversation_history"]
+    assert "conversation_history" not in provider.invocations[0].payload
+
+
+def test_ai_coach_without_memory_store_keeps_single_turn_behaviour() -> None:
+    client, _, provider = _build_client(memory_store=None)
+    need_id = _capture_need(client)
+
+    client.post(
+        f"/families/{_FAMILY_ID}/needs/{need_id}/ai-coach/messages",
+        json={"parent_message": "孩子今天又没写作业"},
+        headers={"Idempotency-Key": "coach-msg-history-3"},
+    )
+    response = client.post(
+        f"/families/{_FAMILY_ID}/needs/{need_id}/ai-coach/messages",
+        json={"parent_message": "还是没写"},
+        headers={"Idempotency-Key": "coach-msg-history-4"},
+    )
+
+    assert response.status_code == 200
+    assert "conversation_history" not in provider.invocations[-1].payload

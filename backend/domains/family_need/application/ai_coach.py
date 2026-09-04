@@ -19,6 +19,7 @@ from backend.domains.journey.application.outcome_loop import (
     OutcomeLoopSnapshot,
 )
 from backend.intelligence.experience.family_ai_coach import (
+    CoachMemoryStore,
     CoachPerspective,
     coach_reply,
 )
@@ -117,16 +118,21 @@ async def build_family_context(
     tenant_id: str,
     family_id: str,
     need_id: str,
-) -> tuple[dict, str, str]:
+) -> tuple[dict, str, str, str, tuple[str, ...]]:
     """Assemble a real, non-fabricated context payload for one family need.
 
-    Returns `(family_context, context_snapshot_ref, data_class)`. `data_class`
-    is the need's own recorded classification (`context.data_class` on the
-    `NeedContext` the family/system already assigned when the need was
-    captured) — the coach must send the model exactly the classification the
-    data actually carries, never a value chosen for admission convenience.
-    Raises `FamilyNeedNotFoundError` if the need does not exist or is out of
-    scope — the coach must never run against invented data.
+    Returns `(family_context, context_snapshot_ref, data_class,
+    consent_version, subject_person_ids)`. `data_class` is the need's own
+    recorded classification (`context.data_class` on the `NeedContext` the
+    family/system already assigned when the need was captured) — the coach
+    must send the model exactly the classification the data actually
+    carries, never a value chosen for admission convenience.
+    `consent_version`/`subject_person_ids` are the need's own recorded
+    values, threaded through so the coach's cross-turn memory (see
+    `request_coach_perspective`) is written under the same consent scope
+    the family actually gave, never a hardcoded default. Raises
+    `FamilyNeedNotFoundError` if the need does not exist or is out of scope
+    — the coach must never run against invented data.
     """
 
     need = await repository.get_need(tenant_id=tenant_id, family_id=family_id, need_id=need_id)
@@ -149,7 +155,13 @@ async def build_family_context(
         need_id=need.need_id, need_version=need.version, profile_id=None
     )
     gateway_data_class = _GATEWAY_DATA_CLASS_BY_FAMILY_NEED_DATA_CLASS[need.context.data_class]
-    return context, snapshot_ref, gateway_data_class
+    return (
+        context,
+        snapshot_ref,
+        gateway_data_class,
+        need.context.consent_version,
+        need.context.subject_person_ids,
+    )
 
 
 async def enrich_family_context_with_profile(
@@ -238,6 +250,7 @@ async def request_coach_perspective(
     draft_id: str | None = None,
     request_id: str | None = None,
     outcome_loop: GrowthOutcomeLoop | None = None,
+    memory_store: CoachMemoryStore | None = None,
 ) -> CoachPerspective:
     """The one call the HTTP route needs: real context in, governed draft out.
 
@@ -246,9 +259,22 @@ async def request_coach_perspective(
     continuity; when supplied, the family's real action-fact history is
     folded into `family_context` before the model call (see
     `enrich_family_context_with_growth_journey`).
+
+    `memory_store` is optional cross-turn conversation memory (see
+    `coach_reply`'s own docstring): when supplied, this need's own recorded
+    `consent_version`/`subject_person_ids` are threaded through so the turn
+    is written under the family's real consent scope, never a hardcoded
+    default — omitting `memory_store` keeps the previous single-turn
+    behaviour unchanged.
     """
 
-    context, context_snapshot_ref, data_class = await build_family_context(
+    (
+        context,
+        context_snapshot_ref,
+        data_class,
+        consent_version,
+        subject_person_ids,
+    ) = await build_family_context(
         repository, tenant_id=tenant_id, family_id=family_id, need_id=need_id
     )
     if profile_id is not None:
@@ -274,4 +300,8 @@ async def request_coach_perspective(
         context_snapshot_ref=context_snapshot_ref,
         data_class=data_class,
         request_id=request_id,
+        memory_store=memory_store,
+        need_id=need_id,
+        subject_ids=subject_person_ids,
+        consent_version=consent_version,
     )

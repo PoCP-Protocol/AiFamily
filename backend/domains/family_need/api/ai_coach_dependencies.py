@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from fastapi import HTTPException
 
 from backend.domains.journey.application.outcome_loop import GrowthOutcomeLoop
+from backend.intelligence.experience.family_ai_coach import CoachMemoryStore
 from backend.intelligence.model_gateway.gateway import ModelGateway
 
 from ..application.ports import FamilyNeedRepositoryPort
@@ -27,12 +28,16 @@ class AiCoachDeps:
 
     `outcome_loop` is optional (`None` in a caller/test that does not wire
     journey continuity) — see `request_coach_perspective`'s own docstring
-    for why the minimal signature stays supported."""
+    for why the minimal signature stays supported. `memory_store` is
+    likewise optional (`None` keeps the previous single-turn behaviour) —
+    when supplied, the coach reads/writes cross-turn conversation memory
+    for this need (see `request_coach_perspective`'s own docstring)."""
 
     gateway: ModelGateway
     repository: FamilyNeedRepositoryPort
     provider_id: str
     outcome_loop: GrowthOutcomeLoop | None = None
+    memory_store: CoachMemoryStore | None = None
 
 
 def get_ai_coach_deps() -> AiCoachDeps:

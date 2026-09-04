@@ -109,6 +109,15 @@ AI 用例治理文档：`docs/05_ai/AI_USE_CASES/family-ai-coach.md`（`AI_USE_C
 - **遗留缺口（如实记录）**：N4 资源调度、N8 知识库回流、FGCN provider 准入持久化、AI Coach
   跨轮次记忆，均明确留待后续增量，不在本次范围内假装解决。
 
+  **2026-09-04 补充**：重新核实上述四项后，两项状态有变化——(1) N8 知识库回流经通读
+  `confirm_family_outcome` 端点确认**已经打通**（`record_family_experience_signal`/
+  `record_improvement_candidate` 均真实调用，经 `FulfillmentDeps` Protocol 端口），
+  此前记录为缺口是过时描述；(2) AI Coach 跨轮次记忆已接线——`backend/intelligence/memory/`
+  的 `SqlAlchemyMemoryStore`/`coach_reply` 本身早就支持 `memory_store`/`need_id`，
+  缺口只是 family_need 应用层没有转发这几个参数，现已在 `ai_coach.py`/
+  `ai_coach_dependencies.py`/`dev_wiring.py` 补上。N4 资源调度、FGCN provider 准入
+  持久化仍是真实缺口，未变。
+
 ## Enforcement
 
 - `governance/DOMAIN_REGISTRY.yaml` 的 `family_need_orchestration` 与

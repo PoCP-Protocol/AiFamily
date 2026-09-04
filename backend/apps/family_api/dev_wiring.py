@@ -70,7 +70,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, Header, HTTPException, Path
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from backend.apps.family_api.ai_coach_wiring import build_dev_ai_coach_gateway
@@ -138,12 +138,14 @@ from backend.intelligence.experience.api import get_multimodal_draft_runtime_res
 from backend.intelligence.experience.engagement_api import (
     get_engagement_draft_runtime_resolver,
 )
+from backend.intelligence.experience.family_ai_coach import CoachMemoryStore
 from backend.intelligence.experience.run_http import InMemoryExperienceRunLedger
 from backend.intelligence.experience.synthetic_engagement_runtime import (
     SyntheticEngagementRuntimeResolver,
 )
 from backend.intelligence.experience.synthetic_runtime import SyntheticRuntimeResolver
 from backend.intelligence.human_gate.gate import InMemoryHumanGate
+from backend.intelligence.memory.store import SqlAlchemyMemoryStore
 from backend.intelligence.model_gateway.provenance import InMemoryModelDraftRegistry
 from backend.platform.audit.recorder import AuditRecorder
 from backend.platform.consent.models import (
@@ -406,6 +408,43 @@ class _ConnectionScopedFamilyExperienceSignalRepositoryForDev:
             return await SqlAlchemyFamilyExperienceSignalRepository(
                 connection
             ).summarize_by_component(category=category)
+
+
+class _ConnectionScopedCoachMemoryStoreForDev:
+    """Opens one `AsyncSession` per call, same reasoning as `_dev_connection`
+    (a session is bound to the event loop that opened it, and a fresh
+    `TestClient.request()` call may run on a different loop).
+
+    `SqlAlchemyMemoryStore` needs an ORM `AsyncSession` (it uses
+    `Session.get`/`Session.add`), not a bare `Connection` the other
+    connection-scoped wrappers in this module use — hence its own
+    `async_sessionmaker`-backed helper instead of reusing `_dev_connection`.
+    """
+
+    async def put(self, memory):  # noqa: ANN001
+        engine = _get_dev_engine()
+        try:
+            factory = async_sessionmaker(engine, expire_on_commit=False)
+            async with factory() as session, session.begin():
+                return await SqlAlchemyMemoryStore(session).put(memory)
+        finally:
+            await engine.dispose()
+
+    async def list_recent_by_source_prefix(
+        self, source_ref_prefix, scope, *, purpose, limit=3, moment=None
+    ):  # noqa: ANN001
+        engine = _get_dev_engine()
+        try:
+            factory = async_sessionmaker(engine, expire_on_commit=False)
+            async with factory() as session:
+                return await SqlAlchemyMemoryStore(session).list_recent_by_source_prefix(
+                    source_ref_prefix, scope, purpose=purpose, limit=limit, moment=moment
+                )
+        finally:
+            await engine.dispose()
+
+
+_coach_memory_store: CoachMemoryStore = _ConnectionScopedCoachMemoryStoreForDev()
 
 
 def _truncate_dev_tables() -> None:
@@ -1165,6 +1204,7 @@ def _dev_ai_coach_deps() -> family_need_ai_coach_deps.AiCoachDeps:
         repository=_family_need_repository,
         provider_id="fake-deterministic",
         outcome_loop=_journey_outcome_loop,
+        memory_store=_coach_memory_store,
     )
 
 
