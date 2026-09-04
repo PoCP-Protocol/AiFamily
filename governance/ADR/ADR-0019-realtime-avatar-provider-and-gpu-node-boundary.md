@@ -137,6 +137,43 @@ FAMILY-REALTIME-001 明确：不 vendor Ditto、不下载权重、不启动 Auto
 12. **本 ADR 只授权 Realtime Avatar 垂直切片地基**。不授权 ASR/TTS/LLM 选型、
     浏览器 UI、完整 WebRTC、多 GPU 调度、大规模并发，也不授权执行 GPU smoke。
 
+13. **帧发布只有一条路径；轮次收尾的顺序与边界是契约的一部分**
+    （FAMILY-REALTIME-001P 补充）。一帧可能在三个时刻出现——推音频之后、消费者
+    `read_frame()` 之时、轮次收尾排空之中。三处各自计数、各自判首帧、各自发事件，
+    就是「首帧报两次或一次都不报」的成因，因此三条路径一律汇入
+    `BaseRealtimeAvatarSession._publish_frames`，帧计数 / 首帧语义 /
+    `avatar.first_frame` / `avatar.frame` / queue depth 只有一处定义。
+    - **渐进 poll 缝**：`_poll_progressive_frames()` 默认返回空（同步 provider 无
+      需实现）。远端 provider 在此向节点索取「上次之后新产出的帧」。没有这条缝，
+      推送返回 30 ms 后才完成的推理只能等下一次无关的推送来顺带取走——而在一段
+      回复的末尾，那次推送永远不会来。
+    - **收尾顺序**：flush 本地乱序缓冲 → 把最后的音频交给引擎 → `_finalize_turn()`
+      通知引擎本轮结束 → `_poll_final_frames()` 有界排空 → 发 `turn.completed`。
+      **`turn.completed` 不得早于引擎收到收尾信号**；同样地，`_finalize_turn()`
+      不得早于 flush，否则最后几个乱序音频块会被推给一个已经关闭的轮次。
+    - **排空必须有界**：`while not complete` 在会话层等于产品挂死。上限为
+      `DEFAULT_MAX_FINAL_DRAIN_POLLS = 8`（Ditto 侧 `DITTO_FINAL_DRAIN_MAX_POLLS`）。
+      **这个数字未经任何测量**——本包从未排空过真实引擎——它是安全上限，不是生产
+      最优值，待 FAMILY-REALTIME-002 有真实 transport 后以真实 deadline 取代。
+    - **排空未确认不得伪装成功**：节点在上限内未确认本轮已排空时，
+      `TurnCompletion.drain_complete=False`，且同时发 `provider.error`
+      （`REMOTE_DRAIN_INCOMPLETE`）。三个面向引擎的调用抛错时一律走同一条显式失败
+      路径——会话进入 `ERROR`、发 `provider.error`、抛
+      `AUDIO_PUSH_FAILED` / `PROGRESSIVE_POLL_FAILED` / `TURN_FINALIZATION_FAILED`
+      之一，**不产出 `turn.completed`**。三条里放过任何一条，那一条就会静默失败。
+    - **传输层需要区分「暂时没有」与「本轮已排空」**：`poll_frames` 的空结果在轮中
+      是正常的，在轮尾却无法决定何时停止追问，故 `DittoRealtimeTransport` 增加
+      `drain_turn() -> RemoteFrameBatch{frames, turn_complete}`。`RemoteFrameBatch`
+      是 **provider 内部类型**，不得进入 `RealtimeAvatarProvider` 通用契约。
+    - **终态会话不得继续占用 provider 容量**：`CANCELLED` / `CLOSED` / `ERROR` 时
+      session 通过 `bind_owner()` 注册的回调把自己交还 provider。释放**按对象身份
+      比较**而非按 `session_id`：持有旧句柄的调用方不得因关闭一个同名旧会话而把
+      现役会话踢出登记表。`health()["open_sessions"]` 因此是活跃会话数，不是历史
+      创建数。原缺陷的形状是：会话关闭后仍被计入并发上限，第二轮对话被
+      `SESSION_LIMIT` 拒绝。
+    - `TurnCompletion` 因此新增 `drain_complete` 字段。该字段 **engine-neutral**，
+      任何 provider 都可能排空不尽；它不是 Ditto 特定配置，不违反本 ADR 决定 2。
+
 ### 目标架构
 
 ```text
@@ -237,6 +274,10 @@ transport。可演示性推迟，可证伪性提前。
   upstream 的前提下暴露渐进帧，本 ADR 的抽象仍成立，但
   `DittoRealtimeAvatarProvider` 的远端实现需要一个节点侧 bridge 脚本。
 - **`REAL_NEURAL_REALTIME_FRAMES=NO`**。本轮从未有任何真实引擎帧经过本包。
+  决定 13 的渐进 poll 缝与有界排空是**架构能力**，不是 Ditto 真的会流式产帧的证据；
+  `REAL_DITTO_ONLINE_SMOKE=NOT_RUN` 仍然成立，两者不得互相顶替。
+- **排空上限 8 次是未经测量的安全值**。它保证会话层不会挂死，不保证真实节点在 8 次
+  询问内一定排空完。真实 deadline 需要 FAMILY-REALTIME-002 的真实 transport 才能定。
 - **无 turn 级打断（barge-in）**。V0 的 `cancel()` 结束整个会话。真实打断需要
   orchestrator 才有意义，留给 FAMILY-REALTIME-002。
 - **无并发**：`DittoRealtimeAvatarProvider.max_concurrent_sessions=1`。
@@ -252,7 +293,11 @@ transport。可演示性推迟，可证伪性提前。
 | smoke harness 不得自动执行 | 同文件 `::test_smoke_harness_cannot_execute_anything`（禁 import subprocess / socket / asyncio / paramiko / http / urllib） | 已实现 |
 | 状态机转移确定性 | `tests/intelligence/media_factory/test_realtime_session_state.py`（13 组非法转移逐条断言） | 已实现 |
 | 音频形状 / 乱序 / 重复 / 越窗 | 同上 + `test_realtime_providers.py` | 已实现 |
-| first_frame 每轮仅一次 | `RealtimeEventEmitter.emit` 抛 `DUPLICATE_FIRST_FRAME`；`test_realtime_contracts.py` / `test_realtime_providers.py` | 已实现 |
+| first_frame 每轮仅一次（含三条帧路径） | `RealtimeEventEmitter.emit` 抛 `DUPLICATE_FIRST_FRAME`；`test_realtime_contracts.py` / `test_realtime_providers.py` / `test_ditto_realtime_provider.py::test_first_frame_is_announced_once_across_all_three_frame_paths` | 已实现 |
+| 渐进帧缝：推送后才产出的帧无需新音频即可送达 | `test_ditto_realtime_provider.py::test_a_frame_produced_after_the_push_still_reaches_the_consumer` / `::test_repeated_reads_do_not_replay_a_remote_frame` | 已实现 |
+| 远端先收到收尾信号，本地才发 `turn.completed` | 同文件 `::test_the_node_is_finalised_and_drained_before_turn_completed_is_emitted` / `::test_final_buffered_audio_reaches_the_node_before_the_turn_is_closed` | 已实现 |
+| 排空有界，未确认排空不得伪装成功 | 同文件 `::test_a_node_that_never_confirms_the_drain_is_reported_not_awaited` / `::test_a_node_that_fails_at_end_turn_produces_no_completion` / `::test_a_node_that_fails_mid_drain_produces_no_completion` | 已实现 |
+| 终态会话交还 provider 容量（按身份释放） | 同文件 `::test_closing_a_session_frees_the_slot_for_the_next_one` / `::test_cancelling_a_session_frees_the_slot_for_the_next_one` / `::test_a_stale_session_cannot_evict_its_replacement`；`test_realtime_providers.py::test_a_terminal_session_stops_counting_against_the_provider` | 已实现 |
 | fixture 不得声称真实推理 | `AvatarFrame.__post_init__` + `RealtimeProviderCapabilities.__post_init__`（`realtime_gate_eligible` 需 `real_neural_inference`） | 已实现 |
 | 指标不得编造 | `RealtimeMetrics.__post_init__` 拒非法值；默认全 `NOT_RUN` | 已实现 |
 | GPU 节点不得存业务真值 | `assert_not_canonical_on_gpu_node`；`test_ditto_realtime_provider.py` 对 7 项逐条参数化断言 | 已实现（**函数级**） |
