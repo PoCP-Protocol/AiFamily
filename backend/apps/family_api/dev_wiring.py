@@ -120,6 +120,7 @@ from backend.domains.product_intelligence.application.course_publication import 
     submit_course_content_for_review,
 )
 from backend.domains.product_intelligence.domain.course_content import CourseLesson
+from backend.domains.product_intelligence.domain.errors import ProductIntelligenceNotFoundError
 from backend.domains.product_intelligence.infrastructure.course_content_postgres_repository import (
     SqlAlchemyCourseContentRepository,
 )
@@ -1100,11 +1101,26 @@ DEV_COURSE_CATALOG: tuple[_DevCourseSpec, ...] = (
 async def _publish_dev_course(spec: _DevCourseSpec) -> None:
     """Push one `_DevCourseSpec` through the real DRAFT -> UNDER_REVIEW ->
     PUBLISHED state machine — never by constructing a `CourseContent` already
-    in `PUBLISHED` status. Idempotent per `spec.course_id`."""
+    in `PUBLISHED` status. Idempotent per `spec.course_id`.
 
-    existing = await _course_content_repository.list_published_course_content("dev")
-    if any(course.id == spec.course_id for course in existing):
+    Checking only the *published* list was not enough: this coroutine runs
+    on every `_dev_family_need_actor` resolution (every request), and a
+    process that crashes/times out partway through a previous seeding
+    attempt (e.g. after `submit_content_for_review` but before
+    `decide_content_review`) leaves the record in `UNDER_REVIEW` — not
+    `PUBLISHED`, so the old guard missed it, and every subsequent request
+    crashed forever trying to `submit_for_review()` a record that is no
+    longer in `DRAFT`. Checking for the record's mere *existence* (any
+    status) is the correct idempotency boundary for dev seed data: a
+    partially-seeded fixture is still "already seeded", not "needs
+    reseeding".
+    """
+
+    try:
+        await _course_content_repository.load_course_content(spec.course_id, "dev")
         return
+    except ProductIntelligenceNotFoundError:
+        pass
 
     draft = await create_course_content_draft(
         _course_content_repository,

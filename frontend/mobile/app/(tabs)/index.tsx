@@ -327,6 +327,11 @@ export default function TodayScreen() {
               )})}
             </View>
 
+            <Pressable accessibilityRole="button" accessibilityLabel="试试AI教练" onPress={() => router.push("/ai-coach-mvp")} style={({ pressed }) => [styles.quickEntry, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }, pressed && styles.pressed]}>
+              <IconSymbol name="heart.fill" size={22} color={colors.tint} />
+              <Text style={[styles.quickLabel, { color: colors.text }]}>试试 AI 教练</Text>
+            </Pressable>
+
             {SHOW_UI01_GROWTH_HELP_PANEL ? <View style={[styles.growthHelpCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <Pressable accessibilityRole="button" accessibilityLabel="问法咪莉校长" accessibilityHint="展开后选择孩子并描述现在最需要帮助的事情" onPress={() => setGrowthHelpOpen((value) => !value)} style={({ pressed }) => [styles.growthHelpHeader, pressed && styles.pressed]}>
                 <View style={[styles.growthHelpIcon, { backgroundColor: `${colors.tint}18` }]}><IconSymbol name="heart.fill" size={22} color={colors.tint} /></View>

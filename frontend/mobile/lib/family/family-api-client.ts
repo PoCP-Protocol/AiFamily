@@ -38,6 +38,46 @@ import type {
   FamilyExperienceAnalyticsResponse,
 } from "./feedback-api-contracts";
 
+// Real family_need endpoints (POST /needs/signals, POST /needs/{need_id}/ai-coach/messages),
+// deliberately separate from the orchestration-series methods below (requestGrowthHelp etc.):
+// those call /orchestration/needs|intents|decisions paths that do not exist in the backend
+// (see backend/domains/family_need/api/routes.py for the real routes this pair calls instead).
+export interface CaptureNeedSignalResponse {
+  action: "CAPTURE_FAMILY_NEED";
+  replayed: boolean;
+  boundary: string;
+  need: {
+    need_id: string;
+    status: string;
+    emotional_gate: string;
+    statement: string;
+    desired_outcome: string;
+    category: string;
+    version: number;
+    tenant_id: string;
+    family_id: string;
+    subject_person_ids: string[];
+    source_signal_ids: string[];
+  };
+}
+
+export interface AiCoachMessageResponse {
+  action: "AI_COACH_PERSPECTIVE";
+  boundary: string;
+  reflection: string;
+  guiding_question: string;
+  provenance: {
+    provider_id: string;
+    model: string;
+    model_version: string;
+    prompt_version: string;
+    schema_version: string;
+    context_snapshot_ref: string;
+    latency_ms: number;
+    confidence: number | null;
+  };
+}
+
 const DEFAULT_TIMEOUT_MS = 8_000;
 
 export interface FamilyApiRequestSnapshot {
@@ -676,6 +716,30 @@ export class FamilyApiClient {
       headers: {
         "idempotency-key": idempotencyKey,
         "x-correlation-id": createMobileRequestId("family-mobile-growth-decision"),
+        "x-source": "family-ai-mobile",
+      },
+    });
+  }
+
+  // Real family_need endpoints — see the CaptureNeedSignalResponse/AiCoachMessageResponse
+  // docstring above for why these are deliberately separate from the orchestration series.
+  captureNeedSignal<T>(token: string, familyId: string, body: { raw_text: string; statement: string; desired_outcome: string; source: "FAMILY_EXPRESSED"; purpose: string; consent_version: string; data_class: "PUBLIC"; subject_person_ids?: string[] }, idempotencyKey: string) {
+    return this.request<T>(`/families/${familyId}/needs/signals`, {
+      method: "POST", token, body,
+      headers: {
+        "idempotency-key": idempotencyKey,
+        "x-correlation-id": createMobileRequestId("family-mobile-need-signal"),
+        "x-source": "family-ai-mobile",
+      },
+    });
+  }
+
+  sendAiCoachMessage<T>(token: string, familyId: string, needId: string, body: { parent_message: string }, idempotencyKey: string) {
+    return this.request<T>(`/families/${familyId}/needs/${needId}/ai-coach/messages`, {
+      method: "POST", token, body,
+      headers: {
+        "idempotency-key": idempotencyKey,
+        "x-correlation-id": createMobileRequestId("family-mobile-ai-coach-message"),
         "x-source": "family-ai-mobile",
       },
     });

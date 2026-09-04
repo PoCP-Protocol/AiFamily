@@ -306,3 +306,33 @@ def test_ai_coach_without_memory_store_keeps_single_turn_behaviour() -> None:
 
     assert response.status_code == 200
     assert "conversation_history" not in provider.invocations[-1].payload
+
+
+def test_ai_coach_reply_succeeds_when_need_has_no_subject_and_memory_store_wired() -> None:
+    """A need with no named subject (`subject_person_ids: []`) is legitimate
+    — not every family need is about a specific child. `MemoryRef` hard-
+    requires a non-empty subject to scope a *write* to, so the reply must
+    still succeed and simply skip writing cross-turn memory for this need,
+    not fail the whole request (see `coach_reply`'s own comment on this)."""
+
+    memory_store = _FakeCoachMemoryStore()
+    client, _, _ = _build_client(memory_store=memory_store)
+
+    body = _capture_body()
+    body["subject_person_ids"] = []
+    signal_response = client.post(
+        f"/families/{_FAMILY_ID}/needs/signals",
+        json=body,
+        headers={"Idempotency-Key": "coach-need-no-subject"},
+    )
+    assert signal_response.status_code == 201
+    need_id = signal_response.json()["need"]["need_id"]
+
+    response = client.post(
+        f"/families/{_FAMILY_ID}/needs/{need_id}/ai-coach/messages",
+        json={"parent_message": "孩子今天又没写作业"},
+        headers={"Idempotency-Key": "coach-msg-no-subject"},
+    )
+
+    assert response.status_code == 200
+    assert memory_store.saved == []

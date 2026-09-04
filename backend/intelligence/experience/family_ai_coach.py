@@ -511,7 +511,15 @@ async def coach_reply(
     draft = await gateway.generate_structured(request, provider_id=provider_id)
     perspective = _to_perspective(draft)
 
-    if memory_store is not None and need_id is not None:
+    # `subject_ids` empty is a legitimate need (not every family need names a
+    # specific child subject) — `MemoryRef.__post_init__` hard-requires at
+    # least one subject to scope a *write* to (memory must always be scoped
+    # to a real subject for consent/deletion), so a need with no subject
+    # simply has no cross-turn memory to write. This is the same
+    # "gracefully skip, do not fail the reply" posture omitting
+    # `memory_store`/`need_id` already has — an empty `subject_ids` must not
+    # turn a reply that otherwise succeeded into a 502.
+    if memory_store is not None and need_id is not None and subject_ids:
         await store_coach_turn(
             memory_store,
             tenant_id=tenant_id,

@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import os
 
+from backend.intelligence.experience.family_ai_coach import COACH_USE_CASE
 from backend.intelligence.model_gateway.gateway import ModelGateway, build_gateway
 from backend.intelligence.model_gateway.provider_registry import (
     DEFAULT_PROVIDER_RECORDS,
@@ -90,11 +91,32 @@ def ai_coach_provider_registry() -> ProviderRegistry:
 
 
 def build_dev_ai_coach_gateway(*, environment: str = "development") -> ModelGateway:
-    """FakeProvider-backed gateway for dev/test composition roots."""
+    """FakeProvider-backed gateway for dev/test composition roots.
+
+    Must supply a canned response for `COACH_USE_CASE`: `FakeProvider`'s own
+    docstring says an unregistered use case yields `{}`, which the gateway
+    rejects as `SCHEMA_INVALID` — every request through this dev composition
+    root failed with that error until this canned response was added, since
+    nothing here previously registered one (unit tests that exercise AI
+    Coach construct their own `FakeProvider` with a response mapping, which
+    masked this gap).
+    """
 
     return build_gateway(
         environment=environment,
-        providers={"fake-deterministic": FakeProvider(provider_id="fake-deterministic")},
+        providers={
+            "fake-deterministic": FakeProvider(
+                provider_id="fake-deterministic",
+                responses_by_use_case={
+                    COACH_USE_CASE: {
+                        "reflection": (
+                            "听起来这件事已经反复出现，家长也在尝试办法，还是觉得有点卡住。"
+                        ),
+                        "guiding_question": "如果今晚顺利一些，你觉得会是什么让它变得不一样？",
+                    }
+                },
+            )
+        },
         registry=ai_coach_provider_registry(),
     )
 
