@@ -1,0 +1,13 @@
+{
+  "session_ref": "live.synthetic.1",
+  "need_id": "need.synthetic.1",
+  "plan_ref": "plan.synthetic.1",
+  "growth_theme": "家庭沟通",
+  "need_statement": "放学后的沟通常以争执收场。",
+  "recommendation_reason": "本场围绕“家庭沟通”提供当前方案需要的练习。",
+  "audience_label": "希望减少冲突的家长与照护者",
+  "next_step": "今晚先复述一句你听到的话。",
+  "source": "SANDBOX_SYNTHETIC",
+  "fixture_only": true,
+  "external_effect": false
+}
