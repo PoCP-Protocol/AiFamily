@@ -253,6 +253,21 @@ capabilities:
       human_gate_migration: database/migrations/versions/0006_ai_human_tasks.py
       worker_handler: backend/domains/service/fgcn/workflow_worker.py
       api: backend/domains/service/fgcn/api/routes.py
+      # 支撑本能力同一条派单链的边界契约/localization/wiring 胶水，不是
+      # 独立能力——entry.py 是 case-entry 依赖查询（CaseEntryDependencyQuery/
+      # AsyncCaseEntryDependencyQuery，authorize_real_teacher_assignment(_durable)
+      # 的 case_entry_dependencies 参数类型来源）；admission.py 是同一条链的
+      # provider-admission 契约（ProviderAdmissionQuery/AsyncProviderAdmissionQuery，
+      # 见 SqlAlchemyProviderAdmissionQuery 的真实实现）；scenario.py 是版本化、
+      # locale-aware 的 S-01 场景事实；accepted_action.py 是 Human Gate accepted
+      # action 到本域命令的组合根胶水。
+      entry: backend/domains/service/fgcn/entry.py
+      admission: backend/domains/service/fgcn/admission.py
+      scenario: backend/domains/service/fgcn/scenario.py
+      accepted_action_wiring: backend/domains/service/fgcn/accepted_action.py
+      api_dependencies: backend/domains/service/fgcn/api/dependencies.py
+      api_requests: backend/domains/service/fgcn/api/requests.py
+      durable_provider_admission: backend/domains/service/fgcn/infrastructure/sqlalchemy_provider_admission.py
     tests:
       - tests/domains/service/fgcn/
     consent:
@@ -311,6 +326,84 @@ capabilities:
     known_gaps:
       - "尚未挂载 HTTP router——只能通过应用层直接调用或未来 FastAPI 路由触达"
       - "与 service_fgcn_p0_collaboration 共享 domains/service/fgcn 目录但分开登记，因为审核/贡献是与派单分离的独立人工动作，合并会掩盖这个边界"
+
+  - capability: service_fgcn_blueprint_proposal_acceptance
+    business_capability: service_delivery
+    domain: domains/service/fgcn
+    purpose: >
+      Human Gate accepted action PROPOSE_SERVICE_BLUEPRINT 的业务域落点——记录
+      人工确认接受了一条有证据绑定的 AI 推荐蓝图；不开 case、不派单、不预约、
+      不通知、不产生外部 effect（见该模块 docstring）。
+    actor: [guardian, operator]
+    command:
+      - accept_service_blueprint_proposal
+    api: null                    # 通过 accepted_action_wiring.py 组合根接收 Human Gate 的 accepted action，非独立HTTP端点
+    code:
+      domain: backend/domains/service/fgcn/blueprint_proposal.py
+      wiring: backend/apps/family_api/accepted_action_wiring.py
+    tests:
+      - tests/domains/service/fgcn/test_blueprint_proposal.py
+    consent: {required: false, note: "记录人工对AI推荐的接受事实，不直接读写家庭个人数据字段"}
+    audit: {required: true, note: "AuditRecorder 记录该 Human Gate accepted action 的落地"}
+    idempotency: {required: true}
+    ai:
+      involved: true
+      constraint: "AI 只生成待接受的蓝图推荐（PROPOSE_SERVICE_BLUEPRINT）；本能力只记录人工 ACCEPT 后的事实，AI 从不代替人工确认"
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - "尚未有独立 FastAPI 路由；只能通过 accepted_action_wiring 的组合根接收"
+
+  - capability: service_fgcn_delivery_evidence
+    business_capability: service_delivery
+    domain: domains/service/fgcn
+    purpose: >
+      Human Gate 分派通过之后的第一条业务事实——把一个已接受的任务推进到
+      "交付证据"状态；不调用 AI，不写贡献/结算记录（那是
+      service_fgcn_quality_contribution 的职责，是下一步而非同一步）。
+    actor: [teacher, operator]
+    command:
+      - submit_service_delivery
+    api: null                    # 纯应用层命令，尚未挂载到任何 FastAPI router
+    code:
+      application: backend/domains/service/fgcn/delivery_application.py
+      contracts: backend/domains/service/fgcn/contracts.py
+    tests:
+      - tests/domains/service/fgcn/test_delivery_application.py
+    consent: {required: false, note: "运营/教师侧交付记录动作，不直接读写家庭个人数据字段"}
+    audit: {required: true}
+    idempotency: {required: true, note: "_replay_matches 拒绝冲突重放"}
+    ai:
+      involved: false
+      constraint: "该模块 docstring 明确声明：不调用 AI，不写贡献/结算记录"
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - "尚未挂载 HTTP router——只能通过应用层直接调用"
+      - "与 service_fgcn_quality_contribution 是同一条链的前后两步（先交付证据、再质量审核+贡献），分开登记是因为二者是两个独立人工动作，合并会掩盖这个边界"
+
+  - capability: service_fgcn_progress_projection
+    business_capability: service_delivery
+    domain: domains/service/fgcn
+    purpose: >
+      只读的 FGCN 进度投影——把 ServiceCase/ServiceTask/交付/质量审核/贡献这些
+      不可变事实投影成家庭可查看的进度视图（PDCA阶段、分配单位聚合等）；不
+      加载数据、不修改聚合、不调用模型、不计算家庭分数/排名、不把影子分配
+      单位换算成钱（见该模块 docstring）。
+    actor: [guardian, teacher, operator]
+    command: null                 # 只读投影，无写命令
+    api: null                    # 尚未挂载到任何 FastAPI router
+    code:
+      domain: backend/domains/service/fgcn/read_model.py
+    tests:
+      - tests/domains/service/fgcn/test_read_model.py
+    consent: {required: true, note: "家庭视角查看需校验 viewer scope（tenant/family/subject/purpose/consent）fail-closed"}
+    audit: {required: false, note: "只读投影，不产生状态变更，无需审计"}
+    idempotency: {required: false}
+    ai:
+      involved: false
+      constraint: "该模块 docstring 明确声明：不调用模型，不计算家庭分数/排名（R9）"
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - "尚未挂载 HTTP router——家长端目前无法通过 API 查看这份进度投影"
 
 # ---------------------------------------------------------------------------
 # AI Runtime 能力（backend/intelligence，R10：各一份）
