@@ -20,6 +20,7 @@ from backend.domains.journey.application.growth_plan_adoption import (
     ValidatedGrowthPlanDraft,
 )
 from backend.domains.journey.domain.errors import JourneyConflictError
+from backend.platform.audit import AuditEvent
 
 
 class DraftReader:
@@ -68,6 +69,7 @@ class Repository:
     def __init__(self) -> None:
         self.plan: AdoptedGrowthPlan | None = None
         self.receipt: tuple[str, AdoptedGrowthPlan] | None = None
+        self.recorded_audit_events: list[AuditEvent] = []
 
     async def get_current(self, **_: str) -> AdoptedGrowthPlan | None:
         return self.plan
@@ -78,6 +80,7 @@ class Repository:
         plan: AdoptedGrowthPlan,
         idempotency_key: str,
         request_fingerprint: str,
+        audit_event: AuditEvent,
     ) -> tuple[AdoptedGrowthPlan, bool, bool]:
         if self.receipt:
             old_fingerprint, stored = self.receipt
@@ -86,12 +89,17 @@ class Repository:
             return stored, True, True
         self.plan = plan
         self.receipt = (request_fingerprint, plan)
+        self.recorded_audit_events.append(audit_event)
         return plan, True, False
 
 
 def app() -> FastAPI:
-    service = GrowthPlanAdoptionService(DraftReader(), Repository(), GuardianGrowthPlanPolicy())
+    return _app_with(
+        GrowthPlanAdoptionService(DraftReader(), Repository(), GuardianGrowthPlanPolicy())
+    )
 
+
+def _app_with(service: GrowthPlanAdoptionService) -> FastAPI:
     async def resolve_actor(authorization: str | None, family_id: str) -> GrowthPlanActor:
         if authorization == "Bearer guardian":
             return GrowthPlanActor("guardian-a", "tenant-a", family_id, "membership-a", "consent-a")
@@ -115,7 +123,9 @@ def app() -> FastAPI:
 
 
 def test_http_adopt_and_readback_preserve_generated_duration_and_provenance() -> None:
-    with TestClient(app()) as client:
+    service = GrowthPlanAdoptionService(DraftReader(), Repository(), GuardianGrowthPlanPolicy())
+    repository = service.repository
+    with TestClient(_app_with(service)) as client:
         adopted = client.post(
             "/families/family-a/growth/generative-plan/adopt",
             headers={"Authorization": "Bearer guardian", "Idempotency-Key": "adopt-1"},
@@ -135,6 +145,17 @@ def test_http_adopt_and_readback_preserve_generated_duration_and_provenance() ->
         )
         assert current.status_code == 200
         assert current.json()["plan"]["draft_ref"] == "draft:1"
+
+    # R6/R14: the HTTP adoption call above must have driven an AuditEvent
+    # through to the sole write path (`repository.adopt_once`), not just the
+    # in-process service test. Falls back to Idempotency-Key as
+    # correlation_id since no X-Correlation-Id header was sent.
+    assert len(repository.recorded_audit_events) == 1
+    event = repository.recorded_audit_events[0]
+    assert event.actor_id == "guardian-a"
+    assert event.tenant_id == "tenant-a"
+    assert event.correlation_id == "adopt-1"
+    assert event.after is not None
 
 
 def test_http_auth_scope_idempotency_and_human_gate_fail_closed() -> None:

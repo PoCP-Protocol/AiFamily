@@ -64,6 +64,7 @@ def build_growth_plan_adoption_router(
         body: AdoptGrowthPlanBody,
         authorization: Annotated[str | None, Header()] = None,
         idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+        x_correlation_id: Annotated[str | None, Header(alias="X-Correlation-Id")] = None,
     ) -> dict:
         actor = await _actor(dependencies, authorization, family_id)
         _assert_family(actor, family_id)
@@ -75,6 +76,7 @@ def build_growth_plan_adoption_router(
                     draft_version=body.draft_version,
                     idempotency_key=_require_idempotency_key(idempotency_key),
                     selected_choices=body.selected_choices,
+                    correlation_id=_require_correlation_id(x_correlation_id, idempotency_key),
                 )
             )
         )
@@ -102,6 +104,19 @@ def _require_idempotency_key(value: str | None) -> str:
     if value is None or not value.strip() or len(value) > 128:
         raise HTTPException(status_code=400, detail="invalid_idempotency_key")
     return value
+
+
+def _require_correlation_id(value: str | None, idempotency_key: str | None) -> str:
+    """Use the caller-supplied `X-Correlation-Id`, falling back to the
+    Idempotency-Key so every adoption request still carries a stable,
+    request-scoped id even when the client omits the optional header --
+    R6's `correlation_id` requirement must not be satisfiable by omission.
+    """
+    if value is not None and value.strip():
+        if len(value) > 128:
+            raise HTTPException(status_code=400, detail="invalid_correlation_id")
+        return value
+    return _require_idempotency_key(idempotency_key)
 
 
 async def _call(operation: Callable[[], Awaitable[dict]]) -> dict:

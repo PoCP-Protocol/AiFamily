@@ -3,6 +3,7 @@ import { Stack, router } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
+import { FamilyRefreshControl } from "@/components/family/family-refresh-control";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { createMobileRequestId, familyApi } from "@/lib/family/family-api-client";
@@ -98,7 +99,7 @@ export default function GenerativeGrowthPlanScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.screen}>
         <Header />
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView refreshControl={<FamilyRefreshControl />} contentContainerStyle={styles.content}>
           {loadState === "loading" ? <LoadingState /> : null}
           {loadState === "empty" ? <EmptyState /> : null}
           {loadState === "error" ? <ErrorState message={message} onRetry={loadPlan} /> : null}

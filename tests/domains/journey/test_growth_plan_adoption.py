@@ -21,6 +21,7 @@ from backend.domains.journey.domain.errors import (
     JourneyNotFoundError,
     JourneyValidationError,
 )
+from backend.platform.audit import AuditEvent
 
 
 class DraftReader:
@@ -38,6 +39,7 @@ class Repository:
     def __init__(self) -> None:
         self.current: AdoptedGrowthPlan | None = None
         self.receipts: dict[str, tuple[str, AdoptedGrowthPlan]] = {}
+        self.recorded_audit_events: list[AuditEvent] = []
 
     async def get_current(self, **_: str) -> AdoptedGrowthPlan | None:
         return self.current
@@ -48,6 +50,7 @@ class Repository:
         plan: AdoptedGrowthPlan,
         idempotency_key: str,
         request_fingerprint: str,
+        audit_event: AuditEvent,
     ) -> tuple[AdoptedGrowthPlan, bool, bool]:
         receipt = self.receipts.get(idempotency_key)
         if receipt:
@@ -57,8 +60,11 @@ class Repository:
             return stored, True, True
         if self.current and self.current.draft_ref != plan.draft_ref:
             raise JourneyConflictError("active_growth_plan_already_exists")
+        created = self.current is None
         self.current = self.current or plan
         self.receipts[idempotency_key] = (request_fingerprint, self.current)
+        if created:
+            self.recorded_audit_events.append(audit_event)
         return self.current, self.current is plan, False
 
 
@@ -147,7 +153,9 @@ async def test_guardian_adopts_dynamic_generated_draft_and_reads_it_back() -> No
     application, _ = service(draft())
     actor = GrowthPlanActor("guardian-a", "tenant-a", "family-a", "membership-a", "consent-a")
     response = await application.adopt(
-        AdoptGrowthPlanCommand(actor, "draft:family-a:1", 3, "adopt-1", {"meeting-time": "周五晚"})
+        AdoptGrowthPlanCommand(
+            actor, "draft:family-a:1", 3, "adopt-1", {"meeting-time": "周五晚"}, "correlation-1"
+        )
     )
 
     assert response["created"] is True
@@ -182,7 +190,7 @@ async def test_adoption_replays_same_request_and_rejects_key_reuse_for_another_v
     application, _ = service(draft())
     actor = GrowthPlanActor("guardian-a", "tenant-a", "family-a", "membership-a", "consent-a")
     command = AdoptGrowthPlanCommand(
-        actor, "draft:family-a:1", 3, "adopt-1", {"meeting-time": "周五晚"}
+        actor, "draft:family-a:1", 3, "adopt-1", {"meeting-time": "周五晚"}, "correlation-1"
     )
     first = await application.adopt(command)
     replay = await application.adopt(command)
@@ -200,14 +208,16 @@ async def test_scope_human_gate_and_validated_draft_are_fail_closed() -> None:
     missing, _ = service(None)
     with pytest.raises(JourneyNotFoundError):
         await missing.adopt(
-            AdoptGrowthPlanCommand(actor, "missing", 1, "adopt-1", {"meeting-time": "周五晚"})
+            AdoptGrowthPlanCommand(
+                actor, "missing", 1, "adopt-1", {"meeting-time": "周五晚"}, "correlation-1"
+            )
         )
 
     wrong_scope, _ = service(draft(family_id="family-b"))
     with pytest.raises(JourneyForbiddenError, match="growth_plan_draft_scope_denied"):
         await wrong_scope.adopt(
             AdoptGrowthPlanCommand(
-                actor, "draft:family-a:1", 3, "adopt-2", {"meeting-time": "周五晚"}
+                actor, "draft:family-a:1", 3, "adopt-2", {"meeting-time": "周五晚"}, "correlation-2"
             )
         )
 
@@ -220,6 +230,7 @@ async def test_scope_human_gate_and_validated_draft_are_fail_closed() -> None:
                 3,
                 "adopt-3",
                 {"meeting-time": "周五晚"},
+                "correlation-3",
             )
         )
 
@@ -227,7 +238,7 @@ async def test_scope_human_gate_and_validated_draft_are_fail_closed() -> None:
     with pytest.raises(JourneyConflictError, match="not_adoptable"):
         await need_more.adopt(
             AdoptGrowthPlanCommand(
-                actor, "draft:family-a:1", 3, "adopt-4", {"meeting-time": "周五晚"}
+                actor, "draft:family-a:1", 3, "adopt-4", {"meeting-time": "周五晚"}, "correlation-4"
             )
         )
 
@@ -242,6 +253,7 @@ async def test_plan_content_is_not_replaced_by_a_fixed_horizon_or_template() -> 
             3,
             "adopt-dynamic",
             {"meeting-time": "周日午后"},
+            "correlation-dynamic",
         )
     )
 
@@ -259,7 +271,12 @@ async def test_digest_choices_and_read_authorization_fail_closed() -> None:
     with pytest.raises(JourneyConflictError, match="content_digest_mismatch"):
         await bad_digest.adopt(
             AdoptGrowthPlanCommand(
-                actor, "draft:family-a:1", 3, "adopt-bad", {"meeting-time": "周五晚"}
+                actor,
+                "draft:family-a:1",
+                3,
+                "adopt-bad",
+                {"meeting-time": "周五晚"},
+                "correlation-bad",
             )
         )
 
@@ -267,8 +284,69 @@ async def test_digest_choices_and_read_authorization_fail_closed() -> None:
     with pytest.raises(JourneyValidationError, match="choice_not_allowed"):
         await application.adopt(
             AdoptGrowthPlanCommand(
-                actor, "draft:family-a:1", 3, "adopt-choice", {"meeting-time": "每天"}
+                actor,
+                "draft:family-a:1",
+                3,
+                "adopt-choice",
+                {"meeting-time": "每天"},
+                "correlation-choice",
             )
         )
     with pytest.raises(JourneyForbiddenError, match="read_requires_guardian"):
         await application.get_current(replace(actor, actor_type="AI"))
+
+
+@pytest.mark.asyncio
+async def test_adopt_necessarily_produces_an_r6_audit_event() -> None:
+    """R6: the only state-write path (`repository.adopt_once`) must be handed
+    an `AuditEvent` carrying at least actor/tenant/action/resource/before/
+    after/reason/correlation_id/timestamp. This is mechanical, not
+    convention: `AuditEvent.__post_init__` already rejects a missing
+    actor/tenant/action/resource/reason/correlation_id, so if `adopt()`
+    stopped constructing one, or constructed one with a blank required
+    field, this test fails at the `repository.adopt_once` call boundary --
+    not by inspecting source text.
+    """
+    application, repository = service(draft())
+    actor = GrowthPlanActor("guardian-a", "tenant-a", "family-a", "membership-a", "consent-a")
+
+    response = await application.adopt(
+        AdoptGrowthPlanCommand(
+            actor,
+            "draft:family-a:1",
+            3,
+            "adopt-audit",
+            {"meeting-time": "周五晚"},
+            "correlation-audit",
+        )
+    )
+
+    assert len(repository.recorded_audit_events) == 1
+    event = repository.recorded_audit_events[0]
+    assert isinstance(event, AuditEvent)
+    assert event.actor_id == actor.actor_id
+    assert event.tenant_id == actor.tenant_id
+    assert event.action == "AdoptFamilyGrowthPlanDraft"
+    assert event.resource_type == "AdoptedGrowthPlan"
+    assert event.resource_id == response["plan"]["plan_id"]
+    assert event.correlation_id == "correlation-audit"
+    assert event.reason
+    assert event.before is None
+    assert event.after is not None
+    assert event.after["plan_id"] == response["plan"]["plan_id"]
+    assert event.timestamp is not None
+
+    # A replayed (idempotent) adopt of the same request must not fabricate a
+    # second audit event for a write that did not happen again.
+    replay = await application.adopt(
+        AdoptGrowthPlanCommand(
+            actor,
+            "draft:family-a:1",
+            3,
+            "adopt-audit",
+            {"meeting-time": "周五晚"},
+            "correlation-audit",
+        )
+    )
+    assert replay["idempotency_replayed"] is True
+    assert len(repository.recorded_audit_events) == 1

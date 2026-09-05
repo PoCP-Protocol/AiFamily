@@ -54,6 +54,10 @@ from backend.domains.family_need.infrastructure.wiring import (
 from backend.domains.journey.api.growth_onboarding_routes import (
     router as growth_onboarding_router,
 )
+from backend.domains.journey.api.growth_plan_adoption_routes import (
+    GrowthPlanAdoptionHttpDependencies,
+    build_growth_plan_adoption_router,
+)
 from backend.domains.journey.api.routes import (
     register_exception_handlers as register_journey_exception_handlers,
 )
@@ -229,6 +233,49 @@ def _mount_family_need(application: FastAPI, *, database_url: str | None = None)
                 database_url=configured_url,
                 engine=get_engine(configured_url),
             )
+
+
+def _mount_growth_plan_adoption(application: FastAPI) -> None:
+    """Mount the generative growth-plan adoption slice (UI-04 adopt/read).
+
+    Unlike the other domain routers here, this one is built by a factory
+    (`build_growth_plan_adoption_router`) rather than pre-wired as a module
+    singleton with `app.dependency_overrides`, so there is no
+    always-mounted-with-503-defaults form to fall back on: without an actor
+    resolver and a service, there is no router to build. Dev/test therefore
+    builds the router immediately with the in-memory, dev-bearer-token-backed
+    adapters from `growth_plan_adoption_dev_wiring` (mirroring the posture of
+    `install_dev_wiring`'s other overrides — same route, errors and Named
+    Action gate as production would use, backed by process-local state that
+    must never be reachable outside dev/test).
+
+    No production adapter exists yet for either a durable validated-draft
+    reader or a durable idempotent adoption repository (see
+    `growth_plan_adoption_dev_wiring`'s module docstring), so outside
+    dev/test the route is intentionally left unmounted rather than mounted
+    with adapters that do not exist — the same fail-closed posture as every
+    other domain here, just expressed as "not yet mounted" instead of "503".
+    """
+
+    if not is_dev_environment():
+        return
+
+    from backend.apps.family_api import dev_wiring as _dev_wiring
+    from backend.domains.journey.infrastructure.growth_plan_adoption_dev_wiring import (
+        build_dev_actor_resolver,
+        build_dev_growth_plan_adoption_service,
+    )
+
+    service = build_dev_growth_plan_adoption_service(
+        _dev_wiring.growth_plan_draft_store,
+        _dev_wiring.growth_plan_adoption_repository,
+    )
+    resolve_actor = build_dev_actor_resolver(_dev_wiring._identity)
+    application.include_router(
+        build_growth_plan_adoption_router(
+            GrowthPlanAdoptionHttpDependencies(resolve_actor, service)
+        )
+    )
 
 
 def _mount_course_content(application: FastAPI, *, database_url: str | None = None) -> None:
@@ -460,6 +507,8 @@ def create_app(
         # Dev/test use the same operator API contracts with synthetic records;
         # this module refuses installation outside the explicit allow-list.
         install_dev_operator_query_wiring(application)
+    # Growth plan adoption (UI-04): dev/test only, see `_mount_growth_plan_adoption`.
+    _mount_growth_plan_adoption(application)
     if engagement_runtime_resolver is not None and engagement_runtime_wiring is not None:
         raise ValueError(
             "engagement_runtime_resolver and engagement_runtime_wiring are mutually exclusive"

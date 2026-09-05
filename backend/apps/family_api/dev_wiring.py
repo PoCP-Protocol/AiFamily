@@ -111,6 +111,10 @@ from backend.domains.family_need.infrastructure.service_supply_adapter import (
 )
 from backend.domains.family_need.infrastructure.wiring import CompositeSupplyAdapter
 from backend.domains.journey.application.outcome_loop import GrowthOutcomeLoop
+from backend.domains.journey.infrastructure.growth_plan_adoption_dev_wiring import (
+    InMemoryAdoptedGrowthPlanRepository,
+    InMemoryGrowthPlanDraftStore,
+)
 from backend.domains.product_intelligence.application.context import (
     ActorContext as CourseActorContext,
 )
@@ -545,6 +549,14 @@ _course_content_repository = _ConnectionScopedCourseContentRepositoryForDev()
 _course_human_gate = InMemoryHumanGate()
 _improvement_candidate_repository = _ConnectionScopedImprovementCandidateRepositoryForDev()
 _family_experience_signal_repository = _ConnectionScopedFamilyExperienceSignalRepositoryForDev()
+
+# Growth plan adoption (UI-04): process-local, dev/test-only draft source and
+# idempotent adoption store. `main._mount_growth_plan_adoption` reads these
+# singletons directly — there is no `install_*` override entry point for this
+# router because it is built by a factory (`build_growth_plan_adoption_router`)
+# rather than pre-wired with `app.dependency_overrides` like the routers above.
+growth_plan_draft_store = InMemoryGrowthPlanDraftStore()
+growth_plan_adoption_repository = InMemoryAdoptedGrowthPlanRepository()
 
 
 class _DevProviderAdmissionQuery:

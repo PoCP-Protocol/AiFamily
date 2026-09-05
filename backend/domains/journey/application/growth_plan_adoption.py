@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 from uuid import NAMESPACE_URL, uuid5
 
+from backend.platform.audit import AuditEvent
+
 from ..domain.errors import (
     JourneyConflictError,
     JourneyForbiddenError,
@@ -121,8 +123,15 @@ class AdoptedGrowthPlanRepository(Protocol):
         plan: AdoptedGrowthPlan,
         idempotency_key: str,
         request_fingerprint: str,
+        audit_event: AuditEvent,
     ) -> tuple[AdoptedGrowthPlan, bool, bool]:
-        """Persist atomically and return plan, created, idempotency_replayed."""
+        """Persist the plan and the R6 AuditEvent atomically.
+
+        Implementations must write ``audit_event`` in the same atomic unit as
+        the plan row (or, for the in-memory dev adapter, into the same
+        `AuditRecorder` buffer) so "plan adopted" and "audit event produced"
+        cannot diverge. Returns plan, created, idempotency_replayed.
+        """
 
 
 class GrowthPlanAdoptionPolicy(Protocol):
@@ -140,6 +149,7 @@ class AdoptGrowthPlanCommand:
     draft_version: int
     idempotency_key: str
     selected_choices: Mapping[str, str]
+    correlation_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,10 +205,24 @@ class GrowthPlanAdoptionService:
             adopted_by=actor.actor_id,
             adopted_at=adopted_at,
         )
+        audit_event = AuditEvent(
+            actor_id=actor.actor_id,
+            tenant_id=actor.tenant_id,
+            action=ADOPT_GROWTH_PLAN_ACTION,
+            resource_type="AdoptedGrowthPlan",
+            resource_id=plan.plan_id,
+            reason=f"guardian {actor.actor_id} adopted validated growth-plan draft "
+            f"{draft.draft_ref}@{draft.version}",
+            correlation_id=command.correlation_id,
+            before=None,
+            after=plan.as_dict(),
+            timestamp=adopted_at,
+        )
         stored, created, replayed = await self.repository.adopt_once(
             plan=plan,
             idempotency_key=command.idempotency_key,
             request_fingerprint=_request_fingerprint(command),
+            audit_event=audit_event,
         )
         return {
             "plan": stored.as_dict(),
@@ -268,6 +292,8 @@ def _validate_command(command: AdoptGrowthPlanCommand) -> None:
         raise JourneyValidationError("growth_plan_draft_identity_required")
     if not command.idempotency_key.strip() or len(command.idempotency_key) > 128:
         raise JourneyValidationError("invalid_idempotency_key")
+    if not command.correlation_id.strip() or len(command.correlation_id) > 128:
+        raise JourneyValidationError("invalid_correlation_id")
 
 
 def _validate_draft(draft: ValidatedGrowthPlanDraft, actor: GrowthPlanActor) -> None:
