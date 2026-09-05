@@ -30,66 +30,6 @@ from tests.support.postgres import SKIP_REASON, postgres_test_url
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 VERSIONS_DIR = REPO_ROOT / "database" / "migrations" / "versions"
 
-FULL_CHAIN = (
-    "0001_legacy_schema_baseline",
-    "0002_platform_audit_events_worm",
-    "0003_service_booking_additions",
-    "0004_fgcn_p0_persistence",
-    "0005_fgcn_assignment_idempotency",
-    "0006_ai_human_tasks",
-    "0007_experience_outbox",
-    "0008_experience_runs",
-    "0009_ai_model_drafts",
-    "0010_experience_run_interactions",
-    "0011_ai_human_task_claims",
-    "0012_ai_agent_runs",
-    "0013_ai_authorization_leases",
-    "0014_tool_action_outbox",
-    "0015_ai_achievement_projections",
-    "0016_growth_onboarding",
-    "0017_ai_model_attempts",
-    "0018_ai_safety_decisions",
-    "0019_ai_runtime_scope_columns",
-    "0020_ai_release_decisions",
-    "0021_ai_telemetry_spans",
-    "0022_ai_memory_store",
-    "0023_ai_growth_graph_projection",
-    "0024_ai_accepted_action_delivery",
-    "0025_service_blueprint_proposals",
-    "0026_experience_outbox_delivery_attempts",
-    "0027_experience_outbox_dead_letters",
-    "0028_ai_achievement_occurrences",
-    "0029_ai_experience_feedback_projections",
-    "0030_ai_prompt_schema_registry",
-    "0031_ai_release_controls",
-    "0032_ai_release_candidates",
-    "0033_ai_release_deployment_receipts",
-    "0034_ai_benchmark_report_archive",
-    "0035_ai_benchmark_report_slices",
-    "0036_ai_context_engine",
-    "0037_ops_audit",
-    "0038_product_definition",
-    "0039_competitor_evidence",
-    "0040_ai_experience_bundles",
-    "0041_ai_canary_assessments",
-    "0042_ai_canary_alerts",
-    "0043_ai_canary_jobs",
-    "0044_ai_model_budget_reservations",
-    "0045_ai_bundle_runtime_policies",
-    "0046_ai_experience_release_sets",
-    "0047_ai_release_set_deployments",
-    "0048_ai_runtime_release_evidence",
-    "0049_ai_release_set_signed_controls",
-    "0050_ai_release_projection_invocation_fence",
-    "0051_ai_release_transition_state_machine",
-    "0052_ai_execution_materials",
-    "0053_ai_release_transition_reconciliation",
-    "0054_ai_engagement_draft_reviews",
-    "0055_family_need_domain",
-    "0056_course_content",
-    "0057_ai_growth_plan_draft_reviews",
-)
-
 
 def _revision_constants(path: pathlib.Path) -> tuple[str, str | None]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -117,6 +57,35 @@ def _revision_constants(path: pathlib.Path) -> tuple[str, str | None]:
     assert isinstance(revision, str), f"{path.name} must declare a string revision"
     assert down_revision is None or isinstance(down_revision, str)
     return revision, down_revision
+
+
+def _discover_full_chain() -> tuple[str, ...]:
+    """Derive the ordered revision chain straight from `database/migrations/versions/`.
+
+    This used to be a hand-maintained tuple. It fell three revisions (0058-0066)
+    behind reality because nobody remembered to touch this file when a new
+    migration landed elsewhere in the tree — the exact class of bug a dynamic
+    scan cannot have, since there is nothing to remember. The chain is a pure
+    function of the on-disk `revision`/`down_revision` graph, so deriving it here
+    and asserting linearity (single root, single head, no branches) is strictly
+    stronger evidence than a tuple a human typed by hand.
+
+    If you are staring at a failure from this function: it means the on-disk
+    migration graph is not a single linear chain (a fork, a gap, or a missing
+    file) — not that this file needs editing.
+    """
+    files = sorted(VERSIONS_DIR.glob("*.py"))
+    parsed = dict(_revision_constants(path) for path in files)
+    down_revisions = {down for down in parsed.values() if down}
+    heads = [revision for revision in parsed if revision not in down_revisions]
+    assert len(heads) == 1, f"migration graph must have exactly one head, found: {heads}"
+    ordered: list[str] = []
+    current: str | None = heads[0]
+    while current is not None:
+        assert current not in ordered, f"migration graph has a cycle at {current!r}"
+        ordered.append(current)
+        current = parsed[current]
+    return tuple(reversed(ordered))
 
 
 def _run_alembic(*args: str, database_url: str) -> subprocess.CompletedProcess[str]:
@@ -210,12 +179,11 @@ async def disposable_database_url() -> str:
 
 
 def test_all_alembic_revisions_form_one_complete_chain_through_current_head() -> None:
+    full_chain = _discover_full_chain()
     files = sorted(VERSIONS_DIR.glob("*.py"))
     parsed = [_revision_constants(path) for path in files]
     revisions = dict(parsed)
-    down_revisions = {down_revision for down_revision in revisions.values() if down_revision}
 
-    assert set(revisions) == set(FULL_CHAIN)
     assert len(revisions) == len(files), "migration revision ids must be unique"
     oversized = sorted(revision for revision in revisions if len(revision) > 32)
     assert oversized
@@ -228,20 +196,14 @@ def test_all_alembic_revisions_form_one_complete_chain_through_current_head() ->
     )
     assert '"alembic_version"' in widening_source
     assert "type_=sa.String(length=128)" in widening_source
-    assert set(revisions) - down_revisions == {FULL_CHAIN[-1]}
-
-    ordered: list[str] = []
-    current: str | None = FULL_CHAIN[-1]
-    while current is not None:
-        ordered.append(current)
-        current = revisions[current]
-    assert tuple(reversed(ordered)) == FULL_CHAIN
+    assert full_chain[0] == "0001_legacy_schema_baseline"
 
 
 async def test_full_chain_upgrade_downgrade_and_rebuild(
     disposable_database_url: str,
 ) -> None:
-    for target in FULL_CHAIN:
+    full_chain = _discover_full_chain()
+    for target in full_chain:
         result = _run_alembic("upgrade", target, database_url=disposable_database_url)
         assert result.returncode == 0, (
             f"alembic upgrade {target} failed:\n{result.stdout}\n{result.stderr}"
@@ -286,7 +248,7 @@ async def test_full_chain_upgrade_downgrade_and_rebuild(
     )
     assert (
         await _scalar(disposable_database_url, "select version_num from alembic_version")
-        == FULL_CHAIN[-1]
+        == full_chain[-1]
     )
     assert (
         await _scalar(

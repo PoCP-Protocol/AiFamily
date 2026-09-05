@@ -8,6 +8,29 @@ jobs:
   architecture:
     name: Lint + Architecture Tests
     runs-on: ubuntu-latest
+    # Real PostgreSQL for the Postgres-gated tests under tests/database/ (and any
+    # other test that opts in via AIFAMILY_TEST_DATABASE_URL). Without this
+    # service every one of those tests either fails with a connection error
+    # (no server listening on 127.0.0.1) or silently skips depending on how it
+    # is gated — both hide real migration/schema regressions from CI. Image and
+    # env vars are kept identical to docker-compose.dev.yml's `postgres` service
+    # so a failure reproduces the same way locally and in CI.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aifamily
+          POSTGRES_PASSWORD: aifamily
+          POSTGRES_DB: aifamily_test
+        ports:
+          - 55442:5432
+        options: >-
+          --health-cmd "pg_isready -U aifamily -d aifamily_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      AIFAMILY_TEST_DATABASE_URL: postgresql+asyncpg://aifamily:aifamily@localhost:55442/aifamily_test
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,6 +45,11 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --extra dev
+
+      - name: Apply Alembic migrations to CI Postgres (head)
+        run: uv run alembic upgrade head
+        env:
+          DATABASE_URL: ${{ env.AIFAMILY_TEST_DATABASE_URL }}
 
       - name: Lint (ruff)
         run: uv run ruff check .
