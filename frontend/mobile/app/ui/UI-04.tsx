@@ -1,137 +1,96 @@
 import type { Href } from "expo-router";
 import { Stack, router } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { FamilyRefreshControl } from "@/components/family/family-refresh-control";
 import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { familyApi } from "@/lib/family/family-api-client";
-import type { GrowthPriorityProjection, JourneyPlanProjection, PlanPreviewProjection } from "@/lib/family/growth-api-contracts";
+import { createMobileRequestId, familyApi } from "@/lib/family/family-api-client";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
-import { useFamilyMobile } from "@/lib/family/family-state";
-import { MOBILE_JOURNEY_PHASES, type MobileJourneyPhase } from "@/lib/family/journey-plan-content";
-import { getUiActionPolicy } from "@/lib/family/ui-action-policies";
+import {
+  isAdoptedGrowthPlan,
+  isGrowthPlanDraft,
+  isGrowthPlanInformationNeeded,
+  type AdoptedGenerativeGrowthPlan,
+  type GenerativeGrowthPlanDraft,
+  type GenerativeGrowthPlanResponse,
+  type GrowthPlanStage,
+} from "@/lib/family/generative-growth-plan";
 import { haptic } from "@/lib/haptics";
 
-type BaselineWeek = {
-  id: MobileJourneyPhase["id"];
-  week: string;
-  title: string;
-  intent: string;
-  tasks: readonly [string, string];
-  tone: "mint" | "blue" | "orange" | "gray";
-  illustration: string;
-};
+type LoadState = "idle" | "loading" | "ready" | "empty" | "error";
+const actorLabel = { ADULT: "家长", FAMILY: "全家", CHILD_OPTIONAL: "孩子自愿参与" } as const;
 
-const PLAN_SUMMARY_STATS = [
-  { value: "待确认", label: "当前阶段" },
-  { value: "0", label: "今日任务" },
-  { value: "0h", label: "累计时长" },
-  { value: "90天", label: "计划周期" },
-] as const;
-
-const BASELINE_WEEKS: readonly BaselineWeek[] = [
-  { id: "SEE", week: "第1周", title: "关系破冰", intent: "建立信任，打开沟通通道", tasks: ["亲子时光15分钟", "倾听孩子的感受"], tone: "mint", illustration: "♥" },
-  { id: "PARENT_FIRST", week: "第2周", title: "行为训练", intent: "减少冲突，正向引导行为", tasks: ["积极反馈练习", "制定家庭规则"], tone: "blue", illustration: "▣" },
-  { id: "CO_CREATE", week: "第3周", title: "习惯建立", intent: "制定计划，培养好习惯", tasks: ["学习计划制定", "每日习惯打卡"], tone: "orange", illustration: "◎" },
-  { id: "STABILIZE", week: "第4周", title: "情绪管理", intent: "识别情绪，科学表达", tasks: ["识别此刻的感受", "用一句话表达需要"], tone: "gray", illustration: "○" },
-] as const;
-
-function getPhaseStatus(plan: JourneyPlanProjection["plan"], phaseId: string, currentPhase: string | null) {
-  if (!plan?.plan_id || plan.status === "DRAFT") return "pending" as const;
-  const remote = plan?.phases?.find((phase) => phase.phase === phaseId)?.status;
-  if (remote === "COMPLETED") return "completed" as const;
-  if (phaseId === currentPhase) return "active" as const;
-  return "pending" as const;
-}
-
-export default function JourneyPlanScreen() {
+export default function GenerativeGrowthPlanScreen() {
   const session = useFamilyApiSession();
-  const { activeOnboardingId, recordUiAction } = useFamilyMobile();
-  const [remoteJourney, setRemoteJourney] = useState<JourneyPlanProjection | null>(null);
-  const [remotePreview, setRemotePreview] = useState<PlanPreviewProjection | null>(null);
-  const [remotePriority, setRemotePriority] = useState<GrowthPriorityProjection | null>(null);
-  const [projectionState, setProjectionState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [projectionError, setProjectionError] = useState<string | null>(null);
-  const [activationState, setActivationState] = useState<"idle" | "submitting">("idle");
-  const [activationMessage, setActivationMessage] = useState<string | null>(null);
+  const [response, setResponse] = useState<GenerativeGrowthPlanResponse | null>(null);
+  const [loadState, setLoadState] = useState<LoadState>("idle");
+  const [message, setMessage] = useState<string | null>(null);
+  const [selectedChoices, setSelectedChoices] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
 
-  const loadPlanProjection = useCallback(async () => {
-    if (session.status !== "connected" || !session.token || !session.selectedFamily) return;
-    setProjectionState("loading"); setProjectionError(null);
-    try {
-      const [journeyResult, previewResult, priorityResult] = await Promise.all([
-        familyApi.getJourneyPlan(session.token, session.selectedFamily.family_id),
-        activeOnboardingId ? familyApi.getPlanPreview(session.token, session.selectedFamily.family_id, activeOnboardingId) : Promise.resolve(null),
-        activeOnboardingId ? familyApi.getGrowthPriority(session.token, session.selectedFamily.family_id, activeOnboardingId) : Promise.resolve(null),
-      ]);
-      setRemoteJourney(journeyResult); setRemotePreview(previewResult); setRemotePriority(priorityResult); setProjectionState("ready");
-    } catch { setProjectionState("error"); setProjectionError("成长方案暂时无法同步；请稍后重试。"); }
-  }, [activeOnboardingId, session.selectedFamily, session.status, session.token]);
-
-  useEffect(() => { void loadPlanProjection(); }, [loadPlanProjection]);
-
-  const plan = remoteJourney?.plan ?? null;
-  const currentPhase = plan?.current_phase ?? null;
-  const planIsActive = !!plan?.plan_id && plan.status !== "DRAFT";
-  const phases = useMemo(() => {
-    const remoteStages = remotePreview?.structure?.stages ?? [];
-    return BASELINE_WEEKS.map((week, index) => {
-      const remote = remoteStages.find((stage) => stage.stage_id === week.id);
-      const fallback = MOBILE_JOURNEY_PHASES[index];
-      return { ...week, smallAction: remote?.small_action ?? fallback?.smallAction ?? week.tasks[0] };
-    });
-  }, [remotePreview]);
-
-  const beginPlan = async () => {
-    if (activationState === "submitting") return;
+  const loadPlan = useCallback(async () => {
     if (session.status !== "connected" || !session.token || !session.selectedFamily) {
-      setActivationMessage("请先连接家庭账户，再开始这段成长计划。");
+      setLoadState("empty");
       return;
     }
-    if (!activeOnboardingId) {
-      setActivationMessage("请先完成家庭测评和成长解读，再开始计划。");
-      router.push("/ui/UI-02" as Href);
-      return;
-    }
-
-    setActivationState("submitting");
-    setActivationMessage(null);
+    setLoadState("loading");
+    setMessage(null);
     try {
-      let currentPlan = plan ?? null;
-      if (!currentPlan?.plan_id) {
-        const priorityId = remotePriority?.active_priority?.priority_id;
-        if (!priorityId) throw new Error("GROWTH_PRIORITY_REQUIRED");
-        const created = await familyApi.createJourneyPlan(
-          session.token,
-          session.selectedFamily.family_id,
-          activeOnboardingId,
-          priorityId,
-          `ui04-create-${activeOnboardingId}`,
-        );
-        currentPlan = created.plan;
+      const result = await familyApi.getGenerativeGrowthPlan<GenerativeGrowthPlanResponse>(
+        session.token,
+        session.selectedFamily.family_id,
+      );
+      setResponse(result);
+      if (isAdoptedGrowthPlan(result.plan)) {
+        setSelectedChoices(result.plan.selected_choices);
       }
-      if (!currentPlan?.plan_id) throw new Error("JOURNEY_PLAN_REQUIRED");
-      if (currentPlan.status === "DRAFT") {
-        const confirmed = await familyApi.confirmJourneyPlan(
-          session.token,
-          session.selectedFamily.family_id,
-          currentPlan.plan_id,
-          `ui04-confirm-${currentPlan.plan_id}`,
-        );
-        currentPlan = confirmed.plan;
-      }
-      setRemoteJourney({ plan: currentPlan });
-      const policy = getUiActionPolicy("UI-04");
-      if (policy) recordUiAction(policy, "家庭已确认并开始执行当前成长计划");
+      setLoadState(result.plan ? "ready" : "empty");
+    } catch {
+      setResponse(null);
+      setLoadState("error");
+      setMessage("成长方案暂时没有同步成功。你的家庭理解仍会保留，可以稍后再试。");
+    }
+  }, [session.selectedFamily, session.status, session.token]);
+
+  useEffect(() => { void loadPlan(); }, [loadPlan]);
+
+  const plan = response?.plan ?? null;
+  const draft = isGrowthPlanDraft(plan) ? plan : null;
+  const adoptedPlan = isAdoptedGrowthPlan(plan) ? plan : null;
+  const informationNeeded = isGrowthPlanInformationNeeded(plan) ? plan : null;
+  const allChoicesSelected = useMemo(
+    () => !draft || draft.adjustable_choices.every((choice) => selectedChoices[choice.choice_id]),
+    [draft, selectedChoices],
+  );
+
+  const adoptPlan = async () => {
+    if (!draft || submitting || !allChoicesSelected) return;
+    if (session.status !== "connected" || !session.token || !session.selectedFamily) {
+      setMessage("请先连接你的家庭账户，再保存这份方案。");
+      return;
+    }
+    setSubmitting(true);
+    setMessage(null);
+    try {
+      const adopted = await familyApi.adoptGenerativeGrowthPlan<GenerativeGrowthPlanResponse>(
+        session.token,
+        session.selectedFamily.family_id,
+        {
+          draft_ref: draft.draft_ref,
+          draft_version: draft.draft_version,
+          selected_choices: selectedChoices,
+        },
+        createMobileRequestId("ui04-adopt"),
+      );
+      setResponse(adopted);
       haptic.success();
-      router.push("/ui/UI-05" as Href);
-    } catch (error) {
-      const code = error instanceof Error ? error.message : "PLAN_ACTIVATION_FAILED";
-      setActivationMessage(code === "GROWTH_PRIORITY_REQUIRED" ? "请先在成长解读中确认当前关注方向。" : "暂时无法开启计划，请稍后重试。");
+      setMessage("方案已按你的选择保存。接下来会从今天最合适的支持开始。");
+    } catch {
+      setMessage("这次没有保存成功，请检查方案是否已更新后再试。");
     } finally {
-      setActivationState("idle");
+      setSubmitting(false);
     }
   };
 
@@ -139,162 +98,277 @@ export default function JourneyPlanScreen() {
     <ScreenContainer edges={["left", "right", "bottom"]}>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.screen}>
-        <FlatList
-          refreshControl={<FamilyRefreshControl />}
-          data={phases}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.content}
-          ListHeaderComponent={
-            <>
-              <View style={styles.topBar}>
-                <Pressable onPress={() => router.back()} hitSlop={10} style={styles.backButton}>
-                  <IconSymbol name="chevron.left" size={27} color="#222222" />
-                </Pressable>
-                <Text style={styles.topTitle}>90天成长方案</Text>
-                <View style={styles.topActions}><Text style={styles.moreText}>•••</Text><Text style={styles.circleText}>⊙</Text></View>
-              </View>
-              <PlanSummaryCard planIsActive={planIsActive} />
-              {projectionState === "error" ? <Pressable onPress={() => void loadPlanProjection()} style={styles.projectionNotice}><Text style={styles.projectionNoticeText}>{projectionError} 点击重试</Text></Pressable> : null}
-            </>
-          }
-          renderItem={({ item, index }) => {
-            const status = getPhaseStatus(plan, item.id, currentPhase);
-            const tone = toneStyles[item.tone];
-            const statusLabel = status === "completed" ? "已完成" : status === "active" ? "进行中" : "未开始";
-            return (
-              <View style={styles.timelineRow}>
-                <View style={styles.timelineRail}>
-                  <View style={[styles.timelineDot, { backgroundColor: tone.dot }]} />
-                  {index < phases.length - 1 ? <View style={[styles.timelineLine, { backgroundColor: tone.line }]} /> : null}
-                </View>
-                <View style={[styles.weekCard, { backgroundColor: tone.surface, borderColor: tone.border }]}>
-                  <View style={styles.weekHeader}>
-                    <View style={[styles.weekBadge, { backgroundColor: tone.badge }]}><Text style={styles.weekBadgeText}>{item.week}</Text></View>
-                    <Text style={styles.weekTitle}>{item.title}</Text>
-                    <Text style={styles.weekStatus}>（{statusLabel}）</Text>
-                  </View>
-                  <Text style={styles.weekIntent}>{item.intent}</Text>
-                  <View style={styles.weekBody}>
-                    <View style={styles.taskList}>
-                      {item.tasks.map((task, taskIndex) => {
-                        const done = status === "completed" || (status === "active" && taskIndex === 0);
-                        return (
-                          <View key={task} style={styles.taskLine}>
-                            <View style={[styles.taskBullet, { borderColor: tone.dot }]}><View style={[styles.taskBulletInner, { backgroundColor: done ? tone.dot : "transparent" }]} /></View>
-                            <Text style={styles.taskText}>{task}</Text>
-                            {done ? <IconSymbol name="checkmark.circle.fill" size={18} color={tone.dot} /> : <View style={[styles.emptyCheck, { borderColor: tone.dot }]} />}
-                          </View>
-                        );
-                      })}
-                    </View>
-                    <View style={[styles.illustration, { backgroundColor: tone.art }]}><Text style={[styles.illustrationText, { color: tone.dot }]}>{item.illustration}</Text></View>
-                  </View>
-                  {status === "active" ? <Text style={[styles.currentAction, { color: tone.dot }]}>{item.smallAction}</Text> : null}
-                </View>
-              </View>
-            );
-          }}
-        />
-        <View style={styles.fixedFooter}>
-          {activationMessage ? <Text style={styles.activationMessage}>{activationMessage}</Text> : null}
-          <Pressable disabled={activationState === "submitting"} onPress={beginPlan} style={({ pressed }) => [styles.primaryButton, (pressed || activationState === "submitting") && styles.pressed]}><Text style={styles.primaryButtonText}>{activationState === "submitting" ? "正在开启计划" : "开始执行计划"}</Text></Pressable>
-        </View>
+        <Header />
+        <ScrollView refreshControl={<FamilyRefreshControl />} contentContainerStyle={styles.content}>
+          {loadState === "loading" ? <LoadingState /> : null}
+          {loadState === "empty" ? <EmptyState /> : null}
+          {loadState === "error" ? <ErrorState message={message} onRetry={loadPlan} /> : null}
+          {informationNeeded ? (
+            <InformationNeeded
+              summary={informationNeeded.known_context_summary}
+              questions={informationNeeded.information_needed}
+              limitations={informationNeeded.limitations}
+            />
+          ) : null}
+          {draft || adoptedPlan ? (
+            <PlanDraft
+              draft={draft ?? adoptedPlan!}
+              adopted={Boolean(adoptedPlan)}
+              selectedChoices={selectedChoices}
+              onSelect={(choiceId, option) => setSelectedChoices((current) => ({ ...current, [choiceId]: option }))}
+            />
+          ) : null}
+          {message && loadState === "ready" ? <Text style={styles.message}>{message}</Text> : null}
+        </ScrollView>
+        {adoptedPlan ? (
+          <View style={styles.footer}>
+            <Pressable onPress={() => router.push("/" as Href)} style={styles.secondaryButton}>
+              <Text style={styles.secondaryButtonText}>返回首页</Text>
+            </Pressable>
+            <Pressable onPress={() => router.push("/ui/UI-05" as Href)} style={styles.primaryButton}>
+              <Text style={styles.primaryButtonText}>进入成长陪伴</Text>
+            </Pressable>
+          </View>
+        ) : draft ? (
+          <View style={styles.footer}>
+            <Pressable onPress={() => router.push("/ui/UI-02" as Href)} style={styles.secondaryButton}>
+              <Text style={styles.secondaryButtonText}>返回调整理解</Text>
+            </Pressable>
+            <Pressable
+              disabled={!allChoicesSelected || submitting}
+              onPress={adoptPlan}
+              style={[styles.primaryButton, (!allChoicesSelected || submitting) && styles.disabledButton]}
+            >
+              <Text style={styles.primaryButtonText}>{submitting ? "正在保存" : "按我的选择采用"}</Text>
+            </Pressable>
+          </View>
+        ) : null}
       </View>
     </ScreenContainer>
   );
 }
 
-function PlanSummaryCard({ planIsActive }: { planIsActive: boolean }) {
-  const stats = planIsActive ? [
-    { value: "3", label: "当前阶段" },
-    { value: "12", label: "今日任务" },
-    { value: "36h", label: "累计时长" },
-    { value: "90天", label: "计划周期" },
-  ] : PLAN_SUMMARY_STATS;
+function Header() {
   return (
-    <View accessibilityLabel="当前阶段、目标、累计时长、难度与计划统计" style={styles.summaryReference}>
-      <View style={styles.summaryGlow} />
-      <View style={styles.summaryHeader}>
-        <View>
-          <Text style={styles.summaryEyebrow}>当前成长阶段</Text>
-          <Text style={styles.summaryTitle}>90天成长方案</Text>
+    <View style={styles.header}>
+      <Pressable onPress={() => router.back()} hitSlop={10} style={styles.iconButton}>
+        <IconSymbol name="chevron.left" size={25} color="#2A251F" />
+      </Pressable>
+      <View style={styles.headerTitleWrap}>
+        <Text style={styles.headerEyebrow}>与你共同完成</Text>
+        <Text style={styles.headerTitle}>家庭成长方案</Text>
+      </View>
+      <View style={styles.iconButton} />
+    </View>
+  );
+}
+
+function LoadingState() {
+  return (
+    <View style={styles.centerState}>
+      <ActivityIndicator color="#D66A2C" size="large" />
+      <Text style={styles.stateTitle}>正在结合家庭理解与专业知识</Text>
+      <Text style={styles.stateCopy}>AI会先判断信息是否足够，再组织一份可以共同修改的方案。</Text>
+    </View>
+  );
+}
+
+function EmptyState() {
+  return (
+    <View style={styles.centerState}>
+      <View style={styles.stateOrb}><Text style={styles.stateOrbText}>AI</Text></View>
+      <Text style={styles.stateTitle}>先让AI真正理解你们</Text>
+      <Text style={styles.stateCopy}>说说最近最想改变的一件事。可以是一次冲突、一段语音，也可以是一张让你在意的照片。</Text>
+      <Pressable onPress={() => router.push("/ui/UI-02" as Href)} style={styles.stateAction}>
+        <Text style={styles.stateActionText}>开始家庭理解</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function ErrorState({ message, onRetry }: { message: string | null; onRetry: () => Promise<void> }) {
+  return (
+    <View style={styles.centerState}>
+      <Text style={styles.stateTitle}>方案还没有准备好</Text>
+      <Text style={styles.stateCopy}>{message}</Text>
+      <Pressable onPress={() => void onRetry()} style={styles.stateAction}><Text style={styles.stateActionText}>重新同步</Text></Pressable>
+    </View>
+  );
+}
+
+function InformationNeeded({ summary, questions, limitations }: { summary: string; questions: string[]; limitations: string[] }) {
+  return (
+    <View>
+      <Hero kicker="AI目前的理解" title="还需要听你多说一点" copy={summary} />
+      <Text style={styles.sectionTitle}>补充这些信息，方案会更贴近你们</Text>
+      {questions.map((question, index) => (
+        <View key={question} style={styles.questionCard}>
+          <Text style={styles.questionIndex}>{String(index + 1).padStart(2, "0")}</Text>
+          <Text style={styles.questionText}>{question}</Text>
         </View>
-        <View style={styles.summaryBadge}><Text style={styles.summaryBadgeText}>{planIsActive ? "进行中" : "待确认"}</Text></View>
+      ))}
+      {limitations.length ? <Text style={styles.limitationText}>当前仍不确定：{limitations.join("；")}</Text> : null}
+      <Pressable onPress={() => router.push("/ui/UI-02" as Href)} style={styles.stateAction}><Text style={styles.stateActionText}>继续和AI聊聊</Text></Pressable>
+    </View>
+  );
+}
+
+function Hero({ kicker, title, copy }: { kicker: string; title: string; copy: string }) {
+  return (
+    <View style={styles.heroCard}>
+      <Text style={styles.heroKicker}>{kicker}</Text>
+      <Text style={styles.heroTitle}>{title}</Text>
+      <Text style={styles.heroCopy}>{copy}</Text>
+    </View>
+  );
+}
+
+function PlanDraft({ draft, adopted, selectedChoices, onSelect }: {
+  draft: GenerativeGrowthPlanDraft | AdoptedGenerativeGrowthPlan;
+  adopted: boolean;
+  selectedChoices: Record<string, string>;
+  onSelect: (choiceId: string, option: string) => void;
+}) {
+  return (
+    <View>
+      <View style={styles.heroCard}>
+        <View style={styles.heroTopRow}>
+          <Text style={styles.heroKicker}>基于你确认的家庭理解</Text>
+          <View style={styles.draftBadge}><Text style={styles.draftBadgeText}>{adopted ? "已采用" : "待你决定"}</Text></View>
+        </View>
+        <Text style={styles.heroTitle}>{draft.title}</Text>
+        <Text style={styles.heroCopy}>{draft.family_goal.statement}</Text>
+        <View style={styles.durationRow}>
+          <Text style={styles.durationValue}>{draft.duration.days}</Text>
+          <Text style={styles.durationUnit}>天建议周期</Text>
+          <Text style={styles.durationReason}>{draft.duration.rationale}</Text>
+        </View>
       </View>
-      <Text style={styles.summaryGoal}>目标：建立稳定沟通节奏，完成亲子关系、习惯与情绪三类训练</Text>
-      <View style={styles.summaryStatsRow}>
-        {stats.map((stat) => (
-          <View key={stat.label} style={styles.summaryStat}>
-            <Text style={styles.summaryStatValue}>{stat.value}</Text>
-            <Text style={styles.summaryStatLabel}>{stat.label}</Text>
+      <View style={styles.reasonCard}>
+        <Text style={styles.reasonLabel}>为什么这样安排</Text>
+        <Text style={styles.reasonText}>{draft.why_this_plan}</Text>
+      </View>
+      <Text style={styles.sectionTitle}>我们建议这样推进</Text>
+      {draft.stages.map((stage, index) => <StageCard key={stage.stage_id} stage={stage} index={index} />)}
+      <Text style={styles.sectionTitle}>{adopted ? "你们确认的节奏" : "把方案调成你们家的节奏"}</Text>
+      {draft.adjustable_choices.map((choice) => (
+        <View key={choice.choice_id} style={styles.choiceCard}>
+          <Text style={styles.choiceQuestion}>{choice.question}</Text>
+          <View style={styles.choiceOptions}>
+            {choice.options.map((option) => {
+              const selected = selectedChoices[choice.choice_id] === option;
+              return (
+                <Pressable
+                  disabled={adopted}
+                  key={option}
+                  onPress={() => onSelect(choice.choice_id, option)}
+                  style={[styles.choiceOption, selected && styles.choiceOptionSelected, adopted && !selected && styles.choiceOptionMuted]}
+                >
+                  <Text style={[styles.choiceOptionText, selected && styles.choiceOptionTextSelected]}>{option}</Text>
+                </Pressable>
+              );
+            })}
           </View>
-        ))}
-      </View>
-      <View style={styles.summaryProgressTrack}><View style={styles.summaryProgressFill} /></View>
-      <View style={styles.summaryFooterRow}>
-        <Text style={styles.summaryFooterText}>难度：温和进阶</Text>
-        <Text style={styles.summaryFooterText}>每周 3-4 次</Text>
+        </View>
+      ))}
+      <View style={styles.watchCard}>
+        <Text style={styles.watchTitle}>AI会和你一起观察</Text>
+        {draft.unknowns_to_watch.map((item) => <Text key={item} style={styles.watchItem}>· {item}</Text>)}
+        <Text style={styles.reviewRhythm}>{draft.review_rhythm.frequency}复盘一次，根据真实变化继续、调整或暂停。</Text>
       </View>
     </View>
   );
 }
 
-const toneStyles = {
-  mint: { surface: "#F1FCF7", border: "#CDEFE1", badge: "#19B785", dot: "#18AE76", line: "#90DFC2", art: "#DDF8EB" },
-  blue: { surface: "#F0F6FF", border: "#D3E2FF", badge: "#317EED", dot: "#2F81F7", line: "#AFCBF9", art: "#DCEBFF" },
-  orange: { surface: "#FFF8EB", border: "#F6E0BC", badge: "#F09C24", dot: "#F5A11E", line: "#F5CEA0", art: "#FFEECE" },
-  gray: { surface: "#F7F8FA", border: "#E4E7EC", badge: "#9299A4", dot: "#A6ADB7", line: "#D4D8DE", art: "#EEF0F3" },
-} as const;
+function StageCard({ stage, index }: { stage: GrowthPlanStage; index: number }) {
+  const outcome = stage.signals.find((signal) => signal.signal_type === "OUTCOME")?.description;
+  const stop = stage.signals.find((signal) => signal.signal_type === "STOP" || signal.signal_type === "PROTECTION")?.description;
+  return (
+    <View style={styles.stageCard}>
+      <View style={styles.stageHeader}>
+        <Text style={styles.stageNumber}>{String(index + 1).padStart(2, "0")}</Text>
+        <View style={styles.stageHeading}><Text style={styles.stageTitle}>{stage.title}</Text><Text style={styles.stagePurpose}>{stage.purpose}</Text></View>
+      </View>
+      {stage.practices.map((practice) => (
+        <View key={practice.practice_id} style={styles.practice}>
+          <View style={styles.practiceMeta}><Text style={styles.practiceActor}>{actorLabel[practice.actor]}</Text><Text style={styles.practiceCadence}>{practice.cadence} · {practice.effort}</Text></View>
+          <Text style={styles.practiceDescription}>{practice.description}</Text>
+          <Text style={styles.practiceRepair}>如果不顺：{practice.repair_option}</Text>
+        </View>
+      ))}
+      {outcome ? <Text style={styles.signalText}>看见变化：{outcome}</Text> : null}
+      {stop ? <Text style={styles.stopText}>需要停下来时：{stop}</Text> : null}
+      <Text style={styles.reflection}>复盘时问自己：{stage.reflection_question}</Text>
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#FFFFFF" },
-  content: { paddingBottom: 106 },
-  topBar: { minHeight: 64, paddingHorizontal: 18, alignItems: "center", flexDirection: "row", justifyContent: "space-between" },
-  backButton: { width: 36, alignItems: "flex-start" },
-  topTitle: { color: "#20242A", fontSize: 19, lineHeight: 26, fontWeight: "800" },
-  topActions: { width: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  moreText: { color: "#20242A", fontSize: 17, lineHeight: 19, fontWeight: "900", letterSpacing: 1 },
-  circleText: { color: "#20242A", fontSize: 25, lineHeight: 25 },
-  summaryReference: { alignSelf: "center", width: "100%", minHeight: 222, marginTop: 2, marginBottom: 5, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 17, borderRadius: 0, backgroundColor: "#FFF4E8", overflow: "hidden" },
-  summaryGlow: { position: "absolute", right: -28, top: -35, width: 148, height: 148, borderRadius: 74, backgroundColor: "#FFD7A8", opacity: 0.56 },
-  summaryHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  summaryEyebrow: { color: "#B2621D", fontSize: 12, lineHeight: 17, fontWeight: "800" },
-  summaryTitle: { color: "#231F20", fontSize: 25, lineHeight: 34, fontWeight: "900", marginTop: 2 },
-  summaryBadge: { minHeight: 28, borderRadius: 14, paddingHorizontal: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#FF8A1F" },
-  summaryBadgeText: { color: "#FFFFFF", fontSize: 12, lineHeight: 17, fontWeight: "900" },
-  summaryGoal: { color: "#6A4A2C", fontSize: 13, lineHeight: 20, fontWeight: "700", marginTop: 11 },
-  summaryStatsRow: { flexDirection: "row", gap: 8, marginTop: 17 },
-  summaryStat: { flex: 1, minHeight: 58, borderRadius: 14, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", shadowColor: "#D88916", shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
-  summaryStatValue: { color: "#FF8A1F", fontSize: 20, lineHeight: 26, fontWeight: "900" },
-  summaryStatLabel: { color: "#7A614A", fontSize: 10, lineHeight: 14, fontWeight: "700", marginTop: 2 },
-  summaryProgressTrack: { height: 7, borderRadius: 7, backgroundColor: "#F8DEC0", marginTop: 16, overflow: "hidden" },
-  summaryProgressFill: { width: "42%", height: 7, borderRadius: 7, backgroundColor: "#FF8A1F" },
-  summaryFooterRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 9 },
-  summaryFooterText: { color: "#7A614A", fontSize: 11, lineHeight: 16, fontWeight: "700" },
-  timelineRow: { flexDirection: "row", paddingHorizontal: 18, minHeight: 164 },
-  timelineRail: { width: 28, alignItems: "center" },
-  timelineDot: { width: 11, height: 11, borderRadius: 6, marginTop: 17, zIndex: 1 },
-  timelineLine: { position: "absolute", top: 28, width: 2, bottom: -3 },
-  weekCard: { flex: 1, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingTop: 13, paddingBottom: 12, marginBottom: 12 },
-  weekHeader: { flexDirection: "row", alignItems: "center", gap: 7 },
-  weekBadge: { borderRadius: 3, paddingHorizontal: 8, paddingTop: 3, paddingBottom: 3 },
-  weekBadgeText: { color: "#FFFFFF", fontSize: 13, lineHeight: 17, fontWeight: "800" },
-  weekTitle: { color: "#1D242D", fontSize: 18, lineHeight: 24, fontWeight: "900" },
-  weekStatus: { color: "#8D96A3", fontSize: 12, lineHeight: 17 },
-  weekIntent: { color: "#4E5B68", fontSize: 14, lineHeight: 21, fontWeight: "600", marginTop: 7 },
-  weekBody: { flexDirection: "row", marginTop: 10, gap: 8 },
-  taskList: { flex: 1, gap: 8, paddingTop: 2 },
-  taskLine: { minHeight: 21, flexDirection: "row", alignItems: "center", gap: 7 },
-  taskBullet: { width: 14, height: 14, borderWidth: 1.5, borderRadius: 7, alignItems: "center", justifyContent: "center" },
-  taskBulletInner: { width: 6, height: 6, borderRadius: 3 },
-  taskText: { flex: 1, color: "#3D4854", fontSize: 13, lineHeight: 18, fontWeight: "600" },
-  emptyCheck: { width: 17, height: 17, borderRadius: 9, borderWidth: 1.5 },
-  illustration: { width: 70, height: 70, borderRadius: 35, alignItems: "center", justifyContent: "center", alignSelf: "center" },
-  illustrationText: { fontSize: 37, lineHeight: 42, fontWeight: "900" },
-  currentAction: { fontSize: 12, lineHeight: 18, fontWeight: "700", marginTop: 9 },
-  fixedFooter: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "#FFFFFF", paddingHorizontal: 19, paddingTop: 11, paddingBottom: 13, borderTopWidth: 1, borderTopColor: "#F2F2F2" },
-  primaryButton: { minHeight: 54, borderRadius: 27, alignItems: "center", justifyContent: "center", backgroundColor: "#FF8A1F" },
-  primaryButtonText: { color: "#FFFFFF", fontSize: 19, lineHeight: 26, fontWeight: "900" },
-  projectionNotice: { marginTop: 10, borderRadius: 12, padding: 10, backgroundColor: "#FFF4F0" }, projectionNoticeText: { color: "#9D4E38", fontSize: 11, lineHeight: 16, textAlign: "center", fontWeight: "800" }, activationMessage: { marginHorizontal: 4, marginBottom: 8, color: "#A0532C", fontSize: 12, lineHeight: 18, textAlign: "center" },
-  pressed: { opacity: 0.86, transform: [{ scale: 0.985 }] },
+  screen: { flex: 1, backgroundColor: "#F7F3EC" },
+  content: { paddingHorizontal: 18, paddingBottom: 126 },
+  header: { minHeight: 72, paddingHorizontal: 16, flexDirection: "row", alignItems: "center" },
+  iconButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center" },
+  headerTitleWrap: { flex: 1, alignItems: "center" },
+  headerEyebrow: { color: "#9B694A", fontSize: 10, lineHeight: 14, letterSpacing: 1.2, fontWeight: "700" },
+  headerTitle: { color: "#241F1A", fontSize: 19, lineHeight: 27, fontWeight: "900" },
+  centerState: { minHeight: 520, alignItems: "center", justifyContent: "center", paddingHorizontal: 28 },
+  stateOrb: { width: 72, height: 72, borderRadius: 36, backgroundColor: "#E6773A", alignItems: "center", justifyContent: "center", marginBottom: 24 },
+  stateOrbText: { color: "#FFFFFF", fontSize: 24, fontWeight: "900" },
+  stateTitle: { color: "#2B241E", fontSize: 25, lineHeight: 34, fontWeight: "900", textAlign: "center", marginTop: 22 },
+  stateCopy: { color: "#75695E", fontSize: 15, lineHeight: 24, textAlign: "center", marginTop: 10 },
+  stateAction: { minHeight: 48, borderRadius: 24, paddingHorizontal: 24, alignSelf: "center", alignItems: "center", justifyContent: "center", backgroundColor: "#2F5D50", marginTop: 24 },
+  stateActionText: { color: "#FFFFFF", fontSize: 15, fontWeight: "800" },
+  heroCard: { borderRadius: 28, backgroundColor: "#2E574C", padding: 24, overflow: "hidden" },
+  heroTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  heroKicker: { color: "#C8E4D8", fontSize: 11, lineHeight: 16, fontWeight: "800", letterSpacing: 0.7 },
+  draftBadge: { borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: "rgba(255,255,255,0.14)" },
+  draftBadgeText: { color: "#F7F2E8", fontSize: 11, fontWeight: "800" },
+  heroTitle: { color: "#FFFFFF", fontSize: 28, lineHeight: 38, fontWeight: "900", marginTop: 12 },
+  heroCopy: { color: "#E6F2EC", fontSize: 15, lineHeight: 24, marginTop: 10 },
+  durationRow: { borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.18)", marginTop: 22, paddingTop: 18, flexDirection: "row", alignItems: "baseline", flexWrap: "wrap" },
+  durationValue: { color: "#F4B276", fontSize: 34, lineHeight: 40, fontWeight: "900" },
+  durationUnit: { color: "#FCE7D3", fontSize: 13, fontWeight: "800", marginLeft: 7 },
+  durationReason: { width: "100%", color: "#BFD8CE", fontSize: 12, lineHeight: 18, marginTop: 5 },
+  reasonCard: { borderRadius: 20, backgroundColor: "#FFFDF9", padding: 19, marginTop: 14, borderWidth: 1, borderColor: "#E9DED0" },
+  reasonLabel: { color: "#B45D2D", fontSize: 12, lineHeight: 18, fontWeight: "900" },
+  reasonText: { color: "#4A4037", fontSize: 15, lineHeight: 25, marginTop: 7 },
+  sectionTitle: { color: "#2A241F", fontSize: 21, lineHeight: 29, fontWeight: "900", marginTop: 28, marginBottom: 12 },
+  stageCard: { borderRadius: 24, backgroundColor: "#FFFDF9", padding: 20, marginBottom: 14, borderWidth: 1, borderColor: "#E9DED0" },
+  stageHeader: { flexDirection: "row", gap: 12 },
+  stageNumber: { color: "#D66A2C", fontSize: 14, lineHeight: 21, fontWeight: "900", letterSpacing: 1 },
+  stageHeading: { flex: 1 },
+  stageTitle: { color: "#2A241F", fontSize: 19, lineHeight: 26, fontWeight: "900" },
+  stagePurpose: { color: "#776A60", fontSize: 13, lineHeight: 20, marginTop: 3 },
+  practice: { borderRadius: 16, backgroundColor: "#F5F0E8", padding: 14, marginTop: 14 },
+  practiceMeta: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
+  practiceActor: { color: "#2F6657", fontSize: 11, fontWeight: "900" },
+  practiceCadence: { color: "#8C7D70", fontSize: 11, flexShrink: 1, textAlign: "right" },
+  practiceDescription: { color: "#342E29", fontSize: 15, lineHeight: 23, fontWeight: "700", marginTop: 8 },
+  practiceRepair: { color: "#8A6752", fontSize: 12, lineHeight: 19, marginTop: 8 },
+  signalText: { color: "#2F6657", fontSize: 12, lineHeight: 19, fontWeight: "700", marginTop: 13 },
+  stopText: { color: "#A6533A", fontSize: 12, lineHeight: 19, fontWeight: "700", marginTop: 5 },
+  reflection: { color: "#665B51", fontSize: 13, lineHeight: 21, fontStyle: "italic", marginTop: 12 },
+  choiceCard: { borderRadius: 20, backgroundColor: "#FFFDF9", padding: 18, marginBottom: 12 },
+  choiceQuestion: { color: "#332D27", fontSize: 15, lineHeight: 23, fontWeight: "800" },
+  choiceOptions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 13 },
+  choiceOption: { borderRadius: 18, paddingHorizontal: 14, paddingVertical: 9, backgroundColor: "#EFE9E0", borderWidth: 1, borderColor: "transparent" },
+  choiceOptionSelected: { backgroundColor: "#E9F2EE", borderColor: "#3F7566" },
+  choiceOptionMuted: { opacity: 0.38 },
+  choiceOptionText: { color: "#685E55", fontSize: 13, fontWeight: "700" },
+  choiceOptionTextSelected: { color: "#285E50" },
+  watchCard: { borderRadius: 22, backgroundColor: "#E9F0EC", padding: 20, marginTop: 14 },
+  watchTitle: { color: "#29584B", fontSize: 16, lineHeight: 23, fontWeight: "900" },
+  watchItem: { color: "#46675E", fontSize: 13, lineHeight: 21, marginTop: 7 },
+  reviewRhythm: { color: "#29584B", fontSize: 12, lineHeight: 19, fontWeight: "800", marginTop: 12 },
+  questionCard: { borderRadius: 18, backgroundColor: "#FFFDF9", padding: 17, marginBottom: 10, flexDirection: "row", gap: 13 },
+  questionIndex: { color: "#D66A2C", fontSize: 12, fontWeight: "900" },
+  questionText: { flex: 1, color: "#3D352E", fontSize: 15, lineHeight: 23, fontWeight: "700" },
+  limitationText: { color: "#776A60", fontSize: 12, lineHeight: 19, marginTop: 8 },
+  message: { color: "#8B4B2A", fontSize: 13, lineHeight: 20, textAlign: "center", marginTop: 18 },
+  footer: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "rgba(247,243,236,0.97)", borderTopWidth: 1, borderTopColor: "#E5DACE", paddingHorizontal: 16, paddingTop: 11, paddingBottom: 14, flexDirection: "row", gap: 10 },
+  secondaryButton: { minHeight: 50, borderRadius: 25, paddingHorizontal: 17, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#B6A79A" },
+  secondaryButtonText: { color: "#5E5147", fontSize: 13, fontWeight: "800" },
+  primaryButton: { flex: 1, minHeight: 50, borderRadius: 25, alignItems: "center", justifyContent: "center", backgroundColor: "#D66A2C" },
+  primaryButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "900" },
+  disabledButton: { opacity: 0.42 },
 });

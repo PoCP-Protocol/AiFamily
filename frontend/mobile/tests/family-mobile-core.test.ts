@@ -261,6 +261,38 @@ describe("Family API mobile contract", () => {
     expect(JSON.parse(request?.body as string)).toEqual({ action_ref: "WEEKLY_ACTION_SEE" });
   });
 
+  it("reads and adopts a family-scoped generative growth plan", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ plan: null }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })) as unknown as typeof fetch;
+    const client = new FamilyApiClient("https://family.example", fetcher);
+
+    await client.getGenerativeGrowthPlan("fam_token", "family-1");
+    await client.adoptGenerativeGrowthPlan(
+      "fam_token",
+      "family-1",
+      { draft_ref: "draft-1", draft_version: 2, selected_choices: { rhythm: "每周两次" } },
+      "adopt-idempotency-1",
+    );
+
+    expect(vi.mocked(fetcher).mock.calls.map(([url]) => url)).toEqual([
+      "https://family.example/families/family-1/growth/generative-plan",
+      "https://family.example/families/family-1/growth/generative-plan/adopt",
+    ]);
+    const [, request] = vi.mocked(fetcher).mock.calls[1];
+    expect(request?.method).toBe("POST");
+    expect(request?.headers).toMatchObject({
+      "idempotency-key": "adopt-idempotency-1",
+      Authorization: "Bearer fam_token",
+    });
+    expect(JSON.parse(request?.body as string)).toEqual({
+      draft_ref: "draft-1",
+      draft_version: 2,
+      selected_choices: { rhythm: "每周两次" },
+    });
+  });
+
   it("reads post-UI-10 surfaces from the same family-scoped platform projection", async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ projection_version: "DEV_PLATFORM_SURFACES_V1", cards: [] }), {
       status: 200,
