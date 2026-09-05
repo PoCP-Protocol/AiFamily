@@ -204,6 +204,111 @@ class Ui03GrowthHypothesisProjectionResponse(BaseModel):
     ai_state: Literal["NOT_INVOKED", "MODEL_DRAFT_READY", "MODEL_GATEWAY_BLOCKED"]
 
 
+# ---- assessment result projection (read-only, no score/ranking) -----------
+
+
+class AssessmentResultObservationModel(BaseModel):
+    item_ref: str
+    response_value: str | bool
+    kind: Literal["ASSESSMENT_RESPONSE"]
+
+
+class AssessmentResultHypothesisModel(BaseModel):
+    hypothesis_ref: str
+    text: str
+    basis: str
+    status: Literal["DRAFT"]
+
+
+class AssessmentResultRecommendationModel(BaseModel):
+    text: str
+    source: str
+    status: Literal["DRAFT"]
+
+
+class AssessmentResultExplanationModel(BaseModel):
+    headline: str
+    summary: str
+    observations: list[AssessmentResultObservationModel]
+    hypothesis: str
+    hypotheses: list[AssessmentResultHypothesisModel]
+    mechanism: str | None
+    recommendations: list[AssessmentResultRecommendationModel]
+
+
+class AssessmentDimensionSnapshotModel(BaseModel):
+    focus_ref: str
+    title: str
+    observation_status: Literal["OBSERVED", "NOT_YET_OBSERVED"]
+    observed_item_refs: list[str]
+
+
+class AssessmentKnowledgeGroundingModel(BaseModel):
+    status: Literal["GROUNDED", "UNAVAILABLE"]
+    construct_ref: str | None
+    card_refs: list[str]
+    primary_card_ref: str | None = None
+    title: str | None = None
+    evidence_grade: str | None
+    core_claim: str | None
+    mechanism: str | None
+    boundary: str
+
+
+class AssessmentPlanPhaseModel(BaseModel):
+    phase_ref: str
+    title: str
+    duration_days: int
+    prompt: str
+
+
+class AssessmentGrowthPlanModel(BaseModel):
+    plan_ref: str
+    status: Literal["DRAFT"]
+    goal: str
+    phases: list[AssessmentPlanPhaseModel]
+    source_refs: list[str]
+    boundary: Literal["FAMILY_PLAN_DRAFT_REQUIRES_FAMILY_CONFIRMATION"]
+
+
+class AssessmentResultAiModel(BaseModel):
+    generator: str
+    model: str | None
+    model_version: str | None
+    prompt_version: str | None
+    context_snapshot_ref: str | None
+    provenance_refs: list[str]
+    model_gateway_status: Literal["NOT_INVOKED", "DRAFT", "BLOCKED"]
+    may_mutate_business_state: Literal[False]
+
+
+class AssessmentResultModel(BaseModel):
+    result_id: str
+    assessment_session_id: str
+    subject: dict[str, str]
+    focus_ref: str
+    family_need_ref: str
+    title: str
+    explanation: AssessmentResultExplanationModel
+    dimensions: list[AssessmentDimensionSnapshotModel]
+    knowledge_grounding: AssessmentKnowledgeGroundingModel
+    growth_plan: AssessmentGrowthPlanModel
+    evidence_lineage: dict
+    ai: AssessmentResultAiModel
+    boundary: Literal["FAMILY_PERSPECTIVE_NOT_SCORE_OR_DIAGNOSIS"]
+    draft_metadata: dict
+
+
+class AssessmentResultProjectionResponse(BaseModel):
+    """Schema hint for the family-scoped, read-only assessment result."""
+
+    projection_version: Literal["ASSESSMENT_RESULT_V1"]
+    tenant_id: str
+    family_id: str
+    status: Literal["READY", "NO_RESULT", "CONSENT_REQUIRED", "POLICY_BLOCKED"]
+    result: AssessmentResultModel | None
+
+
 class GrowthIntentModel(BaseModel):
     intent_id: str
     need_type: str
