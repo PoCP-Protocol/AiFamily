@@ -15,6 +15,7 @@ from backend.platform.authorization.review_receipts import (
     ReviewReceiptIssuer,
 )
 from backend.platform.identity.context import ActorContext, ActorType
+from backend.platform.identity.directory import InMemoryTenantDirectory, TenantStatus
 
 NOW = datetime(2026, 9, 1, 9, 0, tzinfo=UTC)
 
@@ -44,7 +45,7 @@ def binding(**changes) -> ReviewReceiptBinding:
 
 
 def issuer(*, register: bool = True) -> ReviewReceiptIssuer:
-    policy = PolicyEngine()
+    policy = PolicyEngine(InMemoryTenantDirectory({"tenant-1": TenantStatus.ACTIVE}))
     if register:
         policy.register(
             PolicyRule(
@@ -57,8 +58,9 @@ def issuer(*, register: bool = True) -> ReviewReceiptIssuer:
 
 
 def test_short_signing_key_is_rejected() -> None:
+    policy = PolicyEngine(InMemoryTenantDirectory({"tenant-1": TenantStatus.ACTIVE}))
     with pytest.raises(ValueError, match="32 bytes"):
-        ReviewReceiptIssuer(PolicyEngine(), signing_key=b"too-short")
+        ReviewReceiptIssuer(policy, signing_key=b"too-short")
 
 
 def test_human_allow_issues_stable_effective_opaque_receipt() -> None:
@@ -85,7 +87,7 @@ def test_unregistered_action_is_denied_fail_closed() -> None:
 
 
 def test_view_only_policy_cannot_issue_an_effective_confirmation_receipt() -> None:
-    policy = PolicyEngine()
+    policy = PolicyEngine(InMemoryTenantDirectory({"tenant-1": TenantStatus.ACTIVE}))
     policy.register(
         PolicyRule(
             action="view_family_understanding",

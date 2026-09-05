@@ -26,3 +26,13 @@ class DecideGrowthHypothesisRequestBody(BaseModel):
     assessment_session_id: str
     hypothesis_ref: str
     decision_type: Literal["CONFIRM", "DISMISS"]
+    # Human-Gate-reviewed-draft binding. Only required when the process is
+    # wired to the canonical `GrowthIntentConfirmationPort` path (see
+    # `production_growth_wiring.ProductionGrowthConfirmationWiring`); the
+    # legacy evidence/interpretation path ignores these.
+    scope_ref: str = ""
+    signal_version: int = 0
+    reviewed_draft_ref: str = ""
+    draft_version: int = 0
+    provenance_ref: str = ""
+    human_gate_receipt_ref: str = ""

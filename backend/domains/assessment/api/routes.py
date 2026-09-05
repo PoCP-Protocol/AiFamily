@@ -247,5 +247,12 @@ async def decide_growth_hypothesis(
             body.decision_type,
             x_correlation_id or "",
             idempotency_key or "",
+            actor_type=context.actor_type,
+            scope_ref=body.scope_ref,
+            signal_version=body.signal_version,
+            reviewed_draft_ref=body.reviewed_draft_ref,
+            draft_version=body.draft_version,
+            provenance_ref=body.provenance_ref,
+            human_gate_receipt_ref=body.human_gate_receipt_ref,
         )
     )
