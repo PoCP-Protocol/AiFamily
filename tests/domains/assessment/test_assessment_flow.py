@@ -442,6 +442,78 @@ class TestGrowthHypothesisFlow:
             )
         assert exc.value.code == "growth_hypothesis_reference_mismatch"
 
+    async def test_ai_actor_confirmation_is_denied_even_with_guardian_scoped_person_id(
+        self, repo, command_handler, query_handler, growth_hypothesis_handler
+    ):
+        """R9 regression: `assert_tenant_family_scope` only proves family
+        membership, not that the caller is human. A person_id that resolves
+        to an AI or SYSTEM service account (e.g. one holding a
+        GUARDIAN-shaped membership row) must still be denied by the
+        `PolicyEngine` `human_only` veto in `GrowthHypothesisCommandHandler.
+        decide` — not merely by an application convention that happens to
+        pass a human actor_id today.
+        """
+        from backend.platform.identity.context import ActorType as PlatformActorType
+
+        session_id = await self._submit_full_session(repo, command_handler)
+        family_id = repo._test_family_id
+        projection = await query_handler.get_ui03_projection(
+            GetUi03ProjectionQuery(family_id, TENANT_ID, "actor-1")
+        )
+        hypothesis_ref = projection["hypothesis"]["hypothesis_ref"]
+
+        for actor_type in (PlatformActorType.AI, PlatformActorType.SYSTEM):
+            with pytest.raises(AssessmentForbiddenError) as exc:
+                await growth_hypothesis_handler.decide(
+                    DecideGrowthHypothesisCommand(
+                        family_id,
+                        TENANT_ID,
+                        "actor-1",  # same person_id a human guardian would use
+                        session_id,
+                        hypothesis_ref,
+                        "CONFIRM",
+                        "corr-r9",
+                        f"decide-r9-{actor_type.value}",
+                        actor_type=actor_type,
+                    )
+                )
+            assert exc.value.code == "growth_hypothesis_confirmation_requires_human_actor"
+
+        # No intent must have been created by either denied attempt.
+        projection_after = await query_handler.get_ui03_projection(
+            GetUi03ProjectionQuery(family_id, TENANT_ID, "actor-1")
+        )
+        assert projection_after["hypothesis"]["hypothesis_ref"] == hypothesis_ref
+
+    async def test_human_actor_confirmation_still_succeeds_after_r9_check(
+        self, repo, command_handler, query_handler, growth_hypothesis_handler
+    ):
+        """The R9 veto must deny AI/SYSTEM only — a genuine human guardian's
+        confirmation must not be collaterally blocked by the same check."""
+        from backend.platform.identity.context import ActorType as PlatformActorType
+
+        session_id = await self._submit_full_session(repo, command_handler)
+        family_id = repo._test_family_id
+        projection = await query_handler.get_ui03_projection(
+            GetUi03ProjectionQuery(family_id, TENANT_ID, "actor-1")
+        )
+        hypothesis_ref = projection["hypothesis"]["hypothesis_ref"]
+
+        receipt = await growth_hypothesis_handler.decide(
+            DecideGrowthHypothesisCommand(
+                family_id,
+                TENANT_ID,
+                "actor-1",
+                session_id,
+                hypothesis_ref,
+                "CONFIRM",
+                "corr-r9-human",
+                "decide-r9-human",
+                actor_type=PlatformActorType.HUMAN,
+            )
+        )
+        assert receipt["outcome"] == "INTENT_CREATED"
+
 
 class TestSafetyPolicy:
     """Direct unit tests on the ported `assess_structured_safety_signals` —

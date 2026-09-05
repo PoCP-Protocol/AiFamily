@@ -74,6 +74,16 @@ entries:
     evidence:
       - "TS 侧 AuditModule (audit.module.ts 8行 + audit.service.ts 22行) 是最小实现，值得参考但太薄，需按 R6 重新设计"
 
+  - capability: platform_outbox
+    disposition: REIMPLEMENT
+    target: [backend/platform/outbox]
+    status: IN_PROGRESS
+    evidence:
+      - "复用 baseline outbox_events；提供 application-neutral immutable envelope 与 caller-owned AsyncSession append seam，不自行 commit"
+    reason: "为业务事实、canonical Audit 与 integration event 提供同一 UnitOfWork 原子提交边界"
+    known_gaps:
+      - "真实 PostgreSQL、worker、retry/DLQ 与 retention 仍须分别验收；本 append adapter 不拥有发布消费生命周期"
+
   - capability: platform_idempotency
     disposition: REIMPLEMENT
     target: [backend/platform/idempotency]
@@ -884,6 +894,14 @@ entries:
     status: MIGRATED_TESTED
     evidence: ["Batch 1 UI-02 -> UI-03 首批可运行闭环；只产 Hypothesis，确认后产 GrowthIntent，不计算 score/ranking/diagnosis"]
     note: "当前为显式非生产、进程内 dev/test 实现；repository port 为后续 SQLAlchemy 替换 seam。"
+
+  - capability: growth_intent_confirmation
+    disposition: REIMPLEMENT
+    source: ["database/baseline/0020_growth_orchestration_v1.sql", "database/baseline/0044_ui03_growth_hypothesis_confirmation.sql"]
+    target: [backend/domains/growth]
+    status: MIGRATED_TESTED
+    evidence: ["Assessment validated binding -> same-session GrowthIntent + Audit + Outbox + idempotency receipt；真实 PostgreSQL 正反测试，不复制 Consent/Human Gate ledger"]
+    known_gaps: ["尚未接入 production composition/main", "worker/retry/DLQ/retention 不在本 capability 范围"]
 
   - capability: model_provider_assessment
     disposition: REVIEW_REQUIRED
