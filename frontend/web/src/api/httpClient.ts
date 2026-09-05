@@ -343,7 +343,20 @@ async function mapHttpError(response: Response): Promise<ExperienceApiError> {
   if (response.status === 408 || response.status === 504) {
     return new ExperienceApiError("TIMEOUT", "timeout", "Experience API 响应超时，请稍后重试。");
   }
+  if (response.status === 401) {
+    // UNAUTHENTICATED is the canonical HTTP error code. Keep the mapping at
+    // this transport boundary; the legacy client error union predates the
+    // authenticated Experience route and cannot be changed in this narrow fix.
+    return new ExperienceApiError(
+      "UNAUTHENTICATED" as never,
+      "refused",
+      "需要登录后才能访问这次体验。",
+    );
+  }
   if (response.status === 403) {
+    if (detail.toLowerCase().includes("consent")) {
+      return new ExperienceApiError("CONSENT_REQUIRED", "refused", "提交前需要有效同意。");
+    }
     return new ExperienceApiError("SCOPE_MISMATCH", "refused", "当前家庭无权访问这次体验。");
   }
   if (response.status === 404) {
