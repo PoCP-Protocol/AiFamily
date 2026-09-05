@@ -31,6 +31,18 @@ jobs:
           --health-retries 30
     env:
       AIFAMILY_TEST_DATABASE_URL: postgresql+asyncpg://aifamily:aifamily@localhost:55442/aifamily_test
+      # backend/apps/family_api/dev_wiring.py deliberately defaults DATABASE_URL
+      # to a *separate* database from aifamily_test (see DEV_DEFAULT_DATABASE_URL's
+      # docstring): dev wiring truncates its tables on every test's setup, and
+      # pointing that at the shared aifamily_test database would periodically
+      # wipe out the Postgres-gated tests under tests/database/ that run in the
+      # same job. CI must create and migrate this second database explicitly —
+      # setting DATABASE_URL job-wide is what makes "Full test suite" and the
+      # product_intelligence step (neither of which override it themselves) see
+      # a real, migrated database instead of falling through to dev_wiring's
+      # local-only default (postgresql+asyncpg://.../aifamily_dev_claude, which
+      # never exists in CI and produced InvalidCatalogNameError before this fix).
+      DATABASE_URL: postgresql+asyncpg://aifamily:aifamily@localhost:55442/aifamily_dev_ci
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,10 +58,18 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
+      - name: Create dev-wiring database (separate from aifamily_test)
+        run: |
+          PGPASSWORD=aifamily psql -h localhost -p 55442 -U aifamily -d aifamily_test \
+            -c "CREATE DATABASE aifamily_dev_ci;"
+
       - name: Apply Alembic migrations to CI Postgres (head)
         run: uv run alembic upgrade head
         env:
           DATABASE_URL: ${{ env.AIFAMILY_TEST_DATABASE_URL }}
+
+      - name: Apply Alembic migrations to dev-wiring database (head)
+        run: uv run alembic upgrade head
 
       - name: Lint (ruff)
         run: uv run ruff check .
