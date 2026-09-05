@@ -371,7 +371,13 @@ def test_provider_admission_snapshot_rejects_invalid_windows(kwargs, error_code)
         ({"tenant_id": "tenant-other"}, "fgcn_provider_tenant_scope_violation"),
         ({"family_id": "family-other"}, "fgcn_provider_family_scope_violation"),
         (
-            {"credential_valid_from": NOW + timedelta(days=1)},
+            # `execute_named_action` checks admission against the real wall
+            # clock (`effective_at` defaults to `datetime.now(UTC)`), not the
+            # fixed `NOW` fixture used elsewhere in this module — so "not yet
+            # valid" must be anchored to the real clock too, or this case
+            # silently stops exercising the intended branch once real time
+            # passes the fixture's `NOW`.
+            {"credential_valid_from": datetime.now(UTC) + timedelta(days=1)},
             "fgcn_provider_credential_not_yet_valid",
         ),
         (

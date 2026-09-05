@@ -35,4 +35,11 @@ class HumanDecisionRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=2_000)
 
 
-__all__ = ["AssignmentProposalRequest", "HumanDecisionRequest"]
+class ReceiptDeliveryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    service_record_id: str = Field(min_length=1, max_length=160)
+    outcome_observation: str = Field(min_length=1, max_length=4_000)
+
+
+__all__ = ["AssignmentProposalRequest", "HumanDecisionRequest", "ReceiptDeliveryRequest"]
