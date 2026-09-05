@@ -3,13 +3,16 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { Platform } from "react-native";
 
 import { familyApi, FamilyApiError, type FamilyContextSummary } from "@/lib/family/family-api-client";
+import { allowsDevAccountSession, parseFamilyAuthMode } from "@/lib/family/auth-mode";
 
 const TOKEN_KEY = "family-api-account-token";
 const FAMILY_KEY = "family-api-selected-family";
 const DEV_EXTERNAL_REF = process.env.EXPO_PUBLIC_FAMILY_DEV_EXTERNAL_REF?.trim() || "family-ai-mobile-dev";
-const AUTO_DEV_SESSION = process.env.EXPO_PUBLIC_FAMILY_DEV_AUTO_SESSION === "true";
+const AUTH_MODE = parseFamilyAuthMode(process.env.EXPO_PUBLIC_FAMILY_AUTH_MODE);
+const DEV_SESSION_ALLOWED = allowsDevAccountSession(AUTH_MODE);
+const AUTO_DEV_SESSION = DEV_SESSION_ALLOWED && process.env.EXPO_PUBLIC_FAMILY_DEV_AUTO_SESSION === "true";
 
-export type FamilyApiSessionStatus = "loading" | "local_synthetic" | "connected" | "family_selection" | "no_family" | "error";
+export type FamilyApiSessionStatus = "loading" | "authentication_required" | "local_synthetic" | "connected" | "family_selection" | "no_family" | "error";
 
 interface FamilyApiSessionContextValue {
   configured: boolean;
@@ -20,6 +23,7 @@ interface FamilyApiSessionContextValue {
   selectedFamily: FamilyContextSummary | null;
   error: FamilyApiError | null;
   usingSyntheticFallback: boolean;
+  authMode: typeof AUTH_MODE;
   connectDevSession(): Promise<void>;
   selectFamily(familyId: string): Promise<void>;
   refresh(): Promise<void>;
@@ -53,8 +57,14 @@ export function FamilyApiSessionProvider({ children }: PropsWithChildren) {
   }, []);
 
   const connectDevSession = useCallback(async () => {
+    if (!DEV_SESSION_ALLOWED) {
+      const denied = new FamilyApiError("生产模式禁止签发开发会话", 0, "DEV_SESSION_FORBIDDEN", null);
+      setError(denied);
+      setStatus("authentication_required");
+      return;
+    }
     if (!familyApi.configured) {
-      setStatus("local_synthetic");
+      setStatus(DEV_SESSION_ALLOWED ? "local_synthetic" : "authentication_required");
       return;
     }
     try {
@@ -80,7 +90,7 @@ export function FamilyApiSessionProvider({ children }: PropsWithChildren) {
       if (AUTO_DEV_SESSION) {
         await connectDevSession();
       } else {
-        setStatus("local_synthetic");
+        setStatus(DEV_SESSION_ALLOWED ? "local_synthetic" : "authentication_required");
       }
       return;
     }
@@ -124,7 +134,7 @@ export function FamilyApiSessionProvider({ children }: PropsWithChildren) {
     setContexts([]);
     setSelectedFamily(null);
     setError(null);
-    setStatus(familyApi.configured ? "local_synthetic" : "local_synthetic");
+    setStatus(DEV_SESSION_ALLOWED && !familyApi.configured ? "local_synthetic" : "authentication_required");
   }, [token]);
 
   const value = useMemo<FamilyApiSessionContextValue>(() => ({
@@ -135,7 +145,8 @@ export function FamilyApiSessionProvider({ children }: PropsWithChildren) {
     contexts,
     selectedFamily,
     error,
-    usingSyntheticFallback: status !== "connected",
+    usingSyntheticFallback: status === "local_synthetic",
+    authMode: AUTH_MODE,
     connectDevSession,
     selectFamily,
     refresh,

@@ -8,6 +8,7 @@ are used for list fields so the same models work against both real
 Postgres and the SQLite engine used by this PR's tests (Override #6 item 4
 — no real-PG integration test in this PR yet).
 """
+
 from __future__ import annotations
 
 from sqlalchemy import Column, Float, Integer, String, Text
@@ -96,6 +97,35 @@ class EvidenceRow(Base):
     status = Column(String, nullable=False)
     description = Column(Text, nullable=False)
     evidence_ref = Column(String, nullable=False)
+
+
+class CompetitorEvidenceRow(Base):
+    """Tenant-scoped DRAFT evidence card; never a competitor ranking."""
+
+    __tablename__ = "product_intelligence_competitor_evidence"
+    id = Column(String, primary_key=True)
+    version = Column(String, nullable=False, default="1.0.0")
+    created_at = Column(DateTime, nullable=False)
+    updated_at = Column(DateTime, nullable=False)
+    created_by = Column(String, nullable=False)
+    tenant_scope = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="DRAFT")
+    evidence_refs = Column(JSON, nullable=False, default=list)
+    assumptions = Column(JSON, nullable=False, default=list)
+    unknowns = Column(JSON, nullable=False, default=list)
+    next_validation = Column(Text, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    provenance_ref = Column(String, nullable=True)
+    model_ref = Column(String, nullable=True)
+    prompt_use_case_version = Column(String, nullable=True)
+    confidence = Column(Float, nullable=True)
+    competitor_ref = Column(String, nullable=False)
+    claim = Column(Text, nullable=False)
+    source_refs = Column(JSON, nullable=False, default=list)
+    evidence_status = Column(String, nullable=False)
+    demand_ref = Column(String, nullable=True)
+    market_insight_ref = Column(String, nullable=True)
+    source_type = Column(String, nullable=False)
 
 
 class CustomerInsightRow(Base):
@@ -329,6 +359,21 @@ class ProductDefinitionRow(Base):
     concept_id = Column(String, nullable=False)
     pattern_id = Column(String, nullable=True)
     component_ids = Column(JSON, nullable=False, default=list)
+    # Education-product design fields were added after the provisional 0058
+    # SQL snapshot.  They remain nullable/defaulted for backward-compatible
+    # reads of legacy definitions; the domain model enforces the stronger
+    # education_spec invariants when present.
+    product_kind = Column(String, nullable=False, default="CUSTOM")
+    duration_days = Column(Integer, nullable=True)
+    zone = Column(String, nullable=False, default="HOMOGENEOUS")
+    primary_contradiction = Column(Text, nullable=True)
+    demand_ref = Column(String, nullable=True)
+    market_insight_refs = Column(JSON, nullable=False, default=list)
+    education_spec = Column(JSON, nullable=True)
+    generated_by = Column(String, nullable=True)
+    model_ref = Column(String, nullable=True)
+    prompt_use_case_version = Column(String, nullable=True)
+    confidence = Column(Float, nullable=True)
 
 
 class ServiceBlueprintVersionRow(Base):

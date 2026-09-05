@@ -5,14 +5,14 @@ const source = (id: string) => readFileSync(resolve(__dirname, `../app/ui/${id}.
 describe("UI-13 至 UI-18 原图对齐后的跨页面回归", () => {
   it("保留商城到邀请、商品、拼团、积分和会员的已确认入口", () => {
     const ui13 = source("UI-13");
-    expect(ui13).toContain('router.push("/ui/UI-15" as Href)');
+    expect(ui13).toContain('target="UI-15"');
     expect(ui13).toContain("UI-14?productRef=");
     for (const target of ["UI-16", "UI-17", "UI-18"]) expect(ui13).toContain(`target="${target}"`);
   });
   it("保留商品、邀请和拼团的回读路线", () => {
     expect(source("UI-14")).toContain('router.push("/ui/UI-15" as Href)');
-    expect(source("UI-14")).toContain('router.push(`/ui/UI-16?productRef=');
-    expect(source("UI-15")).toContain('router.push(`/ui/UI-14?productRef=');
+    expect(source("UI-14")).toMatch(/router\.push\(\s*`\/ui\/UI-16\?productRef=/);
+    expect(source("UI-15")).toMatch(/router\.push\(\s*`\/ui\/UI-14\?productRef=/);
     expect(source("UI-16")).toContain('router.push("/ui/UI-13" as Href)');
   });
   it("保留积分任务和成长合伙人菜单的既有出口", () => {

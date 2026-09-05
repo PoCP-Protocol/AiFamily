@@ -6,7 +6,7 @@ status: current
 version: 2.0
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-08-29
+updated: 2026-08-30
 canonical: true
 supersedes: null
 superseded_by: null
@@ -23,7 +23,7 @@ SUPERSEDES      = (1) 本会话最初给出的"AiFamily Re-foundation & Migratio
                       (源仓库自己的Python-only计划,同样犯"全量迁移"错误,标记DEPRECATED,原地保留不删除)
 CANONICAL_HOME  = D:\AiFamily (本仓库是迁移计划与实施的唯一权威落地位置, 不是 D:\family-ai)
 DATE            = 2026-08-29
-STATUS          = TARGET_FROZEN
+STATUS          = TARGET_FROZEN (冻结目标拓扑与边界，不冻结允许业务能力的开发)
 AUTHORIZED_BY   = project-owner (verbal in-session override)
 GROUNDING       = 基于对源仓库 D:\family-ai (baseline 1ff1681) 的 apps/api(NestJS)、
                   backend/domains/*(Python)、legacy-system(FELS)、packages/*、
@@ -95,9 +95,9 @@ Disposition只回答"迁不迁"，不回答"迁得多深"。三区方法论回�
 | ASSESSMENT | UI-02→UI-03 | 已端到端验证(`COMMERCIAL_SLICE_IMPLEMENTED_TESTED_DEV`) | Batch 1，维持V1原定范围 |
 | SERVICE(预约子链) | UI-19→UI-21→UI-24 | UI-19/20=`BACKEND_READY`，UI-21/24=`E2E_READY` | 提前到Batch 2，理由：已验证的付费主力闭环(V2第2节"层2")，FGCN机制的价值最大化场景，晚做等于让已验证价值悬空 |
 | PLAN(按钮接线) | UI-04→UI-05→UI-09 | UI-09已验证；UI-04/05=`UI_READY_BACKEND_GAP`(pause入口连客户端SDK都没有) | 与GrowthPlan域一并处理，但明确排除"先补齐前端pause按钮"作为Python迁移的前置阻塞项——那是独立的前端任务，不占用Python域迁移工时 |
-| GROWTH(效果类页面) | UI-08/11/12/29 | 全部`GATE_BOUNDARY`(成长效果/榜单/海报，宪法禁止无依据展示) | **不迁移，不重建**——这类UI本身处于产品边界不允许的状态，Python重写只会把违规语义带过去。需要产品侧先决定这些UI要不要存在，不是技术迁移问题 |
-| COMMERCE(目录/积分) | UI-13/14/16/17/18 | UI-15/16=`E2E_READY`；UI-13/14=`UI_READY_BACKEND_GAP`；UI-17=`GATE_BOUNDARY`(硬编码1280积分兜底值) | 排入Batch 6，且明确要求：迁移前必须先解决UI-17的硬编码积分和"未成年人商业场景权限规则不明确"的Stop Condition(V2第2节层3已指出)，不得把硬编码常量原样搬进Python |
-| COMMUNITY(社区流) | UI-25→UI-26→UI-27/28 | UI-26=`E2E_READY`；其余`GATE_BOUNDARY`/`UI_READY_BACKEND_GAP` | 排入Batch 7，但根据V2第0.1节"家庭与家庭的关系"定位，明确标注**不是可以随意砍掉的边缘功能**，只是当前证据不足以支撑现在投入，Batch排期靠后≠产品价值判断为低 |
+| GROWTH(成长过程、回顾与分享) | UI-08/11/12/29 | UI-11跨家庭排名/总分属于禁止正向行为；UI-08/12/29允许的私有回顾、证据绑定成果和经同意分享仍需建设 | **允许路径必须迁移并在测试环境完整验证**；禁止路径保留拒绝、审计和人工处理，不因UI-11的违规设计放弃整个GROWTH闭环 |
+| COMMERCE(目录/积分) | UI-13/14/16/17/18 | UI-15/16=`E2E_READY`；UI-13/14=`UI_READY_BACKEND_GAP`；UI-17为积分账本/兑换/权益接线缺口，硬编码1280必须清理 | 排入Batch 6；测试环境完整实现目录、订单、支付 sandbox、会员、权益、积分、退款和续购，生产再替换真实商品、库存、支付和外部结算适配器 |
+| COMMUNITY(社区流) | UI-25→UI-26→UI-27/28 | UI-26=`E2E_READY`；其余为`UI_READY_BACKEND_GAP`或尚未形成后端闭环 | 排入Batch 7；测试环境用合成家庭和 fake 外部适配器完整验证发布、审核、互动、举报、申诉和撤回，生产再接真实用户与外部通知 |
 
 ## 4. 精选式批次划分（取代V1第8节）
 
@@ -112,23 +112,23 @@ Batch 2 = SERVICE预约子链(TeacherProfile/ProviderProfile/BookingRequest/Serv
 Batch 3 = Family/Relationship/Consent核心聚合(family-core-integration.e2e-spec.ts为验收口径)
           [对应V1 Batch 2的子集, disposition=REIMPLEMENT, 平台内核原语(ActorContext等)在此批次一并建立]
 
-Batch 4 = GrowthIntent/GrowthPlan(仅PLAN闭环的已打通部分,不包括GROWTH的GATE_BOUNDARY页面)
+Batch 4 = GrowthIntent/GrowthPlan + GROWTH允许的回顾与成果路径
           [对应V1 Batch 2剩余部分, disposition=REIMPLEMENT]
 
 Batch 5 = Principal/Conversation/Human Handoff
           [维持V1 Batch 3, disposition=MIGRATE, 但AttemptRecordingGateway等fail-closed机制必须先于业务逻辑迁移]
 
-Batch 6 = 21-Day Program + COMMERCE闭环(须先清理UI-17硬编码积分/明确未成年人商业权限规则)
-          [合并V1 Batch 4与部分Batch 6, disposition=MIGRATE, 前置条件见第3节]
+Batch 6 = 21-Day Program + COMMERCE闭环（建设验收项：清理UI-17硬编码积分/落实家长端商业权限规则）
+          [合并V1 Batch 4与部分Batch 6, disposition=MIGRATE；测试环境完整跑业务流程，生产再接真实数据与支付适配器]
 
 Batch 7 = COMMUNITY闭环 + Organization/Teacher(B2B2C, 沿用V1.1原文FGCN设计, disposition=REIMPLEMENT]
           [对应V1 Batch 5剩余+Batch 6剩余]
 
-Batch 8 = 收尾: 确认GROWTH闭环(GATE_BOUNDARY页面)的产品侧决定后再排期
+Batch 8 = 收尾: 完成允许的GROWTH路径 cutover，并固化禁止行为的拒绝与审计路径
           [不是"全部NestJS删除"这一单一目标, 而是"所有disposition=MIGRATE/REIMPLEMENT的域已完成cutover"这个状态达成后, 才评估NestJS删除范围——删除范围=已迁移域, 不是无条件删除全部]
 ```
 
-**与V1第8节最大的结构差异**：V1的Batch 8是固定目标("删除全部NestJS")；本计划的Batch 8是条件性的("删除范围取决于前7批实际迁移了什么")。如果GROWTH闭环的GATE_BOUNDARY页面最终被产品侧决定为"不应该存在"而直接下线，对应的NestJS代码进入`DELETE`而不是`MIGRATE`，Batch 8的删除范围因此扩大但迁移工作量并未增加——这正是"精选"的含义。
+**与V1第8节最大的结构差异**：V1的Batch 8是固定目标("删除全部NestJS")；本计划的Batch 8是条件性的("删除范围取决于前7批实际迁移了什么")。GROWTH中的禁止正向行为不迁移为业务能力，允许的私有回顾、证据绑定成果和经同意分享必须迁移并通过等价测试；具体外部数据源和适配器可以在生产准入阶段切换。
 
 ## 5. 明确不进入本计划施工范围的代码（disposition=ARCHIVE/DELETE，直接列出，不留歧义）
 
@@ -173,6 +173,6 @@ Batch 8 = 收尾: 确认GROWTH闭环(GATE_BOUNDARY页面)的产品侧决定后�
 
 ## 8. 待人类裁决的开放项
 
-- GROWTH闭环(UI-08/11/12/29)的GATE_BOUNDARY页面最终去向——下线还是等产品设计补齐依据后重新打开——这个决定直接影响Batch 8的NestJS删除范围，本计划无法自行裁决。
+- GROWTH闭环中允许路径的数据来源、分享范围和 Outcome 证据契约仍需细化；跨家庭排名、家庭总分和无依据效果断言保持禁止。该细化不阻塞测试环境建设，测试环境应先以合成数据完成完整流程和拒绝路径。
 - COMMUNITY闭环的投入时机——V2第0.1节"家庭与家庭的关系"定位认为这条线有长期价值但当前证据不足，需要项目负责人明确是否在Batch 7之前就开始投入调研（即使暂不写代码）。
 - `backend/domains/membership`的REVIEW_REQUIRED状态——建议的解锁路径是先补齐`FORBIDDEN_TIER_FIELD_TOKENS`的guardrail test，但这个工作量是否现在就投入、还是等Batch 6临近再做，需要排期裁决。

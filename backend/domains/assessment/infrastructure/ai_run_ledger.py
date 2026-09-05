@@ -20,6 +20,7 @@ fail-closed (block the response), that is a policy call for a human to make
 explicitly — this implementation defaults to "never let a monitoring write
 break the user-facing outcome" and logs the failure instead of raising.
 """
+
 from __future__ import annotations
 
 import logging
@@ -55,7 +56,8 @@ class SqlAlchemyAiRunLedger(AiRunLedgerPort):
                         started_at, completed_at, input_tokens, output_tokens, outcome, error_detail
                     ) values (
                         :run_id, :assessment_session_id, :service_depth, :generator, :model_name,
-                        :started_at, :completed_at, :input_tokens, :output_tokens, :outcome, :error_detail
+                        :started_at, :completed_at, :input_tokens, :output_tokens, :outcome,
+                        :error_detail
                     )
                     """
                 ),
@@ -75,4 +77,6 @@ class SqlAlchemyAiRunLedger(AiRunLedgerPort):
             )
             await self._connection.commit()
         except Exception:  # noqa: BLE001 — deliberate: see module docstring (fail-open for ledger writes only)
-            logger.exception("ai_run_ledger_write_failed run_id=%s outcome=%s", run.run_id, run.outcome)
+            logger.exception(
+                "ai_run_ledger_write_failed run_id=%s outcome=%s", run.run_id, run.outcome
+            )

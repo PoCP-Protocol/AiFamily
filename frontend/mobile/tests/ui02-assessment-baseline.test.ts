@@ -179,7 +179,7 @@ describe("UI-02 original step-two assessment contract", () => {
 
     const explanationSource = readFileSync(resolve(process.cwd(), "app/ui/UI-03.tsx"), "utf8");
     expect(explanationSource).toContain("AI成长诊断");
-    expect(explanationSource).toContain("综合成长评估");
+    expect(explanationSource).toContain("证据与支持方向");
     expect(explanationSource).toContain("生成个性化方案");
     expect(explanationSource).toContain("不是儿童诊断结论、能力测验或排名");
   });

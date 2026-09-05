@@ -86,12 +86,46 @@ T-01（清理 ruff 错误）执行后暴露一个结构性问题，由执行者�
 | 项 | 状态 |
 |---|---|
 | `Makefile` 的 `fmt` target | 已存在（`ruff format .`） |
-| `CLAUDE.md` 命令区加入格式化指引 | **待补** |
-| CI 加 `ruff format --check` | **待补**，且 sweep 完成前应为警告级 |
-| 全量 sweep | **待执行**，前置条件见 Decision |
+| `Makefile` 的 `fmt-check` target | **已加**（2026-08-29）；刻意**不**进 `check` 依赖，与 CI 的警告级保持一致 |
+| `CLAUDE.md` 命令区加入格式化指引 | **已完成**（见「格式化纪律（ADR-0009）」一节） |
+| CI 加 `ruff format --check` | **已加**（2026-08-29）；按本 ADR 要求为**警告级**（`|| true` + `::warning`） |
+| Lint 债务棘轮 | **已加**（2026-08-29）`tests/architecture/test_lint_debt_ratchet.py`，BASELINE=0，已用注入违规验证会咬人 |
+| 全量 sweep | **部分完成**（2026-08-29）：`ruff check` 全仓 401 → 0；`ruff format` 覆盖 337/362 文件。剩 25 文件因并发写作跳过，见下 |
 | 禁止 `# noqa: E501` | 当前靠人工 review；无机械检查，属意图 |
 
-**诚实标注**：本 ADR 的执行机制目前**大部分是待办**。在 CI 检查落地前，本决定与源仓库那些"写了没人执行"的治理文件没有本质区别——这正是 R14 要防的。落地责任列入 `docs/11_delivery/TASK_BACKLOG.md` 的后续任务。
+### 2026-08-29 sweep 执行记录（QA 角色）
+
+**动因**：远端 CI 从第一次推送起连续三次全红（run 33244397013 / 33244790062 / 33244977302），
+因 `Lint (ruff)` 报 401 个错误，**无人发现**。详见 `docs/11_delivery/PROJECT_MANAGEMENT_CHARTER.md` §0 第 1、2 条。
+
+**已 sweep**：`backend/domains/assessment/`、`tests/domains/assessment/`、`tests/architecture/`、
+`backend/domains/product_intelligence/`、`backend/intelligence/`、`tests/domains/loyalty_points/`、
+`_superseded_assessment_v1_backup/`。401 个错误中有 378 个集中在 assessment 域（迁入后从未格式化）。
+
+**因并发写作跳过**（本 ADR「只改自己负责的文件」纪律）：`backend/platform/`、`backend/apps/`、
+`backend/domains/{service,membership}/`、`tests/platform/`。这些目录在 sweep 期间有其他 agent
+的未提交改动（T-14 等），重排会覆盖他人工作。它们是剩余 25 个未格式化文件的主要来源。
+
+**语义验证**（本 ADR「需要接受的风险」段要求）：对 65 个改动文件逐一比对 HEAD 与工作区的 AST，
+全部差异归因到已知规则，**0 处不可解释**：
+
+| 归因层级 | 文件数 |
+|---|---|
+| AST 完全一致（字符串逐字节不变） | 56 |
+| 仅 import 集合变化（I001 排序 / F401 删除） | 2 |
+| 加 UP017（`timezone.utc` → `UTC`） | 2 |
+| 加 SQL 空白重排（换行替代空格 / 逗号后换行） | 3 |
+| 手工声明改动（UP042 `StrEnum`、SIM105 `contextlib.suppress`） | 2 |
+
+SQL 重排的额外保证：抽取全部 74 个 `'...'` SQL 引号字面量做多重集比对，**逐字节一致** ——
+换行只落在引号字面量之外，字面量内部空白未被触碰。长字符串一律用隐式拼接拆行，
+并用 AST 相等证明拼接后的值不变（Python 在解析期折叠隐式拼接）。全程 **0 个 `# noqa`**，
+`pyproject.toml` 未改动。
+
+**诚实标注**：`ruff format --check` 仍是警告级，因为 sweep 未完成 —— 设为失败级会立刻制造
+一个新的长期红灯，与本次任务的目的相反。真正阻止债务无声反弹的是那个**棘轮测试**（BASELINE=0，
+在 CI 的架构测试步骤里跑），它比格式检查更贴合上次的失效模式：上次不是格式不统一导致 CI 红，
+而是错误数从 0 涨回 401 且没有任何机制在第一次增长时喊停。
 
 ## References
 

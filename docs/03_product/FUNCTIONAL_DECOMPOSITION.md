@@ -6,7 +6,7 @@ status: current
 version: 1.0
 owner: project-manager
 created: 2026-08-29
-updated: 2026-08-29
+updated: 2026-08-30
 canonical: true
 supersedes: null
 superseded_by: null
@@ -17,6 +17,7 @@ superseded_by: null
 > **状态判定以磁盘与测试为准，不以文档自述为准。**
 > UI↔方法映射由 `grep -oE "familyApi\.[a-zA-Z]+"` 逐屏实测得出；端点实现状态由
 > `grep '@router\.' ` 核对后端真实路由得出。与任何文档记载冲突时，本文件采信代码。
+
 
 ## 0. 分级定义
 
@@ -44,7 +45,7 @@ superseded_by: null
 | `已实现未挂载` | 11 | 13.9% | 代码与端点存在，router 未 include，前端调不通 |
 | `合成数据支撑` | 9 | 11.4% | 由 `/dev/*` 自述 `SYNTHETIC_DEV_ONLY` 的服务提供 |
 | `半成品` | 5 | 6.3% | 有部分层落盘，不构成可用能力 |
-| `被冻结` | 8 | 10.1% | FREEZE-001 范围内 |
+| `待建设（按批次）` | 8 | 10.1% | COMMERCE 按 Batch 6 建设；测试环境仍须完整实现 |
 | `红线禁止` | 6 | 7.6% | 宪章 R9 或合规绝对禁止 |
 | `未实现` | 29 | 36.7% | 无任何代码 |
 
@@ -56,7 +57,7 @@ superseded_by: null
 |---|---|---|---|
 | 平台内核 | 6 | 6 | **0%** |
 | ASSESSMENT 测评 | 8 | 7 | 12.5% |
-| COMMERCE 商业 | 14 | 0 | **100%**（8 项被冻结） |
+| COMMERCE 商业 | 14 | 0 | **100%**（按 Batch 6 建设） |
 | SERVICE 服务 | 9 | 0 | **100%** |
 | PLAN 计划 | 10 | 0 | **100%** |
 | GROWTH 成长 | 12 | 0 | **100%**（6 项红线禁止） |
@@ -70,7 +71,7 @@ superseded_by: null
 
 ## 2. 功能菜单树（含 UI 对应）
 
-图例：`✅`已实现可用 `⚠️`已实现未挂载 `🎭`合成数据支撑 `🚧`半成品 `🧊`被冻结 `⛔`红线禁止 `❌`未实现
+图例：`✅`已实现可用 `⚠️`已实现未挂载 `🎭`合成数据支撑 `🚧`半成品 `⛔`红线禁止 `❌`未实现
 
 ### 1️⃣ ASSESSMENT 家庭成长测评 ｜ UI-02, UI-03
 
@@ -181,8 +182,8 @@ superseded_by: null
             └── 真需求，建议改名 /families/{id}/interaction-events
 ```
 
-- **矩阵001 状态**：UI-08/11/12/29 全部 `GATE_BOUNDARY`（宪法禁止无依据展示）
-- **MIGRATION_PLAN_V2 第3节明文处置**：**不迁移，不重建** —— Python 重写只会把违规语义带过去，需产品侧先决定这些 UI 要不要存在
+- **矩阵001 状态**：UI-11 的跨家庭排名、家庭总分和等级化比较属于禁止行为；UI-08/12/29 的私有回顾、证据绑定成果和经同意分享属于允许能力，不能把四个页面一概标为 `GATE_BOUNDARY`
+- **MIGRATION_PLAN_V2 第3节处置**：允许的成长回顾、成果分享和社区互动路径必须在测试环境完整建设；只有禁止的正向行为保留拒绝、审计和人工处理路径，整个 GROWTH 闭环仍需继续迁移和重建
 - **9 个屏幕影响评估**（来自 `DEV_SYNTHETIC_FIELD_ANALYSIS.md`）：全部有 `?? local` / `.catch()` 兜底，**移除 `/dev/*` 无一白屏**。7 屏正常、1 屏部分降级（UI-10）、1 屏需重新设计（UI-29）
 
 ---
@@ -226,26 +227,26 @@ superseded_by: null
 
 ---
 
-### 5️⃣ COMMERCE 商业化 ｜ UI-06, UI-13, UI-14, UI-17, UI-18, UI-30, UI-32 🧊
+### 5️⃣ COMMERCE 商业化 ｜ UI-06, UI-13, UI-14, UI-17, UI-18, UI-30, UI-32
 
-> **FREEZE-001 生效中。** 依据：COMMERCE 属 Batch 6；MIGRATION_PLAN_V2 第3节明文前置条件
-> 「必须先解决 UI-17 硬编码积分与未成年人商业场景权限规则不明确的 Stop Condition」，该条件**至今未解决**。
+> **当前状态：尚未完成，按 Batch 6 建设。** 批次是交付顺序，不是禁止开发。
+> 测试环境必须完整实现目录、订单、支付 sandbox、会员、权益、积分、退款和续购；生产环境再切换真实商品、库存、支付和结算适配器。未成年人自动化决策商业营销在所有环境都必须拒绝、审计并保留人工处理路径。
 
 ```
 5. COMMERCE 商业化
 ├── 5.1 商品目录                                    [UI-13, UI-14]
 │   ├── 5.1.1 商品列表
-│   │   └── 🧊 GET  /families/{id}/commerce/products
+│   │   └── ❌ GET  /families/{id}/commerce/products（待实现）
 │   └── 5.1.2 商品投影
-│       └── 🧊 GET  /families/{id}/commerce/customer-projection
+│       └── ❌ GET  /families/{id}/commerce/customer-projection（待实现）
 ├── 5.2 下单意图                                    [UI-14]
 │   └── 5.2.1 提交订单意图
-│       └── 🧊 POST /families/{id}/commerce/order-intents
+│       └── ❌ POST /families/{id}/commerce/order-intents（待实现）
 ├── 5.3 会员体系                                    [UI-06, UI-17, UI-18, UI-30, UI-32]
 │   ├── 5.3.1 会员方案查询
-│   │   └── 🧊 GET  /families/{id}/membership/plans
+│   │   └── ❌ GET  /families/{id}/membership/plans（待实现）
 │   ├── 5.3.2 会员投影
-│   │   └── 🧊 GET  /families/{id}/membership/customer-projection
+│   │   └── ❌ GET  /families/{id}/membership/customer-projection（待实现）
 │   ├── 5.3.3 档位生命周期
 │   │   ├── ⚠️ POST /subscriptions
 │   │   ├── ⚠️ POST /tier-activations
@@ -259,10 +260,10 @@ superseded_by: null
 │       └── ⚠️ POST /benefit-revocations
 ├── 5.4 积分体系                                    [UI-17]
 │   ├── 5.4.1 积分余额
-│   │   └── ⛔ pointsBalance = membership?.dev_points?.balance ?? 1280
-│   │       └── 硬编码兜底值，矩阵001 判 GATE_BOUNDARY
+│   │   └── ❌ 服务端积分账本余额投影（待实现）
+│   │       └── 必须清理 `pointsBalance = membership?.dev_points?.balance ?? 1280` 硬编码兜底值
 │   └── 5.4.2 积分兑换
-│       └── 🧊 backend/domains/loyalty_points/（1984 行，零测试，NET_NEW）
+│       └── ❌ backend/domains/loyalty_points/（1984 行，待补齐持久化与验收）
 │           └── ⛔ 不得面向孩子端：《未成年人网络保护条例》第24条3款**绝对禁止**
 └── 5.5 会员界面投影
     ├── ⚠️ GET  /projection
@@ -270,7 +271,7 @@ superseded_by: null
 ```
 
 - **membership 端点已挂载 `family_api`**（`main.py:29`），但依赖注入按设计抛异常，端点在依赖层 fail-closed → 标 `⚠️已实现未挂载` 的实质是"挂了但不可用"
-- **解冻三条件**：① loyalty_points 是否应存在于当前阶段获裁决 ② 存在能真实失败的 guardrail 证明积分流程无法以孩子为营销对象 ③ UI-17 硬编码值处置确定
+- **建设验收项**：① loyalty_points 的账本与兑换状态机必须登记并有验收测试 ② 必须有能真实失败的 guardrail，证明积分流程无法以孩子为营销对象 ③ UI-17 硬编码值必须由正式账本投影替代。上述验收项约束实现质量和生产准入，不阻止测试环境建设完整流程。
 
 ---
 
@@ -400,19 +401,19 @@ superseded_by: null
 | UI-03 | 假设确认 | getGrowthHypothesis, generateGrowthHypothesis, decideGrowthHypothesis, getActiveOnboarding, startGrowthOnboarding | ✅ 3/5，❌ onboarding 2 项 |
 | UI-04 | 90 天计划 | getGrowthPriority, getPlanPreview, createJourneyPlan, confirmJourneyPlan, getJourneyPlan | ❌ 全无 |
 | UI-05 | 计划执行 | getJourneyPlan, reviewJourneyPhase, getServiceJourney | ❌ 全无 |
-| UI-06 | 会员/商品 | getMembershipPlans, getMembershipCustomerProjection, getCommerceCustomerProjection | 🧊 冻结 |
+| UI-06 | 会员/商品 | getMembershipPlans, getMembershipCustomerProjection, getCommerceCustomerProjection | ❌ 待实现（Batch 6） |
 | UI-07 | 静态页 | 无调用（93 行） | — |
-| UI-08 | 复盘回读 | getFamilyReviewReadback | ❌ + ⛔ GATE_BOUNDARY |
+| UI-08 | 复盘回读 | getFamilyReviewReadback | ❌ 后端缺口；允许建设家庭私有、证据绑定的回顾 |
 | UI-09 | 今日任务 | getFamilyToday, checkInTodayTask, changeTodayTaskState | ❌ 全无 |
 | UI-10 | 核心成长 | getDevCoreGrowth | 🎭 合成 |
-| UI-11 | 成长效果 | getDevPlatformSurfaces | 🎭 + ⛔ GATE_BOUNDARY |
-| UI-12 | 成长榜单 | getDevPlatformSurfaces | 🎭 + ⛔ GATE_BOUNDARY |
-| UI-13 | 商城首页 | getCommerceProducts | 🧊 冻结 |
-| UI-14 | 商品下单 | getCommerceProducts, getCommerceCustomerProjection, submitCommerceIntent | 🧊 冻结 |
+| UI-11 | 成长效果 | getDevPlatformSurfaces | 🎭；跨家庭排名/总分正向路径禁止 |
+| UI-12 | 成长榜单 | getDevPlatformSurfaces | 🎭；按事实、同意和非比较方式重建 |
+| UI-13 | 商城首页 | getCommerceProducts | ❌ 待实现（Batch 6） |
+| UI-14 | 商品下单 | getCommerceProducts, getCommerceCustomerProjection, submitCommerceIntent | ❌ 待实现（Batch 6） |
 | UI-15 | 流程事件 | recordDevFlowEvent | 🎭 合成 |
 | UI-16 | 流程事件 | recordDevFlowEvent | 🎭 合成 |
-| UI-17 | 积分商城 | getMembershipCustomerProjection | 🧊 + ⛔ 硬编码 1280 |
-| UI-18 | 会员权益 | getMembershipPlans, getMembershipCustomerProjection, getCommerceCustomerProjection | 🧊 冻结 |
+| UI-17 | 积分商城 | getMembershipCustomerProjection | ❌ 待实现；硬编码 1280 需清理 |
+| UI-18 | 会员权益 | getMembershipPlans, getMembershipCustomerProjection, getCommerceCustomerProjection | ❌ 待实现（Batch 6） |
 | UI-19 | 名师专区 | getServiceOfferings | ❌ 未实现 |
 | UI-20 | 服务时段 | getServiceOfferings, getServiceSlots | ❌ 未实现 |
 | UI-21 | 提交预约 | getServiceOfferings, getServiceSlots, submitServiceBooking | ❌ 未实现（取消入口本就不存在） |
@@ -423,10 +424,10 @@ superseded_by: null
 | UI-26 | 社区打卡 | recordDevFlowEvent | 🎭 合成 |
 | UI-27 | 社区内容 | getDevPlatformSurfaces | 🎭 合成 |
 | UI-28 | 社区内容 | getDevPlatformSurfaces | 🎭 合成 |
-| UI-29 | 成长成果 | getDevCoreGrowth, getDevPlatformSurfaces | 🎭 + ⛔ 需重新设计 |
-| UI-30 | 会员续费 | getMembershipPlans, getMembershipCustomerProjection, getCommerceCustomerProjection | 🧊 冻结 |
+| UI-29 | 成长成果 | getDevCoreGrowth, getDevPlatformSurfaces | 🎭；按真实证据和分享同意重建 |
+| UI-30 | 会员续费 | getMembershipPlans, getMembershipCustomerProjection, getCommerceCustomerProjection | ❌ 待实现（Batch 6） |
 | UI-31 | 服务记录 | getServiceCustomerProjection | ❌ 未实现 |
-| UI-32 | 会员/商城 | getMembershipCustomerProjection, getCommerceCustomerProjection | 🧊 冻结 |
+| UI-32 | 会员/商城 | getMembershipCustomerProjection, getCommerceCustomerProjection | ❌ 待实现（Batch 6） |
 | UI-33 | 静态页 | 无调用（30 行） | — |
 | UI-34 | 服务投影 | getServiceCustomerProjection | ❌ 未实现 |
 
@@ -466,5 +467,5 @@ superseded_by: null
 | **2** | Assessment 接 ConsentGate + 四层重构 | 现存合规缺口 + Batch 1 收尾 |
 | **3** | PLAN 闭环（2.1–2.4） | Batch 4，10 项全无 |
 | **4** | Family Context 最小检索层（8.2.1） | 独占区候选，其余三项都依赖它 |
-| **暂缓** | COMMERCE 全部 | FREEZE-001，待三条件满足 |
-| **待裁决** | GROWTH 效果类页面（3.3） | 产品侧需先决定这些 UI 是否应存在 |
+| **按批次建设** | COMMERCE 全部 | Batch 6；测试环境完整实现，生产切换真实数据与外部适配器 |
+| **按合规语义重建** | GROWTH 允许路径（3.3） | 私有回顾、证据绑定成果和经同意分享照常建设；仅排名/总分等禁止正向行为保留拒绝、审计和人工处理 |

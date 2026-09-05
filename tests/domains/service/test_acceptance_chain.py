@@ -226,7 +226,13 @@ async def test_consent_for_another_purpose_does_not_permit_booking(repo, consent
     """A grant is scoped to exactly one purpose — ASSESSMENT consent is not
     SERVICE consent. Widening scope is intentionally not representable."""
     from backend.domains.service.domain.entities import utcnow
-    from backend.platform.consent.models import ConsentGrant, ConsentPurpose, ConsentStatus
+    from backend.platform.consent.models import (
+        ConsentGrant,
+        ConsentPurpose,
+        ConsentStatus,
+        GuardianRelation,
+        SubjectAge,
+    )
 
     from .helpers import GUARDIAN
 
@@ -238,6 +244,8 @@ async def test_consent_for_another_purpose_does_not_permit_booking(repo, consent
             purpose=ConsentPurpose.ASSESSMENT,
             status=ConsentStatus.GRANTED,
             granted_at=utcnow(),
+            subject_age=SubjectAge(years=9),
+            guardian_relation=GuardianRelation.GUARDIAN,
         )
     )
     _provider, offering, slot = await seed_supply(repo, recorder=recorder)

@@ -29,7 +29,10 @@ from ..domain.entities import (
     UnmetNeed,
     ValueArchitecture,
 )
-from ..domain.errors import ProductIntelligenceNotFoundError
+from ..domain.errors import (
+    ProductIntelligenceNotFoundError,
+    ProductIntelligenceValidationError,
+)
 
 
 @dataclass
@@ -39,6 +42,7 @@ class FakeProductIntelligenceRepository:
     _market_trends: dict = field(default_factory=dict)
     _customer_segments: dict = field(default_factory=dict)
     _evidence: dict = field(default_factory=dict)
+    _competitor_evidence: dict = field(default_factory=dict)
     _customer_insights: dict = field(default_factory=dict)
     _unmet_needs: dict = field(default_factory=dict)
     _opportunities: dict = field(default_factory=dict)
@@ -72,6 +76,27 @@ class FakeProductIntelligenceRepository:
 
     async def save_evidence(self, entity: Evidence) -> None:
         self._evidence[entity.id] = entity
+
+    async def save_competitor_evidence(
+        self, entity: object, *, tenant_scope: str, created_by: str
+    ) -> None:
+        if getattr(entity, "evidence_status", None) != "UNKNOWN":
+            raise ProductIntelligenceValidationError(
+                "competitor_evidence_cannot_self_verify"
+            )
+        # Keep scope metadata alongside the immutable proposal in the test
+        # double so tests can assert the same boundary as SQL persistence.
+        self._competitor_evidence[entity.evidence_id] = (
+            entity,
+            tenant_scope,
+            created_by,
+        )
+
+    async def load_competitor_evidence(self, entity_id: str, tenant_scope: str) -> object:
+        stored = self._competitor_evidence.get(entity_id)
+        if stored is None or stored[1] != tenant_scope:
+            raise ProductIntelligenceNotFoundError("competitor_evidence_not_found")
+        return stored[0]
 
     async def save_customer_insight(self, entity: CustomerInsight) -> None:
         self._customer_insights[entity.id] = entity
@@ -139,9 +164,7 @@ class FakeProductIntelligenceRepository:
     async def save_value_architecture(self, entity: ValueArchitecture) -> None:
         self._value_architectures[entity.id] = entity
 
-    async def load_value_architecture(
-        self, entity_id: str, tenant_scope: str
-    ) -> ValueArchitecture:
+    async def load_value_architecture(self, entity_id: str, tenant_scope: str) -> ValueArchitecture:
         return self._get_scoped(
             self._value_architectures, entity_id, tenant_scope, "value_architecture_not_found"
         )

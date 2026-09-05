@@ -13,7 +13,7 @@ Override #6 item 4).
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain.entities import (
@@ -42,11 +42,32 @@ class SqlAlchemyMembershipRepository:
     async def commit(self) -> None:
         await self._session.commit()
 
+    async def rollback(self) -> None:
+        await self._session.rollback()
+
     async def _stage(self, row: object) -> None:
         await self._session.merge(row)
 
-    async def _one(self, model, entity_id: str, code: str):
-        row = await self._session.get(model, entity_id)
+    async def _one(
+        self,
+        model,
+        entity_id: str,
+        code: str,
+        *,
+        tenant_id: str | None = None,
+        family_id: str | None = None,
+        for_update: bool = False,
+    ):
+        statement = select(model).where(model.__table__.primary_key.columns[0] == entity_id)
+        if tenant_id is not None:
+            statement = statement.where(
+                or_(model.tenant_id.is_(None), model.tenant_id == tenant_id)
+            )
+        if family_id is not None:
+            statement = statement.where(model.family_id == family_id)
+        if for_update:
+            statement = statement.with_for_update()
+        row = (await self._session.execute(statement)).scalars().first()
         if row is None:
             raise MembershipNotFoundError(code)
         return row
@@ -71,16 +92,26 @@ class SqlAlchemyMembershipRepository:
     async def save_plan(self, entity: MembershipPlan) -> None:
         await self._stage(m.MembershipPlanRow(**entity.model_dump()))
 
-    async def load_plan(self, plan_id: str) -> MembershipPlan:
-        row = await self._one(m.MembershipPlanRow, plan_id, "membership_plan_not_found")
+    async def load_plan(self, plan_id: str, tenant_id: str | None = None) -> MembershipPlan:
+        row = await self._one(
+            m.MembershipPlanRow,
+            plan_id,
+            "membership_plan_not_found",
+            tenant_id=tenant_id,
+        )
         return MembershipPlan(**_row_to_dict(row))
 
     async def save_tier_definition(self, entity: MembershipTierDefinition) -> None:
         await self._stage(m.MembershipTierDefinitionRow(**entity.model_dump()))
 
-    async def load_tier_definition(self, tier_definition_id: str) -> MembershipTierDefinition:
+    async def load_tier_definition(
+        self, tier_definition_id: str, tenant_id: str | None = None
+    ) -> MembershipTierDefinition:
         row = await self._one(
-            m.MembershipTierDefinitionRow, tier_definition_id, "tier_definition_not_found"
+            m.MembershipTierDefinitionRow,
+            tier_definition_id,
+            "tier_definition_not_found",
+            tenant_id=tenant_id,
         )
         return MembershipTierDefinition(**_row_to_dict(row))
 
@@ -91,9 +122,14 @@ class SqlAlchemyMembershipRepository:
     async def save_benefit_definition(self, entity: BenefitDefinition) -> None:
         await self._stage(m.BenefitDefinitionRow(**entity.model_dump()))
 
-    async def load_benefit_definition(self, benefit_definition_id: str) -> BenefitDefinition:
+    async def load_benefit_definition(
+        self, benefit_definition_id: str, tenant_id: str | None = None
+    ) -> BenefitDefinition:
         row = await self._one(
-            m.BenefitDefinitionRow, benefit_definition_id, "benefit_definition_not_found"
+            m.BenefitDefinitionRow,
+            benefit_definition_id,
+            "benefit_definition_not_found",
+            tenant_id=tenant_id,
         )
         return BenefitDefinition(**_row_to_dict(row))
 
@@ -101,9 +137,18 @@ class SqlAlchemyMembershipRepository:
     async def save_subscription(self, entity: MembershipSubscription) -> None:
         await self._stage(m.MembershipSubscriptionRow(**entity.model_dump()))
 
-    async def load_subscription(self, membership_subscription_id: str) -> MembershipSubscription:
+    async def load_subscription(
+        self,
+        membership_subscription_id: str,
+        tenant_id: str | None = None,
+        family_id: str | None = None,
+    ) -> MembershipSubscription:
         row = await self._one(
-            m.MembershipSubscriptionRow, membership_subscription_id, "subscription_not_found"
+            m.MembershipSubscriptionRow,
+            membership_subscription_id,
+            "subscription_not_found",
+            tenant_id=tenant_id,
+            family_id=family_id,
         )
         return MembershipSubscription(**_row_to_dict(row))
 
@@ -125,8 +170,19 @@ class SqlAlchemyMembershipRepository:
     async def save_period(self, entity: MembershipPeriod) -> None:
         await self._stage(m.MembershipPeriodRow(**entity.model_dump()))
 
-    async def load_period(self, membership_period_id: str) -> MembershipPeriod:
-        row = await self._one(m.MembershipPeriodRow, membership_period_id, "period_not_found")
+    async def load_period(
+        self,
+        membership_period_id: str,
+        tenant_id: str | None = None,
+        family_id: str | None = None,
+    ) -> MembershipPeriod:
+        row = await self._one(
+            m.MembershipPeriodRow,
+            membership_period_id,
+            "period_not_found",
+            tenant_id=tenant_id,
+            family_id=family_id,
+        )
         return MembershipPeriod(**_row_to_dict(row))
 
     async def load_active_period(self, tenant_id: str, family_id: str) -> MembershipPeriod | None:
@@ -176,8 +232,21 @@ class SqlAlchemyMembershipRepository:
     async def save_benefit_grant(self, entity: BenefitGrant) -> None:
         await self._stage(m.BenefitGrantRow(**entity.model_dump()))
 
-    async def load_benefit_grant(self, benefit_grant_id: str) -> BenefitGrant:
-        row = await self._one(m.BenefitGrantRow, benefit_grant_id, "benefit_grant_not_found")
+    async def load_benefit_grant(
+        self,
+        benefit_grant_id: str,
+        tenant_id: str | None = None,
+        family_id: str | None = None,
+        for_update: bool = False,
+    ) -> BenefitGrant:
+        row = await self._one(
+            m.BenefitGrantRow,
+            benefit_grant_id,
+            "benefit_grant_not_found",
+            tenant_id=tenant_id,
+            family_id=family_id,
+            for_update=for_update,
+        )
         return BenefitGrant(**_row_to_dict(row))
 
     async def list_benefit_grants(self, tenant_id: str, family_id: str) -> list[BenefitGrant]:
@@ -201,9 +270,18 @@ class SqlAlchemyMembershipRepository:
     async def save_reservation(self, entity: BenefitReservation) -> None:
         await self._stage(m.BenefitReservationRow(**entity.model_dump()))
 
-    async def load_reservation(self, benefit_reservation_id: str) -> BenefitReservation:
+    async def load_reservation(
+        self,
+        benefit_reservation_id: str,
+        tenant_id: str | None = None,
+        family_id: str | None = None,
+    ) -> BenefitReservation:
         row = await self._one(
-            m.BenefitReservationRow, benefit_reservation_id, "reservation_not_found"
+            m.BenefitReservationRow,
+            benefit_reservation_id,
+            "reservation_not_found",
+            tenant_id=tenant_id,
+            family_id=family_id,
         )
         return BenefitReservation(**_row_to_dict(row))
 

@@ -1,5 +1,4 @@
 import * as Haptics from "expo-haptics";
-import type { Href } from "expo-router";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { FlatList, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -10,6 +9,7 @@ import { useFamilyMobile } from "@/lib/family/family-state";
 import { getUiActionPolicy } from "@/lib/family/ui-action-policies";
 import { getFamilyScreen } from "@/lib/family/ui-registry";
 import { haptic } from "@/lib/haptics";
+import { HOME_ROUTES, routeForUi } from "@/lib/navigation/family-routes";
 
 export default function FamilyUiScreen() {
   const colors = useColors();
@@ -22,7 +22,7 @@ export default function FamilyUiScreen() {
       <ScreenContainer className="p-6 items-center justify-center">
         <Stack.Screen options={{ title: "页面未找到" }} />
         <Text style={[styles.title, { color: colors.text }]}>没有找到这个家庭页面</Text>
-        <Pressable onPress={() => router.replace("/(tabs)" as Href)} style={[styles.primaryButton, { backgroundColor: colors.tint }]}>
+        <Pressable onPress={() => router.replace(HOME_ROUTES.home)} style={[styles.primaryButton, { backgroundColor: colors.tint }]}>
           <Text style={styles.primaryButtonText}>回到今天</Text>
         </Pressable>
       </ScreenContainer>
@@ -40,7 +40,7 @@ export default function FamilyUiScreen() {
     }
     if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (screen.primaryTarget) {
-      router.push(`/ui/${screen.primaryTarget}` as Href);
+      router.push(routeForUi(screen.primaryTarget));
     } else {
       router.back();
     }

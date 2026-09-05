@@ -3,6 +3,7 @@
 and the growth-hypothesis decision body validated inline in
 `family.controller.ts` (`decideGrowthHypothesis`).
 """
+
 from __future__ import annotations
 
 from typing import Literal

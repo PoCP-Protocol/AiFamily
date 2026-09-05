@@ -7,7 +7,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { familyApi } from "@/lib/family/family-api-client";
-import type { FamilyApiServiceBookingReceipt, FamilyApiServiceSlotsProjection, FamilyApiServiceSupplyProjection } from "@/lib/family/family-api-projections";
+import type { AvailabilitySlotDto, ServiceOfferingDto } from "@/lib/family/service-api-contracts";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
 import { useFamilyMobile } from "@/lib/family/family-state";
 import { channelLabel, serviceOfferingsForDisplay, type ConsultationChannel } from "@/lib/family/service-support";
@@ -26,8 +26,8 @@ export default function ConsultationBookingScreen() {
   const session = useFamilyApiSession();
   const state = useFamilyMobile();
   const { offeringRef, slotRef } = useLocalSearchParams<{ offeringRef?: string; slotRef?: string }>();
-  const [supply, setSupply] = useState<FamilyApiServiceSupplyProjection | null>(null);
-  const [slots, setSlots] = useState<FamilyApiServiceSlotsProjection | null>(null);
+  const [supply, setSupply] = useState<ServiceOfferingDto[] | null>(null);
+  const [slots, setSlots] = useState<{ slots: AvailabilitySlotDto[] } | null>(null);
   const [channel, setChannel] = useState<ConsultationChannel>("VIDEO");
   const [selectedSlot, setSelectedSlot] = useState<string | null>(slotRef || null);
   const [ageBand, setAgeBand] = useState<(typeof AGE_BANDS)[number]>("7–9 岁");
@@ -38,23 +38,23 @@ export default function ConsultationBookingScreen() {
   useEffect(() => {
     if (session.status !== "connected" || !session.token || !session.selectedFamily) return;
     let active = true;
-    familyApi.getServiceOfferings<FamilyApiServiceSupplyProjection>(session.token, session.selectedFamily.family_id, {})
+    familyApi.getServiceOfferings(session.token, session.selectedFamily.family_id)
       .then(async (result) => {
         if (!active) return;
         setSupply(result);
-        const selected = result.offerings.find((item) => item.service_offering_ref === offeringRef) ?? result.offerings[0];
+        const selected = result.find((item) => item.service_offering_ref === offeringRef) ?? result[0];
         if (!selected) return;
-        const slotResult = await familyApi.getServiceSlots<FamilyApiServiceSlotsProjection>(session.token!, session.selectedFamily!.family_id, selected.service_offering_ref, selected.version_no);
+        const slotResult = await familyApi.getServiceSlots(session.token!, session.selectedFamily!.family_id, selected.service_offering_id);
         if (!active) return;
-        setSlots(slotResult);
-        const preferred = slotResult.slots.find((item) => item.availability_slot_ref === slotRef) ?? slotResult.slots.find((item) => item.status === "AVAILABLE");
+        setSlots({ slots: slotResult });
+        const preferred = slotResult.find((item) => item.availability_slot_ref === slotRef) ?? slotResult.find((item) => item.status === "OPEN");
         setSelectedSlot(preferred?.availability_slot_ref ?? null);
         if (preferred) setChannel(preferred.channel);
       }).catch((error) => { console.error("UI-21 remote action failed", error); });
     return () => { active = false; };
   }, [offeringRef, session.selectedFamily, session.status, session.token, slotRef]);
 
-  const offerings = useMemo(() => serviceOfferingsForDisplay(supply?.offerings), [supply?.offerings]);
+  const offerings = useMemo(() => serviceOfferingsForDisplay(supply ?? undefined), [supply]);
   const offering = offerings.find((item) => item.offeringRef === offeringRef) ?? offerings[0];
   const selectedSlotModel = slots?.slots.find((item) => item.availability_slot_ref === selectedSlot) ?? null;
   const timePreference = selectedSlotModel ? formatSlot(selectedSlotModel.starts_at) : "具体时间稍后确认";
@@ -73,19 +73,24 @@ export default function ConsultationBookingScreen() {
     }
     try {
       state.setFlowStatus({ flowId, lastAction: "SUBMIT_SERVICE_BOOKING", remoteSyncState: "SYNCING", source: "LOCAL_DRAFT", retryable: false });
-      const result = await familyApi.submitServiceBooking<FamilyApiServiceBookingReceipt>(
+      if (!offering.offeringId || !selectedSlotModel) {
+        setSubmitState("error");
+        return;
+      }
+      const result = await familyApi.submitServiceBooking(
         session.token,
         session.selectedFamily.family_id,
         {
-          page_id: "UI-21",
-          service_offering_ref: offering.offeringRef,
-          service_offering_version: offering.version,
-          availability_slot_ref: selectedSlot,
-          attributes: { entry: "family_ai_mobile_consultation_need", channel_preference: channel },
+          service_offering_id: offering.offeringId,
+          availability_slot_id: selectedSlotModel.availability_slot_id,
+          booking_ref: `mobile-ui21:${offering.offeringRef}:${selectedSlotModel.availability_slot_ref}`,
+          source_page_id: "UI-21",
+          subject_person_id: session.selectedFamily.person_id,
+          consent_ref: `session-consent:${session.selectedFamily.person_id}:SERVICE`,
         },
         `family-mobile-ui21:${session.selectedFamily.family_id}:${offering.offeringRef}:${selectedSlot}`,
       );
-      state.syncConsultationNeedReceipt(result.booking.booking_request_id, result.service_record.service_record_id);
+      state.syncConsultationNeedReceipt(result.booking_request_id, null);
       state.setFlowStatus({ flowId, lastAction: "SUBMIT_SERVICE_BOOKING", remoteSyncState: "SYNCED", source: "REMOTE_RECEIPT", retryable: false });
       setSubmitState("saved");
       haptic.success();

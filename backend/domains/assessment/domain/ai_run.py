@@ -33,6 +33,7 @@ intentionally NOT a literal port:
   `outcome` has a `boundary_violation` value the Principal ledger has no
   need for (Principal's `failure_kind` is provider/transport failures only).
 """
+
 from __future__ import annotations
 
 from datetime import datetime

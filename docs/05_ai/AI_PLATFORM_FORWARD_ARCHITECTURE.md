@@ -173,7 +173,7 @@ Family Growth Graph 与决策来源图是同一张图的两个视图
 `COMPLIANCE_HARD_CONSTRAINTS.md` §1 要求「每个存储未成年人数据的字段须有明示留存期限与到期处理方式」
 ——三态划分是该要求在记忆层的落地形式。
 
-**当前状态**：`CURRENT_AI_MAP.md` §3 第 5 项记 Memory 为 `ABSENT`；
+**当前状态**：`CURRENT_AI_MAP.md` §3 第 5 项已升为 `EXPERIMENT`；`SqlAlchemyMemoryStore` 与迁移 0022 提供可重启、可撤回的引用存储，向量检索仍未启用；
 源仓库 `FamilyMemoryDialogueRuntime` **未接入任何调用方**，embedding / pgvector 完全不存在于代码。
 三态一态都没有。
 

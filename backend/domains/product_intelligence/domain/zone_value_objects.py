@@ -10,6 +10,7 @@ code-review comment may revise.
 This module has no FastAPI/SQLAlchemy dependency, same four-layer rule as
 `value_objects.py` / `entities.py` in this domain.
 """
+
 from __future__ import annotations
 
 from typing import Literal

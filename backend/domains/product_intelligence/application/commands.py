@@ -41,6 +41,7 @@ from ..domain.entities import (
     MarketSignal,
     Opportunity,
     ProductConcept,
+    ProductDefinition,
 )
 from ..domain.errors import ProductIntelligenceForbiddenError, ProductIntelligenceValidationError
 from .context import ActorContext
@@ -104,10 +105,13 @@ async def create_customer_insight(
     *,
     signal_id: str,
     statement: str,
+    evidence_refs: list[str] | None = None,
     model_ref: str | None = None,
     prompt_use_case_version: str | None = None,
     confidence: float | None = None,
 ) -> CustomerInsight:
+    if context.actor_type == "AI" and not evidence_refs:
+        raise ProductIntelligenceValidationError("ai_insight_requires_evidence_refs")
     _require_ai_provenance_if_ai_actor(
         context,
         model_ref=model_ref,
@@ -125,6 +129,7 @@ async def create_customer_insight(
         tenant_scope=context.tenant_scope,
         statement=statement,
         signal_id=signal_id,
+        evidence_refs=evidence_refs or [],
         generated_by=generated_by,
         model_ref=model_ref,
         prompt_use_case_version=prompt_use_case_version,
@@ -327,6 +332,80 @@ async def create_product_concept(
     )
     await repo.save_product_concept(concept)
     return concept
+
+
+async def create_education_product_definition(
+    repo: ProductIntelligenceRepositoryPort,
+    context: ActorContext,
+    *,
+    concept_id: str,
+    product_kind: str,
+    duration_days: int,
+    zone: str,
+    primary_contradiction: str,
+    demand_ref: str,
+    market_insight_refs: list[str],
+    component_ids: list[str],
+    skill_ids: list[str],
+    success_metric_ids: list[str],
+    guardrail_ids: list[str],
+    stop_conditions: list[str],
+    pause_policy: str,
+    human_gate_policy: str,
+    model_ref: str | None = None,
+    prompt_use_case_version: str | None = None,
+    confidence: float | None = None,
+) -> ProductDefinition:
+    """Compose a Web product draft from demand, market evidence and catalog refs.
+
+    This is deliberately deterministic: AI Runtime proposes the inputs, while
+    this domain command validates the product contract and persists only a DRAFT.
+    No Journey/Service/Commerce fact is created here.
+    """
+
+    _require_ai_provenance_if_ai_actor(
+        context,
+        model_ref=model_ref,
+        prompt_use_case_version=prompt_use_case_version,
+        confidence=confidence,
+    )
+    await repo.load_product_concept(concept_id, context.tenant_scope)
+    now = _now()
+    generated_by = context.actor_id if context.actor_type == "AI" else None
+    definition = ProductDefinition(
+        id=_new_id("product-definition"),
+        created_at=now,
+        updated_at=now,
+        created_by=context.actor_id,
+        tenant_scope=context.tenant_scope,
+        concept_id=concept_id,
+        product_kind=product_kind,
+        duration_days=duration_days,
+        zone=zone,
+        primary_contradiction=primary_contradiction,
+        demand_ref=demand_ref,
+        market_insight_refs=market_insight_refs,
+        component_ids=component_ids,
+        generated_by=generated_by,
+        model_ref=model_ref,
+        prompt_use_case_version=prompt_use_case_version,
+        confidence=confidence,
+        education_spec={
+            "product_kind": product_kind,
+            "duration_days": duration_days,
+            "zone": zone,
+            "primary_contradiction": primary_contradiction,
+            "component_ids": component_ids,
+            "skill_ids": skill_ids,
+            "success_metric_ids": success_metric_ids,
+            "guardrail_ids": guardrail_ids,
+            "stop_conditions": stop_conditions,
+            "pause_policy": pause_policy,
+            "human_gate_policy": human_gate_policy,
+        },
+    )
+    await repo.save_product_definition(definition)
+    return definition
 
 
 async def validate_growth_hypothesis(

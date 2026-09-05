@@ -6,7 +6,7 @@ status: current
 version: 1.0
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-08-29
+updated: 2026-09-04
 canonical: true
 supersedes: null
 superseded_by: null
@@ -29,13 +29,32 @@ superseded_by: null
 | `MIGRATED_TESTED` | 有实质代码 + 可在 CI 真实运行的测试 | 满足 R4 |
 | `PRODUCTION` | 已真正上线服务真实家庭 | 有生产运行记录 |
 
-**当前没有任何一个 Domain 达到 `PRODUCTION`。** 前提条件（业务 API、数据库 baseline、远端 CI）全部缺失，见 `CURRENT_SYSTEM_BASELINE.md` §4。
+**当前没有任何一个 Domain 达到 `PRODUCTION`。** 前提条件（业务 API、数据库 baseline、远端 CI）全部缺失，见 `CURRENT_SYSTEM_BASELINE.md` §4（**但该节"零业务 API"的具体断言已被 §0.4 追记纠正**，本文件下方 §3.2-§3.7 描述的域拆分方案本身也已过期，见本节下方追记）。
+
+### 0.1 现状核实追记（2026-09-04，本条不改动 §1-§7 既有结构）
+
+**§3.2-§3.6（growth/assessment/journey/action/outcome 五个分离域）与 §3.7（service）标注的 `NOT_STARTED` 已经不准确**，且这五个分离域描述的拆分方案，实际实现走了另一条路径——本条只如实记录 `governance/DOMAIN_REGISTRY.yaml`（本文件自己声明的机器可执行真相源）里的真实登记，不重写 §3 的域边界叙述（那需要 chief-architect 判断"分离五域"与"统一 family_need"两个方案哪个是当前决策，属架构裁决，不是文档勘误）：
+
+```text
+DOMAIN_REGISTRY.yaml 真实登记（2026-09-04 核实）：
+  capability: family_need_orchestration
+  canonical_path: backend/domains/family_need
+  status: MIGRATED_TESTED
+```
+
+`backend/domains/family_need` 是一个**统一域**，覆盖 N0-N8 全生命周期（信号→澄清→分级→方案→资源分配→交付→质量确认→回流），语义上横跨本文件 §3.2 growth、§3.3 assessment、§3.4 journey、§3.5 action、§3.6 outcome 五节描述的职责——但不是按这五个各自独立的 `backend/domains/{growth,assessment,journey,action,outcome}` 落地的，那五个目录仍然不存在。这是一次未被本文件记录的架构选择，不是本文件"预测错了会怎么建"，而是"建的时候走了另一条路，文档没跟上"。
+
+`backend/domains/service`（含 `backend/domains/service/fgcn`）同样已是 `MIGRATED_TESTED` 级别，有完整的 admission/case/task/assignment/quality/contribution 链路与真实 Postgres 集成测试，不是 §3.7 标注的 `NOT_STARTED`。`product_intelligence`（§3.12）也已远超"21文件/1492行 V0.1"的描述，新增了 `family_experience_signal`/`improvement_candidate` 两个去标识化跨家庭信号能力，均有真实 Postgres 持久化。
+
+**未核实部分**：identity/consent/tenancy 业务域、commerce/community/teacher/institution 是否仍是 `NOT_STARTED`——本条追记没有重新核实这几个，§3.17-§3.19 及 §3.8-§3.11 暂按原文对待。
 
 **`MIGRATED_STRUCTURE_ONLY` / `MIGRATED_UNTESTED` 不是"接近完成"**，按 `governance/REPOSITORY_CONSTITUTION.md` R4（无测试不得称能力）与 R14（架构测试强制）的伤疤记录，它们等价于"能力不存在，但代码占了位置"。代码行数不是成熟度。
 
 ---
 
 ## 1. 状态总览
+
+**⚠ 见 §0.1 追记（2026-09-04）**：下表把 growth/assessment/journey/action/outcome/service 计入 `NOT_STARTED` 已不准确——`family_need`（统一域，覆盖前五者语义）与 `service`（含 fgcn）在 `DOMAIN_REGISTRY.yaml` 均已是 `MIGRATED_TESTED`。本表保留原文本，不在此处直接改数字，避免在没有 chief-architect 裁决"五分域 vs 统一域"之前，用一次文档勘误掩盖需要架构决策的问题。
 
 ```text
 MIGRATED_TESTED           1  (product_intelligence)
@@ -148,7 +167,7 @@ PRODUCTION                0
 | **Upstream** | action、journey |
 | **Downstream** | 家庭私有回顾视图 |
 | **Status** | `NOT_STARTED` |
-| **依据** | 对应 UI-08/11/12/29 全部 `GATE_BOUNDARY`。`MIGRATION_PLAN_V2.md` §3 处置为 **不迁移、不重建**，§8 列为待人类裁决项 —— 这是产品边界问题，不是技术迁移问题。**本域在产品侧裁决前不得开工** |
+| **依据** | UI-11 的跨家庭排名、家庭总分和等级化比较属于禁止的正向行为；UI-08/12/29 的私有回顾、证据绑定成果和经同意分享属于允许能力，应在测试环境完整实现。`MIGRATION_PLAN_V2.md` 的批次只决定生产验证顺序，不得据此阻止允许的 outcome 读模型、分享和审计路径建设 |
 
 ### 3.7 service
 
@@ -158,7 +177,7 @@ PRODUCTION                0
 | **Canonical Code Path** | `backend/domains/service` |
 | **Canonical Doc Path** | `docs/04_domains/service/`（尚未建立） |
 | **Owns** | `ServiceBlueprintVersion`（DRAFT→REVIEWED→PUBLISHED→RETIRED，发布后冻结）、`ServiceCase`、`ServiceTask`、`TaskAssignment`、`ServiceRecord`、`BookingRequest`、`AvailabilitySlot`、`ServiceOffering`、`ServiceContribution`、`AllocationStatement` |
-| **Does Not Own** | 教师个人档案与资质（→ teacher）；机构主体（→ institution）；真实资金结算（P0 阶段为"影子贡献单位"，不接真实支付）。**蓝图与家庭 primary_contradiction 的匹配推理不属本域**（→ intelligence，输出仍是 Recommendation） |
+| **Does Not Own** | 教师个人档案与资质（→ teacher）；机构主体（→ institution）；外部资金渠道适配器（→ payment/settlement adapter）。贡献与结算业务流程仍由本域完整维护：测试环境用影子贡献单位和 fake payout adapter 验证，生产再接真实渠道。**蓝图与家庭 primary_contradiction 的匹配推理不属本域**（→ intelligence，输出仍是 Recommendation） |
 | **Upstream** | family、consent（SERVICE 同意）、journey |
 | **Downstream** | commerce（若涉付费）、outcome |
 | **Status** | `NOT_STARTED` |
@@ -204,7 +223,7 @@ PRODUCTION                0
 | **Upstream** | identity、family、service |
 | **Downstream** | 无（终端） |
 | **Status** | `NOT_STARTED` |
-| **依据** | `MIGRATION_PLAN_V2.md` Batch 6，且带**前置条件**：迁移前必须先清理 UI-17 的硬编码积分兜底值 `?? 1280`，并明确未成年人商业场景权限规则。价格/权益必须服务端派生，客户端不得传价格 |
+| **依据** | `MIGRATION_PLAN_V2.md` Batch 6。测试环境必须完整实现商品、会员、订单、支付 sandbox、权益、积分、退款和续购流程；先清理 UI-17 的硬编码积分兜底值 `?? 1280`，并由服务端派生价格/权益。生产阶段再按真实商品、支付渠道和商业权限准入切换外部适配器 |
 
 ### 3.11 community
 
@@ -214,11 +233,11 @@ PRODUCTION                0
 | **Canonical Code Path** | `backend/domains/community` |
 | **Canonical Doc Path** | `docs/04_domains/community/`（尚未建立） |
 | **Owns** | `Post`、`Feed`、`CommunityProfile` |
-| **Does Not Own** | **不拥有公开画像、等级事实、跨家庭排序**（R9）；不拥有真实外发能力（当前受控为零外发） |
+| **Does Not Own** | **不拥有公开画像、等级事实、跨家庭排序**（R9）；不拥有外部通知/传播供应商，外发通过平台 adapter 受控执行，测试环境使用 fake adapter 验证完整流程 |
 | **Upstream** | family、identity |
 | **Downstream** | 无 |
 | **Status** | `NOT_STARTED` |
-| **依据** | `MIGRATION_PLAN_V2.md` Batch 7。排期靠后但依 `SYSTEM_MANIFEST.md` §2 的"家庭与家庭之间的关系"定位**不是可砍功能**；`MIGRATION_PLAN_V2.md` §8 列为待裁决项（是否在 Batch 7 前先开始调研） |
+| **依据** | `MIGRATION_PLAN_V2.md` Batch 7。排期靠后但依 `SYSTEM_MANIFEST.md` §2 的"家庭与家庭之间的关系"定位**不是可砍功能**；测试环境应使用合成家庭完整验证发布、互动、审核、举报、申诉和撤回，生产再接真实用户与获准外部通知 |
 
 ### 3.12 product_intelligence
 
@@ -344,6 +363,7 @@ PRODUCTION                0
 | `backend/platform/audit` | 平台内核：AuditRecorder（R6 载体） | 有代码 + `tests/platform/audit/test_recorder.py` |
 | `backend/platform/idempotency` | 平台内核：IdempotencyKey / Store | 有代码 + `tests/platform/idempotency/test_keys.py` |
 | `backend/platform/persistence` | 平台内核：UnitOfWork / SqlAlchemyUnitOfWork | 有代码 + `tests/platform/persistence/test_unit_of_work.py` |
+| `backend/platform/security` | 平台内核：显式 mTLS CA/client certificate transport | 有代码 + `tests/platform/security/test_mtls.py` |
 | `backend/packages/contracts` | 跨域共享原语（`Provenance` / `evidence`），被 4 个域以 `backend.packages.contracts.*` 绝对包路径导入 | `MIGRATED_PENDING_REVIEW`。manifest 原写 target = `backend/platform/persistence`，2026-08-29 已对齐为实际路径 |
 | `backend/apps/family_api` | FastAPI 运行时入口 | 真实可运行，仅 `/health` `/ready` + `tests/apps/family_api/test_routes.py` |
 | `backend/intelligence/design_copilot` | AI 侧占位 | `MIGRATED_STRUCTURE_ONLY`：`ProductCompiler` / `DesignSimulator` 每个方法都是 `NotImplementedError`，零调用方、零测试。见 `CURRENT_AI_MAP.md` |

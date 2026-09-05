@@ -20,7 +20,6 @@ from backend.domains.loyalty_points.domain.errors import (
     LoyaltyPointsForbiddenError,
     LoyaltyPointsValidationError,
 )
-
 from tests.domains.loyalty_points.helpers import (
     FAMILY,
     ITEM_CONSULTATION,

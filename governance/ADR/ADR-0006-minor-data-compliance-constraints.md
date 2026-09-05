@@ -127,6 +127,6 @@ PIPL 全文"监护人"仅出现 1 次（第 31 条）；第 44/45 条的知情�
 - `docs/12_governance/COMPLIANCE_HARD_CONSTRAINTS.md`（本决定的完整正文，含 3 票核验记录、法源逐字引用、核验纠正的误解清单）
 - `governance/REPOSITORY_CONSTITUTION.md` R6（审计）、R8（Human Gate，含"涉未成年人的敏感动作"）、R9（AI 输出不得成为事实）
 - `docs/00_system/CURRENT_DOMAIN_MAP.md` §3.10（commerce 域的 Does Not Own 已记录该禁止条款）、§3.18（consent）
-- `docs/11_delivery/migration/MIGRATION_PLAN_V2.md` §3（COMMERCE 闭环的 Stop Condition：迁移前必须先解决未成年人商业场景权限规则不明确）
+- `docs/11_delivery/migration/MIGRATION_PLAN_V2.md` §3（COMMERCE 闭环的环境等价要求：测试环境完整验证权限、消费限额、支付 sandbox、退款和失败路径，生产再切换获准的真实适配器）
 - 法源：《个人信息保护法》第 14/24/28/29/31/44/45/55/56/66/73 条；《未成年人网络保护条例》(2023) 第 24/28/43/44/47 条；《儿童个人信息网络保护规定》第 16/17/19/20/23/28 条
 - ADR-0005（AI 原生定位——与本决定存在实质张力）

@@ -23,6 +23,8 @@ node_modules/
 Thumbs.db
 .idea/
 .vscode/
+.cursor/
+.codex-tmp/
 
 # Local scratch
 *.log

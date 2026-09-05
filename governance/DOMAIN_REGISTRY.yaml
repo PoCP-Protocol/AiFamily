@@ -48,6 +48,22 @@ entries:
       R2 禁止的是同一 capability 指向两个"真实位置"。共享目录是否长期保留、还是把业务身份域拆到
       backend/domains/identity，是 Wave 3 开工前需裁决的开放项（见 CURRENT_DOMAIN_MAP.md §3.17）。
 
+  - capability: platform_locale_context
+    canonical_path: backend/platform/localization
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "50_开发_dev/architecture/FAMILY_AI_PLATFORM_TECH_ARCHITECTURE_V4_1.md §18-19；REPO_AUDIT_REPORT.md A3"
+    scope: >
+      共享四维 locale 上下文：用户、内容、模型、政策语言，以及显式 fallback 顺序。
+      只负责格式校验、规范化、可靠支持解析和 reviewed artifact 版本解析，
+      不负责翻译、不持有业务状态。
+    tests:
+      - tests/platform/localization/test_context.py
+      - tests/platform/localization/test_fastapi.py
+      - tests/platform/localization/test_catalog.py
+    known_gaps:
+      - "尚未接入 API Gateway/Locale Resolver、Prompt/Knowledge 版本库和 locale 评估"
+
   - capability: platform_authorization_policy
     canonical_path: backend/platform/authorization
     status: MIGRATED_TESTED
@@ -85,6 +101,18 @@ entries:
     disposition: REIMPLEMENT
     source_reference: "50_开发_dev/backend/domains/membership/infrastructure/sqlalchemy_repository.py"
     tests: [tests/platform/persistence/test_unit_of_work.py]
+
+  - capability: platform_mtls_transport
+    canonical_path: backend/platform/security
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "无可直接迁移实现；按平台外部服务边界重建"
+    scope: >
+      为身份、密钥服务和部署平台构造显式 CA/client certificate mTLS HTTP client；
+      不读取环境变量、不持有 secret 生命周期，客户端由组合根负责关闭。
+    tests: [tests/platform/security/test_mtls.py]
+    known_gaps:
+      - "真实证书轮换/撤销、KMS/Secret Manager 托管与部署演练仍待环境接入"
 
   - capability: platform_tenancy
     canonical_path: backend/platform/identity
@@ -166,9 +194,83 @@ entries:
       打分/Portfolio 六桶口径/Active Policy 唯一性）、真实 Postgres 集成测试。
       详细证据见 MIGRATION_MANIFEST.yaml product_intelligence_v2 条目。
     known_gaps:
-      - "api/routes.py 与 api/zone_routes.py 均未挂载进 backend/apps/family_api"
+      - "api/routes.py 与 api/zone_routes.py（三区引擎/市场信号等原有端点）仍未挂载进
+         backend/apps/family_api；只有 course_content 相关路由（见 course_content 能力条目）
+         经 _mount_course_content 单独挂载，其余端点保持未挂载状态"
       - "PR-002R（canonical/语义收口）在迁移时是 family-ai 未合并分支，非该仓库主线已批准状态"
       - "AiFamily 内独立复测结果见本次迁移 PR 的测试报告，不假设与源仓库 142/142 完全一致"
+
+  - capability: course_content
+    canonical_path: backend/domains/product_intelligence
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "复用 product_intelligence 现有的证据核验 + Human Gate 发布治理生命周期，
+      非从旧仓库迁移；课程内容模型为本仓库新建"
+    scope: >
+      课程/课件作为 product_intelligence 治理生命周期（DRAFT → UNDER_REVIEW →
+      PUBLISHED/RETIRED）下的新聚合 CourseContent，复用既有 EvidenceClaim 的
+      CONTENT_ACCURACY 分类与 Human Gate 的 PUBLISH_COURSE_CONTENT Named Action，
+      不复用 ProductComponent（纯商品元数据模型，无教学内容字段）。发布后的课程
+      经 family_need 的 CourseSupplyAdapter 接入 SupplyShape.SOLUTION，供
+      Triple P 分级中 UNIVERSAL/LIGHT_GUIDANCE 档的家庭匹配；家庭完成课程后
+      经 mark_course_completed_for_family 记一条完成事实，联动 journey 的
+      GrowthOutcomeLoop 留痕。
+    tests:
+      - tests/domains/product_intelligence/test_course_content_publication.py
+      - tests/domains/product_intelligence/test_course_content_postgres_repository_integration.py
+      - tests/apps/family_api/test_need_fulfillment_e2e.py
+    known_gaps:
+      - "生产 PostgreSQL 仓储（course_content_postgres_repository.py）与迁移
+         database/migrations/versions/0056_course_content.py 已在真实 PostgreSQL
+         上验证 upgrade/downgrade 通过；生产挂载分支已写但未在真实生产部署中启用"
+      - "课程学习进度只有'标记整门课完成'一个最小动作，不是逐课时打卡系统"
+      - "Human Gate 审核路径在生产环境无 PostgreSQL 实现（全仓库 Human Gate 均如此），
+         生产环境下课程发布路由维持 fail-closed"
+      - "课程内容目前是单一共享目录（无按租户隔离的课程作者体系），CourseSupplyAdapter
+         匹配时不按 tenant_id 过滤，是记录在案的简化，非遗漏"
+
+  - capability: improvement_candidate
+    canonical_path: backend/domains/product_intelligence
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "N8 新需求回流的产品侧信号，本仓库新建，非从旧仓库迁移"
+    scope: >
+      N8"回到需求池、知识和产品改进"的产品侧落点：家庭确认 DID_NOT_HELP 时，
+      写入一条去标识化的 ImprovementCandidate（component_id/component_shape/
+      decision/category/intervention_tier，无 family_id/tenant_id/家庭原文），
+      供产品/内容团队查询"这个课程/服务是否需要改进或退场"。真实 PostgreSQL
+      已验证 round-trip。
+    tests:
+      - tests/domains/product_intelligence/test_improvement_candidate_postgres_repository_integration.py
+      - tests/apps/family_api/test_need_fulfillment_e2e.py
+    known_gaps:
+      - "只是信号沉淀，未接任何自动化的'产品/内容改进'决策流程——查询到信号后
+         仍需人工判断要不要改，不做自动下线/自动改写"
+
+  - capability: family_experience_signal
+    canonical_path: backend/domains/product_intelligence
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "对标小红书'看看其他家庭怎么解决类似问题'的经验价值，
+      本仓库新建的去标识化聚合方案，非 UGC，非从旧仓库迁移"
+    scope: >
+      家庭确认结果（HELPED/PARTIALLY_HELPED/DID_NOT_HELP，全部而非仅负面）
+      写入的去标识化跨家庭信号，`family_experience_signals`表在数据库层面
+      物理上没有任何 family/tenant/child 列（不是应用层过滤，是表结构本身
+      不存在该列）。`GET /product-intelligence/experience-signals/summary?
+      category=X`用真实 SQL GROUP BY 返回每个 component 的
+      helped/partially_helped/did_not_help 计数与 helped_rate，替代小红书式
+      UGC 个人故事（家庭隐私文本即使去标识化也有识别风险，改用真实结构化
+      结果聚合）。与 improvement_candidate 是两个独立聚合：后者只答"要不要
+      改这个产品"，前者答"这对像我一样的家庭有没有用"。
+    tests:
+      - tests/apps/family_api/test_need_fulfillment_e2e.py
+    known_gaps:
+      - "只在 confirm_family_outcome 端点写入，尚未接入 family_need 域外
+         任何其他确认结果来源；查询端点无分页/排序参数，数据量增大后需补"
+      - "尚未补一份专属的真实 PostgreSQL gated 集成测试文件（已用手工脚本
+         验证过真实 round-trip + SQL 聚合正确，但没有固化成 tests/ 下的
+         可重复运行测试——记录在案的缺口，不是没验证过）"
 
   - capability: membership
     canonical_path: backend/domains/membership
@@ -250,6 +352,37 @@ entries:
           未被执行，只有 domain 层等价校验被覆盖 —— 与 membership 同一已知缺口。
     override_reference: "MIGRATION_MANIFEST.yaml → service_booking.project_owner_override（2026-08-29 T-15 重派）"
 
+  - capability: service_fgcn_collaboration
+    canonical_path: backend/domains/service/fgcn
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "database/baseline/0020_growth_orchestration_v1.sql；database/baseline/0057_service_task_allocation_dev.sql；database/baseline/0059_service_collaboration_allocation_policy.sql；database/baseline/0060_service_case_allocation_basis_and_runs.sql；database/baseline/0061_service_task_rework_and_reviewer_gate.sql"
+    scope: >
+      FGCN P0 服务协作链：已发布蓝图快照建案、任务模板、人工确认后的任务分配、交付凭证、
+      质量验收、服务贡献和一次性 100 单位影子分配。增长账、服务贡献账和资金结算账分离；
+      不含真实支付、外部通知、返工任务或争议裁决；已新增
+      `0004_fgcn_p0_persistence` 对应的 SQLAlchemy 持久化适配器（贡献保留 delivery_ref 来源），
+      `0006_ai_human_tasks` 对应的 Human Gate 持久化适配器，以及由 NamedActionRequest
+      驱动的同事务分派应用命令、family_api 控制面和 one-shot worker handler；常驻队列/lease
+      与生产 identity/session wiring 尚未完成。
+    tests:
+      - tests/domains/service/fgcn
+      - tests/domains/service/fgcn/test_family_need_durable_assignment_postgres.py
+    known_gaps:
+      - "FGCNEngine（同步、内存）仍是 dev 环境默认路径；durable 异步路径
+         （application.py 的 open_service_case/execute_task_assignment_named_action
+         + SqlAlchemyFGCNRepository）已补齐 family_need 触发的分派场景，并在真实
+         PostgreSQL 上验证：一个会话写入的 case/task/assignment 能被完全独立的新会话
+         查询到，证明不是内存幻觉——见 family_need_orchestration 条目里 FGCN 分派授权
+         闸门的说明。family_api 常驻控制面（Human Gate + one-shot consume）本身
+         仍是原有实现，未新增"
+      - "Alembic 0004_fgcn_p0_persistence、0005_fgcn_assignment_request_idempotency 与 0006_ai_human_tasks 需在生产库执行后才能使用对应 ORM/请求幂等索引"
+      - "资源准入硬门槛、真实 provider capability relation、返工任务、质量池释放和争议裁决尚未实现；
+         provider admission 本身仍无持久化表，durable 分派路径依赖调用方传入的
+         AsyncProviderAdmissionQuery，不是仓库自己查出来的准入记录"
+      - "当前仅将 CONFIRM_SERVICE_TASK_ASSIGNMENT 接入 durable application command；生产
+         session/identity wiring 和完整 workflow worker 仍未完成"
+
   - capability: product_strategy
     canonical_path: backend/domains/product_strategy
     status: RETIRED_CANONICAL_CONFLICT
@@ -276,10 +409,12 @@ entries:
 
   - capability: growth_plan_python_stub
     canonical_path: backend/domains/growth_plan
-    status: MIGRATED_STRUCTURE_ONLY
-    disposition: MIGRATE
+    status: RETIRED_CANONICAL_CONFLICT
+    disposition: RETIRE
     source_reference: "50_开发_dev/backend/domains/growth_plan"
-    note: "单文件 37 行，仅错误类型枚举。无实体，无行为，零测试。"
+    note: >
+      单文件错误类型空壳，语义已按 ADR-0012 并入 journey。旧目录删除仍需
+      project-owner 二次确认，因此暂时保留且禁止新增实现。
     override_reference: "MIGRATION_MANIFEST.yaml → growth_plan_python_stub.project_owner_override（2026-08-29 推翻 ARCHIVE；迁移后仍是错误类型 stub，不假装已有实体模型）"
     registration_note: "本条目为 2026-08-29 补登记，同 market_intelligence。"
     r2_overlap_risk: >
@@ -291,6 +426,48 @@ entries:
       三者之一：(a) 本 stub 并入 journey 后删除本条目；(b) growth_plan 明确降级为
       journey 的内部子模块（不再是独立 capability）；(c) 明确 growth_plan 与 journey
       是两个不同能力并写出边界。在裁决前不得向本 stub 添加实体模型。
+
+  - capability: journey
+    canonical_path: backend/domains/journey
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "50_开发_dev/apps/api/src/modules/family/journey-plan.service.ts, journey-plan.dto.ts"
+    scope: >
+      90 天家庭共同成长旅程：计划创建、家庭确认、阶段复盘与暂停状态机。
+      进度是日程事实，不代表成长结果；阶段迁移必须由家庭明确决定。
+    tests: [tests/domains/journey]
+    known_gaps: >
+      PostgreSQL repository、正式依赖、可信 Actor resolver、SQL Policy、跨进程幂等及
+      Audit/Outbox 同事务执行器均已接线，非 PostgreSQL 或无可信上下文请求 fail closed。
+      UI-05 service-journey 已从 family_journey_plans 与 growth_actions 生成家庭私有过程投影，
+      只统计 COMPLETED 行动且明确禁止解释为分数或成长结果。legacy Consent schema 尚不足以
+      构造完整 ConsentGrant；行动记录写入、current_day 推进与阶段 REVIEW_DUE 到期转换仍待实现。
+    postgres_test_gate: >
+      tests/domains/journey/test_postgres_transaction_integration.py 在设置
+      AIFAMILY_TEST_DATABASE_URL 时验证幂等回放与异常回滚；未设置时明确 skip。
+      tests/domains/journey/test_fastapi_postgres_e2e.py 在独立 Alembic baseline
+      数据库验证 UI-04 Priority→Preview→Plan→Confirm 以及 UI-05 service-journey
+      私有过程投影的真实 HTTP 闭环。
+
+  - capability: action
+    canonical_path: backend/domains/action
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "database/baseline/0039_family_90_day_journey_actions.sql, database/baseline/0045_ui09_growth_action_execution_lifecycle.sql"
+    scope: >
+      UI-09 单次家庭成长行动的持久化生命周期：AI 计划经 Guardian 确认后初始化第一个
+      NOT_STARTED 行动，家庭成员可开始、暂停、继续、取消和完成；CheckIn 与 Reflection
+      是过程事实，不是 Outcome、评分、排名或诊断。
+    tests:
+      - tests/domains/action/test_daily_action_state_machine.py
+      - tests/domains/action/test_daily_action_postgres.py
+    known_gaps: >
+      生产 SQL 状态机、幂等、Audit/Outbox、重启回读、Bearer/tenant/family/subject/Consent
+      HTTP 边界和 row_version 乐观锁已实现；AI 草案摘要、provenance 与 consent version
+      通过 0061 固化。workflow worker 已把 Action outbox 投影到 ExperienceEvent 与
+      非比较性 achievement；append-only feedback 与 request_human→HumanTask 已通过真实
+      PostgreSQL，main 挂载、feedback/HumanTask 删除 worker 与部署 scheduler/告警仍待完成。
+    adr: governance/ADR/ADR-0153-ui09-growth-action-domain-and-ai-plan-bridge.md
 
   - capability: design_copilot
     canonical_path: backend/intelligence/design_copilot
@@ -327,6 +504,98 @@ entries:
     disposition: REIMPLEMENT
     source_reference: "50_开发_dev/apps/api/src/modules/family/family.service.ts"
 
+  - capability: family_need_orchestration
+    canonical_path: backend/domains/family_need
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "docs/00_system/FAMILY_NEEDS_PLATFORM_TARGET_MODEL.md"
+    scope: >
+      家庭需求 N0-N8 全链路的端到端垂直切片：N0 信号（NeedSignal）→ N1 澄清
+      （FamilyNeed）→ N2 分级（NeedProfile，含 Triple P 式五级 InterventionTier
+      分级判断 `derive_intervention_tier`）→ N3 方案设计（SolutionDraft，只读的
+      Commerce/Service/Course 供给引用端口 `SupplyReferencePort` 经
+      `CompositeSupplyAdapter` 路由到 PRODUCT/SERVICE/SOLUTION 三种形态各自的
+      适配器）→ N4 资源组织（`AssignmentPlan`，家长确认方案后落一条可查询的
+      "资源分配依据"事实，`authorization_basis` 明确记录这是家长自己批准的，
+      不是 AI 决定的）→ N5 交付执行（跨域履约协调器
+      `backend/apps/family_api/orchestration/need_fulfillment_flow.py`，SERVICE
+      形态在预约前先经 FGCN 分派授权闸门，见下）→ N6/N7 质量验收与结果确认
+      （`FamilyConfirmedOutcome`，家庭本人确认 HELPED/PARTIALLY_HELPED/
+      DID_NOT_HELP，AI/SYSTEM 身份被显式拒绝，见 R9）→ N8 新需求回流
+      （DID_NOT_HELP 时复用 `capture_signal` 真实开出一条新 `NeedSignal`，
+      `causation_id` 指回原需求，不新建并行的回流管道）。
+      **FGCN 分派授权闸门**（`backend/apps/family_api/orchestration/
+      fgcn_assignment_flow.py`）：当且仅当能拿到真实的 N6/N7 自助失败证据
+      （`FamilyConfirmedOutcome.decision=DID_NOT_HELP`）时，SERVICE 预约前先走
+      FGCN 的 S-01 场景（`open_service_case`/`create_task`/
+      `execute_task_assignment_named_action`）——AI 只能建议候选教师
+      （ModelGateway 生成候选），只有家长在 Human Gate 上批准才产生真实
+      `TaskAssignment`；没有该证据的正常预约保持原有直接预约行为，不强制经过
+      FGCN。dev 环境用内存版 `FGCNEngine`（同步），生产/真实验证路径用
+      `application.py` 的异步 durable 函数 + `SqlAlchemyFGCNRepository`，已在
+      真实 PostgreSQL 上验证跨会话可查询（见 service_fgcn_collaboration 条目）。
+      **AI Coach**（`backend/intelligence/experience/family_ai_coach.py` +
+      `backend/domains/family_need/application/ai_coach.py`）：家长可对当前
+      need 发起苏格拉底式引导对话，回复内容 100% 由真实模型（生产可配置
+      OpenAI 兼容 provider，已用 DeepSeek 真实验证）生成，JSON schema 故意不含
+      "answer"/"solution" 字段以在结构层面禁止模型直接给方案；输出标注
+      `AI_PERSPECTIVE_NOT_FAMILY_FACT_GUIDANCE_NOT_ANSWER`，不经 Human Gate
+      （纯展示型 Perspective，不产生任何业务状态变更），AI 用例文档见
+      `docs/05_ai/AI_USE_CASES/family-ai-coach.md`。
+      领域事实由家庭/人工/受治理系统动作写入，AI 只能生成草案或视角，不能直接
+      写入需求事实；商品订单、服务预约、课程内容各自的事实仍由 commerce /
+      service_booking / product_intelligence 领域拥有，本域只持有跨域引用与
+      履约协调结果。
+    tests:
+      - tests/domains/family_need/test_domain_contract.py
+      - tests/domains/family_need/test_postgres_repository_integration.py
+      - tests/domains/family_need/test_actor_resolver_integration.py
+      - tests/domains/family_need/test_commerce_supply_adapter.py
+      - tests/domains/family_need/test_service_supply_adapter.py
+      - tests/domains/family_need/test_ai_coach_route.py
+      - tests/apps/family_api/test_family_need_routes.py
+      - tests/apps/family_api/test_need_fulfillment_e2e.py
+      - tests/domains/service/fgcn/test_family_need_durable_assignment_postgres.py
+      - tests/intelligence/experience/test_family_ai_coach_real_model.py
+    known_gaps:
+      - "生产 PostgreSQL 仓储（postgres_repository.py）与 SqlAlchemyFamilyNeedActorResolver
+         已实现并在真实 PostgreSQL（Docker docker-compose.dev.yml）上验证 round-trip/
+         乐观锁/幂等约束通过；生产环境挂载分支（_mount_family_need）已写但尚未在真实
+         生产部署中启用过"
+      - "FamilyNeedPolicyPort（同意/授权真实存储）仍是 dev/test 合成实现，未接生产同意存储"
+      - "N4 目前只是分配决策事实的记录层，不是真正的资源容量调度/并发争用处理"
+      - "（已核实更正，2026-09-04）N8 回流曾记录为'只回流到新 NeedSignal 层面，
+         未接知识库/产品改进闭环'，通读 confirm_family_outcome 端点后确认此说法过时：
+         record_family_experience_signal 与 record_improvement_candidate 均已在该端点
+         真实调用，经 FulfillmentDeps 注入的 Protocol 端口（非跨域直接 import），
+         dev_wiring.py 里两个 repository 均接了真实 Postgres 实现。闭环已打通，
+         非缺口——见 backend/domains/product_intelligence 域下 improvement_candidate
+         与 family_experience_signal 两个 capability 条目的 scope 说明"
+      - "跨域履约协调器（need_fulfillment_flow.py）是同步顺序调用，无分布式事务补偿；
+         中途失败只如实返回 failed_step/failure_reason，不做自动回滚"
+      - "（已接线，2026-09-04）FGCN provider 准入与真实教师分派的整条链路曾只在
+         `FGCNEngine` 内存实例里发生（`need_fulfillment_flow.fulfil_confirmed_draft`
+         唯一真实 HTTP 可达调用点用的是同步 `authorize_real_teacher_assignment` +
+         内存态 `_dev_fgcn_provider_admission`），进程重启即丢失；同时存在的
+         `authorize_real_teacher_assignment_durable`/`SqlAlchemyProviderAdmissionQuery`
+         是协议不兼容的另一条异步 durable 路径，此前只被专属 Postgres 集成测试
+         调用，从未接入任何 HTTP 可达流程——这是本仓库里「能力已建好但从未被
+         组合根引用」的又一例。已把 `fulfil_confirmed_draft` 改为新增可选参数
+         `fgcn_session_factory`：供给时（`dev_wiring._dev_fgcn_session`）走
+         durable 路径（真实 case/task/assignment/audit 落库 + 真实
+         `family_service_providers` 表读取资质，含新加的过期时间字段），
+         未供给则保留旧的内存路径行为不变。同批加了
+         `qualification_type`/`qualification_expires_at` 两列（migration 0066），
+         过期资质现在真正 fail-closed。"
+      - "（已接线，2026-09-04）AI Coach 曾只有单轮对话；backend/intelligence/memory/
+         的 M1_SESSION 记忆能力本身早已完整实现，缺口只是 family_need 应用层
+         （request_coach_perspective/AiCoachDeps）没有转发 memory_store/need_id/
+         subject_ids/consent_version。已接线：dev_wiring 注入真实
+         SqlAlchemyMemoryStore，跨轮次对话历史现在真实生效（见
+         tests/domains/family_need/test_ai_coach_route.py 的
+         test_ai_coach_second_turn_sees_first_turn_history_when_memory_store_wired）。
+         记忆写入不触碰 family_need canonical 状态（R9），30天TTL+删除级联"
+
   - capability: auth_identity
     canonical_path: backend/platform/identity
     status: NOT_STARTED
@@ -337,7 +606,10 @@ entries:
       **与 platform_actor_tenant_context 的边界**：后者只拥有 context.py 的不可变上下文原语，
       本条目拥有账号与会话的业务对象与流程。磁盘上目前只有前者存在，本条目 status = NOT_STARTED。
     r2_boundary_note: "见 platform_actor_tenant_context.r2_boundary_note —— 共享目录是有意的 manifest 级决定，长期是否拆分为开放裁决项。"
-    known_gaps: ["Mobile 硬依赖的 4 个 /auth/* 端点全部缺失", "源仓库 OtpService 的 StubOtpSender 是唯一显式标注的替换点"]
+    known_gaps:
+      - "Mobile 硬依赖的 4 个 /auth/* 端点仍由 dev/test 临时实现提供"
+      - "源仓库 OtpService 的 StubOtpSender 是唯一显式标注的替换点"
+      - "已冻结 AI 组合根所需的 IdentitySessionPort/HTTP 签发、轮换、撤销适配器；真实 auth_identity 服务与数据库写入仍待迁移"
 
   - capability: assessment
     canonical_path: backend/domains/assessment
@@ -359,6 +631,20 @@ entries:
     status: NOT_STARTED
     disposition: MIGRATE
     source_reference: "50_开发_dev/apps/api/src/modules/principal"
+
+  - capability: ai_human_gate
+    canonical_path: backend/intelligence/human_gate
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "docs/05_ai/AI_TECHNICAL_ARCHITECTURE.md §5.2；docs/05_ai/AI_TECHNICAL_ARCHITECTURE_DEEP_DESIGN.md §D09"
+    scope: >
+      AI Draft/Proposal 的人工确认边界：创建 OPEN HumanTask，校验真人角色、租户/家庭范围、
+      截止时间与显式 Named Action；接受后仅返回 NamedActionRequest，拒绝/升级/过期不产生执行请求。
+      不持有业务仓储，不执行服务分派、验收、贡献或结算。
+    tests: [tests/intelligence/human_gate]
+    known_gaps:
+      - "SqlAlchemyHumanGate 已接入 0006_ai_human_tasks；尚无常驻队列/lease、通知、dead-letter、生产 identity/consent factory 和完整调度 worker"
+      - "NamedActionRequest 已接入 service/fgcn durable TaskAssignment 写入端，family_api 控制面已挂载，但完整 FGCN 分派能力仍未完成；本切片不声称目标态已完成"
 
   # ---------- 契约 / 数据库 (MIGRATE) ----------
 
@@ -413,6 +699,30 @@ entries:
       故 status 校正为 NOT_STARTED。Fact/Perspective/Recommendation/Action/Outcome 的语义区分
       本身已写入宪章 R9，但独立的业务架构文档未落地。
 
+  - capability: commerce_product_catalog
+    canonical_path: backend/domains/commerce
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "database/baseline/0034_family_commerce_intent_and_entitlement.sql"
+    scope: >
+      仅负责 family_product_offerings 的版本化、准入和移动端只读投影。
+      当前实现限定 DEV/TEST fixture；订单意向、权益、支付和履约不属于本条目。
+    tests: [backend/domains/commerce/tests/test_master_data.py]
+    known_gaps:
+      - "生产 session factory、Alembic/runtime migration wiring 尚未接入"
+
+  - capability: commerce_order_intent_dev
+    canonical_path: backend/domains/commerce
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "database/baseline/0034_family_commerce_intent_and_entitlement.sql"
+    scope: >
+      UI-14/17 的 DEV/TEST 家庭私有购买意向和待处理 no-op entitlement；
+      仅支持幂等写入与客户投影，不代表支付、订单或生产权益。
+    tests: [backend/domains/commerce/tests/test_master_data.py, backend/domains/commerce/tests/test_api_routes.py]
+    known_gaps:
+      - "生产 session/consent wiring 与真实支付适配器尚未接入"
+
   - capability: fels_anti_pattern_contract
     canonical_path: governance/REPOSITORY_CONSTITUTION.md#R9
     status: DONE
@@ -428,7 +738,7 @@ entries:
 #   disposition = ARCHIVE 或 DELETE，永不进入 AiFamily，故本表无行。
 #
 # 尚未成为独立 capability 的业务域（family/growth/assessment/journey/action/outcome/
-# service/teacher/institution/commerce/community）：除 family_core 外均无 registry 行，
-# 因为 R2 登记的是"已批准的实现位置"，不是"计划中的域"。它们的边界见
-# docs/00_system/CURRENT_DOMAIN_MAP.md，排期见 docs/11_delivery/migration/MIGRATION_PLAN_V2.md。
-# 每个域开工的第一个 PR 必须同时新增本表一行。
+# service/teacher/institution/community 等）仍无 registry 行；commerce_product_catalog
+# 已作为本次移动端目录切片登记。R2 登记的是"已批准的实现位置"，不是"计划中的域"。
+# 其余域边界见 docs/00_system/CURRENT_DOMAIN_MAP.md，排期见
+# docs/11_delivery/migration/MIGRATION_PLAN_V2.md。每个域开工的第一个 PR 必须同时新增本表一行。

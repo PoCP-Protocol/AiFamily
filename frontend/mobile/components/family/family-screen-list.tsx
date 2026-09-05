@@ -1,4 +1,3 @@
-import type { Href } from "expo-router";
 import { router } from "expo-router";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -6,6 +5,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { getScreensForTab, type FamilyTab } from "@/lib/family/ui-registry";
+import { routeForUi } from "@/lib/navigation/family-routes";
 
 interface FamilyScreenListProps {
   tab: FamilyTab;
@@ -35,7 +35,7 @@ export function FamilyScreenList({ tab, eyebrow, title, description }: FamilyScr
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`${item.title}，${item.subtitle}`}
-            onPress={() => router.push(`/ui/${item.id}` as Href)}
+            onPress={() => router.push(routeForUi(item.id))}
             style={({ pressed }) => [
               styles.row,
               { backgroundColor: colors.surface, borderColor: colors.border },

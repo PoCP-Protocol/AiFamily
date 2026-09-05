@@ -25,16 +25,60 @@ longer commit.
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+import inspect
+from collections.abc import AsyncGenerator, Awaitable, Callable
 
 from fastapi import Request
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..application.context import ActorContext
 from ..application.ports import ProductIntelligenceRepositoryPort
 from ..infrastructure.sqlalchemy_repository import SqlAlchemyProductIntelligenceRepository
 from ..infrastructure.unit_of_work import SqlAlchemyUnitOfWork
 
-_session_factory = None  # set by the owning app at startup; not configured in this PR
+_session_factory: async_sessionmaker[AsyncSession] | None = None
+ActorResolver = Callable[[Request], ActorContext | Awaitable[ActorContext]]
+_actor_resolver: ActorResolver | None = None
+
+
+def configure_session_factory(
+    session_factory: async_sessionmaker[AsyncSession] | None,
+) -> None:
+    """Install the owning application's explicit async session factory.
+
+    Product Intelligence never chooses a local fallback database.  The
+    composition root must call this setter during startup and may clear it
+    when an app instance is torn down or has no configured database.
+    """
+
+    global _session_factory
+    _session_factory = session_factory
+
+
+def clear_session_factory() -> None:
+    """Remove process wiring so a later app cannot inherit stale state."""
+
+    configure_session_factory(None)
+
+
+def configure_actor_resolver(resolver: ActorResolver | None) -> None:
+    """Install an app-owned request identity bridge.
+
+    The resolver must derive ``ActorContext`` from trusted authentication and
+    tenant binding.  No header, query parameter, or request body is accepted
+    as an identity fallback.
+    """
+
+    global _actor_resolver
+    if resolver is not None and not callable(resolver):
+        raise TypeError("actor resolver must be callable")
+    _actor_resolver = resolver
+
+
+def clear_actor_resolver() -> None:
+    """Remove process wiring so later app instances cannot inherit identity."""
+
+    configure_actor_resolver(None)
 
 
 async def get_actor_context(request: Request) -> ActorContext:
@@ -42,11 +86,21 @@ async def get_actor_context(request: Request) -> ActorContext:
     A future PR wiring real identity/auth must implement this, not this
     domain — see module docstring.
     """
-    raise RuntimeError(
-        "get_actor_context is not implemented — no real authentication exists yet for "
-        "domains/product_intelligence; do not fall back to trusting a request header or "
-        "body field for actor identity/tenant_scope (see api/requests.py docstring)"
-    )
+    resolver = _actor_resolver
+    if resolver is None:
+        raise RuntimeError(
+            "get_actor_context is not implemented — no real authentication exists yet for "
+            "domains/product_intelligence; do not fall back to trusting a request header or "
+            "body field for actor identity/tenant_scope (see api/requests.py docstring)"
+        )
+    context = resolver(request)
+    if inspect.isawaitable(context):
+        context = await context
+    if not isinstance(context, ActorContext):
+        raise RuntimeError(
+            "configured product_intelligence actor resolver returned invalid context"
+        )
+    return context
 
 
 async def get_repository() -> AsyncGenerator[ProductIntelligenceRepositoryPort, None]:
@@ -55,7 +109,18 @@ async def get_repository() -> AsyncGenerator[ProductIntelligenceRepositoryPort, 
             "product_intelligence session factory not configured — no owning app exists yet"
         )
     async with (
-        _session_factory() as session,  # type: AsyncSession
+        _session_factory() as session,
         SqlAlchemyUnitOfWork(session),
     ):
         yield SqlAlchemyProductIntelligenceRepository(session)
+
+
+__all__ = [
+    "ActorResolver",
+    "clear_actor_resolver",
+    "clear_session_factory",
+    "configure_actor_resolver",
+    "configure_session_factory",
+    "get_actor_context",
+    "get_repository",
+]

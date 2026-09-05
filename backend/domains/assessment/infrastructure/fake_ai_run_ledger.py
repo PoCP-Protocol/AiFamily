@@ -1,6 +1,7 @@
 """In-memory `AiRunLedgerPort` for unit tests — records everything, never
 fails, no DB dependency. See `domain/ai_run.py` for the record shape.
 """
+
 from __future__ import annotations
 
 from ..application.ports import AiRunLedgerPort

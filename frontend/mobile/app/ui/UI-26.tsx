@@ -1,4 +1,3 @@
-import type { Href } from "expo-router";
 import { Stack, router } from "expo-router";
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
@@ -11,6 +10,7 @@ import { createMobileRequestId, familyApi } from "@/lib/family/family-api-client
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
 import { useFamilyMobile } from "@/lib/family/family-state";
 import { trpc } from "@/lib/trpc";
+import { routeForUi } from "@/lib/navigation/family-routes";
 
 export default function PublishFamilyNoteScreen() {
   const colors = useColors();
@@ -74,13 +74,13 @@ export default function PublishFamilyNoteScreen() {
         <Text style={[styles.sectionTitle, { color: colors.text }]}>可见范围</Text>
         <View style={[styles.visibilityCard, { backgroundColor: colors.surface, borderColor: colors.border }]}><View style={[styles.visibilityIcon, { backgroundColor: "#16866D16" }]}><IconSymbol name="lock.fill" size={23} color={colors.success} /></View><View style={styles.visibilityCopy}><Text style={[styles.visibilityTitle, { color: colors.text }]}>仅家庭可见</Text><Text style={[styles.visibilityText, { color: colors.muted }]}>保存后进入“我的社区”，不会公开发布、通知顾问或同步到挑战。</Text></View><IconSymbol name="eye.fill" size={20} color={colors.success} /></View>
 
-        <Pressable onPress={() => router.push("/ui/UI-09" as Href)} style={({ pressed }) => [styles.taskCard, pressed && styles.pressed]}><View style={styles.taskCheck}><IconSymbol name="checkmark.circle.fill" size={23} color="#FFFFFF" /></View><View style={styles.taskCopy}><Text style={styles.taskLabel}>来自今天的家庭行动</Text><Text style={styles.taskTitle}>完成行动后，可以把观察写成家庭小记</Text></View><IconSymbol name="chevron.right" size={21} color="#F28C45" /></Pressable>
+        <Pressable onPress={() => router.push(routeForUi("UI-09"))} style={({ pressed }) => [styles.taskCard, pressed && styles.pressed]}><View style={styles.taskCheck}><IconSymbol name="checkmark.circle.fill" size={23} color="#FFFFFF" /></View><View style={styles.taskCopy}><Text style={styles.taskLabel}>来自今天的家庭行动</Text><Text style={styles.taskTitle}>完成行动后，可以把观察写成家庭小记</Text></View><IconSymbol name="chevron.right" size={21} color="#F28C45" /></Pressable>
 
         <View style={[styles.privacyCard, { backgroundColor: privacyRisks.length ? "#FFF3ED" : "#EEF8F4", borderColor: privacyRisks.length ? "#F28C45" : "#16866D" }]}><IconSymbol name="shield.fill" size={21} color={privacyRisks.length ? "#F28C45" : "#16866D"} /><View style={styles.privacyCopy}><Text style={[styles.privacyTitle, { color: colors.text }]}>{privacyRisks.length ? "请先保护家庭隐私" : "保存前的隐私提醒"}</Text><Text style={[styles.privacyText, { color: colors.muted }]}>{privacyRisks.length ? privacyRisks.join("；") : "不要填写孩子姓名、学校、班级、电话、住址或其他可识别信息。"}</Text></View></View>
 
         {status === "SAVED" ? <View style={[styles.savedCard, { borderColor: colors.success }]}><IconSymbol name="checkmark.circle.fill" size={22} color={colors.success} /><View style={styles.savedCopy}><Text style={[styles.savedTitle, { color: colors.text }]}>小记已保存在家庭空间</Text><Text style={[styles.savedText, { color: colors.muted }]}>这是家长视角的私有草稿，不是事实结论，也没有公开发布。</Text></View></View> : null}
         <Pressable disabled={!canSave} onPress={() => void saveDraft()} style={({ pressed }) => [styles.saveButton, { backgroundColor: canSave ? "#F28C45" : colors.border }, pressed && canSave && styles.pressed]}><IconSymbol name="lock.fill" size={20} color="#FFFFFF" /><Text style={styles.saveText}>{status === "SAVING" ? "正在保存……" : "保存私有小记"}</Text></Pressable>
-        <Pressable onPress={() => router.push("/ui/UI-28" as Href)} style={({ pressed }) => [styles.mineButton, { borderColor: colors.tint }, pressed && styles.pressed]}><Text style={[styles.mineText, { color: colors.tint }]}>查看我的社区</Text></Pressable>
+        <Pressable onPress={() => router.push(routeForUi("UI-28"))} style={({ pressed }) => [styles.mineButton, { borderColor: colors.tint }, pressed && styles.pressed]}><Text style={[styles.mineText, { color: colors.tint }]}>查看我的社区</Text></Pressable>
       </ScrollView>
     </ScreenContainer>
   );

@@ -27,7 +27,7 @@ reaches out to a model provider (R7) — it is pure persistence wiring.
 from __future__ import annotations
 
 import os
-from functools import lru_cache
+from collections import OrderedDict
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -98,8 +98,52 @@ def is_postgres_url(database_url: str) -> bool:
     return database_url.startswith(("postgresql", "postgres://"))
 
 
-@lru_cache(maxsize=8)
-def _cached_engine(database_url: str) -> AsyncEngine:
+#: How many distinct database URLs keep a live engine. Same number the previous
+#: ``lru_cache(maxsize=8)`` used; what changed is that eviction now disposes.
+ENGINE_CACHE_SIZE = 8
+
+#: URL -> engine, in least-recently-used-first order.
+#:
+#: Deliberately **not** ``functools.lru_cache``. ``lru_cache`` drops the evicted
+#: value on the floor, and an ``AsyncEngine`` owns a connection pool: dropping
+#: the last reference to it leaks every pooled connection until the garbage
+#: collector happens to run, and even then SQLAlchemy only logs that the
+#: connection was garbage collected rather than returned. With ``maxsize=8``, a
+#: test module that parametrises over nine URLs leaks the first engine's pool
+#: (`docs/06_platform/PERSISTENCE.md` §3 gap 4). This ``OrderedDict`` exists so
+#: eviction has somewhere to run ``dispose`` from.
+_ENGINE_CACHE: OrderedDict[str, AsyncEngine] = OrderedDict()
+
+
+def _dispose_engine_pool(engine: AsyncEngine) -> None:
+    """Release an evicted engine's pooled connections, synchronously.
+
+    ``AsyncEngine.dispose()`` is a coroutine, and eviction happens inside a
+    synchronous accessor that may itself be called from inside a running event
+    loop — awaiting is not available and ``asyncio.run`` would raise. So the
+    wrapped ``Engine.dispose()`` is called directly: it is the synchronous method
+    the coroutine delegates to, and it both closes the currently checked-in
+    connections and replaces the pool so nothing can be handed out from the old
+    one afterwards. What it does not do is await each driver-level close, which is
+    acceptable for a cache eviction and strictly better than the previous
+    behaviour of never closing them at all.
+    """
+    engine.sync_engine.dispose()
+
+
+def clear_engine_cache() -> None:
+    """Drop every cached engine, disposing each pool.
+
+    Exists so tests can reset engine state between cases; the previous
+    ``lru_cache`` had no exposed way to do this
+    (`docs/06_platform/PERSISTENCE.md` §3 gap 4, second half).
+    """
+    while _ENGINE_CACHE:
+        _, engine = _ENGINE_CACHE.popitem(last=False)
+        _dispose_engine_pool(engine)
+
+
+def _create_engine(database_url: str) -> AsyncEngine:
     if database_url.startswith("sqlite"):
         # A single shared in-memory SQLite database must use StaticPool so
         # every connection created by the engine sees the same database
@@ -138,8 +182,24 @@ def get_engine(database_url: str | None = None) -> AsyncEngine:
     isolated engine independent of the process-wide default; production
     code should call this with no arguments so it resolves from the
     environment.
+
+    LRU with a bounded size, same as before, but an engine evicted to make room
+    has its connection pool disposed instead of being abandoned to the garbage
+    collector — see ``_ENGINE_CACHE``.
     """
-    return _cached_engine(database_url or resolve_database_url())
+    url = database_url or resolve_database_url()
+
+    engine = _ENGINE_CACHE.get(url)
+    if engine is not None:
+        _ENGINE_CACHE.move_to_end(url)
+        return engine
+
+    engine = _create_engine(url)
+    _ENGINE_CACHE[url] = engine
+    while len(_ENGINE_CACHE) > ENGINE_CACHE_SIZE:
+        _, evicted = _ENGINE_CACHE.popitem(last=False)
+        _dispose_engine_pool(evicted)
+    return engine
 
 
 def get_sessionmaker(database_url: str | None = None) -> async_sessionmaker[AsyncSession]:

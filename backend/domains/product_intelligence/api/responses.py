@@ -3,6 +3,7 @@ models (same pattern acceptable at this PR's scale; assessment domain uses
 dedicated response DTOs, but this domain's entities have no field that must
 be hidden from the API, so no separate response type is introduced here).
 """
+
 from __future__ import annotations
 
 from pydantic import BaseModel

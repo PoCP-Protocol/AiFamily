@@ -6,7 +6,7 @@ status: current
 version: 1.0
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-08-29
+updated: 2026-08-30
 canonical: true
 supersedes: null
 superseded_by: null
@@ -21,36 +21,22 @@ superseded_by: null
 > `docs/00_system/SYSTEM_MANIFEST.md`（系统边界与真相文档清单）→
 > `governance/REPOSITORY_CONSTITUTION.md`（14 条工程宪章）。
 
-## 0.0 生效中的冻结指令（FREEZE）
+## 0.0 商业能力建设规则（替代已撤销的 FREEZE-001）
 
-> **FREEZE-001 ｜ COMMERCE 方向新增实现 ｜ 2026-08-29 生效 ｜ 下达：项目经理**
+> **FREEZE-001 已撤销（2026-08-30）。** COMMERCE 属于 Batch 6，批次只规定交付顺序，
+> 不禁止在测试环境建设完整功能，也不允许用“真实支付尚未接入”作为删减业务流程的理由。
 >
-> **范围**：`backend/domains/loyalty_points`、`backend/domains/membership/api`，
-> 以及任何新增的商品目录 / 订单 / 支付 / 积分 / 权益兑换实现。
+> **建设范围**：商品目录、订单、支付、积分、会员、权益兑换、退款、续购、返佣/结算和
+> 相应的 API、数据模型、状态机、权限、Consent、Audit、幂等、失败与补偿路径，均须按生产
+> 形状建设。开发/测试使用 synthetic data、支付 sandbox、fake payout adapter 和故障注入；
+> 生产再切换真实商品、支付、返佣、库存和通知渠道。
 >
-> **允许**：补测试、补合规守卫、修既有缺陷、写文档。
-> **禁止**：新增业务能力、新增 API 端点、扩大数据模型。
+> **不可放宽的验收项**：正式积分 ledger 替代 UI-17 的 `pointsBalance ?? 1280`；积分和
+> 权益流程必须有能真实失败的 guardrail，禁止基于画像向未成年人自动化商业营销；家庭总分、
+> 家庭排名、AI 自动写入事实等红线在所有环境都保持相同的拒绝、审计和人工处理路径。
 >
-> **依据（不是个人判断，是计划的明文要求）**：
-> - `MIGRATION_PLAN_V2.md` 第4节：COMMERCE 闭环排在 **Batch 6**，当前是 Batch 1/2 阶段。
-> - `MIGRATION_PLAN_V2.md` 第3节对 COMMERCE 行的明文前置条件：「迁移前**必须先**解决
->   UI-17 的硬编码积分和『未成年人商业场景权限规则不明确』的 Stop Condition」。
->   该 Stop Condition **至今未解决**。
-> - `docs/12_governance/COMPLIANCE_HARD_CONSTRAINTS.md` 第3节：《未成年人网络保护条例》
->   第24条第3款是**绝对禁止**——不得通过自动化决策方式向未成年人进行商业营销。
->   积分体系正落在该禁止范围内，且当前**无任何检查器**在业务语义层面拦这件事。
->
-> **解冻条件（三条全满足）**：
-> 1. 项目所有者对 `loyalty_points`（约 1984 行、源仓库无对应物、零测试）是否应存在于
->    当前阶段做出裁决 —— 见 `governance/MIGRATION_MANIFEST.yaml` → `loyalty_points`
->    的 `review_required` 字段。
-> 2. 存在一个能真实失败的 guardrail 测试，证明积分/权益流程无法以孩子为营销对象。
-> 3. UI-17 的硬编码积分兜底值（`pointsBalance ?? 1280`）的处置已确定。
->
-> **为什么下这条冻结**：项目经理在 2026-08-29 复读迁移计划时确认，COMMERCE 工作已
-> 超出既定批次顺序推进，而同期计划要求提前的 **Batch 2 SERVICE 预约子链 6 个端点
-> 全部 MISSING、无人在做**（见 `contracts/openapi/UI_API_ENDPOINT_INVENTORY.md`）。
-> 优先级实际是反的。冻结不是否定 COMMERCE 的价值，是恢复计划顺序。
+> **执行原则**：上述验收项约束实现质量、数据真实性和生产准入，不是 COMMERCE 的开发
+> 阻塞条件。若外部真实供应商尚未获准，先用等价适配器完成并验收完整流程。
 
 ## 0.1 已发生的计划偏离（项目经理自查记录）
 
@@ -58,7 +44,7 @@ superseded_by: null
 
 | # | 偏离 | 后果 | 处置 |
 |---|---|---|---|
-| 1 | COMMERCE 超前推进，Stop Condition 未解决 | loyalty_points 1984 行零测试进仓 | FREEZE-001 |
+| 1 | COMMERCE 超前推进且验收项未完成 | loyalty_points 1984 行进入仓库时缺测试与合规守卫 | 已撤销全局冻结；补齐测试、guardrail、账本和适配器分层 |
 | 2 | 计划要求提前的 Batch 2 SERVICE 无人分派 | 已验证的付费主力闭环价值悬空 | 提为下一优先，见 T-15 |
 | 3 | 已提交的 `market_intelligence`/`product_strategy` 被删除，无二次确认记录 | 违反 project-owner「先把所有 Python 代码都迁移过来」指示；违反计划第1节 `DELETE` 需二次确认 | 已从 git 恢复 |
 | 4 | 治理文件编辑被并发会话覆盖两次（loyalty_points 登记、assessment 合并） | registry 与磁盘反复漂移 | 见下方「并发写作纪律」补充 |

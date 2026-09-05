@@ -41,6 +41,11 @@ class FakeProvider:
         model: the model identity to report.
     """
 
+    # Synthetic providers can exercise every contract modality without sending
+    # bytes anywhere. Production adapters must declare their real capability
+    # set explicitly so route profiles cannot over-claim support.
+    supported_modalities = frozenset({"TEXT", "IMAGE", "AUDIO", "VIDEO", "DOCUMENT"})
+
     def __init__(
         self,
         responses_by_use_case: dict[str, dict[str, Any]] | None = None,

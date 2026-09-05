@@ -26,8 +26,9 @@ in `architecture/FAMILY_AI_PYTHON_ONLY_MIGRATION_PLAN_V1.md` section 3.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .errors import ProductIntelligenceForbiddenError, ProductIntelligenceValidationError
 from .value_objects import (
@@ -144,6 +145,13 @@ class CustomerInsight(_CommonFields, _AiProvenanceFields):
     signal_id: str | None = None
     segment_id: str | None = None
     evidence_refs: list[str] = Field(default_factory=list)
+
+    @field_validator("evidence_refs")
+    @classmethod
+    def _evidence_refs_are_non_empty(cls, value: list[str]) -> list[str]:
+        if any(not ref or not ref.strip() for ref in value):
+            raise ProductIntelligenceValidationError("evidence_refs_must_not_contain_empty_values")
+        return value
 
 
 class UnmetNeed(_CommonFields):
@@ -279,7 +287,11 @@ class ContradictionModel(_CommonFields, _AiProvenanceFields):
                 "contradiction_submit_for_review_illegal_source_state"
             )
         return self.model_copy(
-            update={"status": "UNDER_REVIEW", "updated_at": datetime.now(UTC), "version": self.version + 1}
+            update={
+                "status": "UNDER_REVIEW",
+                "updated_at": datetime.now(UTC),
+                "version": self.version + 1,
+            }
         )
 
     def decide_review(
@@ -327,7 +339,9 @@ class ContradictionModel(_CommonFields, _AiProvenanceFields):
         contradictions, which a single entity method cannot see).
         """
         if self.status != "APPROVED":
-            raise ProductIntelligenceValidationError("contradiction_mark_primary_requires_approved_status")
+            raise ProductIntelligenceValidationError(
+                "contradiction_mark_primary_requires_approved_status"
+            )
         return self.model_copy(
             update={
                 "primary_rank": rank,
@@ -415,23 +429,198 @@ class ProductConcept(_CommonFields, _AiProvenanceFields):
         return _require_non_empty(value, "title")
 
 
+ProductZone = Literal["HOMOGENEOUS", "ADVANTAGE", "UNIQUE_CANDIDATE"]
+GrowthProductKind = Literal["MICRO_CAMP", "SCALE_PLAN", "CUSTOM"]
+
+
+class ProductDefinitionAdoptionSnapshot(BaseModel):
+    """Immutable Human Gate lineage retained with an adopted PDM draft."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["1.0"] = "1.0"
+    action_name: Literal["ADOPT_PRODUCT_CONCEPT_AS_DEFINITION"]
+    request_id: str
+    request_hash: str
+    task_id: str
+    proposal_id: str
+    decision_id: str
+    reviewer_actor_id: str
+    reviewer_actor_type: Literal["OPERATOR"]
+    tenant_scope: str
+    purpose: str
+    processing_basis_ref: str
+    provenance_ref: str
+    source_decision_draft_ref: str
+    zone_assessment_ref: str
+    zone_assessment_version: int
+    zone_policy_version_id: str
+    approved_zone: Literal["COMMODITY", "ADVANTAGE", "UNIQUE"]
+
+    @field_validator(
+        "request_id",
+        "request_hash",
+        "task_id",
+        "proposal_id",
+        "decision_id",
+        "reviewer_actor_id",
+        "tenant_scope",
+        "purpose",
+        "processing_basis_ref",
+        "provenance_ref",
+        "source_decision_draft_ref",
+        "zone_assessment_ref",
+        "zone_policy_version_id",
+    )
+    @classmethod
+    def _adoption_text_non_empty(cls, value: str, info) -> str:
+        return _require_non_empty(value, info.field_name)
+
+    @field_validator("zone_assessment_version")
+    @classmethod
+    def _zone_assessment_version_positive(cls, value: int) -> int:
+        if value < 1:
+            raise ProductIntelligenceValidationError("zone_assessment_version_must_be_positive")
+        return value
+
+
+class EducationProductSpec(BaseModel):
+    """Family-education product configuration carried by a product definition.
+
+    This is a design-time contract, not a family outcome or a child profile.
+    It lets the Web product factory compose 21-day and 90-day products from
+    versioned components while keeping execution facts in Journey/Service.
+    """
+
+    product_kind: GrowthProductKind
+    duration_days: int
+    zone: ProductZone
+    primary_contradiction: str
+    component_ids: list[str] = Field(default_factory=list)
+    skill_ids: list[str] = Field(default_factory=list)
+    success_metric_ids: list[str] = Field(default_factory=list)
+    guardrail_ids: list[str] = Field(default_factory=list)
+    stop_conditions: list[str] = Field(default_factory=list)
+    pause_policy: str
+    human_gate_policy: str
+    adoption: ProductDefinitionAdoptionSnapshot | None = None
+
+    @field_validator("primary_contradiction", "pause_policy", "human_gate_policy")
+    @classmethod
+    def _required_text_non_empty(cls, value: str, info) -> str:
+        return _require_non_empty(value, info.field_name)
+
+    @field_validator(
+        "component_ids",
+        "skill_ids",
+        "success_metric_ids",
+        "guardrail_ids",
+        "stop_conditions",
+    )
+    @classmethod
+    def _refs_must_be_non_empty(cls, values: list[str]) -> list[str]:
+        if any(not value or not value.strip() for value in values):
+            raise ProductIntelligenceValidationError("education_product_refs_must_not_be_empty")
+        if len(set(values)) != len(values):
+            raise ProductIntelligenceValidationError("education_product_refs_must_be_unique")
+        return values
+
+    @model_validator(mode="after")
+    def _duration_matches_product_kind(self) -> EducationProductSpec:
+        if self.duration_days <= 0 or self.duration_days > 180:
+            raise ProductIntelligenceValidationError("education_product_duration_invalid")
+        if self.product_kind == "MICRO_CAMP" and self.duration_days != 21:
+            raise ProductIntelligenceValidationError("micro_camp_duration_must_be_21")
+        if self.product_kind == "SCALE_PLAN" and self.duration_days != 90:
+            raise ProductIntelligenceValidationError("scale_plan_duration_must_be_90")
+        if not self.component_ids or not self.skill_ids or not self.success_metric_ids:
+            raise ProductIntelligenceValidationError("education_product_design_refs_required")
+        if not self.stop_conditions:
+            raise ProductIntelligenceValidationError("education_product_stop_conditions_required")
+        return self
+
+
 class ProductComponent(_CommonFields):
     status: GenericRecordStatus = "DRAFT"
     component_type: str
     title: str
+    zone: ProductZone = "HOMOGENEOUS"
+    purpose: str | None = None
+    input_refs: list[str] = Field(default_factory=list)
+    output_refs: list[str] = Field(default_factory=list)
+    required_skill_ids: list[str] = Field(default_factory=list)
+    evidence_refs: list[str] = Field(default_factory=list)
+    metric_ids: list[str] = Field(default_factory=list)
+    owner_ref: str | None = None
+
+    @field_validator("component_type", "title")
+    @classmethod
+    def _component_text_non_empty(cls, value: str, info) -> str:
+        return _require_non_empty(value, info.field_name)
+
+    @field_validator(
+        "input_refs", "output_refs", "required_skill_ids", "evidence_refs", "metric_ids"
+    )
+    @classmethod
+    def _component_refs_unique(cls, values: list[str]) -> list[str]:
+        if any(not value or not value.strip() for value in values):
+            raise ProductIntelligenceValidationError("product_component_refs_must_not_be_empty")
+        if len(set(values)) != len(values):
+            raise ProductIntelligenceValidationError("product_component_refs_must_be_unique")
+        return values
 
 
 class ProductPattern(_CommonFields):
     status: GenericRecordStatus = "DRAFT"
     title: str
     component_ids: list[str] = Field(default_factory=list)
+    zone: ProductZone = "HOMOGENEOUS"
+    duration_days: int | None = None
+    primary_contradiction: str | None = None
+    required_skill_ids: list[str] = Field(default_factory=list)
 
 
-class ProductDefinition(_CommonFields):
+class ProductDefinition(_CommonFields, _AiProvenanceFields):
     status: GenericRecordStatus = "DRAFT"
     concept_id: str
     pattern_id: str | None = None
     component_ids: list[str] = Field(default_factory=list)
+    product_kind: GrowthProductKind = "CUSTOM"
+    duration_days: int | None = None
+    zone: ProductZone = "HOMOGENEOUS"
+    primary_contradiction: str | None = None
+    demand_ref: str | None = None
+    market_insight_refs: list[str] = Field(default_factory=list)
+    education_spec: EducationProductSpec | None = None
+
+    @model_validator(mode="after")
+    def _education_spec_matches_definition(self) -> ProductDefinition:
+        if self.education_spec is None:
+            return self
+        if not self.demand_ref or not self.demand_ref.strip():
+            raise ProductIntelligenceValidationError("education_product_demand_ref_required")
+        if not self.market_insight_refs:
+            raise ProductIntelligenceValidationError("education_product_market_insight_required")
+        if any(not value or not value.strip() for value in self.market_insight_refs):
+            raise ProductIntelligenceValidationError(
+                "education_product_market_insight_refs_must_not_be_empty"
+            )
+        if len(set(self.market_insight_refs)) != len(self.market_insight_refs):
+            raise ProductIntelligenceValidationError(
+                "education_product_market_insight_refs_must_be_unique"
+            )
+        if self.education_spec.product_kind != self.product_kind:
+            raise ProductIntelligenceValidationError("education_product_kind_mismatch")
+        if (
+            self.duration_days is not None
+            and self.education_spec.duration_days != self.duration_days
+        ):
+            raise ProductIntelligenceValidationError("education_product_duration_mismatch")
+        if self.education_spec.zone != self.zone:
+            raise ProductIntelligenceValidationError("education_product_zone_mismatch")
+        if self.component_ids and set(self.education_spec.component_ids) - set(self.component_ids):
+            raise ProductIntelligenceValidationError("education_product_components_mismatch")
+        return self
 
 
 class ServiceBlueprintVersion(_CommonFields):

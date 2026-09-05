@@ -22,9 +22,10 @@ This was a deliberate refactor away from an earlier per-route try/except
 that repeated the same three lines in all 6 handlers — the same mapping,
 registered once, cannot be forgotten in a 7th route added later.
 """
+
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Header
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 
 from ..application.commands import (
@@ -34,8 +35,15 @@ from ..application.commands import (
     StartAssessmentCommand,
     SubmitAssessmentCommand,
 )
-from ..application.growth_hypothesis_commands import DecideGrowthHypothesisCommand, GrowthHypothesisCommandHandler
-from ..application.queries import AssessmentQueryHandler, GetUi02ProjectionQuery, GetUi03ProjectionQuery
+from ..application.growth_hypothesis_commands import (
+    DecideGrowthHypothesisCommand,
+    GrowthHypothesisCommandHandler,
+)
+from ..application.queries import (
+    AssessmentQueryHandler,
+    GetUi02ProjectionQuery,
+    GetUi03ProjectionQuery,
+)
 from ..domain.errors import (
     AssessmentConflictError,
     AssessmentDomainError,
@@ -43,8 +51,18 @@ from ..domain.errors import (
     AssessmentNotFoundError,
     AssessmentValidationError,
 )
-from .dependencies import FamilyContext, get_command_handler, get_family_context, get_growth_hypothesis_handler, get_query_handler
-from .requests import DecideGrowthHypothesisRequestBody, SaveAssessmentResponseRequestBody, StartAssessmentRequestBody
+from .dependencies import (
+    FamilyContext,
+    get_command_handler,
+    get_family_context,
+    get_growth_hypothesis_handler,
+    get_query_handler,
+)
+from .requests import (
+    DecideGrowthHypothesisRequestBody,
+    SaveAssessmentResponseRequestBody,
+    StartAssessmentRequestBody,
+)
 from .responses import (
     AssessmentMutationReceiptResponse,
     GrowthHypothesisDecisionReceiptResponse,
@@ -70,7 +88,9 @@ def register_exception_handlers(app: FastAPI) -> None:
     """
 
     @app.exception_handler(AssessmentDomainError)
-    async def _handle_assessment_domain_error(request, error: AssessmentDomainError) -> JSONResponse:
+    async def _handle_assessment_domain_error(
+        request, error: AssessmentDomainError
+    ) -> JSONResponse:
         status_code = _ERROR_STATUS.get(type(error), 400)
         return JSONResponse(status_code=status_code, content={"detail": error.code})
 
@@ -92,17 +112,27 @@ def _assert_path_family(context: FamilyContext, family_id: str) -> None:
         raise HTTPException(status_code=403, detail="family_access_denied")
 
 
-@router.get("/{family_id}/ui/02/assessment", responses={200: {"model": Ui02AssessmentProjectionResponse}})
+@router.get(
+    "/{family_id}/ui/02/assessment", responses={200: {"model": Ui02AssessmentProjectionResponse}}
+)
 async def get_ui02_projection(
     family_id: str,
     context: FamilyContext = Depends(get_family_context),
     handler: AssessmentQueryHandler = Depends(get_query_handler),
+    x_correlation_id: str | None = Header(default=None),
 ) -> dict:
     _assert_path_family(context, family_id)
-    return await handler.get_ui02_projection(GetUi02ProjectionQuery(family_id, context.tenant_id, context.person_id))
+    return await handler.get_ui02_projection(
+        GetUi02ProjectionQuery(
+            family_id, context.tenant_id, context.person_id, x_correlation_id or ""
+        )
+    )
 
 
-@router.post("/{family_id}/assessments/sessions", responses={200: {"model": AssessmentMutationReceiptResponse}})
+@router.post(
+    "/{family_id}/assessments/sessions",
+    responses={200: {"model": AssessmentMutationReceiptResponse}},
+)
 async def start_assessment(
     family_id: str,
     body: StartAssessmentRequestBody,
@@ -115,7 +145,14 @@ async def start_assessment(
     _assert_path_family(context, family_id)
     meta = MutationMeta(x_correlation_id or "", idempotency_key or "", x_source or "")
     return await handler.start(
-        StartAssessmentCommand(family_id, context.tenant_id, context.person_id, body.subject_person_id, body.tool_ref, meta)
+        StartAssessmentCommand(
+            family_id,
+            context.tenant_id,
+            context.person_id,
+            body.subject_person_id,
+            body.tool_ref,
+            meta,
+        )
     )
 
 
@@ -164,17 +201,27 @@ async def submit_assessment(
 ) -> dict:
     _assert_path_family(context, family_id)
     meta = MutationMeta(x_correlation_id or "", idempotency_key or "", x_source or "")
-    return await handler.submit(SubmitAssessmentCommand(family_id, context.tenant_id, context.person_id, session_id, meta))
+    return await handler.submit(
+        SubmitAssessmentCommand(family_id, context.tenant_id, context.person_id, session_id, meta)
+    )
 
 
-@router.get("/{family_id}/ui/03/growth-hypothesis", responses={200: {"model": Ui03GrowthHypothesisProjectionResponse}})
+@router.get(
+    "/{family_id}/ui/03/growth-hypothesis",
+    responses={200: {"model": Ui03GrowthHypothesisProjectionResponse}},
+)
 async def get_ui03_projection(
     family_id: str,
     context: FamilyContext = Depends(get_family_context),
     handler: AssessmentQueryHandler = Depends(get_query_handler),
+    x_correlation_id: str | None = Header(default=None),
 ) -> dict:
     _assert_path_family(context, family_id)
-    return await handler.get_ui03_projection(GetUi03ProjectionQuery(family_id, context.tenant_id, context.person_id))
+    return await handler.get_ui03_projection(
+        GetUi03ProjectionQuery(
+            family_id, context.tenant_id, context.person_id, x_correlation_id or ""
+        )
+    )
 
 
 @router.post(

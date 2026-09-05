@@ -10,11 +10,12 @@ PostgreSQL database that already has the schema from
 `test_sqlalchemy_repository_integration.py`. Skipped entirely if that env
 var is not set.
 """
+
 from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import text
@@ -26,7 +27,8 @@ from backend.domains.assessment.infrastructure.ai_run_ledger import SqlAlchemyAi
 DATABASE_URL = os.environ.get("PY_ASSESSMENT_TEST_DATABASE_URL")
 
 pytestmark = pytest.mark.skipif(
-    not DATABASE_URL, reason="PY_ASSESSMENT_TEST_DATABASE_URL not set — skipping real-Postgres integration tests"
+    not DATABASE_URL,
+    reason="PY_ASSESSMENT_TEST_DATABASE_URL not set — skipping real-Postgres integration tests",
 )
 
 
@@ -43,7 +45,7 @@ async def connection():
 
 
 def _record(run_id: str, outcome: str = "success") -> AiRunRecord:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return AiRunRecord(
         run_id=run_id,
         assessment_session_id="int-test-session",
@@ -67,7 +69,10 @@ class TestSqlAlchemyAiRunLedgerRealPostgres:
             await ledger.record(_record(run_id))
 
             result = await connection.execute(
-                text("select assessment_session_id, generator, model_name, outcome, input_tokens, output_tokens from ai_run_ledger where run_id = :run_id"),
+                text(
+                    "select assessment_session_id, generator, model_name, outcome, input_tokens, "
+                    "output_tokens from ai_run_ledger where run_id = :run_id"
+                ),
                 {"run_id": run_id},
             )
             row = result.first()
@@ -79,7 +84,9 @@ class TestSqlAlchemyAiRunLedgerRealPostgres:
             assert row.input_tokens == 42
             assert row.output_tokens == 17
         finally:
-            await connection.execute(text("delete from ai_run_ledger where run_id = :run_id"), {"run_id": run_id})
+            await connection.execute(
+                text("delete from ai_run_ledger where run_id = :run_id"), {"run_id": run_id}
+            )
             await connection.commit()
 
     async def test_boundary_violation_outcome_is_persisted(self, connection):
@@ -89,12 +96,15 @@ class TestSqlAlchemyAiRunLedgerRealPostgres:
             await ledger.record(_record(run_id, outcome="boundary_violation"))
 
             result = await connection.execute(
-                text("select outcome, error_detail from ai_run_ledger where run_id = :run_id"), {"run_id": run_id}
+                text("select outcome, error_detail from ai_run_ledger where run_id = :run_id"),
+                {"run_id": run_id},
             )
             row = result.first()
             assert row is not None
             assert row.outcome == "boundary_violation"
             assert row.error_detail == "boundary_check_failed"
         finally:
-            await connection.execute(text("delete from ai_run_ledger where run_id = :run_id"), {"run_id": run_id})
+            await connection.execute(
+                text("delete from ai_run_ledger where run_id = :run_id"), {"run_id": run_id}
+            )
             await connection.commit()

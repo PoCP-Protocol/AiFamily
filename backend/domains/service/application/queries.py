@@ -23,6 +23,26 @@ from .read_models import (
 )
 
 
+async def list_activity_catalog(repo: ServiceRepositoryPort) -> list[dict]:
+    """UI-22/UI-23 catalog projection; browsing does not create attendance."""
+    return [
+        {
+            "activity_ref": item.activity_ref,
+            "title": item.title,
+            "summary": item.attributes.get("summary", ""),
+            "age_hint": item.attributes.get("age_hint", ""),
+            "detail_route": item.attributes.get("detail_route", "activity-detail"),
+            "starts_at": item.starts_at,
+            "activity_kind": item.activity_kind,
+            "location": item.attributes.get("location", ""),
+        }
+        for item in sorted(
+            (item for item in await repo.list_activities() if item.is_admitted),
+            key=lambda item: item.starts_at,
+        )
+    ]
+
+
 async def list_service_offerings(
     repo: ServiceRepositoryPort, *, tenant_id: str
 ) -> list[OfferingView]:

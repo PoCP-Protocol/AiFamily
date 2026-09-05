@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aifamily.invalid/contracts/growth-achievement.schema.json",
+  "title": "AiFamily GrowthAchievement",
+  "description": "Family-private milestone bound to action, reflection, relationship or verified adult contribution evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "achievement_id": { "type": "string", "minLength": 1 },
+    "tenant_id": { "type": "string", "minLength": 1 },
+    "family_id": { "type": "string", "minLength": 1 },
+    "subject_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true },
+    "subject_scope": { "type": "string", "enum": ["CHILD", "GUARDIAN", "FAMILY_RELATIONSHIP", "FAMILY"] },
+    "key": { "type": "string", "enum": ["FIRST_STEP", "PAUSE_AND_RETURN", "RELATIONSHIP_REPAIR", "REFLECTION_COMPLETED", "CONTRIBUTION_VERIFIED"] },
+    "basis": { "type": "string", "enum": ["ACTION_COMPLETED", "REFLECTION_SUBMITTED", "RELATIONSHIP_FEEDBACK", "CONTRIBUTION_VERIFIED"] },
+    "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true },
+    "title": { "type": "string", "minLength": 1 },
+    "message": { "type": "string", "minLength": 1 },
+    "visibility": { "const": "FAMILY_PRIVATE" },
+    "comparison_scope": { "const": "NONE" },
+    "commercial_reward": { "const": "NONE" },
+    "purpose": { "const": "growth_support" },
+    "consent": { "$ref": "#/$defs/consent" },
+    "retention": { "$ref": "#/$defs/retention" },
+    "deletion": { "$ref": "#/$defs/deletion" },
+    "idempotency_key": { "type": "string", "minLength": 1 },
+    "earned_at": { "type": "string", "format": "date-time" },
+    "correlation_id": { "type": "string", "minLength": 1 },
+    "causation_id": { "type": "string", "minLength": 1 }
+  },
+  "required": ["achievement_id", "tenant_id", "family_id", "subject_ids", "subject_scope", "key", "basis", "evidence_refs", "title", "message", "visibility", "comparison_scope", "commercial_reward", "purpose", "consent", "retention", "deletion", "idempotency_key", "earned_at", "correlation_id", "causation_id"],
+  "$defs": {
+    "consent": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "consent_version": { "type": "string", "minLength": 1 }, "status": { "const": "GRANTED" }, "effective_from": { "type": "string", "format": "date-time" }, "effective_to": { "type": ["string", "null"], "format": "date-time" }, "purpose": { "const": "growth_support" } },
+      "required": ["consent_version", "status", "effective_from", "effective_to", "purpose"]
+    },
+    "retention": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "expires_at": { "type": "string", "format": "date-time" }, "on_expiry": { "const": "DELETE" } },
+      "required": ["expires_at", "on_expiry"]
+    },
+    "deletion": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "deletion_id": { "type": "string", "minLength": 1 }, "source_refs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true } },
+      "required": ["deletion_id", "source_refs"]
+    }
+  }
+}

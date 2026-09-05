@@ -17,6 +17,7 @@ from collections.abc import Sequence
 
 from backend.platform.consent.models import ConsentGrant, ConsentPurpose
 
+from ..domain.activity_catalog import ActivityCatalogItem
 from ..domain.entities import (
     AvailabilitySlot,
     BookingRequest,
@@ -45,21 +46,16 @@ class FakeConsentQuery:
         self.grants.append(grant)
 
     def withdraw(self, consent_id: str) -> None:
+        from dataclasses import replace
+
         from backend.platform.consent.models import ConsentStatus
 
+        # `replace` rather than re-listing every field: a field added to
+        # `ConsentGrant` (subject_age, guardian_relation, expires_at) would
+        # otherwise be silently dropped here and a withdrawal would quietly
+        # rewrite the grant's compliance metadata.
         self.grants = [
-            (
-                g
-                if g.consent_id != consent_id
-                else ConsentGrant(
-                    consent_id=g.consent_id,
-                    subject_person_id=g.subject_person_id,
-                    guardian_person_id=g.guardian_person_id,
-                    purpose=g.purpose,
-                    status=ConsentStatus.WITHDRAWN,
-                    granted_at=g.granted_at,
-                )
-            )
+            (g if g.consent_id != consent_id else replace(g, status=ConsentStatus.WITHDRAWN))
             for g in self.grants
         ]
 
@@ -81,6 +77,7 @@ class FakeServiceRepository:
         self.bookings: dict[str, BookingRequest] = {}
         self.service_records: dict[str, ServiceRecord] = {}
         self.checkin_drafts: dict[str, PrivateCheckinDraft] = {}
+        self.activities: dict[str, ActivityCatalogItem] = {}
 
     async def commit(self) -> None:
         return None
@@ -119,6 +116,12 @@ class FakeServiceRepository:
 
     async def list_offerings(self, tenant_id: str) -> list[ServiceOffering]:
         return [o for o in self.offerings.values() if o.tenant_id == tenant_id]
+
+    async def save_activity(self, entity: ActivityCatalogItem) -> None:
+        self.activities[entity.activity_catalog_id] = entity
+
+    async def list_activities(self) -> list[ActivityCatalogItem]:
+        return list(self.activities.values())
 
     # -- availability --
     async def save_slot(self, entity: AvailabilitySlot) -> None:

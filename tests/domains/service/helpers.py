@@ -19,7 +19,13 @@ from backend.domains.service.domain.entities import (
     utcnow,
 )
 from backend.platform.audit.recorder import AuditRecorder
-from backend.platform.consent.models import ConsentGrant, ConsentPurpose, ConsentStatus
+from backend.platform.consent.models import (
+    ConsentGrant,
+    ConsentPurpose,
+    ConsentStatus,
+    GuardianRelation,
+    SubjectAge,
+)
 
 TENANT = "tenant-001"
 FAMILY = "family-001"
@@ -61,6 +67,10 @@ def granted(subject_person_id: str = CHILD, consent_id: str = CONSENT_REF) -> Co
         purpose=ConsentPurpose.SERVICE,
         status=ConsentStatus.GRANTED,
         granted_at=utcnow(),
+        # CHILD is a minor under 14, so PIPL art. 31 requires a distinct
+        # guardian — `ConsentGrant` refuses any other combination.
+        subject_age=SubjectAge(years=9),
+        guardian_relation=GuardianRelation.GUARDIAN,
     )
 
 

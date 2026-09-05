@@ -6,7 +6,7 @@ status: current
 version: 2.0
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-08-29
+updated: 2026-09-04
 canonical: true
 supersedes: docs/00_foundation/MASTER_BLUEPRINT.md
 superseded_by: null
@@ -54,6 +54,35 @@ V1 是 `MASTER_BLUEPRINT.md` 直接重命名而来，内容以"蓝图/愿景"为
 
 **治理体系与文档架构已建立；Python 平台内核骨架可运行（只会回答 `/health` 与 `/ready`）；5 个 Python 域与整个 Mobile 前端已迁入 —— 但零业务 API，34 个 UI 屏幕全部无法工作，数据库尚未建立，没有任何域上线。**
 
+### 0.4 现状核实追记（2026-09-04，本条不是全量 V3 改写）
+
+**上面 §0.3 的"零业务 API / 数据库尚未建立"这两句话已经不成立**，本条只如实记录新证据，不改动 §1–§4 的既有四分区结构（那需要 chief-architect 做一次完整的 V3 重写，逐域核对，本条追记是给那次重写用的输入，不是替代品）。
+
+以 `AIFAMILY_ENV=test` 起 `create_app()`，用 `app.openapi()['paths']` 实测（不是数它声称有多少条，是真的把 app 起起来读它的 OpenAPI spec）：
+
+```text
+真实业务 HTTP operations 数    85（不是 0）
+覆盖的域                       family_need（signals/clarify/profile/solution-drafts/
+                               outcomes/ai-coach）、service/fgcn（human-tasks/
+                               assignment-proposals）、assessment、product_intelligence
+                               （courses/experience-signals/improvement-candidates）、
+                               experience（achievements/notifications/multimodal）、
+                               growth（onboardings/journey-plan）、auth
+真实 PostgreSQL migration 数   66（database/migrations/versions/），本会话验证过
+                               upgrade→downgrade→upgrade 循环成功
+架构护栏测试                    tests/architecture 111 passed / 1 skipped（含 lint
+                               债务棘轮、Domain/Capability Registry 一致性）
+```
+
+本周（2026-09-01～09-04）落地并有真实 Postgres 测试覆盖的具体闭环：
+
+- `family_need` N0–N8 全生命周期（需求信号→澄清→分级→方案→确认→履约→结果确认→回流），端到端 e2e + Postgres 集成测试
+- `service/fgcn` 人工授权派单——本周内从"仅内存态 `FGCNEngine`（进程重启即丢失）"切换为可选的 durable 路径（真实写入 case/task/assignment/audit，教师资质从 `family_service_providers` 表读取，含过期时间 fail-closed 校验）
+- AI Coach 苏格拉底式引导接入跨轮次会话记忆（`M1_SESSION`，30 天 TTL）
+- `product_intelligence` 的去标识化跨家庭信号（`family_experience_signal`/`improvement_candidate`），含小样本伪共识防护
+
+**本条追记没有核实的部分**（不代表"没问题"，是"这次没查"）：Mobile/Web 前端能否真的调用这些端点、远端 CI、生产环境部署、§4 列出的其余 Not Implemented 项（社区、商品/订单/会员权益等）是否有变化。下一次全量核实应覆盖这些。
+
 ---
 
 ## 1. Implemented（已完成 —— 磁盘上有、可运行、有测试）
@@ -91,6 +120,7 @@ L4  12_governance 13_research 14_reference 99_archive        治理 / 知识
 | audit（`AuditRecorder`，R6 载体） | `backend/platform/audit/` | `tests/platform/audit/test_recorder.py` |
 | idempotency（`IdempotencyKey` / Store） | `backend/platform/idempotency/` | `tests/platform/idempotency/test_keys.py` |
 | persistence（`UnitOfWork` / `SqlAlchemyUnitOfWork`） | `backend/platform/persistence/` | `tests/platform/persistence/test_unit_of_work.py` |
+| localization（`LocaleContext` 四维语言上下文与 HTTP 适配器） | `backend/platform/localization/` | `tests/platform/localization/` |
 | FastAPI 运行时入口 | `backend/apps/family_api/`（真实 FastAPI 实例） | `tests/apps/family_api/test_routes.py` |
 
 ```text
@@ -204,7 +234,7 @@ Batch 8  条件性收尾：删除范围 = 已完成 cutover 的域，不是"无�
 |---|---|---|
 | ~~Alembic baseline~~ | **已于 2026-08-29 由 T-03 完成** —— 62 个源 SQL 迁移线性化 + Alembic baseline 落地，见 §4.2 | 阻塞已解除 |
 | 域接管节奏 | `NEST_ACTIVE → PYTHON_READY → CUTOVER → PYTHON_ACTIVE → NEST_REMOVED`，**禁止双写、禁止双主** | — |
-| GROWTH 闭环（UI-08/11/12/29） | **不迁移、不重建** | 需产品侧先裁决这些屏幕是否应当存在（R9 红线） |
+| GROWTH 闭环（UI-08/11/12/29） | **允许路径继续建设；当前仍未实现**。私有回顾、证据绑定成果和经同意分享按环境等价原则重建；家庭总分/家庭排名等红线统一拒绝、审计并保留人工处理 | 需补齐 GROWTH 应用/事实/投影链，并逐项核对 R9 红线 |
 | `frontend_web` | REVIEW_REQUIRED / BLOCKED | 需人工裁决 |
 
 ---
@@ -242,7 +272,9 @@ Mobile 依赖端点              ~40+ 业务路径 + 4 个 /auth/* 端点
 
 `backend/intelligence/` 下**只有** `design_copilot`，其 `ProductCompiler` / `DesignSimulator` 每个方法都是 `NotImplementedError`，零调用方、零测试。
 
-不存在：Model Gateway、Context Engine、Agent Runtime、Tool Runtime、Memory、Prompt Registry、Schema Registry、Safety、Human Gate、Evaluation、Observability、AI Provenance。5 个业务 Agent（家长顾问/孩子陪练/助教助手/成长规划师/经营助手）零实现。详见 `CURRENT_AI_MAP.md`。
+（历史基线）不存在：Model Gateway、Context Engine、Agent Runtime、Tool Runtime、Memory、Prompt Registry、Schema Registry、Safety、Human Gate、Evaluation、Observability、AI Provenance。5 个业务 Agent（家长顾问/孩子陪练/助教助手/成长规划师/经营助手）零实现。详见 `CURRENT_AI_MAP.md`。
+
+> **2026-08-30 基线校正**：上述段落描述迁移初始状态，不再代表当前实现。当前 AI Map 已记录 12 项 EXPERIMENT；Context Engine 已通过 `AsyncSqlContextBroker`、`SqlContextBrokerFactory` 与 Alembic 0036 具备 durable 快照、作用域/consent/TTL 校验和主体删除证明，Experience operations audit 已通过 Alembic 0037 提供 metadata-only operator 访问记录，运维 HTTP 边界已增加请求 bearer 绑定与 `HttpRequestOperatorIdentityPort`（ADR-0129），dev/test 已能用 synthetic runtime 走完同一 operator query 契约；Memory 已通过 `SqlAlchemyMemoryStore` 与 Alembic 0022 具备 durable 引用、作用域读取、级联删除证明和过期清理。Growth Graph 与五类业务 Agent 仍未达到可生产状态。
 
 **源仓库 TS 侧有真实网关实现（`packages/ai-gateway/src/index.ts`，894 行）不等于 AiFamily 有** —— 按 R1，正式后端只能是 Python。
 
@@ -257,20 +289,33 @@ Mobile 依赖端点              ~40+ 业务路径 + 4 个 /auth/* 端点
 
 ### 4.5 workflow_worker 进程
 
-`backend/workflow_worker/` **不存在**。21/90 天计划节奏、服务预约 SLA、"AI 提议→人工确认→落库"类跨时长流程均无载体。按 `AI_NATIVE_PRINCIPLES.md` §3.1，缺此进程 AI 原生不成立。
+`backend/workflow_worker/` 已出现首个可执行增量：`growth_action_experience_relay.py`
+以同库事务和 per-consumer receipt 把 UI-09 Action outbox 转为 ExperienceEvent，并在当前
+Consent 被撤回或版本变化时拒绝创建派生数据；`experience_fanout.py` 以固定组合消费者在
+一次事务中完成 Achievement/Notification/Analytics/GrowthGraph 后统一 ACK。它已有真实
+PostgreSQL 验证，但**尚不是完整进程**：没有统一入口、常驻 scheduler、部署健康检查、
+payload-preserving DLQ/告警，也尚未承载 21/90 天节奏与服务 SLA。
+
+Experience 闭环已新增成就反馈写入：`helpful/not_helpful/request_human` 进入 append-only
+反馈表，其中 `request_human` 与 `source_kind=USER_REQUEST` 的 HumanTask、两类审计同事务
+提交。真实 PostgreSQL 已验证并发重放、payload 冲突、审计失败回滚和 Consent 撤回拒绝；
+共享 main、主体删除 worker 与人工响应 Named Action handler 尚未完成。
 
 ### 4.6 技术基线中声明但依赖未装
 
-以下在技术基线文档里被声明，但**尚未加入 `pyproject.toml`**：
+以下在技术基线文档里被声明，但**尚未加入 `pyproject.toml`**（OpenTelemetry 已于本轮加入并完成 SDK adapter）：
 
 | 组件 | 用途 | 状态 |
 |---|---|---|
 | Redis | 缓存 / 队列 | 未装 |
 | Temporal | 长流程编排（workflow_worker 的前提） | 未装 |
 | mypy | 静态类型检查 | 未装（只有 ruff） |
-| OpenTelemetry | 可观测性 / trace | 未装 |
+| OpenTelemetry | 可观测性 / trace | 已声明并已接入 provider-neutral SDK adapter；collector/exporter 部署待配置 |
 
 **"技术基线里写了"不等于"依赖已装"** —— 这正是 R14 的语义（写成文档的东西不会自己生效）。
+
+本轮已将 OpenTelemetry API/SDK 加入运行时依赖，并完成 AI Runtime adapter；生产
+collector/exporter 仍需部署配置。
 
 ### 4.7 远端仓库与 CI
 
@@ -287,7 +332,7 @@ Mobile 依赖端点              ~40+ 业务路径 + 4 个 /auth/* 端点
 | Teacher Workspace / Institution Console / Operations Console | `PLANNED_NO_CODE`，见 `CURRENT_PRODUCT_MAP.md` §4 |
 | `frontend/web` | 未迁入，disposition = REVIEW_REQUIRED / BLOCKED |
 | 14 个业务域（family/growth/assessment/journey/action/outcome/service/teacher/institution/commerce/community/tenancy 等） | `NOT_STARTED`，见 `CURRENT_DOMAIN_MAP.md` |
-| domain events / outbox 机制 | 不存在（源仓库全域 grep `DomainEvent` 精确类名 = 0 命中） |
+| domain events / outbox 机制 | PostgreSQL `outbox_events` 已被多个域写入；UI-09 已有首条 workflow-worker → Experience outbox 中继。统一 broker、多消费者投递账本与部署监控仍未完成 |
 | `backend/platform/tenant` | manifest 列为 target，磁盘上不存在 |
 | 任何域达到 `PRODUCTION` | **0 个**。前提条件（业务 API / 数据库 / 远端 CI）全部缺失 |
 

@@ -13,7 +13,11 @@ import asyncio
 import pytest
 
 from backend.intelligence.model_gateway.attempts import InMemoryAttemptSink
-from backend.intelligence.model_gateway.contracts import StructuredRequest
+from backend.intelligence.model_gateway.contracts import (
+    KnowledgeExecutionPayload,
+    PromptExecutionPlan,
+    StructuredRequest,
+)
 from backend.intelligence.model_gateway.errors import ModelGatewayError
 from backend.intelligence.model_gateway.gateway import GATEWAY_POLICY, ModelGateway
 from backend.intelligence.model_gateway.provider_registry import (
@@ -45,6 +49,28 @@ def make_request(**overrides: object) -> StructuredRequest:
         "context_snapshot_ref": "ctx-0001",
         "request_id": "req-1",
         "session_id": "sess-1",
+        "prompt_execution_plan": PromptExecutionPlan(
+            prompt_ref="assessment_interpretation",
+            prompt_version="v3",
+            template="Use the reviewed assessment interpretation instructions.",
+            system_policy_ref="family-safety.v1",
+            safety_policy_version="family-safety.v1",
+            knowledge_refs=("assessment-knowledge.v1",),
+            asset_digest="a" * 64,
+            system_policy="Only produce a reviewed draft.",
+            system_policy_digest="b" * 64,
+            knowledge_materials=(
+                KnowledgeExecutionPayload(
+                    knowledge_ref="assessment-knowledge.v1",
+                    content="Reviewed assessment guidance.",
+                    source_ref="source:test",
+                    license_ref="license:test",
+                    evidence_level="E3",
+                    content_digest="c" * 64,
+                ),
+            ),
+            material_digest="d" * 64,
+        ),
     }
     base.update(overrides)
     return StructuredRequest(**base)  # type: ignore[arg-type]

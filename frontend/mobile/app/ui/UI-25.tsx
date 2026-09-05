@@ -1,4 +1,3 @@
-import type { Href } from "expo-router";
 import { Stack, router } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
@@ -13,6 +12,7 @@ import { familyApi } from "@/lib/family/family-api-client";
 import { selectLearningExchangeFeed, type FamilyApiPlatformSurfacesProjection } from "@/lib/family/family-api-projections";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
 import { useFamilyMobile } from "@/lib/family/family-state";
+import { communityExchangeRoute, routeForUi } from "@/lib/navigation/family-routes";
 
 const CHANNELS = ["推荐", "成长打卡", "家长交流", "成长案例", "同城圈子"] as const;
 
@@ -54,7 +54,7 @@ export default function ParentCommunityScreen() {
     setLoadingMore(false);
   };
 
-  const openDetail = (exchangeRef: string) => router.push(`/ui/UI-27?exchangeRef=${encodeURIComponent(exchangeRef)}` as Href);
+  const openDetail = (exchangeRef: string) => router.push(communityExchangeRoute(exchangeRef));
 
   return (
     <ScreenContainer edges={["left", "right", "bottom"]}>
@@ -68,9 +68,9 @@ export default function ParentCommunityScreen() {
           <View style={styles.topBar}><Text style={styles.topTitle}>家长社区</Text><IconSymbol name="magnifyingglass" size={23} color="#22272D" /></View><DataSourceBanner />{loadState === "error" ? <Pressable onPress={() => void loadCommunityFeed()} style={styles.errorNotice}><Text style={styles.errorText}>{loadError} 点击重试</Text></Pressable> : null}
           <View style={[styles.searchBox, { backgroundColor: colors.surface, borderColor: colors.border }]}><IconSymbol name="magnifyingglass" size={20} color={colors.muted} /><TextInput value={query} onChangeText={setQuery} placeholder="搜索话题、内容或用户" placeholderTextColor={colors.muted} style={[styles.searchInput, { color: colors.text }]} returnKeyType="search" /></View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.channelRow}>{CHANNELS.map((item) => <Pressable key={item} onPress={() => setChannel(item)} style={({ pressed }) => [styles.channelButton, pressed && styles.pressed]}><Text style={[styles.channelText, { color: channel === item ? colors.tint : colors.muted }]}>{item}</Text>{channel === item ? <View style={[styles.channelLine, { backgroundColor: colors.tint }]} /> : null}</Pressable>)}</ScrollView>
-          <View style={styles.hero}><View style={styles.heroCopy}><Text style={styles.heroTitle}>今天也来分享孩子成长的小变化</Text><Pressable onPress={() => router.push("/ui/UI-26" as Href)} style={({ pressed }) => [styles.heroAction, pressed && styles.pressed]}><Text style={styles.heroActionText}>去分享</Text><IconSymbol name="chevron.right" size={17} color="#FFFFFF" /></Pressable></View><View style={styles.heroIcon}><IconSymbol name="person.2.fill" size={44} color="#2563EB" /></View></View>
+          <View style={styles.hero}><View style={styles.heroCopy}><Text style={styles.heroTitle}>今天也来分享孩子成长的小变化</Text><Pressable onPress={() => router.push(routeForUi("UI-26"))} style={({ pressed }) => [styles.heroAction, pressed && styles.pressed]}><Text style={styles.heroActionText}>去分享</Text><IconSymbol name="chevron.right" size={17} color="#FFFFFF" /></Pressable></View><View style={styles.heroIcon}><IconSymbol name="person.2.fill" size={44} color="#2563EB" /></View></View>
           <View style={[styles.topicPanel, { backgroundColor: colors.surface, borderColor: colors.border }]}>{COMMUNITY_TOPICS.map((topic, index) => <Pressable key={topic} onPress={() => setQuery(topic)} style={({ pressed }) => [styles.topicItem, pressed && styles.pressed]}><View style={[styles.topicIcon, { backgroundColor: ["#16866D18", "#2563EB18", "#7C5CE518", "#F28C4518", "#D74C4C18"][index] }]}><IconSymbol name={["message.fill", "book.fill", "heart.fill", "book.fill", "mappin.circle.fill"][index] as never} size={23} color={["#16866D", "#2563EB", "#7C5CE5", "#F28C45", "#D74C4C"][index]} /></View><Text style={[styles.topicLabel, { color: colors.text }]}>{topic}</Text></Pressable>)}</View>
-          <View style={styles.sectionLine}><View><Text style={[styles.sectionTitle, { color: colors.text }]}>{feed?.headline ?? "看看其他家庭的日常小经验"}</Text><Text style={[styles.sectionIntro, { color: colors.muted }]}>{feed?.introduction ?? "先读一读，再决定哪些想法适合自己的家庭。"}</Text></View><Pressable onPress={() => router.push("/ui/UI-28" as Href)}><Text style={[styles.mineLink, { color: colors.tint }]}>我的社区</Text></Pressable></View>
+          <View style={styles.sectionLine}><View><Text style={[styles.sectionTitle, { color: colors.text }]}>{feed?.headline ?? "看看其他家庭的日常小经验"}</Text><Text style={[styles.sectionIntro, { color: colors.muted }]}>{feed?.introduction ?? "先读一读，再决定哪些想法适合自己的家庭。"}</Text></View><Pressable onPress={() => router.push(routeForUi("UI-28"))}><Text style={[styles.mineLink, { color: colors.tint }]}>我的社区</Text></Pressable></View>
         </View>}
         renderItem={({ item, index }) => {
           const bookmarked = communityInteractionDrafts[item.exchangeRef]?.bookmarked ?? false;
@@ -89,7 +89,7 @@ export default function ParentCommunityScreen() {
         onEndReachedThreshold={0.45}
         ListFooterComponent={<View style={styles.footer}><View style={[styles.boundary, { borderColor: colors.border }]}><IconSymbol name="shield.fill" size={20} color={colors.success} /><Text style={[styles.boundaryText, { color: colors.muted }]}>这里展示的是家长经验与个人视角，不是对孩子或家庭的诊断，也不证明教育效果。</Text></View>{loadingMore ? <View style={styles.moreLoading}><Text style={[styles.moreText, { color: colors.muted }]}>正在加载更多经验</Text></View> : visibleCount < entries.length ? <Pressable onPress={loadMore} style={({ pressed }) => [styles.moreButton, { borderColor: colors.tint }, pressed && styles.pressed]}><Text style={[styles.moreText, { color: colors.tint }]}>继续浏览更多经验</Text></Pressable> : null}</View>}
       />
-      <Pressable onPress={() => router.push("/ui/UI-26" as Href)} style={({ pressed }) => [styles.fab, pressed && styles.pressed]}><IconSymbol name="square.and.pencil" size={23} color="#FFFFFF" /><Text style={styles.fabText}>写小记</Text></Pressable>
+      <Pressable onPress={() => router.push(routeForUi("UI-26"))} style={({ pressed }) => [styles.fab, pressed && styles.pressed]}><IconSymbol name="square.and.pencil" size={23} color="#FFFFFF" /><Text style={styles.fabText}>写小记</Text></Pressable>
     </ScreenContainer>
   );
 }

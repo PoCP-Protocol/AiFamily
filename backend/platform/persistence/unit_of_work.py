@@ -23,6 +23,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from backend.platform.persistence.session import get_sessionmaker
 
 
+class UnitOfWorkStateError(RuntimeError):
+    """Raised when a UnitOfWork is used outside its ``async with`` block.
+
+    A distinct type rather than a bare ``RuntimeError`` so a caller can
+    distinguish "you used the UoW wrong" from a database failure, and because
+    this is the replacement for three ``assert`` statements that
+    ``python -O`` removed entirely — see ``_require_session``.
+    """
+
+
 class UnitOfWork(ABC):
     """Abstract Unit of Work.
 
@@ -95,16 +105,32 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
             await self.session.close()
             self.session = None
 
+    def _require_session(self, operation: str) -> AsyncSession:
+        """Return the live session, or raise.
+
+        ``raise``, not ``assert``. The three call sites used to assert, which
+        means ``python -O`` stripped all three and a UoW used outside its
+        ``async with`` block degraded into an ``AttributeError`` on ``None``
+        (`docs/06_platform/PERSISTENCE.md` §3 gap 6). A guard that a production
+        interpreter flag can delete is not a guard, which is the same lesson R14
+        draws about policies written as constants.
+        """
+        if self.session is None:
+            raise UnitOfWorkStateError(
+                f"UnitOfWork.{operation}() called outside of 'async with' — no session is open"
+            )
+        return self.session
+
     async def commit(self) -> None:
-        assert self.session is not None, "UnitOfWork used outside of 'async with'"
-        await self.session.commit()
+        session = self._require_session("commit")
+        await session.commit()
         self.committed = True
 
     async def rollback(self) -> None:
-        assert self.session is not None, "UnitOfWork used outside of 'async with'"
-        await self.session.rollback()
+        session = self._require_session("rollback")
+        await session.rollback()
 
     async def ping(self) -> bool:
-        assert self.session is not None, "UnitOfWork used outside of 'async with'"
-        result = await self.session.execute(text("SELECT 1"))
+        session = self._require_session("ping")
+        result = await session.execute(text("SELECT 1"))
         return result.scalar_one() == 1

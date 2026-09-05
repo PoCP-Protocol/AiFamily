@@ -14,35 +14,117 @@ exists specifically to catch the case where someone later "helpfully" adds
 those two crisis-flagged items back in without first closing the
 safety_boundary routing gap.
 """
+
 from __future__ import annotations
 
-from backend.domains.assessment.domain.value_objects import AssessmentTool, AssessmentToolBoundary, AssessmentToolItem
+from backend.domains.assessment.domain.value_objects import (
+    AssessmentTool,
+    AssessmentToolBoundary,
+    AssessmentToolItem,
+)
 
 _FOUR_POINT_OPTIONS = ["often", "sometimes", "rarely", "not_sure"]
 
 _V3_ITEM_SCHEMA = {
     "items": [
-        {"item_ref": "FOCUS", "response_type": "SINGLE_CHOICE", "required": True,
-         "options": ["LEARNING_HABITS", "EMOTION_REGULATION", "PARENT_CHILD_COMMUNICATION", "DEVICE_USE_CONTEXT", "SELF_REGULATION"]},
-        {"item_ref": "FAMILY_STRUCTURE", "response_type": "SINGLE_CHOICE", "required": False,
-         "options": ["TWO_PARENT", "SINGLE_PARENT", "BLENDED", "PREFER_NOT_TO_SAY"]},
-        {"item_ref": "CHILD_GENDER", "response_type": "SINGLE_CHOICE", "required": False,
-         "options": ["BOY", "GIRL", "SELF_DESCRIBED", "PREFER_NOT_TO_SAY"]},
-        {"item_ref": "LEARNING_HABITS_Q01", "response_type": "SINGLE_CHOICE", "required": False, "options": _FOUR_POINT_OPTIONS},
-        {"item_ref": "LEARNING_HABITS_Q03", "response_type": "SINGLE_CHOICE", "required": False, "options": _FOUR_POINT_OPTIONS},
-        {"item_ref": "PARENT_CHILD_COMMUNICATION_Q01", "response_type": "SINGLE_CHOICE", "required": False, "options": _FOUR_POINT_OPTIONS},
-        {"item_ref": "PARENT_CHILD_COMMUNICATION_Q02", "response_type": "SINGLE_CHOICE", "required": False, "options": _FOUR_POINT_OPTIONS},
-        {"item_ref": "PARENT_CHILD_COMMUNICATION_Q03", "response_type": "SINGLE_CHOICE", "required": False, "options": _FOUR_POINT_OPTIONS},
-        {"item_ref": "DEVICE_USE_CONTEXT_Q01", "response_type": "SINGLE_CHOICE", "required": False, "options": _FOUR_POINT_OPTIONS},
-        {"item_ref": "DEVICE_USE_CONTEXT_Q02", "response_type": "SINGLE_CHOICE", "required": False, "options": _FOUR_POINT_OPTIONS},
-        {"item_ref": "DEVICE_USE_CONTEXT_Q03", "response_type": "SINGLE_CHOICE", "required": False, "options": _FOUR_POINT_OPTIONS},
-        {"item_ref": "EMOTION_REGULATION_Q02", "response_type": "SINGLE_CHOICE", "required": False, "options": _FOUR_POINT_OPTIONS},
-        {"item_ref": "EMOTION_REGULATION_Q03", "response_type": "SINGLE_CHOICE", "required": False, "options": _FOUR_POINT_OPTIONS},
-        {"item_ref": "SCHOOL_FAMILY_FEEDBACK_LOOP", "response_type": "SINGLE_CHOICE", "required": False, "options": _FOUR_POINT_OPTIONS},
+        {
+            "item_ref": "FOCUS",
+            "response_type": "SINGLE_CHOICE",
+            "required": True,
+            "options": [
+                "LEARNING_HABITS",
+                "EMOTION_REGULATION",
+                "PARENT_CHILD_COMMUNICATION",
+                "DEVICE_USE_CONTEXT",
+                "SELF_REGULATION",
+            ],
+        },
+        {
+            "item_ref": "FAMILY_STRUCTURE",
+            "response_type": "SINGLE_CHOICE",
+            "required": False,
+            "options": ["TWO_PARENT", "SINGLE_PARENT", "BLENDED", "PREFER_NOT_TO_SAY"],
+        },
+        {
+            "item_ref": "CHILD_GENDER",
+            "response_type": "SINGLE_CHOICE",
+            "required": False,
+            "options": ["BOY", "GIRL", "SELF_DESCRIBED", "PREFER_NOT_TO_SAY"],
+        },
+        {
+            "item_ref": "LEARNING_HABITS_Q01",
+            "response_type": "SINGLE_CHOICE",
+            "required": False,
+            "options": _FOUR_POINT_OPTIONS,
+        },
+        {
+            "item_ref": "LEARNING_HABITS_Q03",
+            "response_type": "SINGLE_CHOICE",
+            "required": False,
+            "options": _FOUR_POINT_OPTIONS,
+        },
+        {
+            "item_ref": "PARENT_CHILD_COMMUNICATION_Q01",
+            "response_type": "SINGLE_CHOICE",
+            "required": False,
+            "options": _FOUR_POINT_OPTIONS,
+        },
+        {
+            "item_ref": "PARENT_CHILD_COMMUNICATION_Q02",
+            "response_type": "SINGLE_CHOICE",
+            "required": False,
+            "options": _FOUR_POINT_OPTIONS,
+        },
+        {
+            "item_ref": "PARENT_CHILD_COMMUNICATION_Q03",
+            "response_type": "SINGLE_CHOICE",
+            "required": False,
+            "options": _FOUR_POINT_OPTIONS,
+        },
+        {
+            "item_ref": "DEVICE_USE_CONTEXT_Q01",
+            "response_type": "SINGLE_CHOICE",
+            "required": False,
+            "options": _FOUR_POINT_OPTIONS,
+        },
+        {
+            "item_ref": "DEVICE_USE_CONTEXT_Q02",
+            "response_type": "SINGLE_CHOICE",
+            "required": False,
+            "options": _FOUR_POINT_OPTIONS,
+        },
+        {
+            "item_ref": "DEVICE_USE_CONTEXT_Q03",
+            "response_type": "SINGLE_CHOICE",
+            "required": False,
+            "options": _FOUR_POINT_OPTIONS,
+        },
+        {
+            "item_ref": "EMOTION_REGULATION_Q02",
+            "response_type": "SINGLE_CHOICE",
+            "required": False,
+            "options": _FOUR_POINT_OPTIONS,
+        },
+        {
+            "item_ref": "EMOTION_REGULATION_Q03",
+            "response_type": "SINGLE_CHOICE",
+            "required": False,
+            "options": _FOUR_POINT_OPTIONS,
+        },
+        {
+            "item_ref": "SCHOOL_FAMILY_FEEDBACK_LOOP",
+            "response_type": "SINGLE_CHOICE",
+            "required": False,
+            "options": _FOUR_POINT_OPTIONS,
+        },
     ]
 }
 
-_EXPECTED_NEW_ITEM_REFS = {"EMOTION_REGULATION_Q02", "EMOTION_REGULATION_Q03", "SCHOOL_FAMILY_FEEDBACK_LOOP"}
+_EXPECTED_NEW_ITEM_REFS = {
+    "EMOTION_REGULATION_Q02",
+    "EMOTION_REGULATION_Q03",
+    "SCHOOL_FAMILY_FEEDBACK_LOOP",
+}
 
 # Crisis-flagged items whose PRIMARY construct is admitted but whose own
 # safety_boundary tag (human_gate_if_crisis_signal / human_gate_if_parent_crisis)
@@ -51,9 +133,15 @@ _CRISIS_FLAGGED_ITEM_REFS = {"EMOTION_REGULATION_Q01", "PARENT_CAPACITY_PRESSURE
 
 # Items whose constructs remain HOLD in governance/CONSTRUCT_ADMISSION_REGISTRY.yaml.
 _UNREVIEWED_CONSTRUCT_ITEM_REFS = {
-    "SELF_REGULATION_Q01", "SELF_REGULATION_Q02", "SELF_REGULATION_Q03",
-    "CHILD_ERROR_REVIEW_PATTERN", "SLEEP_ENERGY_LEARNING_IMPACT", "AI_LEARNING_USE_CLARITY",
-    "MULTIMODAL_CREATION_OPPORTUNITY", "PARENT_CHILD_TALK_INTERRUPTION", "CHILD_WILLINGNESS_TO_TALK",
+    "SELF_REGULATION_Q01",
+    "SELF_REGULATION_Q02",
+    "SELF_REGULATION_Q03",
+    "CHILD_ERROR_REVIEW_PATTERN",
+    "SLEEP_ENERGY_LEARNING_IMPACT",
+    "AI_LEARNING_USE_CLARITY",
+    "MULTIMODAL_CREATION_OPPORTUNITY",
+    "PARENT_CHILD_TALK_INTERRUPTION",
+    "CHILD_WILLINGNESS_TO_TALK",
 }
 
 
@@ -80,8 +168,14 @@ class TestFamilySupportNeedsV3ItemBank:
 
     def test_v2_items_are_preserved_unchanged(self):
         tool = _parse_as_tool_from_db_row_shape()
-        for item_ref in ["FOCUS", "FAMILY_STRUCTURE", "CHILD_GENDER", "LEARNING_HABITS_Q01",
-                          "PARENT_CHILD_COMMUNICATION_Q01", "DEVICE_USE_CONTEXT_Q01"]:
+        for item_ref in [
+            "FOCUS",
+            "FAMILY_STRUCTURE",
+            "CHILD_GENDER",
+            "LEARNING_HABITS_Q01",
+            "PARENT_CHILD_COMMUNICATION_Q01",
+            "DEVICE_USE_CONTEXT_Q01",
+        ]:
             assert tool.find_item(item_ref) is not None
 
     def test_new_batch1_items_present_with_four_point_frequency_scale(self):
@@ -102,7 +196,9 @@ class TestFamilySupportNeedsV3ItemBank:
         tool = _parse_as_tool_from_db_row_shape()
         present_refs = {item.item_ref for item in tool.items}
         leaked = present_refs & _CRISIS_FLAGGED_ITEM_REFS
-        assert not leaked, f"crisis-flagged items leaked into v3 without a human-gate mechanism: {leaked}"
+        assert not leaked, (
+            f"crisis-flagged items leaked into v3 without a human-gate mechanism: {leaked}"
+        )
 
     def test_unreviewed_construct_items_still_excluded(self):
         tool = _parse_as_tool_from_db_row_shape()

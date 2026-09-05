@@ -21,13 +21,21 @@ record or an exception message.
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
+import math
 import os
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
 
-from backend.intelligence.model_gateway.contracts import StructuredRequest, TokenUsage
+from backend.intelligence.model_gateway.contracts import MediaInput, StructuredRequest, TokenUsage
+from backend.intelligence.model_gateway.credentials import (
+    CredentialLease,
+    CredentialRevocationChecker,
+)
 from backend.intelligence.model_gateway.errors import ModelGatewayError
 from backend.intelligence.model_gateway.providers.base import ProviderResponse
 
@@ -42,11 +50,49 @@ def _system_prompt(request: StructuredRequest) -> str:
     otherwise reconstructing "which prompt version produced this" depends on our
     own records surviving.
     """
+    plan = request.prompt_execution_plan
+    if plan is None:
+        raise ModelGatewayError(
+            "POLICY_REJECTED",
+            "OpenAI-compatible invocation requires a reviewed PromptExecutionPlan",
+        )
+    policy_block = [
+        "<reviewed_system_policy>",
+        plan.system_policy,
+        "</reviewed_system_policy>",
+    ]
+    knowledge_blocks: list[str] = []
+    for item in plan.knowledge_materials:
+        metadata = {
+            "knowledge_ref": item.knowledge_ref,
+            "source_ref": item.source_ref,
+            "license_ref": item.license_ref,
+            "evidence_level": item.evidence_level,
+            "content_digest": item.content_digest,
+        }
+        knowledge_blocks.extend(
+            [
+                f"<reviewed_knowledge metadata={json.dumps(metadata, ensure_ascii=False)}>",
+                item.content,
+                "</reviewed_knowledge>",
+            ]
+        )
     return "\n".join(
         [
+            *policy_block,
+            *knowledge_blocks,
+            "<reviewed_prompt_template>",
+            plan.template,
+            "</reviewed_prompt_template>",
+            f"prompt_ref={plan.prompt_ref}",
             f"use_case={request.use_case}",
             f"prompt_version={request.prompt_version}",
             f"schema_version={request.schema_version}",
+            f"system_policy_ref={plan.system_policy_ref}",
+            f"safety_policy_version={plan.safety_policy_version}",
+            f"knowledge_refs={json.dumps(plan.knowledge_refs, ensure_ascii=False)}",
+            f"asset_digest={plan.asset_digest}",
+            f"material_digest={plan.material_digest}",
             "Return exactly one JSON object matching the schema below.",
             "Do not wrap it in markdown fences and do not add prose.",
             f"output_schema={json.dumps(request.output_schema, ensure_ascii=False)}",
@@ -57,6 +103,11 @@ def _system_prompt(request: StructuredRequest) -> str:
 class OpenAICompatibleProvider:
     """One vendor endpoint speaking the Chat Completions contract."""
 
+    # The common Chat Completions contract currently supports text and image in
+    # this adapter. Audio/video remain explicit capabilities of other adapters;
+    # they must never be silently downgraded to text.
+    supported_modalities = frozenset({"TEXT", "IMAGE"})
+
     def __init__(
         self,
         *,
@@ -65,6 +116,8 @@ class OpenAICompatibleProvider:
         api_key: str,
         model: str,
         client: httpx.AsyncClient | None = None,
+        lease: CredentialLease | None = None,
+        revocation_checker: CredentialRevocationChecker | None = None,
     ) -> None:
         if not base_url:
             raise ModelGatewayError(
@@ -84,10 +137,27 @@ class OpenAICompatibleProvider:
         self._api_key = api_key
         self._model = model
         self._client = client
+        if revocation_checker is not None and not callable(revocation_checker):
+            raise ModelGatewayError(
+                "CREDENTIAL_INVALID",
+                "credential revocation checker is invalid",
+                provider_id=provider_id,
+            )
+        self._lease = lease
+        self._revocation_checker = revocation_checker
 
     async def invoke(
         self, request: StructuredRequest, *, timeout_seconds: float
     ) -> ProviderResponse:
+        await self._assert_lease_active(timeout_seconds=timeout_seconds)
+        user_content: list[dict[str, object]] = [
+            {
+                "type": "text",
+                "text": json.dumps(request.payload, ensure_ascii=False),
+            }
+        ]
+        for media in request.media_inputs:
+            user_content.append(self._media_part(media))
         body = {
             "model": self._model,
             "response_format": {"type": "json_object"},
@@ -95,7 +165,7 @@ class OpenAICompatibleProvider:
                 {"role": "system", "content": _system_prompt(request)},
                 {
                     "role": "user",
-                    "content": json.dumps(request.payload, ensure_ascii=False),
+                    "content": user_content if request.media_inputs else user_content[0]["text"],
                 },
             ],
         }
@@ -171,6 +241,84 @@ class OpenAICompatibleProvider:
             token_usage=self._extract_usage(envelope),
         )
 
+    async def _assert_lease_active(self, *, timeout_seconds: float) -> None:
+        lease = self._lease
+        if lease is None:
+            return
+        if lease.revoked:
+            raise ModelGatewayError(
+                "CREDENTIAL_REVOKED",
+                "credential lease has been revoked",
+                provider_id=self.provider_id,
+            )
+        if (
+            not isinstance(timeout_seconds, (int, float))
+            or isinstance(timeout_seconds, bool)
+            or not math.isfinite(timeout_seconds)
+            or timeout_seconds <= 0
+        ):
+            raise ModelGatewayError(
+                "CREDENTIAL_INVALID",
+                "provider request timeout is invalid",
+                provider_id=self.provider_id,
+            )
+        now = datetime.now(UTC)
+        if lease.expires_at <= now:
+            raise ModelGatewayError(
+                "CREDENTIAL_EXPIRED",
+                "credential lease has expired",
+                provider_id=self.provider_id,
+            )
+        if lease.expires_at <= now + timedelta(seconds=timeout_seconds):
+            raise ModelGatewayError(
+                "CREDENTIAL_EXPIRED",
+                "credential lease expires before provider request deadline",
+                provider_id=self.provider_id,
+            )
+        if self._revocation_checker is None:
+            return
+        try:
+            result = await asyncio.to_thread(
+                self._revocation_checker, self.provider_id, lease.lease_id
+            )
+            result = await result if inspect.isawaitable(result) else result
+        except ModelGatewayError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - revocation must fail closed
+            raise ModelGatewayError(
+                "CREDENTIAL_UNAVAILABLE",
+                "credential revocation status unavailable",
+                provider_id=self.provider_id,
+            ) from exc
+        if not isinstance(result, bool):
+            raise ModelGatewayError(
+                "CREDENTIAL_INVALID",
+                "credential revocation status is invalid",
+                provider_id=self.provider_id,
+            )
+        if result:
+            raise ModelGatewayError(
+                "CREDENTIAL_REVOKED",
+                "credential lease has been revoked",
+                provider_id=self.provider_id,
+            )
+
+    def _media_part(self, media: MediaInput) -> dict[str, object]:
+        """Translate the provider-neutral media reference to Chat Completions.
+
+        Image input is the first multimodal capability because it is supported
+        consistently by mature vision models. Audio/video remain explicit
+        unsupported capabilities until a provider contract is approved; they
+        must not be silently downgraded to text and presented as multimodal.
+        """
+        if media.media_type == "IMAGE":
+            return {"type": "image_url", "image_url": {"url": media.uri}}
+        raise ModelGatewayError(
+            "UNSUPPORTED_MODALITY",
+            f"provider adapter does not support {media.media_type} input",
+            provider_id=self.provider_id,
+        )
+
     def _extract_message_content(self, envelope: dict[str, Any]) -> str:
         choices = envelope.get("choices")
         if not isinstance(choices, list) or not choices:
@@ -240,4 +388,38 @@ def build_openai_compatible_provider(
         api_key=api_key,
         model=model,
         client=client,
+    )
+
+
+def build_openai_compatible_provider_from_lease(
+    *,
+    provider_id: str,
+    model: str,
+    base_url: str,
+    lease: CredentialLease,
+    client: httpx.AsyncClient | None = None,
+    revocation_checker: CredentialRevocationChecker | None = None,
+) -> OpenAICompatibleProvider:
+    """Construct an adapter from a short-lived external credential lease.
+
+    The lease is checked before the adapter is created and is never copied to a
+    provenance record or exception.  Refresh/rotation is owned by the injected
+    key-service implementation; callers should request a new lease when a
+    composition root is rebuilt.
+    """
+
+    if lease.provider_id != provider_id:
+        raise ModelGatewayError(
+            "CREDENTIAL_PROVIDER_MISMATCH",
+            f"credential lease belongs to {lease.provider_id!r}, not {provider_id!r}",
+            provider_id=provider_id,
+        )
+    return OpenAICompatibleProvider(
+        provider_id=provider_id,
+        base_url=base_url,
+        api_key=lease.api_key,
+        model=model,
+        client=client,
+        lease=lease,
+        revocation_checker=revocation_checker,
     )

@@ -37,10 +37,15 @@ superseded_by: null
 | 测试框架 | pytest (>=8.2) + pytest-asyncio (>=0.24) | 已建立，`tests/` 下已有 14 个测试文件（架构测试7个+平台内核测试6个+family_api测试1个） |
 | Lint | Ruff (>=0.6) | 已配置 `[tool.ruff]`，规则集 `E,F,I,UP,B,SIM` |
 | 类型检查 | mypy | **`pyproject.toml` 当前未声明**，是技术债（见第6节） |
-| 可观测性 | OpenTelemetry | **当前未声明依赖**，是技术债（见第6节） |
+| 可观测性 | OpenTelemetry | 已声明 `opentelemetry-api`/`opentelemetry-sdk`；AI Runtime 已有 SDK adapter，collector/exporter 部署待配置 |
 | 依赖管理 | uv + `pyproject.toml` | 已建立（`uv.lock` 存在于仓库根），R11强制唯一工具链 |
 
 **技术债说明（不回避）**：`MIGRATION_PLAN_V2.md` 第0节承诺保留 Redis/Temporal/mypy/OpenTelemetry 作为目标技术栈的一部分，但当前 `pyproject.toml` 的 `dependencies`/`optional-dependencies` 均未声明这四项。这不是矛盾——Wave 1 的范围本身就只是"平台内核+FastAPI入口"（见 `MIGRATION_MANIFEST.yaml` 条目 `fastapi_runtime_entrypoint`/`platform_*`），Redis/Temporal 是 workflow_worker 进程和长流程能力（Batch 4起的21/90天计划节奏）才需要的依赖，mypy/OpenTelemetry 是尚未排期加入CI的治理项。记录在此，防止后续开发者误以为"目标技术栈"已经等于"当前依赖清单"。
+
+> **2026-08-30 AI 架构增量校正**：OpenTelemetry 已加入 `pyproject.toml` 并由
+> `backend/intelligence/observability/opentelemetry.py` 提供 SDK adapter；本节
+> 旧文中将 OpenTelemetry 与 Redis/Temporal/mypy 一并标为“未声明”的描述仅对后
+> 三者仍成立，collector/exporter 部署仍需运维配置。
 
 ## 2. 三进程划分：职责边界与通信方式
 
@@ -118,6 +123,9 @@ Wave 1 已落地的 `backend/platform/identity`、`backend/platform/authorizatio
 **测试纪律（承接R4伤疤教训）**：`governance/MIGRATION_MANIFEST.yaml` 记录的最大教训是 `membership` 域 2627行代码但零测试目录，其 docstring 声称的 `tests/conftest.py` 在磁盘上不存在——"文档声称测试存在但磁盘找不到"被 `MIGRATION_PLAN_V2.md` 第7节验收标准第4条显式列为不可接受的既往问题重演。任何域从 `NOT_STARTED` 变为 `ACTIVE` 必须同时在 `DOMAIN_REGISTRY.yaml` 登记测试路径（R4）。
 
 ## 6. 待人类架构师裁决/待补的技术债
+
+> AI 可观测性状态：SDK 依赖和 provider-neutral adapter 已具备；剩余是部署级
+> collector/exporter 与保留/删除策略，不再是“依赖未声明”问题。
 
 1. **Redis/Temporal/mypy/OpenTelemetry 尚未声明为依赖**——`pyproject.toml` 只覆盖了 Wave 1 平台内核+FastAPI 所需的最小依赖集，`workflow_worker` 进程创建时（Batch 4 前后）必须补齐 Temporal+Redis；mypy/OpenTelemetry 接入 CI 的时间点未排期，建议不晚于 Batch 3（Family Core，第一个真正写业务权威状态的域）落地时补上，理由是那时开始才有"业务状态错误"和"生产可观测性缺失"的真实风险面。
 2. **跨域 Port 契约的具体形态未设计**——第2节只给出通信方式的分类（Command/Query/Event/Port），尚无一份"哪些数据允许通过Query跨域读、哪些必须留在Event异步"的具体契约清单，这是 Batch 3（Family Core，平台内核原语与首个业务域交界处）落地时必须补的设计文档，不能靠"四种通信方式已经分类"就当作已完成。

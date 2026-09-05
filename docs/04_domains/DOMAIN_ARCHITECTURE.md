@@ -86,7 +86,7 @@ Named Action + 人类 actor（R9 + ADR-0014）。
 | `action` | `GrowthAction` 及其状态机（开始/暂停/继续/取消/完成） | **打卡 ≠ `GrowthActionCompletionFact` ≠ Outcome**（R9 FELS 表 M014）。不拥有效果判断（属 `outcome`） |
 | `outcome` | `Outcome` / 成长证据 | **不拥有任何分数或等级**。R9：`legacy_assessment_score.score` → HISTORICAL_EVIDENCE / 非 GrowthState |
 | `service` | `ServiceBlueprintVersion`（DRAFT→REVIEWED→PUBLISHED→RETIRED，发布后冻结）/ `ServiceCase` / `ServiceTask` / `TaskAssignment` / `ServiceRecord` | **不拥有「哪个资源最适合这个任务」的判断**——那是 AI 侧的 Recommendation，最终分派须过 Human Gate（R8） |
-| `commerce` | 订单 / 支付 / 权益兑换 | **FREEZE-001 冻结中**。且**绝对禁止**向未成年人做自动化决策商业营销（《未成年人网络保护条例》第 24 条第 3 款，无年龄例外） |
+| `commerce` | 订单 / 支付 / 权益兑换 | 按批次建设完整订单、支付、权益与退款流程；开发/测试使用 sandbox 或 fake adapter，生产再接入获准的真实渠道。**绝对禁止**向未成年人做自动化决策商业营销（《未成年人网络保护条例》第 24 条第 3 款，无年龄例外） |
 | `loyalty_points` | `PointsEntry` 账本 | **不拥有 `balance` 字段**——余额永远是 `policies.compute_balance(entries)`。**不提供任何跨家庭查询方法**（无 `rank_families`）：*那个方法的缺席就是 R9 的执行机制*。这是全仓最好的一处设计，其它域应照此办理 |
 | `product_intelligence` | `MarketSignal` / `Opportunity` / 三区评估 / `ProductConcept` | 面向**一类家庭**。**不拥有任何单个家庭的状态**——跨到单家庭即越界进核心域 |
 

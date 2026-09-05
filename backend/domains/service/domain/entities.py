@@ -149,6 +149,8 @@ class ServiceProvider(_Extensible, _Audited, _SupplyMaster):
     provider_kind: ProviderKind
     qualification_ref: str | None = None
     qualification_status: QualificationStatus
+    qualification_type: str | None = None
+    qualification_expires_at: datetime | None = None
     admission_status: AdmissionStatus
     source_ref: str
     status: ProviderStatus = "ACTIVE"

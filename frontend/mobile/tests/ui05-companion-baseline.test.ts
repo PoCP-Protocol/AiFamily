@@ -15,8 +15,9 @@ describe("UI-05 original companion service baseline contract", () => {
 
   it("keeps the original weekly completion card and the three content segments", () => {
     expect(source).toContain("本周完成度");
-    expect(source).toContain("本周任务　{progress.completed}/{progress.total}");
-    expect(source).toContain("完成3次亲子沟通练习");
+    expect(source).toContain("progress.total ?");
+    expect(source).toContain("remote?.weekly_tasks");
+    expect(source).toContain("阶段行动将在方案确认后显示");
     expect(source).toContain("成长打卡");
     expect(source).toContain("家长交流");
     expect(source).toContain("本周直播");
@@ -42,18 +43,31 @@ describe("UI-05 original companion service baseline contract", () => {
     expect(source).not.toContain("分享");
   });
 
+  it("closes the AI draft loop with bounded feedback signals", () => {
+    expect(source).toContain("recordMultimodalFeedback");
+    expect(source).toContain('"helpful"');
+    expect(source).toContain('"not_helpful"');
+    expect(source).toContain('"request_human"');
+    expect(source).toContain('draft_version: experienceDraft.provenance.schema_version');
+    expect(source).toContain('model_version: experienceDraft.provenance.model_version');
+    expect(source).toContain('ui05-experience-feedback-${experienceDraft.run_id}-${signal}');
+    expect(source).toContain("后续建议会更贴近你的节奏");
+    expect(source).toContain("不会自动改变家庭记录");
+  });
+
   it("keeps companion progress as family-private process evidence, not peer comparison or outcome proof", () => {
     expect(source).toContain("本周家庭过程记录");
     expect(source).toContain("remote?.process_summary?.completed_actions ?? 0");
-    expect(source).toContain("index < progress.completed");
-    expect(source).toContain("我记录下这次互动中的一个积极信号");
-    expect(source).toContain("自己的观察和感受记录下来");
+    expect(source).toContain("等待真实行动");
+    expect(source).toContain("仅展示已确认内容");
     expect(source).toContain("家庭私有记录");
-    expect(source).toContain("用于复盘");
+    expect(source).toContain("等待真实行动");
     expect(source).not.toContain("超过 78% 的伙伴");
     expect(source).not.toContain("看到孩子的变化");
     expect(source).not.toContain("♧ 23");
     expect(source).not.toContain("◯ 8");
+    expect(source).not.toContain("慧慧妈妈");
+    expect(source).not.toContain("乐乐爸爸");
   });
 
   it("uses a lightweight component transition for the service-card area", () => {

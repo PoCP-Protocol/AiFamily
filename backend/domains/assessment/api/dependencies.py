@@ -3,6 +3,7 @@ implementations are injected by `apps/family_api` at process startup; this
 module defines the shape (`FamilyContext`) and default-raising stubs so the
 domain package has no hard dependency on any concrete infra choice.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

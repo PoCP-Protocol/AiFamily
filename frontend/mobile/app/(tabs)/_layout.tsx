@@ -19,7 +19,7 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarButton: HapticTab,
-        tabBarActiveTintColor: colors.tint,
+        tabBarActiveTintColor: colors.trust,
         tabBarInactiveTintColor: colors.muted,
         tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
         tabBarStyle: {
@@ -33,11 +33,35 @@ export default function TabLayout() {
         },
       }}
     >
-      <Tabs.Screen name="index" options={{ title: "首页", tabBarIcon: ({ color }) => <IconSymbol size={25} name="house.fill" color={color} /> }} />
-      <Tabs.Screen name="growth" options={{ title: "计划", tabBarIcon: ({ color }) => <IconSymbol size={25} name="calendar.fill" color={color} /> }} />
-      <Tabs.Screen name="discover" options={{ title: "社群", tabBarIcon: ({ color }) => <IconSymbol size={25} name="person.2.fill" color={color} /> }} />
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: "首页",
+          tabBarIcon: ({ color }) => <IconSymbol size={25} name="house.fill" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="growth"
+        options={{
+          title: "计划",
+          tabBarIcon: ({ color }) => <IconSymbol size={25} name="calendar.fill" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="discover"
+        options={{
+          title: "社群",
+          tabBarIcon: ({ color }) => <IconSymbol size={25} name="person.2.fill" color={color} />,
+        }}
+      />
       <Tabs.Screen name="services" options={{ href: null }} />
-      <Tabs.Screen name="mine" options={{ title: "我的", tabBarIcon: ({ color }) => <IconSymbol size={25} name="person.crop.circle.fill" color={color} /> }} />
+      <Tabs.Screen
+        name="mine"
+        options={{
+          title: "我的",
+          tabBarIcon: ({ color }) => <IconSymbol size={25} name="person.crop.circle.fill" color={color} />,
+        }}
+      />
     </Tabs>
   );
 }

@@ -9,9 +9,9 @@ function source(id: string) {
 describe("UI-06 至 UI-12 原图对齐后的跨页面回归", () => {
   it("保留会员中心到报告与计划的既有功能入口", () => {
     const ui06 = source("UI-06");
-    expect(ui06).toContain('{ id: "report", label: "我的报告",');
+    expect(ui06).toMatch(/id:\s*"report",\s*label:\s*"我的报告"/);
     expect(ui06).toContain('target: "UI-08"');
-    expect(ui06).toContain('{ id: "plan", label: "我的计划",');
+    expect(ui06).toMatch(/id:\s*"plan",\s*label:\s*"我的计划"/);
     expect(ui06).toContain('target: "UI-04"');
   });
 

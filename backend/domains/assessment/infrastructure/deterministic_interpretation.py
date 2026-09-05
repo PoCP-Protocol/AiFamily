@@ -23,10 +23,11 @@ draft came from the rule-based fallback" from "this session's draft came
 from the live model", which is exactly the audit gap migration plan §9's
 "AI Run Ledger" item exists to close. See `domain/ai_run.py`.
 """
+
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from ..application.ports import AiRunLedgerPort, AssessmentInterpretationPort
 from ..domain.ai_run import AiRunRecord
@@ -59,9 +60,12 @@ class DeterministicInterpretationAdapter(AssessmentInterpretationPort):
         self._ai_run_ledger = ai_run_ledger
 
     async def interpret(
-        self, family_id: str, evidence: GrowthHypothesisEvidence, service_depth: str = "DEEP_AI_INTERPRETATION"
+        self,
+        family_id: str,
+        evidence: GrowthHypothesisEvidence,
+        service_depth: str = "DEEP_AI_INTERPRETATION",
     ) -> dict:
-        started_at = datetime.now(timezone.utc)
+        started_at = datetime.now(UTC)
         construct_ref = _FOCUS_TO_CONSTRUCT.get(evidence.focus_ref)
         construct_signals = []
         if construct_ref in _LEGAL_CONSTRUCT_REFS:
@@ -116,7 +120,7 @@ class DeterministicInterpretationAdapter(AssessmentInterpretationPort):
                     generator="deterministic",
                     model_name=None,
                     started_at=started_at,
-                    completed_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(UTC),
                     input_tokens=None,
                     output_tokens=None,
                     outcome="success",

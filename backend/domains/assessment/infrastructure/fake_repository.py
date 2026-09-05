@@ -6,14 +6,21 @@ repository must hold: idempotency-key replay, advisory-lock semantics
 guarantee, that only comes from the real Postgres advisory lock),
 tenant/family scope checks, and the same error codes.
 """
+
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from backend.platform.audit import AuditActionKind, AuditEvent
+
 from ..domain.entities import AssessmentResponse, AssessmentSession, GrowthHypothesisEvidence
-from ..domain.errors import AssessmentConflictError, AssessmentForbiddenError, AssessmentNotFoundError
+from ..domain.errors import (
+    AssessmentConflictError,
+    AssessmentForbiddenError,
+    AssessmentNotFoundError,
+)
 from ..domain.permission_policy import FAMILY_MANAGE_ROLES
 from ..domain.value_objects import AssessmentSessionStatus, AssessmentTool, AssessmentToolItem
 
@@ -34,9 +41,10 @@ def default_tool() -> AssessmentTool:
             AssessmentToolItem(
                 item_ref="FOCUS",
                 response_type="SINGLE_CHOICE",
-                required=True,
+                required=False,
                 options=["COMMUNICATION", "HOMEWORK", "SCREEN_TIME"],
             ),
+            AssessmentToolItem(item_ref="item-1", response_type="TEXT", required=False),
             AssessmentToolItem(item_ref="NOTE", response_type="TEXT", required=False),
         ],
     )
@@ -56,13 +64,20 @@ class FakeAssessmentRepository:
     # (family_id, person_id) -> role, for ACTIVE family_memberships rows.
     # Port of the `assertFamilyManagePermission` pass condition #2.
     family_memberships: dict[tuple[str, str], str] = field(default_factory=dict)
-    consents: set[tuple[str, str, str]] = field(default_factory=set)  # (family_id, subject_person_id, purpose)
-    subjects: dict[str, list[dict]] = field(default_factory=dict)  # family_id -> [{person_id, display_name, consent_granted}]
+    consents: set[tuple[str, str, str]] = field(
+        default_factory=set
+    )  # (family_id, subject_person_id, purpose)
+    subjects: dict[str, list[dict]] = field(
+        default_factory=dict
+    )  # family_id -> [{person_id, display_name, consent_granted}]
     tools: dict[tuple[str, int], AssessmentTool] = field(default_factory=dict)
     tenant_allowed_pages: dict[str, set[str]] = field(default_factory=dict)
     sessions: dict[str, AssessmentSession] = field(default_factory=dict)
-    operations: dict[tuple[str, str, str, str], dict] = field(default_factory=dict)  # (tenant,family,action,key) -> {request_hash, response_body}
+    operations: dict[tuple[str, str, str, str], dict] = field(
+        default_factory=dict
+    )  # (tenant,family,action,key) -> {request_hash, response_body}
     audit_log: list[dict] = field(default_factory=list)
+    read_audit_events: list[AuditEvent] = field(default_factory=list)
     outbox: list[dict] = field(default_factory=list)
     growth_intents: dict[str, dict] = field(default_factory=dict)  # source_ref -> intent
     hypothesis_decisions: dict[tuple[str, str, str, str], dict] = field(default_factory=dict)
@@ -82,7 +97,9 @@ class FakeAssessmentRepository:
         # `grant_family_manage_permission` / a bare actor id instead.
         self.grant_family_manage_permission(family_id, DEFAULT_TEST_ACTOR, role="OWNER_GUARDIAN")
 
-    def grant_family_manage_permission(self, family_id: str, person_id: str, role: str = "OWNER_GUARDIAN") -> None:
+    def grant_family_manage_permission(
+        self, family_id: str, person_id: str, role: str = "OWNER_GUARDIAN"
+    ) -> None:
         """Port of an ACTIVE `family_memberships` row with a manage-eligible
         role — the fake-repository equivalent of pass condition #2 in
         `assertFamilyManagePermission` (family-permission.ts).
@@ -96,14 +113,27 @@ class FakeAssessmentRepository:
         """
         self.create_family_audit.add((family_id, actor_id))
 
-    def seed_subject(self, family_id: str, person_id: str, display_name: str, consent_granted: bool = True) -> None:
+    def seed_subject(
+        self, family_id: str, person_id: str, display_name: str, consent_granted: bool = True
+    ) -> None:
         self.subjects.setdefault(family_id, []).append(
-            {"person_id": person_id, "display_name": display_name, "consent_granted": consent_granted}
+            {
+                "person_id": person_id,
+                "display_name": display_name,
+                "consent_granted": consent_granted,
+            }
         )
         if consent_granted:
             self.consents.add((family_id, person_id, "ASSESSMENT"))
 
-    def seed_need_type(self, focus_ref: str, need_type_ref: str, title: str, description: str, capability_keys: list[str]) -> None:
+    def seed_need_type(
+        self,
+        focus_ref: str,
+        need_type_ref: str,
+        title: str,
+        description: str,
+        capability_keys: list[str],
+    ) -> None:
         self.need_types[focus_ref] = {
             "need_type_ref": need_type_ref,
             "version_no": 1,
@@ -112,7 +142,9 @@ class FakeAssessmentRepository:
             "required_capability_keys": capability_keys,
         }
 
-    async def assert_tenant_family_scope(self, tenant_id: str, family_id: str, actor_id: str) -> None:
+    async def assert_tenant_family_scope(
+        self, tenant_id: str, family_id: str, actor_id: str
+    ) -> None:
         if (tenant_id, family_id) not in self.tenant_family_bindings:
             raise AssessmentForbiddenError("tenant_family_scope_denied")
 
@@ -125,7 +157,9 @@ class FakeAssessmentRepository:
             return
         raise AssessmentForbiddenError("actor_has_family_manage_permission")
 
-    async def assert_subject_consent(self, family_id: str, subject_person_id: str, purpose: str) -> None:
+    async def assert_subject_consent(
+        self, family_id: str, subject_person_id: str, purpose: str
+    ) -> None:
         if (family_id, subject_person_id, purpose) not in self.consents:
             raise AssessmentForbiddenError("assessment_subject_or_consent_unavailable")
 
@@ -142,7 +176,9 @@ class FakeAssessmentRepository:
     async def load_assessable_subjects(self, family_id: str) -> list[dict]:
         return list(self.subjects.get(family_id, []))
 
-    async def load_recent_sessions(self, tenant_id: str, family_id: str, limit: int = 10) -> list[AssessmentSession]:
+    async def load_recent_sessions(
+        self, tenant_id: str, family_id: str, limit: int = 10
+    ) -> list[AssessmentSession]:
         matches = [session for session in self.sessions.values() if session.family_id == family_id]
         matches.sort(key=lambda session: session.started_at, reverse=True)
         return matches[:limit]
@@ -153,10 +189,14 @@ class FakeAssessmentRepository:
             raise AssessmentNotFoundError("assessment_session_not_found")
         return session
 
-    async def load_session_for_update(self, family_id: str, tenant_id: str, session_id: str) -> AssessmentSession:
+    async def load_session_for_update(
+        self, family_id: str, tenant_id: str, session_id: str
+    ) -> AssessmentSession:
         return await self.load_session(family_id, session_id)
 
-    async def find_in_progress_session(self, tenant_id, family_id, subject_person_id, tool_ref, tool_version) -> str | None:
+    async def find_in_progress_session(
+        self, tenant_id, family_id, subject_person_id, tool_ref, tool_version
+    ) -> str | None:
         for session in self.sessions.values():
             if (
                 session.family_id == family_id
@@ -168,7 +208,9 @@ class FakeAssessmentRepository:
                 return session.assessment_session_id
         return None
 
-    async def insert_session(self, tenant_id, family_id, subject_person_id, tool_ref, tool_version, started_by) -> str:
+    async def insert_session(
+        self, tenant_id, family_id, subject_person_id, tool_ref, tool_version, started_by
+    ) -> str:
         session_id = str(uuid.uuid4())
         self.sessions[session_id] = AssessmentSession(
             assessment_session_id=session_id,
@@ -184,7 +226,9 @@ class FakeAssessmentRepository:
         )
         return session_id
 
-    async def upsert_response(self, session_id, item_ref, response_type, response_value, actor_id) -> None:
+    async def upsert_response(
+        self, session_id, item_ref, response_type, response_value, actor_id
+    ) -> None:
         session = self.sessions[session_id]
         previous = next((r for r in session.responses if r.item_ref == item_ref), None)
         session.responses = [r for r in session.responses if r.item_ref != item_ref]
@@ -206,10 +250,16 @@ class FakeAssessmentRepository:
         session.submitted_at = datetime.now(UTC)
         session.row_version += 1
 
-    async def insert_assessment_evidence(self, family_id: str, session_id: str, payload: dict) -> str:
+    async def insert_assessment_evidence(
+        self, family_id: str, session_id: str, payload: dict
+    ) -> str:
         evidence_id = str(uuid.uuid4())
         self._evidence = getattr(self, "_evidence", {})
-        self._evidence[evidence_id] = {"family_id": family_id, "session_id": session_id, "payload": payload}
+        self._evidence[evidence_id] = {
+            "family_id": family_id,
+            "session_id": session_id,
+            "payload": payload,
+        }
         self._evidence_by_session = getattr(self, "_evidence_by_session", {})
         self._evidence_by_session[session_id] = evidence_id
         return evidence_id
@@ -217,10 +267,53 @@ class FakeAssessmentRepository:
     async def tenant_allows_page(self, tenant_id: str, page_id: str) -> bool:
         return page_id in self.tenant_allowed_pages.get(tenant_id, set())
 
-    async def lock_operation(self, tenant_id: str, family_id: str, action: str, idempotency_key: str) -> None:
+    async def subject_has_active_consent(
+        self, family_id: str, subject_person_id: str, purpose: str
+    ) -> bool:
+        return (family_id, subject_person_id, purpose) in self.consents
+
+    async def record_read_access(
+        self,
+        *,
+        tenant_id: str,
+        family_id: str,
+        actor_id: str,
+        action: str,
+        resource_type: str,
+        resource_id: str,
+        subject_person_id: str,
+        accessed_fields: tuple[str, ...],
+        access_purpose: str,
+        reason: str,
+        correlation_id: str,
+        approval_ref: str,
+    ) -> None:
+        self.read_audit_events.append(
+            AuditEvent(
+                actor_id=actor_id,
+                tenant_id=tenant_id,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                reason=reason,
+                correlation_id=correlation_id,
+                action_kind=AuditActionKind.READ,
+                subject_person_id=subject_person_id,
+                subject_is_minor=True,
+                accessed_fields=accessed_fields,
+                access_purpose=access_purpose,
+                approval_ref=approval_ref,
+            )
+        )
+
+    async def lock_operation(
+        self, tenant_id: str, family_id: str, action: str, idempotency_key: str
+    ) -> None:
         return None  # advisory-lock semantics only meaningful against real Postgres
 
-    async def load_operation_replay(self, tenant_id, family_id, action, idempotency_key, request_hash) -> dict | None:
+    async def load_operation_replay(
+        self, tenant_id, family_id, action, idempotency_key, request_hash
+    ) -> dict | None:
         key = (tenant_id, family_id, action, idempotency_key)
         record = self.operations.get(key)
         if record is None:
@@ -229,26 +322,62 @@ class FakeAssessmentRepository:
             raise AssessmentConflictError("idempotency_key_payload_mismatch")
         return record["response_body"]
 
-    async def persist_operation(self, tenant_id, family_id, session_id, actor_id, action, request_hash, receipt, correlation_id, idempotency_key) -> None:
+    async def persist_operation(
+        self,
+        tenant_id,
+        family_id,
+        session_id,
+        actor_id,
+        action,
+        request_hash,
+        receipt,
+        correlation_id,
+        idempotency_key,
+    ) -> None:
         self.operations[(tenant_id, family_id, action, idempotency_key)] = {
             "request_hash": request_hash,
             "response_body": receipt,
         }
 
-    async def write_audit_and_outbox(self, family_id, actor_id, session_id, action, event_name, receipt, correlation_id, idempotency_key, source) -> None:
+    async def write_audit_and_outbox(
+        self,
+        family_id,
+        actor_id,
+        session_id,
+        action,
+        event_name,
+        receipt,
+        correlation_id,
+        idempotency_key,
+        source,
+    ) -> None:
         self.audit_log.append(
-            {"family_id": family_id, "actor_id": actor_id, "action": action, "resource_id": session_id, "correlation_id": correlation_id}
+            {
+                "family_id": family_id,
+                "actor_id": actor_id,
+                "action": action,
+                "resource_id": session_id,
+                "correlation_id": correlation_id,
+            }
         )
         self.outbox.append(
-            {"aggregate_id": session_id, "event_name": event_name, "correlation_id": correlation_id, "payload": receipt}
+            {
+                "aggregate_id": session_id,
+                "event_name": event_name,
+                "correlation_id": correlation_id,
+                "payload": receipt,
+            }
         )
 
-    async def load_hypothesis_evidence(self, family_id, tenant_id, session_id=None) -> GrowthHypothesisEvidence | None:
+    async def load_hypothesis_evidence(
+        self, family_id, tenant_id, session_id=None
+    ) -> GrowthHypothesisEvidence | None:
         candidates = [
             session
             for session in self.sessions.values()
             if session.family_id == family_id
             and session.status == AssessmentSessionStatus.SUBMITTED
+            and (family_id, session.subject_person_id, "ASSESSMENT") in self.consents
             and (session_id is None or session.assessment_session_id == session_id)
         ]
         if not candidates:
@@ -264,7 +393,12 @@ class FakeAssessmentRepository:
         if evidence_id is None:
             return None
         subject = next(
-            (s for s in self.subjects.get(family_id, []) if s["person_id"] == session.subject_person_id), None
+            (
+                s
+                for s in self.subjects.get(family_id, [])
+                if s["person_id"] == session.subject_person_id
+            ),
+            None,
         )
         return GrowthHypothesisEvidence(
             assessment_session_id=session.assessment_session_id,
@@ -282,13 +416,26 @@ class FakeAssessmentRepository:
             description=need_type["description"],
             required_capability_keys=need_type["required_capability_keys"],
             response_set=[
-                {"item_ref": r.item_ref, "response_type": r.response_type, "response_value": r.response_value}
+                {
+                    "item_ref": r.item_ref,
+                    "response_type": r.response_type,
+                    "response_value": r.response_value,
+                }
                 for r in session.responses
             ],
         )
 
     async def load_or_create_growth_intent(
-        self, *, family_id, subject_person_id, need_type, goal_text, required_capability_keys, confirmed_by, source_ref, evidence_refs
+        self,
+        *,
+        family_id,
+        subject_person_id,
+        need_type,
+        goal_text,
+        required_capability_keys,
+        confirmed_by,
+        source_ref,
+        evidence_refs,
     ) -> dict:
         existing = self.growth_intents.get(source_ref)
         if existing is not None:
@@ -304,14 +451,30 @@ class FakeAssessmentRepository:
         self.growth_intents[source_ref] = intent
         return intent
 
-    async def lock_hypothesis_decision(self, tenant_id: str, family_id: str, hypothesis_ref: str) -> None:
+    async def lock_hypothesis_decision(
+        self, tenant_id: str, family_id: str, hypothesis_ref: str
+    ) -> None:
         return None
 
-    async def load_hypothesis_decision_replay(self, tenant_id, family_id, decision_type, idempotency_key) -> dict | None:
+    async def load_hypothesis_decision_replay(
+        self, tenant_id, family_id, decision_type, idempotency_key
+    ) -> dict | None:
         return self.hypothesis_decisions.get((tenant_id, family_id, decision_type, idempotency_key))
 
     async def persist_hypothesis_decision(
-        self, *, tenant_id, family_id, session_id, hypothesis_ref, decision_type, actor_id, intent_id, idempotency_key, request_hash, receipt, correlation_id
+        self,
+        *,
+        tenant_id,
+        family_id,
+        session_id,
+        hypothesis_ref,
+        decision_type,
+        actor_id,
+        intent_id,
+        idempotency_key,
+        request_hash,
+        receipt,
+        correlation_id,
     ) -> None:
         self.hypothesis_decisions[(tenant_id, family_id, decision_type, idempotency_key)] = {
             "request_hash": request_hash,

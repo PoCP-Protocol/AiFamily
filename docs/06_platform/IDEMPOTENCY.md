@@ -28,7 +28,9 @@ superseded_by: null
 
 ### 1.1 `IdempotencyKey`（frozen dataclass, slots）
 
-单字段 `value: str`，空值即 `ValueError`（`test_idempotency_key_rejects_empty_value` 验证）。
+两个**必填**字段：`tenant_id: str` 与 `value: str`，任一为空即 `ValueError`。另有只读属性 `scoped_value`，返回 `f"{len(tenant_id)}:{tenant_id}:{value}"` —— 这是 store 唯一应当索引的字符串。
+
+**长度前缀不是装饰。** 裸 `f"{tenant_id}:{value}"` 有歧义：`(tenant="a", value="b:c")` 与 `(tenant="a:b", value="c")` 生成同一字符串，等于把要防的跨租户碰撞又请回来。租户 id 是不透明字符串，编码不得假设它不含分隔符（`test_tenant_and_value_boundary_cannot_be_confused_by_a_separator` 锁定）。
 
 **为什么不直接用 `str`**（`keys.py:3-5`）：包一层是为了让"把 resource_id 或 correlation_id 传到需要幂等键的地方"至少需要**一次显式转换**才能发生。类型系统在这里的作用是制造摩擦，不是抽象。
 
@@ -56,7 +58,8 @@ def check_and_reserve(self, key: IdempotencyKey) -> bool
 
 1. **原子性是接口契约，不是实现细节。** `keys.py:7-9` 要求 `check_and_reserve` 从调用方视角看必须是原子的 —— "check 后 reserve"之间不能有窗口。`InMemoryIdempotencyStore` 在单线程下满足；在真实并发下**不满足**（见 §3 缺口 2）。文档里给出的持久化实现思路是"key 列上加唯一约束"，即把原子性交给数据库。
 2. **单向、无释放。** 接口只有预留，没有 `release` / `delete` / `expire`。一旦预留就永久占用。
-3. **key 之间完全独立**（`test_different_keys_are_independent` 验证），不存在前缀/命名空间语义。
+3. **key 之间完全独立**（`test_different_keys_are_independent` 验证），不存在前缀/命名空间语义；唯一的结构化维度是 tenant。
+   **跨租户即两个 key。** 同一 `value` 由两个租户提交，两次首次预留都返回 `True`（`test_same_value_in_two_tenants_are_two_independent_reservations`），而租户内的重放仍被识别（`test_replay_is_still_detected_within_a_tenant_after_scoping` —— 隔离不得靠关掉重放检测换来）。
 4. **不存储结果。** 这是个纯"是否首次"的判定，**不缓存首次调用的响应**。第二次请求得到 `False` 后，调用方只知道"发生过了"，拿不到"上次返回了什么"。真正的 HTTP 幂等语义（重放同一 `Idempotency-Key` 应返回同一响应体）**表达不了**。
 
 ## 3. 已知缺口
@@ -68,5 +71,7 @@ def check_and_reserve(self, key: IdempotencyKey) -> bool
 3. **接口是同步方法，与全栈 async 不一致。** `check_and_reserve` 是 `def` 而非 `async def`，而 persistence 全部是 `AsyncSession`。Postgres 实现要么在 async 路径里做阻塞 I/O（会卡事件循环），要么改接口签名（破坏现有唯一实现）。**这是一个已经存在的设计冲突，落地持久化时必须先解决。**
 4. **无保留期/过期策略。** `keys.py:10-11` 明确写"retention policy ... not modeled yet in Wave 1"。内存实现的 `set` 无界增长；持久化实现若无 TTL 会让表无限膨胀。同时"多久之后同一个 key 可以被重新使用"这个语义问题也未回答。
 5. **无真实生产调用方。** 全仓 grep：只有自身与 `tests/platform/idempotency/`。没有 FastAPI 中间件读取 `Idempotency-Key` 请求头，也没有任何命令处理器调它。也就是说 AiFamily 目前**没有任何幂等保护在生效**。
-6. **key 的生成与作用域无规范。** 谁生成 key、按什么组合（actor + action + payload hash？客户端自带？）、作用域是否含 `tenant_id`，全部未定义。跨租户 key 碰撞在当前模型下会让一个租户的操作被误判为"已发生"—— 因为 `IdempotencyKey` 里**没有 tenant 维度**。这是一个潜在的跨租户正确性问题，落地前必须裁决。
+6. ~~**跨租户 key 碰撞会让一个租户的操作被误判为"已发生"—— 因为 `IdempotencyKey` 里没有 tenant 维度。**~~ **已修（T-14）**：`tenant_id` 现为必填字段，store 以 `scoped_value` 索引，且**没有留任何生成无租户 key 的旁路**（无兼容构造器、无默认值、无 classmethod）。原缺陷是双重问题：正确性（B 租户首次请求被当成重放而静默丢弃）+ 泄漏（该 `False` 完全源自 A 租户的活动，可被用于探测）。
+   **仍未闭合的部分**：key 的**生成规范**依旧缺失 —— 谁生成、按什么组合（actor + action + payload hash？客户端自带？）仍未定义。持久化实现的唯一约束必须建在 `(tenant_id, value)` 上，不是 `value` 上。
+   **值得注意的事实**：改这条**没有需要更新的生产调用方**。全仓 grep 确认 `IdempotencyKey` 在 platform 与 `tests/platform/` 之外零引用；membership 与 service 各自用裸 `str` + 自己的仓储查询，而那些查询签名**本来就是** `(tenant_id, family_id, key)`，即业务侧的幂等一直是租户内的。缺陷只存在于平台原语，未曾被业务域触发。
 7. **不与 `UnitOfWork` 协同。** 预留成功但随后事务回滚时，key 仍被占用（无释放接口），该操作**永久无法重试**。正确设计需要预留与业务事务的关系被明确定义（同事务？两阶段？补偿？），当前完全未定义。

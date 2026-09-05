@@ -9,5 +9,52 @@ per-domain equivalent in membership).
 from __future__ import annotations
 
 from backend.platform.identity.context import ActorContext, ActorType, TenantContext, TenantStatus
+from backend.platform.identity.directory import (
+    DenyAllTenantDirectory,
+    InMemoryTenantDirectory,
+    TenantDirectory,
+)
+from backend.platform.identity.session_port import (
+    HttpIdentitySessionPort,
+    IdentitySessionError,
+    IdentitySessionPort,
+    IssuedIdentitySession,
+    SessionBootstrapTokenSource,
+    VerifiedIdentitySession,
+)
+from backend.platform.identity.trusted_context import (
+    InMemoryTrustedTenantScopeStore,
+    SqlAlchemyTrustedTenantScopeStore,
+    TenantBindingStatus,
+    TenantMembershipStatus,
+    TenantRole,
+    TenantScopeError,
+    TrustedTenantScope,
+    TrustedTenantScopeResolver,
+    TrustedTenantScopeStore,
+)
 
-__all__ = ["ActorContext", "ActorType", "TenantContext", "TenantStatus"]
+__all__ = [
+    "ActorContext",
+    "ActorType",
+    "DenyAllTenantDirectory",
+    "InMemoryTenantDirectory",
+    "TenantContext",
+    "TenantDirectory",
+    "TenantBindingStatus",
+    "TenantMembershipStatus",
+    "TenantRole",
+    "TenantScopeError",
+    "TenantStatus",
+    "TrustedTenantScope",
+    "TrustedTenantScopeResolver",
+    "TrustedTenantScopeStore",
+    "InMemoryTrustedTenantScopeStore",
+    "SqlAlchemyTrustedTenantScopeStore",
+    "HttpIdentitySessionPort",
+    "IdentitySessionError",
+    "IdentitySessionPort",
+    "IssuedIdentitySession",
+    "SessionBootstrapTokenSource",
+    "VerifiedIdentitySession",
+]

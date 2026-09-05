@@ -19,6 +19,8 @@ PR-001R (chief-architect review on PR #27):
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,7 +44,10 @@ from ..domain.entities import (
     UnmetNeed,
     ValueArchitecture,
 )
-from ..domain.errors import ProductIntelligenceNotFoundError
+from ..domain.errors import (
+    ProductIntelligenceNotFoundError,
+    ProductIntelligenceValidationError,
+)
 from . import sqlalchemy_models as m
 
 
@@ -72,6 +77,80 @@ class SqlAlchemyProductIntelligenceRepository:
 
     async def save_evidence(self, entity: Evidence) -> None:
         await self._merge(m.EvidenceRow(**entity.model_dump()))
+
+    async def save_competitor_evidence(
+        self, entity: object, *, tenant_scope: str, created_by: str
+    ) -> None:
+        """Persist a DRAFT evidence card with app-owned scope metadata."""
+
+        if getattr(entity, "evidence_status", None) != "UNKNOWN":
+            raise ProductIntelligenceValidationError(
+                "competitor_evidence_cannot_self_verify"
+            )
+        now = datetime.now(UTC)
+        await self._merge(
+            m.CompetitorEvidenceRow(
+                id=entity.evidence_id,
+                version=entity.version,
+                created_at=now,
+                updated_at=now,
+                created_by=created_by,
+                tenant_scope=tenant_scope,
+                status="DRAFT",
+                evidence_refs=list(entity.evidence_refs),
+                assumptions=list(entity.assumptions),
+                unknowns=list(entity.unknowns),
+                next_validation=entity.next_validation,
+                expires_at=entity.expires_at,
+                provenance_ref=entity.provenance_ref,
+                model_ref=entity.model_ref,
+                prompt_use_case_version=entity.prompt_use_case_version,
+                confidence=entity.confidence,
+                competitor_ref=entity.competitor_ref,
+                claim=entity.claim,
+                source_refs=list(entity.source_refs),
+                evidence_status=str(entity.evidence_status),
+                demand_ref=entity.demand_ref,
+                market_insight_ref=entity.market_insight_ref,
+                source_type=entity.source_type,
+            )
+        )
+
+    async def load_competitor_evidence(self, entity_id: str, tenant_scope: str) -> object:
+        row = await self._get_scoped(
+            m.CompetitorEvidenceRow,
+            entity_id,
+            tenant_scope,
+            "competitor_evidence_not_found",
+        )
+        from backend.intelligence.product_management.product_factory_inputs import (
+            CompetitorEvidenceCard,
+        )
+
+        expires_at = row.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        return CompetitorEvidenceCard(
+            evidence_id=row.id,
+            competitor_ref=row.competitor_ref,
+            claim=row.claim,
+            source_refs=tuple(row.source_refs),
+            evidence_status=row.evidence_status,
+            demand_ref=row.demand_ref,
+            market_insight_ref=row.market_insight_ref,
+            source_type=row.source_type,
+            evidence_refs=tuple(row.evidence_refs),
+            assumptions=tuple(row.assumptions),
+            unknowns=tuple(row.unknowns),
+            next_validation=row.next_validation,
+            version=row.version,
+            provenance_ref=row.provenance_ref,
+            model_ref=row.model_ref,
+            prompt_use_case_version=row.prompt_use_case_version,
+            confidence=row.confidence,
+            expires_at=expires_at,
+            status="DRAFT",
+        )
 
     # -- CustomerInsight --
     async def save_customer_insight(self, entity: CustomerInsight) -> None:
@@ -154,9 +233,7 @@ class SqlAlchemyProductIntelligenceRepository:
     async def save_value_architecture(self, entity: ValueArchitecture) -> None:
         await self._merge(m.ValueArchitectureRow(**entity.model_dump()))
 
-    async def load_value_architecture(
-        self, entity_id: str, tenant_scope: str
-    ) -> ValueArchitecture:
+    async def load_value_architecture(self, entity_id: str, tenant_scope: str) -> ValueArchitecture:
         row = await self._get_scoped(
             m.ValueArchitectureRow, entity_id, tenant_scope, "value_architecture_not_found"
         )

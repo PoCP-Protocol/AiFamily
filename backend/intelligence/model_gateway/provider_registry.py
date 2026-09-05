@@ -70,9 +70,7 @@ environment the record lists.
 
 CALLABLE_STATUSES: frozenset[str] = frozenset({"INTERNAL_APPROVED", "PRODUCTION_APPROVED"})
 
-REGULATED_DATA_CLASSES: frozenset[str] = frozenset(
-    {"MINOR_PERSONAL_DATA", "FAMILY_PRIVATE_TEXT"}
-)
+REGULATED_DATA_CLASSES: frozenset[str] = frozenset({"MINOR_PERSONAL_DATA", "FAMILY_PRIVATE_TEXT"})
 """Data classes for which 第16条 delegated-processing duties bite. `SYNTHETIC` and
 `OPERATIONAL_TEXT` carry no personal-information subject, so the paperwork checks
 do not apply to them — but the status/environment checks still do, because an
@@ -403,8 +401,7 @@ def _record_from_mapping(entry: dict[str, Any], *, source: str) -> ProviderRecor
         key = sub_delegates.strip().lower()
         if key not in _YAML_TRISTATE:
             raise ValueError(
-                f"{source}: sub_delegates must be true / false / unknown, got "
-                f"{sub_delegates!r}"
+                f"{source}: sub_delegates must be true / false / unknown, got {sub_delegates!r}"
             )
         sub_delegates = _YAML_TRISTATE[key]
     elif sub_delegates is not None and not isinstance(sub_delegates, bool):

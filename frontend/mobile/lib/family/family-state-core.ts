@@ -81,7 +81,7 @@ export type FamilyMobileAction =
   | { type: "save_study_group_draft"; productRef: string; productTitle: string; familyCount: 2 | 3 | 4 }
   | { type: "cancel_study_group_draft" }
   | { type: "save_consultation_need_draft"; offeringRef: string; offeringVersion: number; offeringTitle: string; providerName: string; channel: ConsultationChannel; slotRef: string | null; timePreference: string; ageBand: string; needFocus: string }
-  | { type: "sync_consultation_need_receipt"; bookingRequestId: string; serviceRecordId: string }
+  | { type: "sync_consultation_need_receipt"; bookingRequestId: string; serviceRecordId: string | null }
   | { type: "save_activity_interest_draft"; activityRef: string; activityTitle: string }
   | { type: "save_community_post_draft"; kind: CommunityPostKind; title: string; body: string; topic: string; aiTagDraft?: CommunityAiTagDraft }
   | { type: "toggle_community_bookmark"; exchangeRef: string }

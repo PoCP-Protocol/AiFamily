@@ -20,10 +20,17 @@ export default function FamilyGrowthMallScreen() {
   useEffect(() => {
     if (session.status !== "connected" || !session.token || !session.selectedFamily) return;
     let active = true;
-    familyApi.getCommerceProducts<FamilyApiCommerceProductsProjection>(session.token, session.selectedFamily.family_id)
-      .then((result) => { if (active) setRemoteCatalog(result); })
-      .catch((error) => { console.error("UI-13 remote projection failed", error); });
-    return () => { active = false; };
+    familyApi
+      .getCommerceProducts<FamilyApiCommerceProductsProjection>(session.token, session.selectedFamily.family_id)
+      .then((result) => {
+        if (active) setRemoteCatalog(result);
+      })
+      .catch((error) => {
+        console.error("UI-13 remote projection failed", error);
+      });
+    return () => {
+      active = false;
+    };
   }, [session.selectedFamily, session.status, session.token]);
 
   const products = useMemo(() => commerceProductsForDisplay(remoteCatalog?.products), [remoteCatalog?.products]);
@@ -35,24 +42,29 @@ export default function FamilyGrowthMallScreen() {
     <ScreenContainer edges={["left", "right", "bottom"]}>
       <Stack.Screen options={{ headerShown: false }} />
       <FlatList
+        key="mall-products-2-columns"
         refreshControl={<FamilyRefreshControl />}
         data={products}
         keyExtractor={(item) => item.productRef}
-        numColumns={3}
+        numColumns={2}
         columnWrapperStyle={styles.productRow}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { backgroundColor: colors.background }]}
         ListHeaderComponent={
           <View style={styles.header}>
-            <View style={styles.topBar}><View style={styles.topSpacer} /><Text style={styles.topTitle}>家庭成长商城</Text><Text style={styles.more}>•••</Text></View>
+            <View style={styles.topBar}>
+              <View style={styles.topSpacer} />
+              <Text style={[styles.topTitle, { color: colors.text }]}>家庭成长商城</Text>
+              <Text style={[styles.more, { color: colors.text }]}>•••</Text>
+            </View>
             <Text style={[styles.greeting, { color: colors.text }]}>早上好，乐乐妈妈 👋</Text>
             <Text style={[styles.subtitle, { color: colors.muted }]}>一起成长，一起成为更好的父母</Text>
 
-            <Pressable onPress={() => router.push("/ui/UI-15" as Href)} style={({ pressed }) => [styles.inviteBanner, pressed && styles.pressed]}>
+            <Pressable onPress={() => products[0] && openProduct(products[0])} style={({ pressed }) => [styles.inviteBanner, pressed && styles.pressed]}>
               <View style={styles.inviteCopy}>
-                <Text style={styles.inviteTitle}>邀请好友领成长礼包</Text>
-                <Text style={styles.inviteLabel}>邀请越多，奖励越多</Text>
+                <Text style={styles.inviteTitle}>按家庭需要找支持</Text>
+                <Text style={styles.inviteLabel}>课程、工具与服务方案目录</Text>
                 <View style={styles.inviteAction}>
-                  <Text style={styles.inviteActionText}>立即邀请</Text>
+                  <Text style={styles.inviteActionText}>查看推荐</Text>
                   <IconSymbol name="chevron.right" size={18} color="#2563EB" />
                 </View>
               </View>
@@ -62,12 +74,12 @@ export default function FamilyGrowthMallScreen() {
             </Pressable>
 
             <View style={styles.categoryGrid}>
-              <CategoryTile label="拼团专区" detail="多人更优惠" icon="person.2.fill" color="#F06D61" target="UI-16" />
-              <CategoryTile label="家庭成长好物" detail="课程工具服务" icon="book.fill" color="#53AD68" target="UI-14" />
-              <CategoryTile label="成长积分商城" detail="积分换好礼" icon="star.fill" color="#F39A1C" target="UI-17" />
-              <CategoryTile label="会员专享" detail="专属权益" icon="crown.fill" color="#F3A424" target="UI-18" />
+              <CategoryTile label="家庭同行计划" detail="保存参与意向" icon="person.2.fill" color="#F06D61" target="UI-16" />
+              <CategoryTile label="成长支持方案" detail="课程工具服务" icon="book.fill" color="#53AD68" target="UI-14" />
+              <CategoryTile label="成长积分规则" detail="只读查看" icon="star.fill" color="#F39A1C" target="UI-17" />
+              <CategoryTile label="会员权益" detail="查看权益状态" icon="crown.fill" color="#F3A424" target="UI-18" />
               <CategoryTile label="限时挑战" detail="限时超值" icon="heart.fill" color="#F06863" target="UI-10" />
-              <CategoryTile label="邀请有礼" detail="邀请得奖励" icon="gift.fill" color="#8561DF" target="UI-15" />
+              <CategoryTile label="邀请说明" detail="保存私有草稿" icon="gift.fill" color="#8561DF" target="UI-15" />
             </View>
 
             <View style={styles.sectionTopline}>
@@ -81,9 +93,11 @@ export default function FamilyGrowthMallScreen() {
             <View style={[styles.productVisual, { backgroundColor: `${item.accent}18` }]}>
               <IconSymbol name={item.category === "COURSE" ? "book.fill" : item.category === "ASSESSMENT" ? "chart.bar.fill" : "gift.fill"} size={30} color={item.accent} />
             </View>
-            <Text style={[styles.productTitle, { color: colors.text }]} numberOfLines={2}>{item.title}</Text>
+            <Text style={[styles.productTitle, { color: colors.text }]} numberOfLines={2}>
+              {item.title}
+            </Text>
             <Text style={[styles.productPrice, { color: item.accent }]}>{item.familyPriceLabel.replace("家庭意向 ", "")}</Text>
-            <Text style={[styles.productSource, { color: colors.muted }]}>已有人购买</Text>
+            <Text style={[styles.productSource, { color: colors.muted }]}>测试方案 · 仅供了解</Text>
           </Pressable>
         )}
         ListFooterComponent={
@@ -113,36 +127,153 @@ function CategoryTile({ label, detail, icon, color, target }: { label: string; d
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 36, gap: 12 },
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 36,
+    gap: 12,
+  },
   header: { gap: 10, marginBottom: 12 },
-  topBar: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  topBar: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   topSpacer: { width: 42 },
-  topTitle: { color: "#20242A", fontSize: 19, lineHeight: 26, fontWeight: "900" },
-  more: { width: 42, textAlign: "right", color: "#20242A", fontSize: 18, lineHeight: 20, fontWeight: "900", letterSpacing: 1 },
-  greeting: { fontSize: 24, lineHeight: 32, fontWeight: "900" },
-  subtitle: { fontSize: 14, lineHeight: 21 },
-  inviteBanner: { minHeight: 151, borderRadius: 18, backgroundColor: "#E8F2FF", padding: 18, flexDirection: "row", alignItems: "center", gap: 12 },
+  topTitle: {
+    fontSize: 20,
+    lineHeight: 28,
+    fontWeight: "800",
+  },
+  more: {
+    width: 42,
+    textAlign: "right",
+    fontSize: 18,
+    lineHeight: 20,
+    fontWeight: "900",
+    letterSpacing: 1,
+  },
+  greeting: { fontSize: 24, lineHeight: 34, fontWeight: "800" },
+  subtitle: { fontSize: 14, lineHeight: 22 },
+  inviteBanner: {
+    minHeight: 151,
+    borderRadius: 20,
+    backgroundColor: "#E8F4FC",
+    padding: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
   inviteCopy: { flex: 1, gap: 7 },
-  inviteLabel: { color: "#5B7091", fontSize: 14, lineHeight: 20, fontWeight: "800" },
-  inviteTitle: { color: "#09295A", fontSize: 23, lineHeight: 30, fontWeight: "900" },
-  inviteAction: { alignSelf: "flex-start", minHeight: 34, borderRadius: 17, paddingHorizontal: 11, backgroundColor: "#FFFFFF", flexDirection: "row", alignItems: "center", gap: 2 },
-  inviteActionText: { color: "#2563EB", fontSize: 12, lineHeight: 17, fontWeight: "800" },
-  familyMark: { width: 68, height: 68, borderRadius: 34, backgroundColor: "#FFFFFF80", alignItems: "center", justifyContent: "center" },
+  inviteLabel: {
+    color: "#5B7091",
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  inviteTitle: {
+    color: "#10213E",
+    fontSize: 23,
+    lineHeight: 32,
+    fontWeight: "800",
+  },
+  inviteAction: {
+    alignSelf: "flex-start",
+    minHeight: 44,
+    borderRadius: 22,
+    paddingHorizontal: 14,
+    backgroundColor: "#FFFFFF",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  inviteActionText: {
+    color: "#0078D4",
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
+  familyMark: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: "#FFFFFF80",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   categoryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
-  categoryTile: { width: "31%", minHeight: 98, borderWidth: 1, borderRadius: 13, padding: 8, alignItems: "center", justifyContent: "center", gap: 3 },
-  categoryIcon: { width: 42, height: 42, borderRadius: 15, alignItems: "center", justifyContent: "center" },
-  categoryLabel: { fontSize: 13, lineHeight: 18, fontWeight: "800", textAlign: "center" },
-  categoryDetail: { fontSize: 10, lineHeight: 14, textAlign: "center" },
-  sectionTopline: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 2 },
-  sectionTitle: { fontSize: 20, lineHeight: 26, fontWeight: "900" },
-  sectionHint: { fontSize: 12, lineHeight: 17 },
-  productRow: { gap: 8 },
-  productCard: { flex: 1, minHeight: 194, borderWidth: 1, borderRadius: 18, padding: 9, gap: 6, marginBottom: 10 },
-  productVisual: { height: 72, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  productTitle: { minHeight: 38, fontSize: 13, lineHeight: 18, fontWeight: "800" },
-  productPrice: { fontSize: 14, lineHeight: 19, fontWeight: "900" },
-  productSource: { fontSize: 10, lineHeight: 14 },
-  footerNote: { minHeight: 74, borderWidth: 1, borderRadius: 19, padding: 14, flexDirection: "row", alignItems: "center", gap: 10, marginTop: 2 },
+  categoryTile: {
+    width: "31%",
+    minHeight: 98,
+    borderWidth: 1,
+    borderRadius: 13,
+    padding: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+  },
+  categoryIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  categoryLabel: {
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  categoryDetail: { fontSize: 12, lineHeight: 18, textAlign: "center" },
+  sectionTopline: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 2,
+  },
+  sectionTitle: { fontSize: 17, lineHeight: 24, fontWeight: "700" },
+  sectionHint: { fontSize: 12, lineHeight: 18 },
+  productRow: { gap: 12 },
+  productCard: {
+    flex: 1,
+    minHeight: 210,
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 12,
+    gap: 8,
+    marginBottom: 12,
+  },
+  productVisual: {
+    height: 72,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  productTitle: {
+    minHeight: 40,
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
+  productPrice: {
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
+  productSource: { fontSize: 12, lineHeight: 18 },
+  footerNote: {
+    minHeight: 74,
+    borderWidth: 1,
+    borderRadius: 19,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 2,
+  },
   footerText: { flex: 1, fontSize: 12, lineHeight: 18 },
   pressed: { opacity: 0.82, transform: [{ scale: 0.98 }] },
 });

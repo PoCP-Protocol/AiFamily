@@ -29,9 +29,12 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
+from fastapi import Depends
+
 from backend.platform.audit.recorder import AuditRecorder
 from backend.platform.authorization.policy import PolicyEngine, PolicyRule
 from backend.platform.identity.context import ActorContext, ActorType
+from backend.platform.identity.directory import DenyAllTenantDirectory, TenantDirectory
 
 from ..application.context import ActionContext
 from ..application.ports import ConsentQueryPort, ServiceRepositoryPort
@@ -77,8 +80,15 @@ def resource_for(action: str) -> str:
     return SERVICE_BOOKING_RESOURCE
 
 
-def build_policy_engine() -> PolicyEngine:
-    engine = PolicyEngine()
+def build_policy_engine(tenant_directory: TenantDirectory) -> PolicyEngine:
+    """Register this domain's rules onto an engine bound to `tenant_directory`.
+
+    The directory is a required argument, not a default: `PolicyEngine` denies
+    every actor whose tenant is not ACTIVE, and it needs somewhere to look that
+    up. Passing it in (rather than letting the engine invent one) keeps the
+    production path fail-closed — see `get_tenant_directory` below.
+    """
+    engine = PolicyEngine(tenant_directory)
     human_and_system = frozenset({ActorType.HUMAN, ActorType.SYSTEM})
 
     for action, resource in _NON_GATED_ACTIONS.items():
@@ -104,7 +114,6 @@ def build_policy_engine() -> PolicyEngine:
     return engine
 
 
-_policy_engine = build_policy_engine()
 _audit_recorder = AuditRecorder()
 
 
@@ -137,8 +146,36 @@ async def get_actor_context() -> ActorContext:
     )
 
 
-def get_policy_engine() -> PolicyEngine:
-    return _policy_engine
+def get_tenant_directory() -> TenantDirectory:
+    """Where tenant status comes from. Fifth fail-closed dependency.
+
+    Returns `DenyAllTenantDirectory` because this repository has no tenant store
+    yet — the Account → TenantMembership → Family chain
+    (`governance/DOMAIN_REGISTRY.yaml` → `auth_identity`, status NOT_STARTED) is
+    where real tenant lifecycle will live. Unlike the other four, this one does
+    not raise: an unknown tenant is a legitimate *authorization* answer (DENY),
+    not a configuration fault, and `PolicyEngine` already reports it as such with
+    a reason string that names the tenant. Raising here would turn every request
+    into a 500 and lose that distinction.
+
+    Overridden via `app.dependency_overrides` by dev wiring and tests, the same
+    mechanism the other four use.
+    """
+    return DenyAllTenantDirectory()
+
+
+def get_policy_engine(
+    tenant_directory: TenantDirectory = Depends(get_tenant_directory),
+) -> PolicyEngine:
+    """Built per request, bound to the resolved tenant directory.
+
+    Not a module-level singleton any more: the engine now holds a tenant
+    directory, and a process-wide instance built at import time would freeze
+    whatever directory existed then — including in an app whose dev wiring
+    installs a different one afterwards. Rule registration is a handful of
+    dataclass appends, so rebuilding is cheaper than the bug.
+    """
+    return build_policy_engine(tenant_directory)
 
 
 def get_audit_recorder() -> AuditRecorder:

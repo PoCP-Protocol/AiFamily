@@ -6,7 +6,7 @@ status: current
 version: 1.0
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-08-29
+updated: 2026-09-04
 canonical: true
 supersedes: null
 superseded_by: null
@@ -50,8 +50,8 @@ Mobile 前端依赖端点数 ≈ 40+ 业务路径 + 4 个 /auth/* 端点
 
 | 产品 / 端 | 代码是否在 AiFamily | 位置 | 状态 |
 |---|---|---|---|
-| **Family App**（家长端，移动） | 是 | `frontend/mobile/` | 代码已迁入（411 文件 / 35.62MB，34 UI 屏幕 + 35 测试文件 + 99 张设计基线图），**后端未就绪** |
-| **Family API**（后端服务） | 是 | `backend/apps/family_api/` | 真实 FastAPI 实例，仅 `/health` `/ready`，**零业务 API** |
+| **Family App**（家长端，移动） | 是 | `frontend/mobile/` | 代码已迁入（411 文件 / 35.62MB，34 UI 屏幕 + 35 测试文件 + 99 张设计基线图），**Mobile 端能否真的消费下方后端端点尚未核实**（2026-09-04，见 `CURRENT_SYSTEM_BASELINE.md` §0.4） |
+| **Family API**（后端服务） | 是 | `backend/apps/family_api/` | 真实 FastAPI 实例，2026-09-04 实测 `app.openapi()['paths']` = **85 个真实业务 operations**（family_need/FGCN/AI Coach/product_intelligence/assessment/experience/growth 等），不是"仅 `/health` `/ready`、零业务 API"——本行下方 §2 起的逐屏状态表仍按原调研（源仓库 NestJS 后端下测得）保留，未逐屏重新核实 AiFamily 侧真实可用性 |
 | Teacher Workspace（教师工作台） | **否** | — | **PLANNED_NO_CODE** |
 | Institution Console（机构控制台，B2B2C） | **否** | — | **PLANNED_NO_CODE** |
 | Operations Console（运营控制台） | **否** | — | **PLANNED_NO_CODE** |
@@ -105,7 +105,7 @@ manifest 状态 MIGRATED_PENDING_BACKEND_INTEGRATION
 
 已知缺口（来自 UI 审计 V1 的精确拆分，不是笼统 GAP）：UI-05 的 phase-review 已接线（`reviewJourneyPhase`），但 **pause 完全无前端入口且客户端 SDK 层缺方法**；UI-04 只有 LLM draft/说明，无报告事实 DTO。
 
-#### GROWTH — 成长效果类页面（宪章红线区）
+#### GROWTH — 成长效果类页面（按业务语义分路径治理）
 
 | UI | 名称 | Legacy Status | AiFamily Runnable |
 |---|---|---|---|
@@ -115,7 +115,10 @@ manifest 状态 MIGRATED_PENDING_BACKEND_INTEGRATION
 | UI-12 | 成长成果海报 | `GATE_BOUNDARY` | NO — NO_BACKEND |
 | UI-29 | 成长成果 | `GATE_BOUNDARY` | NO — NO_BACKEND |
 
-**这一组不是"待补后端"，是"产品边界未裁决"。** UI-11（跨家庭榜单）与 UI-08（成长评分）直接触碰 `governance/REPOSITORY_CONSTITUTION.md` R9 红线（不计算/不存储/不暴露家庭总分与家庭排行）。`MIGRATION_PLAN_V2.md` §3 对这一组的处置是 **不迁移、不重建** —— 在产品侧决定这些屏幕是否应当存在之前，Python 重写只会把违规语义搬过来。UI-10（儿童直接作答）另有 HOLD 状态。
+**这一组不能一概视为产品冻结。** 当前源实现形态中，UI-11 的跨家庭榜单/家庭总分/等级化比较触碰
+`governance/REPOSITORY_CONSTITUTION.md` R9 红线，不得直接挂载为任何环境的业务能力；UI-08、UI-12、
+UI-29 的家庭私有回顾、证据绑定成果和经同意分享属于允许路径，必须在当前目标态重建，并在开发、
+测试、生产使用同一套功能、状态机和权限。UI-10（儿童直接作答）另有独立的产品与隐私评审。
 
 #### SERVICE — 名师、咨询预约、沙龙活动
 
@@ -148,9 +151,11 @@ UI-19→UI-21→UI-24 是源仓库**第二条端到端验证的链路**，也是
 | UI-30 | 年度会员服务 | `GATE_BOUNDARY` | NO — NO_BACKEND |
 | UI-32 | 订单与资产 | `READ_ONLY_READY` | NO — NO_BACKEND |
 
-UI-15/UI-16 的 `E2E_READY` 成立条件是"Named Action + fixture + 幂等 + **零外部 effect**"，即**没有真实扣款**。任何触及真实定价/支付/权益兑换的屏幕（UI-07/13/14/17/30）都停在 `GATE_BOUNDARY` 或 `GAP`。
+UI-15/UI-16 的 `E2E_READY` 成立条件是"Named Action + fixture + 幂等 + **零外部 effect**"，即**没有真实扣款**。
+这只说明当前外部适配器未接入，不能推导出功能不应建设。所有触及定价/支付/权益兑换的屏幕，
+都必须在测试环境使用 sandbox/fake adapter 完整验证；生产环境再切换真实渠道。
 
-**明确反面案例**：UI-17 的积分余额是硬编码兜底值 `membership?.dev_points?.balance ?? 1280`，`DAILY_TASKS` / `REWARDS` 的积分数值也是硬编码常量。`docs/05_ai/AI_NATIVE_PRINCIPLES.md` §4 第 4 条把这一模式明确列为反面清单。`MIGRATION_PLAN_V2.md` §3 规定：COMMERCE 迁移前必须先清理该硬编码，并解决"未成年人商业场景权限规则不明确"这一 Stop Condition —— 后者的上位约束是《未成年人网络保护条例》第 24 条第 3 款（禁止向未成年人做自动化决策商业营销），见 `SYSTEM_MANIFEST.md` §3.2。
+**明确反面案例**：UI-17 的积分余额是硬编码兜底值 `membership?.dev_points?.balance ?? 1280`，`DAILY_TASKS` / `REWARDS` 的积分数值也是硬编码常量。`docs/05_ai/AI_NATIVE_PRINCIPLES.md` §4 第 4 条把这一模式明确列为反面清单。COMMERCE 完成前必须用正式 ledger 和投影替代该硬编码，并用可失败的 guardrail 证明不会向未成年人进行自动化决策商业营销；这属于实现质量与生产准入要求，不是阻止测试环境建设完整流程的 Stop Condition。上位约束仍是《未成年人网络保护条例》第 24 条第 3 款，见 `SYSTEM_MANIFEST.md` §3.2。
 
 #### COMMUNITY — 家长社区
 

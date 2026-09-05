@@ -198,6 +198,7 @@ export interface FamilyApiCommerceProduct {
   source_ref: string;
   fixture_only: true;
   attributes_schema_version: number;
+  attributes?: Record<string, unknown>;
 }
 
 export interface FamilyApiCommerceProductsProjection {

@@ -48,6 +48,8 @@ AiFamily 的正式后端是 **Python / FastAPI / SQLAlchemy / PostgreSQL**，且
 ### R5 — 合成数据不得伪装为业务能力 (No Synthetic Data As Business Capability)
 自我标注为合成/演示/夹具的产物，不得作为业务代码迁入，也不得挂载在生产路由上。
 
+本条只约束**数据来源与生产暴露边界**，不允许被解释为“开发/测试环境可以少做功能”。开发、测试、生产必须使用同一套功能、流程、规则和路由；开发/测试只能把真实数据与外部副作用替换为隔离的合成数据、sandbox 或 fake adapter。详见 `docs/10_engineering/ENVIRONMENT_PARITY.md` 与 ADR-0020。
+
 演示数据、种子脚本、UI 夹具属于测试资产，必须在路径与命名上与业务代码物理隔离。
 
 > **伤疤**：`50_开发_dev/apps/api/src/modules/family/dev-platform-surfaces.service.ts:26-33` 与 `dev-core-growth.service.ts:43-60` 在自己的返回体里写明 `data_source: 'SYNTHETIC_DEV_ONLY'`、`model_gateway: 'NOOP_NOT_INVOKED'`，内容是 24 张硬编码 UI 卡片和一本中文文案字典，却通过 `family.controller.ts:280,295,313,326` 挂在生产 HTTP 路由 `/:familyId/dev/*` 上对外提供。前端因此渲染的是假数据。

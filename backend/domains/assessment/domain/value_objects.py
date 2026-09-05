@@ -5,18 +5,21 @@ Ported from `packages/contracts/src/ui02-assessment.ts` (UI-02) and the UI-03
 has no FastAPI / SQLAlchemy / provider-SDK dependency — see
 `architecture/FAMILY_AI_PYTHON_ONLY_MIGRATION_PLAN_V1.md` section 3.
 """
+
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 AssessmentResponseType = Literal["SINGLE_CHOICE", "TEXT", "BOOLEAN"]
-Ui02AssessmentAvailability = Literal["AVAILABLE", "CONSENT_REQUIRED", "NO_SUBJECT", "POLICY_BLOCKED"]
+Ui02AssessmentAvailability = Literal[
+    "AVAILABLE", "CONSENT_REQUIRED", "NO_SUBJECT", "POLICY_BLOCKED"
+]
 
 
-class AssessmentSessionStatus(str, Enum):
+class AssessmentSessionStatus(StrEnum):
     IN_PROGRESS = "IN_PROGRESS"
     SUBMITTED = "SUBMITTED"
     EXITED = "EXITED"
@@ -69,5 +72,9 @@ MUTATION_RECEIPT_BOUNDARY: Literal["FAMILY_PERSPECTIVE_NOT_SCORE_OR_DIAGNOSIS"] 
 )
 
 GrowthHypothesisDecisionType = Literal["CONFIRM", "DISMISS"]
-HYPOTHESIS_FACT_BOUNDARY: Literal["HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS"] = "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS"
-GROWTH_INTENT_BOUNDARY: Literal["HUMAN_CONFIRMED_INTENT_NOT_OUTCOME"] = "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME"
+HYPOTHESIS_FACT_BOUNDARY: Literal["HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS"] = (
+    "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS"
+)
+GROWTH_INTENT_BOUNDARY: Literal["HUMAN_CONFIRMED_INTENT_NOT_OUTCOME"] = (
+    "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME"
+)

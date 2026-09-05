@@ -25,6 +25,7 @@ deliberately NOT extending or reusing that Protocol:
 No FastAPI/SQLAlchemy dependency here, same four-layer rule as the rest of
 this domain's `application/*_ports.py` modules.
 """
+
 from __future__ import annotations
 
 from typing import Protocol

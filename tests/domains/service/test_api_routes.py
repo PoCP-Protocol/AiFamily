@@ -59,7 +59,8 @@ from backend.domains.service.infrastructure.sqlalchemy_repository import (
     SqlAlchemyServiceRepository,
 )
 from backend.platform.audit.recorder import AuditRecorder
-from backend.platform.identity.context import ActorContext, ActorType
+from backend.platform.identity.context import ActorContext, ActorType, TenantStatus
+from backend.platform.identity.directory import InMemoryTenantDirectory
 
 from .helpers import CHILD, CONSENT_REF, FAMILY, GUARDIAN, TENANT, granted
 
@@ -135,6 +136,12 @@ def client(wiring: _Wiring) -> Iterator[TestClient]:
     app.dependency_overrides[deps.get_action_context] = _ctx
     app.dependency_overrides[deps.get_actor_context] = _actor
     app.dependency_overrides[deps.get_audit_recorder] = lambda: wiring.recorder
+    # Fifth fail-closed dependency: production has no tenant store, so the
+    # default directory denies everything. These tests are about the routes,
+    # not about tenant lifecycle, so they register the one tenant they act as.
+    app.dependency_overrides[deps.get_tenant_directory] = lambda: InMemoryTenantDirectory(
+        {TENANT: TenantStatus.ACTIVE}
+    )
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

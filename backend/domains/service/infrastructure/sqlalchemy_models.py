@@ -54,6 +54,8 @@ class ServiceProviderRow(Base):
     provider_kind = Column(String, nullable=False)
     qualification_ref = Column(String, nullable=True)
     qualification_status = Column(String, nullable=False)
+    qualification_type = Column(String, nullable=True)
+    qualification_expires_at = Column(DateTime, nullable=True)
     admission_status = Column(String, nullable=False)
     source_ref = Column(String, nullable=False)
     fixture_only = Column(Boolean, nullable=False, default=True)

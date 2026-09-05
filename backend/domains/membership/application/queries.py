@@ -16,6 +16,7 @@ from __future__ import annotations
 from backend.packages.contracts.ui_surfaces import MEMBERSHIP_READ_SURFACES, get_surface
 from backend.packages.contracts.value_ordering import order_blocks
 
+from ..domain.entities import utcnow
 from ..domain.errors import MembershipForbiddenError
 from .ports import MembershipRepositoryPort
 from .read_models import (
@@ -40,16 +41,17 @@ TIER_LABELS: dict[str, str] = {
 async def get_membership_projection(
     repo: MembershipRepositoryPort, *, tenant_id: str, family_id: str
 ) -> MembershipProjection:
+    now = utcnow()
     subscriptions = await repo.list_subscriptions(tenant_id, family_id)
     grants = await repo.list_benefit_grants(tenant_id, family_id)
     reservations = await repo.list_reservations(tenant_id, family_id)
     periods = await repo.list_periods(tenant_id, family_id)
     transitions = await repo.list_tier_transitions(tenant_id, family_id)
 
-    active_period = next((p for p in periods if p.status == "ACTIVE"), None)
+    active_period = next((p for p in periods if p.is_active_at(now)), None)
     held_by_grant: dict[str, int] = {}
     for r in reservations:
-        if r.status == "HELD":
+        if r.status == "HELD" and not r.is_expired_at(now):
             held_by_grant[r.benefit_grant_id] = held_by_grant.get(r.benefit_grant_id, 0) + r.units
 
     tier_code = active_period.tier_code if active_period else None
@@ -73,7 +75,13 @@ async def get_membership_projection(
             BenefitView(
                 benefit_grant_id=g.benefit_grant_id,
                 benefit_ref=g.benefit_ref,
-                status=g.status,
+                status=(
+                    "AVAILABLE"
+                    if g.is_usable_at(now)
+                    else "EXPIRED"
+                    if g.status == "AVAILABLE" and g.valid_to is not None
+                    else g.status
+                ),
                 allocated_units=g.allocated_units,
                 remaining_units=g.remaining_units,
                 reserved_units=held_by_grant.get(g.benefit_grant_id, 0),
@@ -94,7 +102,7 @@ async def get_membership_projection(
             )
             for t in sorted(transitions, key=lambda t: t.occurred_at)
         ],
-        text_equivalent=_text_equivalent(tier_code, grants),
+        text_equivalent=_text_equivalent(tier_code, grants, at=now),
     )
 
 
@@ -109,13 +117,13 @@ def _period_view(period) -> PeriodView:
     )
 
 
-def _text_equivalent(tier_code: str | None, grants) -> str:
+def _text_equivalent(tier_code: str | None, grants, *, at) -> str:
     """Screen-reader / no-JS text equivalent, mirroring the existing
     `FamilyApiMembershipProjection.text_equivalent` contract. Says only what is
     true — no "Lv.", no score, no comparison with other families."""
     if tier_code is None:
         return "本家庭尚未建立会员关系。"
-    available = sum(1 for g in grants if g.status == "AVAILABLE")
+    available = sum(1 for g in grants if g.is_usable_at(at))
     return (
         f"当前会员:{TIER_LABELS[tier_code]};可用权益 {available} 项。"
         "会员档位不代表家庭或孩子的能力评价。"

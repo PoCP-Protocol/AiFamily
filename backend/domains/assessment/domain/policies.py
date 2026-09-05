@@ -7,6 +7,7 @@ signal set, same policy_version literal. Per
 `architecture/FAMILY_AI_PYTHON_ONLY_MIGRATION_PLAN_V1.md` section 10, this
 guarantee must be preserved, not weakened, in translation.
 """
+
 from __future__ import annotations
 
 from typing import Literal
@@ -37,7 +38,9 @@ class SafetyDisposition(BaseModel):
     signals: list[StructuredSafetySignal]
 
 
-def _normalize_safety_signals(signals: list[StructuredSafetySignal]) -> list[StructuredSafetySignal]:
+def _normalize_safety_signals(
+    signals: list[StructuredSafetySignal],
+) -> list[StructuredSafetySignal]:
     without_none = [signal for signal in signals if signal != "NONE"]
     unique = sorted(set(without_none)) if without_none else ["NONE"]
     return unique  # type: ignore[return-value]
@@ -48,12 +51,18 @@ def assess_structured_safety_signals(signals: list[StructuredSafetySignal]) -> S
 
     if any(signal in _CRITICAL_SIGNALS for signal in normalized):
         return SafetyDisposition(
-            severity="CRITICAL", disposition="SAFETY_ESCALATION", policy_version=POLICY_VERSION, signals=normalized
+            severity="CRITICAL",
+            disposition="SAFETY_ESCALATION",
+            policy_version=POLICY_VERSION,
+            signals=normalized,
         )
 
     if any(signal in _ESCALATION_SIGNALS for signal in normalized):
         return SafetyDisposition(
-            severity="HIGH", disposition="SAFETY_ESCALATION", policy_version=POLICY_VERSION, signals=normalized
+            severity="HIGH",
+            disposition="SAFETY_ESCALATION",
+            policy_version=POLICY_VERSION,
+            signals=normalized,
         )
 
     return SafetyDisposition(
@@ -73,7 +82,11 @@ def assert_response_value(
         raise AssessmentValidationError("assessment_boolean_response_required")
     if response_type in ("SINGLE_CHOICE", "TEXT") and not isinstance(value, str):
         raise AssessmentValidationError("assessment_text_response_required")
-    if response_type == "TEXT" and isinstance(value, str) and (len(value.strip()) == 0 or len(value) > 500):
+    if (
+        response_type == "TEXT"
+        and isinstance(value, str)
+        and (len(value.strip()) == 0 or len(value) > 500)
+    ):
         raise AssessmentValidationError("assessment_text_response_invalid")
     if response_type == "SINGLE_CHOICE" and (not options or str(value) not in options):
         raise AssessmentValidationError("assessment_choice_not_in_tool_version")

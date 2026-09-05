@@ -6,7 +6,7 @@ status: current
 version: 1.0
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-08-29
+updated: 2026-09-04
 canonical: true
 supersedes: null
 superseded_by: null
@@ -22,6 +22,8 @@ superseded_by: null
 ## 0. 范围声明
 
 本文件描述 AiFamily 仓库在 Wave 0 (AIFAMILY-000) 结束时的技术基线现状，不描述未来 Wave 的目标架构（后者见 `docs/11_delivery/CURRENT_PROGRAM_PLAN.md`）。
+
+> **⚠ 2026-09-04 现状核实追记**：本文件 §2 说的"FastAPI/SQLAlchemy/Alembic/PostgreSQL 在 AiFamily 当前不存在，Wave 1 才建"**已经不成立**——Wave 1 已经发生。实测：真实 FastAPI 应用（`app.openapi()['paths']` = 85 个业务 operations）、66 个 Alembic migration（`database/migrations/versions/`，本会话验证过 upgrade→downgrade→upgrade 循环）、真实 PostgreSQL（docker-compose.dev.yml 起的 `aifamily-dev-postgres`，多个域有真实 round-trip 集成测试）。本文件按定义是"Wave 0 结束时的快照"，不是持续维护的当前真相；下方 §1-§6 的正文保留原文作为该快照的历史记录，是否需要整份归档到 `docs/99_archive/` 并由一份新的 Wave 1+ 技术基线文档取代，属 chief-architect 的裁决，本条追记不做这个决定。
 
 ## 1. 语言与依赖工具链：已建立
 

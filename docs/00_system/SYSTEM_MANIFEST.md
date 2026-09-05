@@ -6,7 +6,7 @@ status: current
 version: 1.0
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-08-29
+updated: 2026-09-04
 canonical: true
 supersedes: null
 superseded_by: null
@@ -83,7 +83,7 @@ System Baseline   docs/00_system/CURRENT_SYSTEM_BASELINE.md
 Program Status    docs/00_system/CURRENT_PROGRAM_STATUS.md
 ```
 
-**当前状态一句话**：治理体系与文档架构已建立，Python 平台内核骨架可运行（`/health`、`/ready`），5 个 Python 域与整个 Mobile 前端已迁入，**但尚无任何业务 API 可用** —— 34 个 UI 屏幕全部处于"代码在仓库内、后端未就绪"状态。
+**当前状态一句话**：治理体系与文档架构已建立，Python 平台内核骨架可运行，5 个 Python 域与整个 Mobile 前端已迁入；截至 2026-09-04，`family_need`/FGCN/AI Coach/product_intelligence 已有 85 个真实业务 HTTP 端点与真实 Postgres 持久化，Mobile 前端能否消费尚未核实——详见 `CURRENT_SYSTEM_BASELINE.md` §0.4。
 
 详细状态（含"哪些没完成"）必须读 `CURRENT_SYSTEM_BASELINE.md`，不要从本文件推断。
 
@@ -113,6 +113,7 @@ Program Status    docs/00_system/CURRENT_PROGRAM_STATUS.md
 | `governance/REPOSITORY_CONSTITUTION.md` | 14 条工程宪章（R1–R14），最高工程约束 |
 | `governance/DOMAIN_REGISTRY.yaml` | 每个 Domain 的唯一正式实现位置（R2 执行） |
 | `governance/MIGRATION_MANIFEST.yaml` | 每项能力的迁移处置（R3 执行：无登记不得入仓） |
+| `governance/AI_USE_CASE_REGISTRY.yaml` | AI 用例、Agent、Tool、输出和人工闸门的机器可执行治理登记 |
 | `governance/ADR/` | 架构决策记录 |
 
 ### 5.3 约束级文档（优先于分项设计）

@@ -10,7 +10,8 @@ describe("UI-06 original membership and mine baseline contract", () => {
     expect(source).toContain("家庭成长陪伴记录待同步");
     expect(source).toContain("邀请 3 个家庭，解锁会员权益");
     expect(source).toContain("会员服务待确认");
-    expect(source).toContain("#092F76");
+    expect(source).toContain("#0078D4");
+    expect(source).toContain("#F28C45");
   });
 
   it("uses only existing downstream screens for the six original menu entries", () => {

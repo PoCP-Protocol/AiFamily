@@ -3,6 +3,7 @@
 reproduction of the 2026-08-26 incident this guard exists to prevent
 (model fabricating an unreviewed construct_ref).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -16,7 +17,9 @@ LEGAL_REFS = {"PARENT_CHILD_COMMUNICATION", "HOMEWORK_PROCESS", "DEVICE_USE_CONT
 def _valid_draft() -> dict:
     return {
         "boundary_labels": ["hypothesis_not_fact", "recommendation_not_decision"],
-        "construct_signals": [{"construct_ref": "PARENT_CHILD_COMMUNICATION", "boundary": "signal_not_diagnosis"}],
+        "construct_signals": [
+            {"construct_ref": "PARENT_CHILD_COMMUNICATION", "boundary": "signal_not_diagnosis"}
+        ],
         "hypotheses": [
             {
                 "hypothesis_ref": "H1",
@@ -26,7 +29,9 @@ def _valid_draft() -> dict:
                 "contradiction_rank": 1,
             }
         ],
-        "action_candidates": [{"action_ref": "SUPPORT_ACTION", "boundary": "recommendation_not_decision"}],
+        "action_candidates": [
+            {"action_ref": "SUPPORT_ACTION", "boundary": "recommendation_not_decision"}
+        ],
         "prohibited_outputs": [],
     }
 
@@ -90,7 +95,9 @@ class TestInterpretationBoundary:
             assert_interpretation_boundary(draft, LEGAL_REFS)
         assert exc.value.code == "action_candidate_missing_boundary"
 
-    @pytest.mark.parametrize("forbidden_key", ["total_score", "TotalScore", "ranking", "diagnosis", "family_diagnosis"])
+    @pytest.mark.parametrize(
+        "forbidden_key", ["total_score", "TotalScore", "ranking", "diagnosis", "family_diagnosis"]
+    )
     def test_forbidden_field_names_are_rejected_anywhere_in_the_tree(self, forbidden_key):
         draft = _valid_draft()
         draft["construct_signals"][0][forbidden_key] = 42  # smuggled into a nested object
@@ -111,7 +118,12 @@ class TestInterpretationBoundary:
         draft = _valid_draft()
         base = draft["hypotheses"][0]
         draft["hypotheses"] = [
-            {**base, "hypothesis_ref": f"H{i}", "contradiction_rank": i, "is_primary_contradiction": True}
+            {
+                **base,
+                "hypothesis_ref": f"H{i}",
+                "contradiction_rank": i,
+                "is_primary_contradiction": True,
+            }
             for i in range(1, 4)
         ]
         assert_interpretation_boundary(draft, LEGAL_REFS)  # does not raise
@@ -120,7 +132,12 @@ class TestInterpretationBoundary:
         draft = _valid_draft()
         base = draft["hypotheses"][0]
         draft["hypotheses"] = [
-            {**base, "hypothesis_ref": f"H{i}", "contradiction_rank": i, "is_primary_contradiction": True}
+            {
+                **base,
+                "hypothesis_ref": f"H{i}",
+                "contradiction_rank": i,
+                "is_primary_contradiction": True,
+            }
             for i in range(1, 5)
         ]
         with pytest.raises(AssessmentValidationError) as exc:

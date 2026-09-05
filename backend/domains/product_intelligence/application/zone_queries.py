@@ -63,6 +63,7 @@ reliable commercial-financial data source wired in yet, and inventing one
 (even as a mock) would manufacture a fake operating metric. `PortfolioZoneRow`/
 `PortfolioZoneSummary` intentionally carry zero revenue/margin-shaped fields.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -204,7 +205,10 @@ def _to_row(assessment: ProductZoneAssessment, *, now: datetime) -> PortfolioZon
 
 
 async def get_portfolio_zone_view(
-    port: ZonePortfolioQueryPort, context: ActorContext, *, now: datetime,
+    port: ZonePortfolioQueryPort,
+    context: ActorContext,
+    *,
+    now: datetime,
 ) -> list[PortfolioZoneRow]:
     """`now` is caller-supplied (never `datetime.now()` internally) so the
     180-day re-review boundary is deterministically testable — per this
@@ -215,7 +219,10 @@ async def get_portfolio_zone_view(
 
 
 async def get_portfolio_zone_summary(
-    port: ZonePortfolioQueryPort, context: ActorContext, *, now: datetime,
+    port: ZonePortfolioQueryPort,
+    context: ActorContext,
+    *,
+    now: datetime,
 ) -> PortfolioZoneSummary:
     assessments = await port.list_zone_assessments(context.tenant_scope)
 
@@ -257,8 +264,12 @@ async def get_portfolio_zone_summary(
     # branches above and break this sum — surface that loudly here rather
     # than returning a summary that quietly does not add up.
     assert (
-        commodity_count + advantage_count + unique_count
-        + unreviewed_count + rejected_count + retired_count
+        commodity_count
+        + advantage_count
+        + unique_count
+        + unreviewed_count
+        + rejected_count
+        + retired_count
         == total_count
     ), "portfolio_zone_summary_bucket_invariant_violated"
 

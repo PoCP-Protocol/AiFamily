@@ -21,6 +21,7 @@ onto it) because the two ask different questions:
 Requires `PY_ASSESSMENT_TEST_DATABASE_URL` — same env var and skip behavior
 as the sibling integration test file.
 """
+
 from __future__ import annotations
 
 import os
@@ -37,18 +38,15 @@ from backend.domains.assessment.application.commands import (
     StartAssessmentCommand,
     SubmitAssessmentCommand,
 )
-from backend.domains.assessment.application.growth_hypothesis_commands import (
-    DecideGrowthHypothesisCommand,
-    GrowthHypothesisCommandHandler,
+from backend.domains.assessment.infrastructure.sqlalchemy_repository import (
+    SqlAlchemyAssessmentRepository,
 )
-from backend.domains.assessment.application.queries import AssessmentQueryHandler, GetUi03ProjectionQuery
-from backend.domains.assessment.infrastructure.deterministic_interpretation import DeterministicInterpretationAdapter
-from backend.domains.assessment.infrastructure.sqlalchemy_repository import SqlAlchemyAssessmentRepository
 
 DATABASE_URL = os.environ.get("PY_ASSESSMENT_TEST_DATABASE_URL")
 
 pytestmark = pytest.mark.skipif(
-    not DATABASE_URL, reason="PY_ASSESSMENT_TEST_DATABASE_URL not set — skipping real-Postgres integration tests"
+    not DATABASE_URL,
+    reason="PY_ASSESSMENT_TEST_DATABASE_URL not set — skipping real-Postgres integration tests",
 )
 
 
@@ -81,7 +79,10 @@ async def _seed_family(conn) -> tuple[str, str, str, str]:
         {"id": tenant_id, "ref": f"pyverify-{tenant_id[:8]}"},
     )
     await conn.execute(
-        text("insert into families(family_id, display_name, status) values (:id, '测试家庭', 'ACTIVE')"),
+        text(
+            "insert into families(family_id, display_name, status) "
+            "values (:id, '测试家庭', 'ACTIVE')"
+        ),
         {"id": family_id},
     )
     await conn.execute(
@@ -107,8 +108,10 @@ async def _seed_family(conn) -> tuple[str, str, str, str]:
     )
     await conn.execute(
         text(
-            "insert into consents(family_id, subject_person_id, guardian_person_id, purpose, status, policy_version, granted_at) "
-            "values (:family_id, :subject_id, :guardian_id, 'ASSESSMENT', 'GRANTED', 'PYVERIFY_V1', now())"
+            "insert into consents(family_id, subject_person_id, guardian_person_id, purpose, "
+            "status, policy_version, granted_at) "
+            "values (:family_id, :subject_id, :guardian_id, 'ASSESSMENT', 'GRANTED', "
+            "'PYVERIFY_V1', now())"
         ),
         {"family_id": family_id, "subject_id": child_id, "guardian_id": guardian_id},
     )
@@ -130,7 +133,9 @@ async def _seed_family(conn) -> tuple[str, str, str, str]:
 
 
 def _meta(key: str) -> MutationMeta:
-    return MutationMeta(correlation_id="corr-outbox-1", idempotency_key=key, source="outbox-invariant-test")
+    return MutationMeta(
+        correlation_id="corr-outbox-1", idempotency_key=key, source="outbox-invariant-test"
+    )
 
 
 class TestOutboxHappyPathAgainstRealPostgres:
@@ -149,19 +154,29 @@ class TestOutboxHappyPathAgainstRealPostgres:
                 commands = AssessmentCommandHandler(repo)
 
                 start = await commands.start(
-                    StartAssessmentCommand(family_id, tenant_id, guardian_id, child_id, None, _meta("h1"))
+                    StartAssessmentCommand(
+                        family_id, tenant_id, guardian_id, child_id, None, _meta("h1")
+                    )
                 )
                 session_id = start["session"]["assessment_session_id"]
 
                 save = await commands.save_response(
                     SaveAssessmentResponseCommand(
-                        family_id, tenant_id, guardian_id, session_id, "FOCUS", "SINGLE_CHOICE",
-                        "PARENT_CHILD_COMMUNICATION", _meta("h2"),
+                        family_id,
+                        tenant_id,
+                        guardian_id,
+                        session_id,
+                        "FOCUS",
+                        "SINGLE_CHOICE",
+                        "PARENT_CHILD_COMMUNICATION",
+                        _meta("h2"),
                     )
                 )
 
                 submit = await commands.submit(
-                    SubmitAssessmentCommand(family_id, tenant_id, guardian_id, session_id, _meta("h3"))
+                    SubmitAssessmentCommand(
+                        family_id, tenant_id, guardian_id, session_id, _meta("h3")
+                    )
                 )
                 await trans.commit()  # make it durable so a second connection can see it
             except Exception:
@@ -177,7 +192,9 @@ class TestOutboxHappyPathAgainstRealPostgres:
                 # this scenario) rather than relying on timestamp ordering.
                 outbox = (
                     await reader.execute(
-                        text("select event_name, payload from outbox_events where aggregate_id=:sid"),
+                        text(
+                            "select event_name, payload from outbox_events where aggregate_id=:sid"
+                        ),
                         {"sid": session_id},
                     )
                 ).all()
@@ -196,7 +213,11 @@ class TestOutboxHappyPathAgainstRealPostgres:
                 "AssessmentResponseSaved",
                 "AssessmentSessionSubmitted",
             }
-            assert audit_actions == {"START_ASSESSMENT", "SAVE_ASSESSMENT_RESPONSE", "SUBMIT_ASSESSMENT"}
+            assert audit_actions == {
+                "START_ASSESSMENT",
+                "SAVE_ASSESSMENT_RESPONSE",
+                "SUBMIT_ASSESSMENT",
+            }
             assert all(row.result == "SUCCESS" for row in audits)
 
             # Payload content matches the receipt returned to the caller.
@@ -214,25 +235,54 @@ class TestOutboxHappyPathAgainstRealPostgres:
             # for other tests/runs.
             async with engine.connect() as cleanup:
                 cleanup_trans = await cleanup.begin()
-                await cleanup.execute(text("delete from outbox_events where aggregate_id=:sid"), {"sid": session_id})
-                await cleanup.execute(text("delete from audit_logs where family_id=:fid"), {"fid": family_id})
                 await cleanup.execute(
-                    text("delete from family_assessment_operations where assessment_session_id=:sid"), {"sid": session_id}
-                )
-                await cleanup.execute(text("delete from evidence_records where family_id=:fid"), {"fid": family_id})
-                await cleanup.execute(
-                    text("delete from family_assessment_responses where assessment_session_id=:sid"), {"sid": session_id}
+                    text("delete from outbox_events where aggregate_id=:sid"), {"sid": session_id}
                 )
                 await cleanup.execute(
-                    text("delete from family_assessment_sessions where assessment_session_id=:sid"), {"sid": session_id}
+                    text("delete from audit_logs where family_id=:fid"), {"fid": family_id}
                 )
-                await cleanup.execute(text("delete from tenant_policy_profiles where tenant_id=:tid"), {"tid": tenant_id})
-                await cleanup.execute(text("delete from family_memberships where family_id=:fid"), {"fid": family_id})
-                await cleanup.execute(text("delete from consents where family_id=:fid"), {"fid": family_id})
-                await cleanup.execute(text("delete from persons where family_id=:fid"), {"fid": family_id})
-                await cleanup.execute(text("delete from tenant_family_bindings where family_id=:fid"), {"fid": family_id})
-                await cleanup.execute(text("delete from families where family_id=:fid"), {"fid": family_id})
-                await cleanup.execute(text("delete from tenants where tenant_id=:tid"), {"tid": tenant_id})
+                await cleanup.execute(
+                    text(
+                        "delete from family_assessment_operations where assessment_session_id=:sid"
+                    ),
+                    {"sid": session_id},
+                )
+                await cleanup.execute(
+                    text("delete from evidence_records where family_id=:fid"), {"fid": family_id}
+                )
+                await cleanup.execute(
+                    text(
+                        "delete from family_assessment_responses where assessment_session_id=:sid"
+                    ),
+                    {"sid": session_id},
+                )
+                await cleanup.execute(
+                    text("delete from family_assessment_sessions where assessment_session_id=:sid"),
+                    {"sid": session_id},
+                )
+                await cleanup.execute(
+                    text("delete from tenant_policy_profiles where tenant_id=:tid"),
+                    {"tid": tenant_id},
+                )
+                await cleanup.execute(
+                    text("delete from family_memberships where family_id=:fid"), {"fid": family_id}
+                )
+                await cleanup.execute(
+                    text("delete from consents where family_id=:fid"), {"fid": family_id}
+                )
+                await cleanup.execute(
+                    text("delete from persons where family_id=:fid"), {"fid": family_id}
+                )
+                await cleanup.execute(
+                    text("delete from tenant_family_bindings where family_id=:fid"),
+                    {"fid": family_id},
+                )
+                await cleanup.execute(
+                    text("delete from families where family_id=:fid"), {"fid": family_id}
+                )
+                await cleanup.execute(
+                    text("delete from tenants where tenant_id=:tid"), {"tid": tenant_id}
+                )
                 await cleanup_trans.commit()
 
 
@@ -245,7 +295,9 @@ class TestOutboxAtomicityInvariantAgainstRealPostgres:
     connection after the failure, which can only see committed data.
     """
 
-    async def test_failure_inside_write_audit_and_outbox_rolls_back_business_write_too(self, engine, connection):
+    async def test_failure_inside_write_audit_and_outbox_rolls_back_business_write_too(
+        self, engine, connection
+    ):
         tenant_id, family_id, child_id, guardian_id = await _seed_family(connection)
         repo = SqlAlchemyAssessmentRepository(connection)
         commands = AssessmentCommandHandler(repo)
@@ -259,12 +311,24 @@ class TestOutboxAtomicityInvariantAgainstRealPostgres:
         # scenario the Transactional Outbox pattern must survive.
         original_write_audit_and_outbox = repo.write_audit_and_outbox
 
-        async def failing_write_audit_and_outbox(family_id_, actor_id, session_id, action, event_name, receipt, correlation_id, idempotency_key, source):
+        async def failing_write_audit_and_outbox(
+            family_id_,
+            actor_id,
+            session_id,
+            action,
+            event_name,
+            receipt,
+            correlation_id,
+            idempotency_key,
+            source,
+        ):
             await connection.execute(
                 text(
                     """
-                    insert into audit_logs(family_id,actor_type,actor_id,action_name,resource_type,resource_id,correlation_id,idempotency_key,result,metadata)
-                    values (:family_id,'PERSON',:actor_id,:action,'ASSESSMENT_SESSION',:session_id,:correlation_id,:idempotency_key,'SUCCESS','{}'::jsonb)
+                    insert into audit_logs(family_id,actor_type,actor_id,action_name,resource_type,
+                    resource_id,correlation_id,idempotency_key,result,metadata)
+                    values (:family_id,'PERSON',:actor_id,:action,'ASSESSMENT_SESSION',:session_id,
+                    :correlation_id,:idempotency_key,'SUCCESS','{}'::jsonb)
                     """
                 ),
                 {
@@ -276,13 +340,18 @@ class TestOutboxAtomicityInvariantAgainstRealPostgres:
                     "idempotency_key": idempotency_key,
                 },
             )
-            raise RuntimeError("SIMULATED_OUTBOX_WRITE_FAILURE — injected after audit_logs insert, before outbox_events insert")
+            raise RuntimeError(
+                "SIMULATED_OUTBOX_WRITE_FAILURE — injected after audit_logs insert, before "
+                "outbox_events insert"
+            )
 
         repo.write_audit_and_outbox = failing_write_audit_and_outbox
 
         with pytest.raises(RuntimeError, match="SIMULATED_OUTBOX_WRITE_FAILURE"):
             await commands.start(
-                StartAssessmentCommand(family_id, tenant_id, guardian_id, child_id, None, _meta("fail-1"))
+                StartAssessmentCommand(
+                    family_id, tenant_id, guardian_id, child_id, None, _meta("fail-1")
+                )
             )
 
         repo.write_audit_and_outbox = original_write_audit_and_outbox
@@ -320,7 +389,8 @@ class TestOutboxAtomicityInvariantAgainstRealPostgres:
                 await session_check.execute(
                     text(
                         "select count(*) c from outbox_events oe "
-                        "join family_assessment_sessions s on s.assessment_session_id=cast(oe.aggregate_id as uuid) "
+                        "join family_assessment_sessions s on "
+                        "s.assessment_session_id=cast(oe.aggregate_id as uuid) "
                         "where s.family_id=:fid"
                     ),
                     {"fid": family_id},
@@ -338,7 +408,9 @@ class TestOutboxAtomicityInvariantAgainstRealPostgres:
         assert existing_audit == 0, "audit_logs row leaked past rollback"
         assert existing_outbox == 0, "outbox_events row leaked past rollback"
 
-    async def test_failure_inside_write_audit_and_outbox_after_outbox_insert_still_rolls_back(self, engine, connection):
+    async def test_failure_inside_write_audit_and_outbox_after_outbox_insert_still_rolls_back(
+        self, engine, connection
+    ):
         """Mirror case: simulate failure AFTER the outbox_events insert
         succeeds but before the command returns (e.g. a crash immediately
         after). Confirms the outbox row itself doesn't leak independently
@@ -351,13 +423,31 @@ class TestOutboxAtomicityInvariantAgainstRealPostgres:
 
         original_write_audit_and_outbox = repo.write_audit_and_outbox
 
-        async def failing_write_audit_and_outbox(family_id_, actor_id, session_id, action, event_name, receipt, correlation_id, idempotency_key, source):
+        async def failing_write_audit_and_outbox(
+            family_id_,
+            actor_id,
+            session_id,
+            action,
+            event_name,
+            receipt,
+            correlation_id,
+            idempotency_key,
+            source,
+        ):
             # Run the REAL write (both audit_logs and outbox_events inserts,
             # via the real method) then raise as if the process crashed
             # immediately after — the outbox row genuinely exists in this
             # transaction at the moment of failure.
             await original_write_audit_and_outbox(
-                family_id_, actor_id, session_id, action, event_name, receipt, correlation_id, idempotency_key, source
+                family_id_,
+                actor_id,
+                session_id,
+                action,
+                event_name,
+                receipt,
+                correlation_id,
+                idempotency_key,
+                source,
             )
             raise RuntimeError("SIMULATED_POST_OUTBOX_CRASH")
 
@@ -365,7 +455,9 @@ class TestOutboxAtomicityInvariantAgainstRealPostgres:
 
         with pytest.raises(RuntimeError, match="SIMULATED_POST_OUTBOX_CRASH"):
             await commands.start(
-                StartAssessmentCommand(family_id, tenant_id, guardian_id, child_id, None, _meta("fail-2"))
+                StartAssessmentCommand(
+                    family_id, tenant_id, guardian_id, child_id, None, _meta("fail-2")
+                )
             )
 
         repo.write_audit_and_outbox = original_write_audit_and_outbox
@@ -380,12 +472,14 @@ class TestOutboxAtomicityInvariantAgainstRealPostgres:
             ).scalar_one()
             existing_outbox = (
                 await reader.execute(
-                    text(
-                        "select count(*) c from outbox_events where payload::text like :pattern"
-                    ),
+                    text("select count(*) c from outbox_events where payload::text like :pattern"),
                     {"pattern": f"%{family_id}%"},
                 )
             ).scalar_one()
 
-        assert existing_sessions == 0, "business write leaked past rollback even though outbox insert had run"
-        assert existing_outbox == 0, "outbox_events row leaked past rollback despite the later crash"
+        assert existing_sessions == 0, (
+            "business write leaked past rollback even though outbox insert had run"
+        )
+        assert existing_outbox == 0, (
+            "outbox_events row leaked past rollback despite the later crash"
+        )

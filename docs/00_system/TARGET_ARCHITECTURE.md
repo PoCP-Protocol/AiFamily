@@ -6,7 +6,7 @@ status: current
 version: 1.0
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-08-29
+updated: 2026-08-30
 canonical: true
 supersedes: docs/00_foundation/MASTER_BLUEPRINT.md (§1 全景图 / §3 独占区归属 / §4 FGCN 落位部分)
 superseded_by: null
@@ -240,13 +240,13 @@ SERVICE 预约子链（UI-19→UI-21→UI-24）是源仓库唯一验证过的**�
 | 邀请有礼/拼团 | UI-15/16 | `E2E_READY`（Named Action + fixture + 幂等 + **零外部 effect**，即无真实扣款） |
 | 发布动态 | UI-26 | `E2E_READY`（模板白名单 + 零外发） |
 | 商城首页/商品详情 | UI-13/14 | `UI_READY_BACKEND_GAP`（无正式 catalog DTO） |
-| 积分商城 | UI-17 | `GATE_BOUNDARY`（**硬编码积分兜底值 `?? 1280`**） |
-| 社区流 | UI-25/27/28 | `GATE_BOUNDARY` / `UI_READY_BACKEND_GAP` |
-| 成长效果/榜单/海报/成果 | UI-08/11/12/29 | 全部 `GATE_BOUNDARY` —— **R9 红线，不迁移不重建** |
+| 积分商城 | UI-17 | `UI_READY_BACKEND_GAP`（硬编码积分兜底值 `?? 1280` 必须由正式账本和投影替代） |
+| 社区流 | UI-25/27/28 | `UI_READY_BACKEND_GAP`（测试环境用合成数据和等价适配器完成完整流程） |
+| 成长效果/榜单/海报/成果 | UI-08/11/12/29 | 允许的私有回顾、证据绑定分享需要完整建设；跨家庭排名/总分等正向行为由 R9 明确禁止 |
 
-层3 内部完成度极不均匀，且分界线清晰：**"Named Action + fixture + 零外部 effect"模式的页面已 `E2E_READY`；一旦触及真实定价/支付/积分兑换就停在 `GATE_BOUNDARY`。** UI-17 的硬编码积分是明确反面案例（`AI_NATIVE_PRINCIPLES.md` §4 第 4 条）。
+层3 内部完成度极不均匀，且分界线清晰：**"Named Action + fixture + 零外部 effect"只是测试环境的适配方式，不是功能上限。** 一旦触及真实定价/支付/积分兑换，测试环境仍必须用 sandbox/fake adapter 跑完整业务路径；UI-17 的硬编码积分是数据真实性缺陷，必须用正式账本和投影替代（`AI_NATIVE_PRINCIPLES.md` §4 第 4 条）。
 
-GROWTH 闭环（UI-08/11/12/29）**不是技术迁移问题，是产品边界问题** —— 见 §6 待裁决项 3。
+GROWTH 闭环中，跨家庭排名、家庭总分和无证据效果断言是产品边界禁止项；私有回顾、证据绑定成果和经同意的分享属于允许能力，必须按环境等价原则完成技术迁移和测试 —— 见 §6 待裁决项 3。
 
 ---
 
@@ -261,7 +261,7 @@ GROWTH 闭环（UI-08/11/12/29）**不是技术迁移问题，是产品边界问
 | **Growth Intervention Engine**（给定 Context + GrowthNeed + 历史证据判断下一步） | `backend/intelligence/` | 定义本身就是"决策能力"而非"业务状态"：消费 `AssessmentInterpretationPort` 产出的 `hypotheses`/`action_candidates`，输出 `Perspective`/`Recommendation`，**永不直写业务权威状态**（R9 硬约束） | 雏形数据结构在源仓库存在，但缺 `primary_contradiction` 排序层。AiFamily 内零实现 |
 | **Service Blueprint Library**（针对家庭主要矛盾的标准化谋略库） | 蓝图对象 → `backend/domains/service`；"匹配"能力 → `backend/intelligence/` | `ServiceBlueprintVersion`（DRAFT→REVIEWED→PUBLISHED→RETIRED，发布后冻结）是业务权威配置对象，按 R9/R6 只能由业务域管理；把家庭 `primary_contradiction` 接入蓝图匹配输入契约是 AI Runtime 侧逻辑，输出仍是 Recommendation | AiFamily 内零实现 |
 
-**共同结论**：四个候选没有一个整体归属 AI Runtime 或整体归属业务域 —— **决策/推理/上下文检索归 AI Runtime，权威状态的持久化与写入归业务域**。这不是额外规则，是 R9 在架构拓扑上的直接投影。
+**共同结论**：四个候选没有一个整体归属 AI Runtime 或整体归属业务域 —— **决策/推理/上下文检索归 AI Runtime，权威状态的持久化与写入归业务域**。这不是额外规则，是 R9 在架构拓扑上的直接投影。该边界不影响测试环境用完整业务流程验证允许能力；测试只替换数据和外部适配器。
 
 **AI 原生要求**：`AI_NATIVE_PRINCIPLES.md` §1 规定"独占区候选必须 AI 原生"（五条判据全部答"是"），且 §3.3 明确 Family Context 与 Family Growth Graph 是 AI 原生的**地基而非可选增强**（判据 2 与判据 4 的载体）。因为它们完全空白，**它们是新建，不是优化**。
 
@@ -288,7 +288,7 @@ ServiceBlueprintVersion → ServiceCase → ServiceTask → TaskAssignment
 - `backend/domains/service`：`ServiceBlueprintVersion` / `ServiceCase` / `ServiceTask` / `TaskAssignment` / `ServiceRecord`
 - `backend/domains/teacher`（或并入 service，视 Batch 7 调研而定）：`Provider` / `ProviderProfile` / `Qualification` / `Admission`
 - `backend/domains/institution`：`Organization`（B2B2C 机构侧，"**付款方 / 服务接受者 / 数据访问者必须分离**"这一治理原则的落点）
-- 贡献确认与分配（`ServiceContribution` / `AllocationStatement`）：**service 域内部子模块，不是独立 domain**。其核心不变量是"**三笔账必须分开**"（增长账 / 服务贡献账 / 资金结算账）；P0 阶段用"影子贡献单位"，**不接真实支付**
+- 贡献确认与分配（`ServiceContribution` / `AllocationStatement`）：**service 域内部子模块，不是独立 domain**。其核心不变量是"**三笔账必须分开**"（增长账 / 服务贡献账 / 资金结算账）；测试环境先用"影子贡献单位"和 fake payout adapter 完整验证分配、冻结、释放、退款和争议，生产再接真实结算渠道
 
 ### 4.3 明确排除
 
@@ -324,7 +324,7 @@ ServiceBlueprintVersion → ServiceCase → ServiceTask → TaskAssignment
 |---|---|---|---|
 | 1 | `frontend_web` 的最终去向 | **应用 ARCHIVE 不迁入**；但其 24 个 spec 文件收割为 `TEST_ORACLE`，作为 T-04 的**第二契约来源**（两来源不一致处即契约的真实歧义点）。原 `REVIEW_REQUIRED` 的证据（无组件框架、无 bundler、build 只是 `tsc --noEmit`）说明它从来不是可部署前端，而是一批伪装成前端的后端契约 | ADR-0013 |
 | 2 | Family Growth Graph 的归属分歧 | **写入真相归业务域聚合，Graph 不是一个域**（登记为域会造出第二个成长真相，直接违 R2）。AI 侧唯一合法通路 = 独立只读投影 schema `graph_projection.*`（outbox → projector 构建）+ `GrowthGraphQueryPort`。**投影角色只授 `SELECT`**，使「AI 不能写业务真相」成为**数据库权限层的事实**而非代码约定。**不新建第四个进程**，projector 由 `workflow_worker` 承载。⚠ 整条链建立在尚不存在的机制上（`DomainEvent` 全域 grep 0 命中），ADR 明确规定在 outbox 存在前**一行代码都不该写** | ADR-0010 |
-| 3 | GROWTH 闭环（UI-08/11/12/29）的产品侧去向 | **保留文件，当前形态不得挂生产路由。** 重启判据：能在**不呈现家庭总分 / 排名 / 等级**的前提下表达「成长样态」。排在 Batch 4 之后。含产品面判断，project-owner 可 override；但 R9 红线本身不可 override | ADR-0014 §5 |
+| 3 | GROWTH 闭环（UI-08/11/12/29）的产品侧去向 | **当前含排名/总分/等级的源实现形态不得直接挂任何环境的业务路由。** 允许的私有回顾、证据绑定成果和经同意分享必须按合规语义重建，并在开发/测试/生产使用同一套功能路径；禁止行为在所有环境统一拒绝、审计并保留人工处理。排在 Batch 4 之后。R9 红线不可 override | ADR-0014 §5 |
 | 4 | `growth_plan` stub 与 `journey` 域的关系 | **`growth_plan` RETIRE，语义并入 `journey`**（采纳 registry `r2_overlap_risk` 的选项 a）。决定性证据：该 stub 仅 38 行错误类型，而其中的错误码字面量本身就是 `journey_plan_not_draft` / `journey_phase_review_not_due` —— **这不是边界模糊，是一个能力被起了两个名字**。⚠ 删目录需 project-owner **二次确认**（同类删除刚发生过一次并被回滚，见 `TASK_BACKLOG.md` §0.1 偏离 #3） | ADR-0012 |
 | 5 | 平台 `identity` 与业务身份域的边界 | **先纠正一个误读：这不是 R2 违规。** `DOMAIN_REGISTRY.yaml:43-49` 的 `r2_boundary_note` 已写明「两个*不同* capability 有意共享一个目录属 manifest 级决定；R2 禁止的是同一 capability 指向两个真实位置」。裁决的是那个已登记的开放项：平台层**永久限定**为无业务生命周期的值对象；业务身份落 `backend/domains/identity`、租户聚合落 `backend/domains/tenancy`；**删除 manifest 里根本不存在的 `backend/platform/tenant` target**。趁 `auth_identity` 仍是 `NOT_STARTED`，这是零成本改登记的最后时刻 | ADR-0011 |
 

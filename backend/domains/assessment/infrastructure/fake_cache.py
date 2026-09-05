@@ -5,6 +5,7 @@ un-implemented follow-up (see task report); this fake exists only to let
 `CachedAssessmentQueryHandler`'s cache-hit/cache-miss/TTL-expiry behavior be
 unit-tested now, per migration plan's "FakeProvider" requirement.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -12,7 +13,9 @@ from dataclasses import dataclass, field
 
 @dataclass
 class FakeQueryCache:
-    _store: dict[str, tuple[dict, float]] = field(default_factory=dict)  # key -> (value, expires_at)
+    _store: dict[str, tuple[dict, float]] = field(
+        default_factory=dict
+    )  # key -> (value, expires_at)
     _now: float = 0.0
 
     def advance_time(self, seconds: float) -> None:

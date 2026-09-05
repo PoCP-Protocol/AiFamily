@@ -1,0 +1,33 @@
+import type { PublishedCourseContent } from "./courseContentApi";
+
+export const publishedCourse: PublishedCourseContent = {
+  id: "course:family-rhythm",
+  version: 2,
+  status: "PUBLISHED",
+  tenant_scope: "tenant:demo",
+  created_by: "author:1",
+  created_at: "2026-09-01T08:00:00+08:00",
+  updated_at: "2026-09-02T08:00:00+08:00",
+  title: "家庭学习节奏",
+  product_component_id: null,
+  problem_statement: "家庭缺少共同节奏",
+  assessment_criteria: ["形成共同约定"],
+  learning_goal: "建立可持续协作",
+  lessons: [{
+    lesson_id: "lesson:1",
+    sequence: 1,
+    title: "共同定义问题",
+    knowledge_point: "问题外化",
+    action_task: "完成一次家庭对话",
+    media_asset_ids: ["deck:1"],
+    tool_refs: ["skill:dialogue@v1"],
+  }],
+  ai_coach_prompt_ref: "prompt:coach@v1",
+  review_cadence: "每周人工复盘",
+  outcome_metrics: ["共同约定被确认"],
+  content_accuracy_claim_refs: ["claim:rhythm"],
+  reviewed_by: "reviewer:1",
+  reviewed_at: "2026-09-02T08:00:00+08:00",
+  review_reason: "内容与安全边界通过",
+  published_at: "2026-09-02T08:00:00+08:00",
+};

@@ -6,6 +6,8 @@
 - **Supersedes**: null
 - **Superseded By**: null
 
+> **解释修正（2026-08-30）**：本 ADR 只规定不同环境的数据准入，不授权任何环境缺少业务功能。开发、测试、生产的功能、流程、规则和路由必须完全等价；相关约束见 ADR-0020。`SYNTHETIC_ONLY` 是数据类别门，不是功能成熟度或功能开关。
+
 ## Context
 
 ### 1. project-owner 的纠正，以及它纠正了什么

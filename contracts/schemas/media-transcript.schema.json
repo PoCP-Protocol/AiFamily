@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aifamily.invalid/contracts/media-transcript.schema.json",
+  "title": "AiFamily MediaTranscript",
+  "description": "Derived transcript with independent provenance, retention, consent and deletion linkage.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "transcript_id": { "type": "string", "minLength": 1 },
+    "source_asset_id": { "type": "string", "minLength": 1 },
+    "tenant_id": { "type": "string", "minLength": 1 },
+    "family_id": { "type": "string", "minLength": 1 },
+    "subject_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true },
+    "purpose": { "type": "string", "enum": ["growth_support", "family_memory", "family_sharing", "contribution_review"] },
+    "consent": { "$ref": "#/$defs/consent" },
+    "retention": { "$ref": "#/$defs/retention" },
+    "deletion": { "$ref": "#/$defs/deletion" },
+    "locale": { "type": "string", "pattern": "^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$" },
+    "text": { "type": "string", "minLength": 1 },
+    "transcript_status": { "type": "string", "enum": ["DRAFT", "HUMAN_REVIEWED", "REJECTED", "WITHDRAWN"] },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "correlation_id": { "type": "string", "minLength": 1 },
+    "causation_id": { "type": "string", "minLength": 1 }
+  },
+  "required": ["transcript_id", "source_asset_id", "tenant_id", "family_id", "subject_ids", "purpose", "consent", "retention", "deletion", "locale", "text", "transcript_status", "provenance", "correlation_id", "causation_id"],
+  "$defs": {
+    "consent": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "consent_version": { "type": "string", "minLength": 1 }, "status": { "const": "GRANTED" }, "effective_from": { "type": "string", "format": "date-time" }, "effective_to": { "type": ["string", "null"], "format": "date-time" }, "purpose": { "type": "string", "minLength": 1 } },
+      "required": ["consent_version", "status", "effective_from", "effective_to", "purpose"]
+    },
+    "retention": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "expires_at": { "type": "string", "format": "date-time" }, "on_expiry": { "const": "DELETE" } },
+      "required": ["expires_at", "on_expiry"]
+    },
+    "deletion": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "deletion_id": { "type": "string", "minLength": 1 }, "source_deletion_id": { "type": "string", "minLength": 1 }, "cascade_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true } },
+      "required": ["deletion_id", "source_deletion_id", "cascade_ids"]
+    },
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "kind": { "enum": ["USER", "HUMAN", "SYSTEM", "AI_DRAFT", "SYNTHETIC_TEST"] }, "source_ref": { "type": "string", "minLength": 1 }, "model_attempt_ref": { "type": ["string", "null"] }, "schema_version": { "type": "string", "minLength": 1 } },
+      "required": ["kind", "source_ref", "model_attempt_ref", "schema_version"]
+    }
+  }
+}
