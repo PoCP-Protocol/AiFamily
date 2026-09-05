@@ -1742,6 +1742,125 @@ capabilities:
         源仓库零测试所以一直没发现，本仓库补测试后立即暴露。
         修复：引入 SAME_TIER_ALLOWED_SOURCES 白名单。
 
+  - capability: family_need_orchestration
+    business_capability: growth_plan_delivery
+    domain: domains/family_need
+    purpose: >
+      家庭需求 N0-N8 全链路端到端垂直切片：N0 信号捕获 → N1 澄清 → N2 分级
+      （Triple P 式五级 InterventionTier）→ N3 方案设计（只读供给引用）→
+      N4 资源组织（家长确认后的分配依据事实）→ N5 交付执行（跨域履约协调，
+      SERVICE 形态先过 FGCN 分派授权闸门）→ N6/N7 家庭本人结果确认
+      （AI/SYSTEM 身份被显式拒绝）→ N8 新需求回流（DID_NOT_HELP 复用
+      capture_signal 真实开出新 NeedSignal，causation_id 指回原需求）。
+      与 governance/DOMAIN_REGISTRY.yaml 的 family_need_orchestration
+      条目是同一能力的两个视角：DOMAIN_REGISTRY 记录迁移处置与代码位置，
+      本条目记录能力级的 consent/audit/idempotency/AI 治理事实与测试证据。
+    actor: [guardian, child, system, ai]
+    command:
+      - capture_signal
+      - clarify_need
+      - profile_need
+      - create_solution_draft
+      - confirm_solution_draft
+      - complete_booking_and_review
+      - complete_course_and_review
+      - confirm_outcome
+      - request_coach_perspective
+    api:
+      - "POST /families/{family_id}/needs/signals"
+      - "POST /families/{family_id}/needs/{need_id}/clarify"
+      - "POST /families/{family_id}/needs/{need_id}/clarification"          # include_in_schema=False 别名，同一 handler
+      - "POST /families/{family_id}/needs/{need_id}/profile"
+      - "POST /families/{family_id}/needs/{need_id}/profiles"               # include_in_schema=False 别名，同一 handler
+      - "POST /families/{family_id}/needs/{need_id}/solution-drafts"
+      - "POST /families/{family_id}/needs/{need_id}/solutions/drafts"       # include_in_schema=False 别名，同一 handler
+      - "POST /families/{family_id}/needs/{need_id}/solution-drafts/{draft_id}/confirm"
+      - "POST /families/{family_id}/needs/{need_id}/bookings/{booking_id}/complete-and-review"
+      - "POST /families/{family_id}/needs/{need_id}/courses/{course_content_id}/complete-and-review"
+      - "POST /families/{family_id}/needs/{need_id}/outcomes/confirm"
+      - "POST /families/{family_id}/needs/{need_id}/ai-coach/messages"
+    code:
+      domain: backend/domains/family_need/domain/entities.py
+      value_objects: backend/domains/family_need/domain/value_objects.py
+      policies: backend/domains/family_need/domain/policies.py
+      errors: backend/domains/family_need/domain/errors.py
+      application: backend/domains/family_need/application/service.py
+      ports: backend/domains/family_need/application/ports.py
+      ai_coach: backend/domains/family_need/application/ai_coach.py
+      api: backend/domains/family_need/api/routes.py
+      api_dependencies: backend/domains/family_need/api/dependencies.py
+      api_ai_coach_dependencies: backend/domains/family_need/api/ai_coach_dependencies.py
+      api_fulfillment_dependencies: backend/domains/family_need/api/fulfillment_dependencies.py
+      postgres_repository: backend/domains/family_need/infrastructure/postgres_repository.py
+      commerce_supply_adapter: backend/domains/family_need/infrastructure/commerce_supply_adapter.py
+      service_supply_adapter: backend/domains/family_need/infrastructure/service_supply_adapter.py
+      course_supply_adapter: backend/domains/family_need/infrastructure/course_supply_adapter.py
+      composite_supply_wiring: backend/domains/family_need/infrastructure/wiring.py
+      fake_repository: backend/domains/family_need/infrastructure/fake_repository.py
+      actor_resolver: backend/domains/family_need/infrastructure/actor_resolver.py
+      fgcn_case_entry_adapter: backend/domains/family_need/infrastructure/fgcn_case_entry_adapter.py
+      # 跨域履约协调（N5）与 FGCN 分派授权闸门不在 domains/family_need 目录下，
+      # 但是这条链路唯一真实 HTTP 可达的执行路径，缺了它 N5 无法被追溯：
+      cross_domain_fulfillment: backend/apps/family_api/orchestration/need_fulfillment_flow.py
+      fgcn_dispatch_gate: backend/apps/family_api/orchestration/fgcn_assignment_flow.py
+      mount: backend/apps/family_api/main.py   # _mount_family_need
+    tests:
+      - tests/domains/family_need/test_domain_contract.py
+      - tests/domains/family_need/test_api_routes.py
+      - tests/domains/family_need/test_actor_resolver_integration.py
+      - tests/domains/family_need/test_postgres_repository_integration.py
+      - tests/domains/family_need/test_commerce_supply_adapter.py
+      - tests/domains/family_need/test_service_supply_adapter.py
+      - tests/domains/family_need/test_ai_coach_route.py
+      - tests/apps/family_api/test_family_need_routes.py
+      - tests/apps/family_api/test_need_fulfillment_e2e.py
+      - tests/domains/service/fgcn/test_family_need_durable_assignment_postgres.py
+      - tests/intelligence/experience/test_family_ai_coach_real_model.py
+    consent:
+      required: true
+      note: >
+        每次跨边界操作都构造 NeedContext(purpose="FAMILY_NEED",
+        consent_version, data_class=MINOR_PERSONAL_DATA)，经
+        FamilyNeedPolicyPort.assert_consent 校验；dev/test 环境为
+        FakeFamilyNeedPolicy 合成实现，生产同意存储尚未接入（见 known_gaps）。
+    audit:
+      required: true
+      note: >
+        分两层：(1) 域内自有 NeedEvent/append_event 事件流覆盖 N0-N4 全部状态
+        迁移（capture_signal/clarify_need/profile_need/create_solution_draft
+        各自 publish 一条 NeedEvent，postgres_repository.append_event 走唯一
+        索引去重）；(2) N5 跨域履约与 FGCN 分派授权闸门额外走平台
+        backend/platform/audit/recorder.py 的 AuditRecorder（真实 case/task/
+        assignment/audit 行同事务落库，见 service_fgcn_p0_collaboration 条目）。
+    idempotency:
+      required: true
+      note: >
+        12 个端点全部要求 Idempotency-Key 请求头（_require_idempotency 拒绝
+        缺失值）；应用层按 (tenant_id, family_id, idempotency_key) 重放键
+        校验 fingerprint 一致性，不一致时拒绝（family_need_idempotency_payload_mismatch），
+        一致则直接返回历史结果而不重新执行副作用。
+    ai:
+      involved: true
+      note: >
+        AI 只在两处出现且均不可写 canonical 状态：(1) AI Coach
+        （request_coach_perspective，真实模型生成苏格拉底式引导，JSON schema
+        故意不含 answer/solution 字段，输出标注
+        AI_PERSPECTIVE_NOT_FAMILY_FACT_GUIDANCE_NOT_ANSWER，不经 Human Gate，
+        纯展示不产生状态变更）；(2) FGCN 分派闸门里 AI 只生成候选教师建议，
+        真实 TaskAssignment 须家长在 Human Gate 批准。confirm_outcome
+        (N6/N7) 显式调用 assert_family_outcome_confirmer 拒绝 AI/SYSTEM
+        actor（R9）——这是本仓库 R9 的另一个真实落地样例。
+    status: IMPLEMENTED_TESTED
+    compliance_refs:
+      - governance/REPOSITORY_CONSTITUTION.md#r9
+      - docs/12_governance/COMPLIANCE_HARD_CONSTRAINTS.md
+    known_gaps:
+      - "FamilyNeedPolicyPort（consent/授权真实存储）仍是 dev/test 合成实现，未接生产同意存储"
+      - "N4 目前只是分配决策事实的记录层，不是真正的资源容量调度/并发争用处理"
+      - "跨域履约协调器（need_fulfillment_flow.py）是同步顺序调用，无分布式事务补偿；中途失败只如实返回 failed_step/failure_reason，不做自动回滚"
+      - "生产 PostgreSQL 仓储已在真实 PostgreSQL 上验证 round-trip/乐观锁/幂等约束；生产环境挂载分支（_mount_family_need）已写但尚未在真实生产部署中启用过"
+      - "详细缺口清单与逐次接线记录见 governance/DOMAIN_REGISTRY.yaml 的 family_need_orchestration 条目 known_gaps（FGCN durable 分派、AI Coach 记忆接线等已逐条核实并更新）"
+
   - capability: product_intelligence_hypothesis
     business_capability: product_intelligence
     domain: domains/product_intelligence
@@ -1749,12 +1868,35 @@ capabilities:
     actor: [operator]
     command:
       - validate_growth_hypothesis
-    api: null                    # ⚠️ routes.py 存在但自述"未挂载到任何 app"
+    api:
+      - "POST /product-intelligence/market-signals"
+      - "POST /product-intelligence/customer-insights"
+      - "POST /product-intelligence/opportunities"
+      - "POST /product-intelligence/growth-problems"
+      - "POST /product-intelligence/growth-hypotheses"
+      - "POST /product-intelligence/growth-hypotheses/{hypothesis_id}/validate"
+      - "POST /product-intelligence/growth-strategies"
+      - "POST /product-intelligence/product-concepts"
+      - "GET /product-intelligence/product-concepts/{product_concept_id}/chain"
+      # ⚠️ 以上端点在 backend/domains/product_intelligence/api/routes.py 里真实存在
+      # （FastAPI router、有 handler、有 Depends），但没有任何 app 组合根
+      # include_router 它 —— backend/apps/family_api/main.py 明确只挂载了
+      # course_routes / improvement_candidate_routes / family_experience_signal_routes
+      # 三个子路由（见 main.py 里 _mount_course_content /
+      # _mount_improvement_candidates / _mount_family_experience_signals 的注释：
+      # "the rest of product_intelligence's router stays unmounted"）。
+      # 这不是"api: null"（代码不存在），是"api 存在但不可达"，两者对治理含义不同：
+      # 前者是纯设计缺口，后者是有代码却从未被组合根引用过（本仓库反复出现的模式，
+      # 另见 family_need_orchestration 条目 FGCN durable 分派曾经的同类缺口）。
     code:
       domain: backend/domains/product_intelligence/domain/
       application: backend/domains/product_intelligence/application/
       infrastructure: backend/domains/product_intelligence/infrastructure/
       api: backend/domains/product_intelligence/api/routes.py
+      api_dependencies: backend/domains/product_intelligence/api/dependencies.py
+      api_requests: backend/domains/product_intelligence/api/requests.py
+      api_responses: backend/domains/product_intelligence/api/responses.py
+      accepted_action_wiring: backend/domains/product_intelligence/accepted_action.py
     tests:
       - backend/domains/product_intelligence/tests/test_acceptance_chain.py
       - backend/domains/product_intelligence/tests/test_hypothesis_validation_guardrail.py
@@ -1770,7 +1912,22 @@ capabilities:
     status: IMPLEMENTED_TESTED
     known_gaps:
       - "无 Postgres 集成测试，仅 SQLite 内存库"
-      - "router 未挂载，实际不可通过 HTTP 调用"
+      - "（2026-09-05 核实更正）router 存在且路由齐全，但没有任何组合根挂载它——
+         main.py 只挂载了同域下 course_routes/improvement_candidate_routes/
+         family_experience_signal_routes 三个子路由，本条目对应的 9 个端点
+         （market-signals/customer-insights/opportunities/growth-problems/
+         growth-hypotheses/growth-strategies/product-concepts 及其 chain 查询）
+         实际不可通过 HTTP 调用。product_intelligence 域下另外还有 5 个路由文件
+         （zone_routes.py/product_factory_routes.py/
+         product_definition_review_routes.py/
+         product_package_submission_routes.py/evidence_receipt_health_routes.py，
+         共 31 个端点）同样未接入任何真实 app 组合根，各自的能力边界与
+         consent/audit/idempotency 事实已拆分登记为独立条目（见下方
+         product_intelligence_course_publication /
+         product_intelligence_zone_governance /
+         product_intelligence_product_factory_draft /
+         product_intelligence_operator_review_surfaces），不与本条目合并——
+         合并会掩盖『这条链路到底挂没挂』这条治理红线"
 
   - capability: family_experience_signal
     business_capability: product_intelligence
@@ -1838,6 +1995,228 @@ capabilities:
     known_gaps:
       - "Postgres 集成测试是仅有的测试层——没有不依赖真实数据库的快速单元测试（对照 family_experience_signal 已补的 test_family_experience_signal.py）"
       - "GET /product-intelligence/improvement-candidates 是否有下游消费方（产品/内容团队的实际决策动作）尚无代码证据"
+
+  - capability: product_intelligence_course_publication
+    business_capability: product_intelligence
+    domain: domains/product_intelligence
+    purpose: >
+      课程内容草稿 → 提交审核 → Human Gate 审核决定 → 发布可查询的最小课程
+      内容 API；是 product_intelligence 域"router 存在但从未挂载"这类缺口
+      的第一个反例——main.py 明确只挂载了这一个子路由（course_routes.py），
+      其余子路由仍未接入任何 app（见 product_intelligence_hypothesis /
+      product_intelligence_zone_governance /
+      product_intelligence_product_factory_draft /
+      product_intelligence_operator_review_surfaces 各条目）。
+    actor: [operator, system]
+    command:
+      - create_course_content_draft
+      - submit_course_content_for_review
+      - decide_course_content_review
+      - list_published_course_content
+      - get_course_content
+    api:
+      - "POST /product-intelligence/courses"
+      - "POST /product-intelligence/courses/{course_content_id}/submit-for-review"
+      - "POST /product-intelligence/courses/{course_content_id}/review-decision"
+      - "GET /product-intelligence/courses/published"
+      - "GET /product-intelligence/courses/{course_content_id}"
+    code:
+      domain: backend/domains/product_intelligence/domain/course_content.py
+      application: backend/domains/product_intelligence/application/course_publication.py
+      infrastructure: backend/domains/product_intelligence/infrastructure/course_content_repository.py
+      wiring: backend/domains/product_intelligence/infrastructure/course_content_wiring.py
+      api: backend/domains/product_intelligence/api/course_routes.py
+      mount: backend/apps/family_api/main.py   # _mount_course_content
+      human_gate: backend/intelligence/human_gate/gate.py   # InMemoryHumanGate，本路由自建单例
+    tests:
+      - tests/domains/product_intelligence/test_course_content_publication.py
+      - tests/domains/product_intelligence/test_course_content_postgres_repository_integration.py
+    consent:
+      required: true
+      note: "review-decision 走 COURSE_CONTENT_PROCESSING_BASIS consent_version 标注"
+    audit: {required: false, note: "尚无独立 AuditRecorder 写入；状态迁移由域内 CourseContent 聚合自身持有 review 历史字段"}
+    idempotency: {required: false, note: "无 Idempotency-Key 头；submit-for-review/review-decision 依赖聚合当前 status 校验而非请求去重"}
+    ai:
+      involved: false
+      constraint: "本路由不调用模型；courseware 生成属于上游的课件产线（见 family-bangyang-course-service-port 相关记忆），本能力只覆盖发布生命周期"
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - "Human Gate 用 InMemoryHumanGate 单例，重启即丢失审核队列状态；未接持久化 Human Gate"
+      - "无 Idempotency-Key，重复提交同一 submit-for-review 请求的幂等性未被显式保证"
+      - "无 AuditRecorder 集成，审核决定不落平台统一审计表"
+
+  - capability: product_intelligence_zone_governance
+    business_capability: product_intelligence
+    domain: domains/product_intelligence
+    purpose: >
+      Three-Zone Strategy Engine 治理生命周期：单个 ProductZoneAssessment 的
+      创建/打分/提交审核/批准/驳回/查询。该模块自述"not mounted into any app
+      yet (no owning app exists in this PR)"——2026-09-05 核实此说法在
+      main.py/dev_wiring.py/product_factory_wiring.py 里均未被推翻，仍然
+      100% 属实。
+    actor: [operator]
+    command:
+      - create_zone_assessment
+      - score_zone_assessment
+      - submit_zone_assessment_for_review
+      - approve_zone_assessment
+      - reject_zone_assessment
+      - get_zone_assessment
+    api:
+      - "POST /product-intelligence/product-concepts/{product_concept_id}/zone-assessments"
+      - "POST /product-intelligence/zone-assessments/{assessment_id}/score"
+      - "POST /product-intelligence/zone-assessments/{assessment_id}/submit-review"
+      - "POST /product-intelligence/zone-assessments/{assessment_id}/approve"
+      - "POST /product-intelligence/zone-assessments/{assessment_id}/reject"
+      - "GET /product-intelligence/zone-assessments/{assessment_id}"
+      # ⚠️ 6 个端点全部真实存在于 zone_routes.py，router 本身未被任何
+      # app.include_router 调用；本条目的所有 api 路径是"代码里的路由声明"，
+      # 不是"可通过 HTTP 访问的端点"。
+    code:
+      domain: backend/domains/product_intelligence/domain/zone_entities.py
+      value_objects: backend/domains/product_intelligence/domain/zone_value_objects.py
+      scoring_engine: backend/domains/product_intelligence/domain/zone_scoring_engine.py
+      application: backend/domains/product_intelligence/application/zone_commands.py
+      ports: backend/domains/product_intelligence/application/zone_ports.py
+      infrastructure: backend/domains/product_intelligence/infrastructure/zone_sqlalchemy_repository.py
+      api: backend/domains/product_intelligence/api/zone_routes.py
+      api_requests: backend/domains/product_intelligence/api/zone_requests.py
+      api_responses: backend/domains/product_intelligence/api/zone_responses.py
+    tests:
+      - backend/domains/product_intelligence/tests/test_zone_scoring.py
+      - backend/domains/product_intelligence/tests/test_zone_review_governance.py
+      - backend/domains/product_intelligence/tests/test_zone_persistence.py
+      - backend/domains/product_intelligence/tests/test_zone_postgres_integration.py
+      - backend/domains/product_intelligence/tests/test_zone_active_policy_uniqueness.py
+      - backend/domains/product_intelligence/tests/test_zone_adversarial.py
+      - backend/domains/product_intelligence/tests/test_zone_api_endpoints.py
+      - backend/domains/product_intelligence/tests/test_portfolio_zone_view.py
+    consent: {required: false, note: "运营侧治理动作，不涉及家庭个人数据"}
+    audit: {required: false, note: "无 AuditRecorder 集成；审批历史由聚合自身状态字段保留"}
+    idempotency: {required: false, note: "路由/应用层均无 Idempotency-Key 处理"}
+    ai: {involved: false}
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - "router 未挂载到任何真实 app；test_zone_api_endpoints.py 是唯一使用该 router 的地方，且是它自建的独立 FastAPI app，不是生产/dev 组合根"
+      - "get_zone_repository 是本文件私有依赖，没有并入共享 api/dependencies.py；_zone_session_factory 尚未由任何组合根注入"
+      - "无 AuditRecorder、无 Idempotency-Key，一旦挂载生产流量需先补这两项才能满足平台治理基线"
+
+  - capability: product_intelligence_product_factory_draft
+    business_capability: product_intelligence
+    domain: domains/product_intelligence
+    purpose: >
+      Product Factory 草稿层 HTTP 面：需求框架（DemandFrame）、市场洞察草稿
+      （MarketInsightDraft）、竞品证据卡（CompetitorEvidenceCard，当前对
+      Postgres 持久化尚未接线的部分显式返回 501）、产品包草稿创建。模块
+      docstring 自述"intentionally separate...until the owning app explicitly
+      mounts it"；`product_factory_wiring.mount_product_factory_router` 这个
+      挂载函数确实存在，但 2026-09-05 核实 main.py/dev_wiring.py 均未调用它——
+      唯一调用方是 tests/apps/family_api/test_product_factory_wiring.py 自建
+      的测试 app，不是真实生产/dev 组合根。
+    actor: [operator]
+    command:
+      - create_demand_frame
+      - create_market_insight_draft
+      - create_competitor_evidence_card
+      - get_competitor_evidence_card
+      - create_product_package_draft
+    api:
+      - "POST /product-intelligence/product-factory/demand-frames"
+      - "POST /product-intelligence/product-factory/market-insights"
+      - "POST /product-intelligence/product-factory/competitor-evidence"
+      - "GET /product-intelligence/product-factory/competitor-evidence/{evidence_id}"
+      - "POST /product-intelligence/product-factory/product-packages"
+      # ⚠️ 路由声明真实存在；`mount_product_factory_router` 是"可挂载但没被
+      # 真正挂载"的组合根胶水，不构成"已挂载"的证据（与 product_definition_review
+      # 共享同一挂载函数，见下方 product_intelligence_operator_review_surfaces）。
+    code:
+      application: backend/domains/product_intelligence/application/commands.py
+      product_factory_inputs: backend/intelligence/product_management/product_factory_inputs.py
+      api: backend/domains/product_intelligence/api/product_factory_routes.py
+      requests: backend/domains/product_intelligence/api/product_factory_requests.py
+      responses: backend/domains/product_intelligence/api/product_factory_responses.py
+      mount_helper: backend/apps/family_api/product_factory_wiring.py   # 存在但未被 main.py/dev_wiring.py 调用
+    tests:
+      - backend/domains/product_intelligence/tests/test_product_factory_routes.py
+      - tests/apps/family_api/test_product_factory_wiring.py
+    consent: {required: false, note: "运营侧草稿创建，不涉及家庭个人数据"}
+    audit: {required: false, note: "无 AuditRecorder 集成"}
+    idempotency: {required: false, note: "无 Idempotency-Key；创建接口重复调用会产生重复草稿记录"}
+    ai: {involved: false}
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - "竞品证据卡（CompetitorEvidenceCard）的持久化仓储端口尚未实现，模块 docstring 明确写着对应端点返回 501"
+      - "mount_product_factory_router 只被自己的组合根测试调用；main.py 与 dev_wiring.py 均未调用它，因此这 5 个端点在真实 dev/生产应用里不可达"
+      - "无 Idempotency-Key、无 AuditRecorder，草稿创建接口重复提交会产生重复记录"
+
+  - capability: product_intelligence_operator_review_surfaces
+    business_capability: product_intelligence
+    domain: domains/product_intelligence
+    purpose: >
+      运营侧三个独立的 Human Gate 审核/查询面，因职责相近（都是"操作员审核
+      别人提交的东西"）合并登记，但三者持久化/幂等实现不同、不共用 router：
+      (1) ProductDefinition 审核任务列表/详情/决定（与
+      product_intelligence_product_factory_draft 共享同一
+      `mount_product_factory_router` 挂载函数但两者是不同 router 实例）；
+      (2) ProductPackage 提交审核记录的创建与只读回执（真实 idempotency_key
+      重放去重，见 idempotency 字段）；(3) 证据核验回执健康快照（只读，
+      module docstring 直接自称"Unmounted HTTP adapter"）。
+    actor: [operator]
+    command:
+      - list_product_definition_review_tasks
+      - get_product_definition_review_task
+      - decide_product_definition_review_task
+      - submit_product_package_draft
+      - get_product_package_submission
+      - get_evidence_receipt_health
+    api:
+      - "GET /product-intelligence/operator/product-definition-review-tasks"
+      - "GET /product-intelligence/operator/product-definition-review-tasks/{task_id}"
+      - "POST /product-intelligence/operator/product-definition-review-tasks/{task_id}/decision"
+      - "POST /product-intelligence/product-package-review-submissions"
+      - "GET /product-intelligence/product-package-review-submissions/{draft_id}"
+      - "GET /product-intelligence/evidence-verification-receipts/{receipt_id}/health"
+      # ⚠️ product-definition-review-tasks 的 3 个端点可经
+      # mount_product_factory_router 被组合根挂载（但如 product_factory_draft
+      # 条目所述，main.py/dev_wiring.py 目前均未调用它）；后两组
+      # （product-package-review-submissions / evidence-verification-receipts）
+      # 连挂载函数都不存在，只在各自专属测试文件里被自建的 FastAPI app 引用。
+    code:
+      product_definition_review_application: backend/domains/product_intelligence/application/product_definition_review.py
+      product_definition_review_api: backend/domains/product_intelligence/api/product_definition_review_routes.py
+      product_definition_review_dependencies: backend/domains/product_intelligence/api/product_definition_review_dependencies.py
+      product_package_submission_application: backend/domains/product_intelligence/application/product_package_submission.py
+      product_package_submission_api: backend/domains/product_intelligence/api/product_package_submission_routes.py
+      product_package_submission_dependencies: backend/domains/product_intelligence/api/product_package_submission_dependencies.py
+      product_package_submission_contracts: backend/domains/product_intelligence/api/product_package_submission_contracts.py
+      evidence_receipt_health_application: backend/domains/product_intelligence/application/evidence_receipt_health.py
+      evidence_receipt_health_api: backend/domains/product_intelligence/api/evidence_receipt_health_routes.py
+      evidence_receipt_health_dependencies: backend/domains/product_intelligence/api/evidence_receipt_health_dependencies.py
+      evidence_receipt_health_contracts: backend/domains/product_intelligence/api/evidence_receipt_health_contracts.py
+      mount_helper: backend/apps/family_api/product_factory_wiring.py   # 只覆盖 product-definition-review-tasks 一组，未被 main.py/dev_wiring.py 调用
+    tests:
+      - backend/domains/product_intelligence/tests/test_product_definition_review.py
+      - backend/domains/product_intelligence/tests/test_product_package_submission.py
+      - backend/domains/product_intelligence/tests/test_product_package_submission_http.py
+      - backend/domains/product_intelligence/tests/test_evidence_receipt_health.py
+      - backend/domains/product_intelligence/tests/test_evidence_receipt_health_http.py
+    consent: {required: false, note: "运营侧审核/查询动作，不直接读写家庭个人数据字段"}
+    audit: {required: false, note: "无 AuditRecorder 集成；决定历史由各自聚合状态字段保留"}
+    idempotency:
+      required: true
+      note: >
+        仅 ProductPackage 提交路径真实要求 idempotency_key
+        （product_package_submission.py 的 submit_product_package_draft /
+        find_product_package_intent_replay 按 tenant_scope+actor_id+
+        idempotency_key 稳定哈希去重）；ProductDefinition 审核决定与证据回执
+        查询均无幂等处理（后两者是只读或单次人工决定动作，幂等需求本身较弱，
+        但登记为不需要幂等而非默认关闭是本条目对三者差异的诚实区分）。
+    ai: {involved: false}
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - "三组端点均不可通过任何真实 app 的 HTTP 访问；只被各自专属测试文件的自建 FastAPI app 引用"
+      - "无 AuditRecorder 集成，审核决定与提交记录不落平台统一审计表"
+      - "ProductDefinition 审核决定与证据回执查询无 Idempotency-Key，只有 ProductPackage 提交路径有"
 
 # ---------------------------------------------------------------------------
 # 待登记（有代码但仅为骨架，不构成能力，故不给 capability 条目）
