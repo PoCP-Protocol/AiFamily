@@ -1507,7 +1507,10 @@ capabilities:
     domain: domains/assessment
     purpose: >
       UI-02 → UI-03 测评链路：建会话 → 逐题作答 → 提交 → 生成 GrowthHypothesis
-      → 人工确认后产出 GrowthIntent。确定性解读，无 AI 参与。
+      → 人工确认后产出 GrowthIntent。确定性解读，无 AI 参与。另含只读投影
+      GET .../assessments/results/latest（从 codex/family-assessment-s01 迁移，
+      2026-09），家长可查看最新已提交测评的解释性结果（假设/知识引用/成长计划草稿），
+      不产生第二个 canonical 对象、不打分、不排名 —— R9 在读侧的延伸执行点。
     actor: [guardian]
     command:
       - start
@@ -1515,6 +1518,7 @@ capabilities:
       - submit
       - generate_hypothesis
       - decide
+      - get_assessment_result_projection
     api:
       - "GET /families/{family_id}/ui/02/assessment"
       - "POST /families/{family_id}/assessments/sessions"
@@ -1523,6 +1527,7 @@ capabilities:
       - "GET /families/{family_id}/ui/03/growth-hypothesis"
       - "POST /families/{family_id}/assessments/{session_id}/growth-hypothesis"
       - "POST /families/{family_id}/growth-hypotheses/decisions"
+      - "GET /families/{family_id}/assessments/results/latest"
     code:
       api: backend/domains/assessment/api/routes.py
       application: backend/domains/assessment/application/
@@ -1532,6 +1537,7 @@ capabilities:
       - tests/domains/assessment/test_assessment_flow.py
       - tests/domains/assessment/test_interpretation_boundary.py
       - tests/domains/assessment/test_transactional_outbox_invariant.py
+      - tests/domains/assessment/test_knowledge_grounding.py
       - tests/apps/family_api/test_assessment_routes.py
     consent:
       required: true
@@ -1558,6 +1564,9 @@ capabilities:
       - "内存 repository，无持久化；进程重启数据全失"
       - "非四层结构（api.py + service.py 两模块），落 Postgres 时须重构 —— T-05"
       - "AssessmentSession/AssessmentTool/AssessmentResponse 实体尚未建模"
+      - "results/latest 投影同样未接 ConsentGate 初始校验；读时靠
+         assert_subject_consent 二次校验（撤回 → CONSENT_REQUIRED），
+         但与写侧共享同一个未解决的合规缺口，不是独立缺口"
 
   - capability: service_booking_chain
     business_capability: service_delivery

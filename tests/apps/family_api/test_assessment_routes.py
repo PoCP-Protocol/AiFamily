@@ -196,6 +196,34 @@ def test_http_chain_is_idempotent_end_to_end(client: TestClient) -> None:
     assert body["outcome"] == "INTENT_CREATED"
     assert body["intent"]["boundary"] == "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME"
 
+    # The read-only result projection (R9): it explains the submitted session
+    # without exposing a score or a ranking, and without minting a second
+    # canonical object.
+    result = client.get(f"/families/{FAMILY}/assessments/results/latest", headers=auth)
+    assert result.status_code == 200, result.text
+    result_body = result.json()
+    assert result_body["status"] == "READY"
+    assert result_body["result"]["boundary"] == "FAMILY_PERSPECTIVE_NOT_SCORE_OR_DIAGNOSIS"
+    assert result_body["result"]["ai"]["may_mutate_business_state"] is False
+
+
+def test_result_projection_is_unavailable_before_any_submission(client: TestClient) -> None:
+    auth = _auth(client)
+
+    result = client.get(f"/families/{FAMILY}/assessments/results/latest", headers=auth)
+
+    assert result.status_code == 200, result.text
+    assert result.json()["status"] == "NO_RESULT"
+    assert result.json()["result"] is None
+
+
+def test_result_projection_cross_family_request_is_rejected(client: TestClient) -> None:
+    auth = _auth(client)
+
+    result = client.get(f"/families/{OTHER_FAMILY}/assessments/results/latest", headers=auth)
+
+    assert result.status_code == 403
+
 
 def test_missing_credential_is_401_not_403(client: TestClient) -> None:
     """No usable credential and wrong-family credential are different answers.
