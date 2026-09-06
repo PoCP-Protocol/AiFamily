@@ -7,6 +7,7 @@ import pytest
 
 from backend.intelligence.context_engine.deletion import SubjectDeletionCommand
 from backend.intelligence.experience.media_input_boundary import (
+    EffectiveMediaConsent,
     GovernedMediaInputAuthorizer,
     GovernedMediaProjectionDeletionAdapter,
     MediaDeletionLayer,
@@ -35,6 +36,7 @@ def _metadata(**changes: object) -> MediaObjectMetadata:
         "object_ref": "object:tenant-a/family-a/image-1",
         "tenant_id": "tenant-a",
         "family_id": "family-a",
+        "subject_ids": ("child-a",),
         "purpose": "growth_support",
         "mime_type": "image/png",
         "sha256": SHA,
@@ -61,8 +63,26 @@ def _authorize(store: MetadataStore, *claims: MediaObjectClaim):  # type: ignore
         claims,
         tenant_id="tenant-a",
         family_id="family-a",
+        subject_ids=("child-a",),
         purpose="growth_support",
+        consent=_consent(),
     )
+
+
+def _consent(**changes: object) -> EffectiveMediaConsent:
+    values: dict[str, object] = {
+        "tenant_id": "tenant-a",
+        "family_id": "family-a",
+        "subject_ids": ("child-a",),
+        "purpose": "growth_support",
+        "consent_version": "consent.v1",
+        "guardian_actor_id": "guardian-a",
+        "actor_type": "GUARDIAN",
+        "granted": True,
+        "evaluated_at": datetime(2026, 9, 5, tzinfo=UTC),
+    }
+    values.update(changes)
+    return EffectiveMediaConsent(**values)  # type: ignore[arg-type]
 
 
 def test_server_metadata_authorizes_only_matching_object_reference() -> None:
@@ -96,6 +116,8 @@ def test_inline_file_web_and_non_object_references_are_rejected(object_ref: str)
         (_metadata(mime_type="image/jpeg"), _claim(), "MIME_MISMATCH"),
         (_metadata(size_bytes=11 * 1024 * 1024), _claim(), "ITEM_TOO_LARGE"),
         (_metadata(), _claim(mime_type="image/svg+xml"), "MIME_UNSUPPORTED"),
+        (_metadata(), _claim(mime_type="image/gif"), "MIME_UNSUPPORTED"),
+        (_metadata(), _claim(media_type="VIDEO"), "TYPE_UNSUPPORTED"),
     ],
 )
 def test_scope_existence_integrity_mime_and_size_are_server_enforced(
@@ -107,19 +129,44 @@ def test_scope_existence_integrity_mime_and_size_are_server_enforced(
         _authorize(MetadataStore(metadata), claim)
 
 
-def test_persisted_deletion_state_denies_after_authorizer_restart() -> None:
+def test_reconstructed_authorizer_denies_state_from_same_in_memory_metadata_port() -> None:
     store = MetadataStore(_metadata())
     assert _authorize(store, _claim())
 
-    store.metadata = replace(store.metadata, state=MediaObjectState.DELETED, exists=False)
-    restarted_authorizer = GovernedMediaInputAuthorizer(store)
+    store.metadata = replace(store.metadata, state=MediaObjectState.DELETED)
+    reconstructed_authorizer = GovernedMediaInputAuthorizer(store)
 
-    with pytest.raises(MediaInputBoundaryError, match="NOT_FOUND|DELETED_OR_PENDING"):
-        restarted_authorizer.authorize(
+    with pytest.raises(MediaInputBoundaryError, match="DELETED_OR_PENDING"):
+        reconstructed_authorizer.authorize(
             (_claim(),),
             tenant_id="tenant-a",
             family_id="family-a",
+            subject_ids=("child-a",),
             purpose="growth_support",
+            consent=_consent(),
+        )
+
+
+@pytest.mark.parametrize(
+    "consent",
+    [
+        _consent(granted=False),
+        _consent(family_id="family-other"),
+        _consent(subject_ids=("child-other",)),
+        _consent(purpose="family_sharing"),
+    ],
+)
+def test_effective_consent_grant_and_scope_are_required(
+    consent: EffectiveMediaConsent,
+) -> None:
+    with pytest.raises(MediaInputBoundaryError, match="CONSENT_SCOPE_OR_GRANT_INVALID"):
+        GovernedMediaInputAuthorizer(MetadataStore(_metadata())).authorize(
+            (_claim(),),
+            tenant_id="tenant-a",
+            family_id="family-a",
+            subject_ids=("child-a",),
+            purpose="growth_support",
+            consent=consent,
         )
 
 
@@ -131,6 +178,7 @@ class LayerPort:
         return MediaLayerDeletionReceipt(
             layer=self.layer,
             tenant_id=command.tenant_id,
+            family_id=command.family_id,
             subject_id=command.subject_id,
             command_id=command.command_id,
             correlation_id=command.correlation_id,
@@ -180,7 +228,7 @@ def test_media_deletion_rejects_missing_layer_or_uncorrelated_receipt() -> None:
 
     class WrongFamilyLayer(LayerPort):
         def delete_subject(self, command: SubjectDeletionCommand) -> MediaLayerDeletionReceipt:
-            return replace(super().delete_subject(command), tenant_id="tenant-other")
+            return replace(super().delete_subject(command), family_id="family-other")
 
     ports = [LayerPort(layer) for layer in MediaDeletionLayer]
     ports[0] = WrongFamilyLayer(MediaDeletionLayer.OBJECT)

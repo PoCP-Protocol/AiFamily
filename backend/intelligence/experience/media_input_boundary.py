@@ -6,10 +6,11 @@ existence, purpose, MIME type, size, digest and deletion state.  The returned
 ``MediaInput`` is therefore safe to pass into the existing Model Gateway; this
 module is not another model runtime.
 
-Deletion is adapted into the canonical durable deletion worker as its MEDIA
-projection.  The adapter completes only after object bytes, metadata, input
-snapshots, derived artifacts, indexes and provider-side adapters each return a
-correlated receipt.
+Deletion is adapted to the existing durable-deletion *contract* as its MEDIA
+projection.  This module supplies no persistence implementation.  Its adapter
+returns a projection receipt only after object bytes, metadata, input snapshots,
+derived artifacts, indexes and provider-side adapters each return a correlated
+receipt; whether those ports are durable is a composition concern.
 """
 
 from __future__ import annotations
@@ -45,6 +46,7 @@ class MediaObjectMetadata:
     object_ref: str
     tenant_id: str
     family_id: str
+    subject_ids: tuple[str, ...]
     purpose: str
     mime_type: str
     sha256: str
@@ -65,6 +67,8 @@ class MediaObjectMetadata:
             raise MediaInputBoundaryError("MEDIA_OBJECT_METADATA_REQUIRED")
         if self.size_bytes < 0:
             raise MediaInputBoundaryError("MEDIA_OBJECT_SIZE_INVALID")
+        if not self.subject_ids or any(not value.strip() for value in self.subject_ids):
+            raise MediaInputBoundaryError("MEDIA_OBJECT_SUBJECT_SCOPE_REQUIRED")
         if not isinstance(self.exists, bool):
             raise MediaInputBoundaryError("MEDIA_OBJECT_EXISTENCE_INVALID")
         try:
@@ -74,7 +78,11 @@ class MediaObjectMetadata:
 
 
 class MediaObjectMetadataPort(Protocol):
-    """Durable, server-side metadata authority; never backed by request JSON."""
+    """Server-side metadata authority; never backed by request JSON.
+
+    This is an interface only. Production durability requires a separately
+    governed SQL/object-store adapter.
+    """
 
     def resolve(self, object_ref: str) -> MediaObjectMetadata: ...
 
@@ -87,8 +95,43 @@ class MediaObjectClaim:
     sha256: str
 
 
+@dataclass(frozen=True, slots=True)
+class EffectiveMediaConsent:
+    """Server-evaluated consent snapshot required for image authorization."""
+
+    tenant_id: str
+    family_id: str
+    subject_ids: tuple[str, ...]
+    purpose: str
+    consent_version: str
+    guardian_actor_id: str
+    actor_type: str
+    granted: bool
+    evaluated_at: datetime
+
+    def __post_init__(self) -> None:
+        required = (
+            self.tenant_id,
+            self.family_id,
+            self.purpose,
+            self.consent_version,
+            self.guardian_actor_id,
+            self.actor_type,
+        )
+        if any(not isinstance(value, str) or not value.strip() for value in required):
+            raise MediaInputBoundaryError("MEDIA_EFFECTIVE_CONSENT_REQUIRED")
+        if not self.subject_ids or any(not value.strip() for value in self.subject_ids):
+            raise MediaInputBoundaryError("MEDIA_CONSENT_SUBJECT_SCOPE_REQUIRED")
+        if self.actor_type != "GUARDIAN":
+            raise MediaInputBoundaryError("MEDIA_GUARDIAN_CONSENT_REQUIRED")
+        if not isinstance(self.granted, bool):
+            raise MediaInputBoundaryError("MEDIA_CONSENT_DECISION_INVALID")
+        if self.evaluated_at.tzinfo is None or self.evaluated_at.utcoffset() is None:
+            raise MediaInputBoundaryError("MEDIA_CONSENT_EVALUATION_TIME_REQUIRED")
+
+
 class GovernedMediaInputAuthorizer:
-    """Turn verified opaque references into provider-neutral ``MediaInput``."""
+    """Authorize image inputs only; audio/video/GIF remain denied."""
 
     _OBJECT_REF = re.compile(r"^object:[A-Za-z0-9][A-Za-z0-9._:/-]{0,248}$")
     _SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -122,8 +165,20 @@ class GovernedMediaInputAuthorizer:
         *,
         tenant_id: str,
         family_id: str,
+        subject_ids: tuple[str, ...],
         purpose: str,
+        consent: EffectiveMediaConsent,
     ) -> tuple[MediaInput, ...]:
+        if not isinstance(consent, EffectiveMediaConsent):
+            raise MediaInputBoundaryError("MEDIA_EFFECTIVE_CONSENT_REQUIRED")
+        if (
+            not consent.granted
+            or consent.tenant_id != tenant_id
+            or consent.family_id != family_id
+            or frozenset(consent.subject_ids) != frozenset(subject_ids)
+            or consent.purpose != purpose
+        ):
+            raise MediaInputBoundaryError("MEDIA_CONSENT_SCOPE_OR_GRANT_INVALID")
         items = tuple(claims)
         if not items or len(items) > self._maximum_items:
             raise MediaInputBoundaryError("MEDIA_ITEM_COUNT_INVALID")
@@ -149,6 +204,7 @@ class GovernedMediaInputAuthorizer:
             if (
                 metadata.tenant_id != tenant_id
                 or metadata.family_id != family_id
+                or frozenset(metadata.subject_ids) != frozenset(subject_ids)
                 or metadata.purpose != purpose
             ):
                 raise MediaInputBoundaryError("MEDIA_OBJECT_SCOPE_MISMATCH")
@@ -188,6 +244,7 @@ REQUIRED_MEDIA_DELETION_LAYERS = frozenset(MediaDeletionLayer)
 class MediaLayerDeletionReceipt:
     layer: MediaDeletionLayer
     tenant_id: str
+    family_id: str
     subject_id: str
     command_id: str
     correlation_id: str
@@ -206,7 +263,7 @@ class MediaDeletionLayerPort(Protocol):
 
 
 class GovernedMediaProjectionDeletionAdapter:
-    """MEDIA adapter for the existing durable deletion worker."""
+    """MEDIA projection adapter for the existing durable-deletion contract."""
 
     projection = ProjectionKind.MEDIA
 
@@ -230,6 +287,7 @@ class GovernedMediaProjectionDeletionAdapter:
             if (
                 not isinstance(receipt, MediaLayerDeletionReceipt)
                 or receipt.tenant_id != command.tenant_id
+                or receipt.family_id != command.family_id
                 or receipt.subject_id != command.subject_id
                 or receipt.command_id != command.command_id
                 or receipt.correlation_id != command.correlation_id
@@ -258,6 +316,7 @@ class GovernedMediaProjectionDeletionAdapter:
 
 
 __all__ = [
+    "EffectiveMediaConsent",
     "GovernedMediaInputAuthorizer",
     "GovernedMediaProjectionDeletionAdapter",
     "MediaDeletionLayer",
