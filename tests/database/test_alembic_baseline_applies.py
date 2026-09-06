@@ -182,6 +182,12 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
         "enums": EXPECTED_ENUM_TYPES,
     },
     # 0066 is alter-only (FGCN provider qualification columns); no new tables.
+    "0066_fgcn_provider_qualification_fields": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 67,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0067 adds four service-feedback/quality/action/outbox tables (S4).
     # Keeping the current head explicit makes a future migration fail until its
     # object ownership has been reviewed instead of silently accepting schema
     # drift.
@@ -193,8 +199,8 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
     # only alters existing tables). This map is deliberately hand-maintained —
     # see the module docstring for why it cannot be derived from a directory
     # scan. ***
-    "0066_fgcn_provider_qualification_fields": {
-        "tables": EXPECTED_0008_COUNTS["tables"] + 67,
+    "0067_service_feedback_playbook": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 71,
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },

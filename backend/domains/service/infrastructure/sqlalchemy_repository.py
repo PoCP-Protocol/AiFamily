@@ -18,7 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..domain.entities import (
     AvailabilitySlot,
     BookingRequest,
+    FamilyFeedback,
     PrivateCheckinDraft,
+    QualityDecision,
+    ServiceAction,
+    ServiceEvent,
     ServiceOffering,
     ServiceProvider,
     ServiceRecord,
@@ -99,6 +103,17 @@ class SqlAlchemyServiceRepository:
         )
         return AvailabilitySlot(**_row_to_dict(row))
 
+    async def load_slot_for_update(self, availability_slot_id: str) -> AvailabilitySlot:
+        result = await self._session.execute(
+            select(m.AvailabilitySlotRow)
+            .where(m.AvailabilitySlotRow.availability_slot_id == availability_slot_id)
+            .with_for_update()
+        )
+        row = result.scalars().first()
+        if row is None:
+            raise ServiceNotFoundError("availability_slot_not_found")
+        return AvailabilitySlot(**_row_to_dict(row))
+
     async def list_slots(
         self, tenant_id: str, *, service_offering_id: str | None = None
     ) -> list[AvailabilitySlot]:
@@ -154,6 +169,88 @@ class SqlAlchemyServiceRepository:
     async def list_service_records(self, tenant_id: str, family_id: str) -> list[ServiceRecord]:
         rows = await self._scoped(m.ServiceRecordRow, tenant_id, family_id)
         return [ServiceRecord(**_row_to_dict(r)) for r in rows]
+
+    # -- feedback / quality / named actions --
+    async def save_family_feedback(self, entity: FamilyFeedback) -> None:
+        await self._stage(m.FamilyFeedbackRow(**entity.model_dump()))
+
+    async def load_family_feedback(self, family_feedback_id: str) -> FamilyFeedback:
+        row = await self._one(m.FamilyFeedbackRow, family_feedback_id, "family_feedback_not_found")
+        return FamilyFeedback(**_row_to_dict(row))
+
+    async def find_feedback_by_idempotency_key(
+        self, tenant_id: str, family_id: str, idempotency_key: str
+    ) -> FamilyFeedback | None:
+        row = await self._by_idempotency_key(
+            m.FamilyFeedbackRow, tenant_id, family_id, idempotency_key
+        )
+        return None if row is None else FamilyFeedback(**_row_to_dict(row))
+
+    async def save_quality_decision(self, entity: QualityDecision) -> None:
+        await self._stage(m.QualityDecisionRow(**entity.model_dump()))
+
+    async def load_quality_decision(self, quality_decision_id: str) -> QualityDecision:
+        row = await self._one(
+            m.QualityDecisionRow, quality_decision_id, "quality_decision_not_found"
+        )
+        return QualityDecision(**_row_to_dict(row))
+
+    async def find_quality_decision_by_idempotency_key(
+        self, tenant_id: str, family_id: str, idempotency_key: str
+    ) -> QualityDecision | None:
+        row = await self._by_idempotency_key(
+            m.QualityDecisionRow, tenant_id, family_id, idempotency_key
+        )
+        return None if row is None else QualityDecision(**_row_to_dict(row))
+
+    async def save_service_action(self, entity: ServiceAction) -> None:
+        await self._stage(m.ServiceActionRow(**entity.model_dump()))
+
+    async def find_service_action_by_idempotency_key(
+        self, tenant_id: str, family_id: str, idempotency_key: str
+    ) -> ServiceAction | None:
+        row = await self._by_idempotency_key(
+            m.ServiceActionRow, tenant_id, family_id, idempotency_key
+        )
+        return None if row is None else ServiceAction(**_row_to_dict(row))
+
+    async def list_service_actions(self, tenant_id: str, family_id: str) -> list[ServiceAction]:
+        rows = await self._scoped(m.ServiceActionRow, tenant_id, family_id)
+        return [ServiceAction(**_row_to_dict(r)) for r in rows]
+
+    # -- transactional service outbox --
+    async def append_service_event(self, entity: ServiceEvent) -> None:
+        existing = await self.find_service_event_by_idempotency_key(
+            entity.tenant_id, entity.idempotency_key
+        )
+        if existing is not None:
+            if existing.model_dump() != entity.model_dump():
+                from ..domain.errors import ServiceConflictError
+
+                raise ServiceConflictError("service_event_idempotency_replay_mismatch")
+            return
+        await self._stage(m.ServiceEventRow(**entity.model_dump()))
+
+    async def find_service_event_by_idempotency_key(
+        self, tenant_id: str, idempotency_key: str
+    ) -> ServiceEvent | None:
+        result = await self._session.execute(
+            select(m.ServiceEventRow).where(
+                m.ServiceEventRow.tenant_id == tenant_id,
+                m.ServiceEventRow.idempotency_key == idempotency_key,
+            )
+        )
+        row = result.scalars().first()
+        return None if row is None else ServiceEvent(**_row_to_dict(row))
+
+    async def list_pending_service_events(self, tenant_id: str) -> list[ServiceEvent]:
+        result = await self._session.execute(
+            select(m.ServiceEventRow).where(
+                m.ServiceEventRow.tenant_id == tenant_id,
+                m.ServiceEventRow.status == "PENDING",
+            )
+        )
+        return [ServiceEvent(**_row_to_dict(r)) for r in result.scalars().all()]
 
     # -- private check-in drafts (append-only) --
     async def append_checkin_draft(self, entity: PrivateCheckinDraft) -> None:

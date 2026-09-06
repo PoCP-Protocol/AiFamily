@@ -47,7 +47,15 @@ BASELINE_TABLES = frozenset(
         "family_booking_service_records",
     }
 )
-OWNED_TABLES = frozenset({"family_service_private_checkin_drafts"})
+OWNED_TABLES = frozenset(
+    {
+        "family_service_private_checkin_drafts",
+        "family_service_family_feedback",
+        "family_service_quality_decisions",
+        "family_service_actions",
+        "family_service_outbox_events",
+    }
+)
 
 
 @pytest_asyncio.fixture
