@@ -133,6 +133,18 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
+    # 0058-0066 add 9 tables after 0057 (0058 family_need_assignments +
+    # family_need_outcomes; 0060 product_improvement_candidates; 0062
+    # domain_outbox_consumer_deliveries; 0063 achievement_feedback_human_gate;
+    # 0064 family_experience_signals; 0065 adds 3 experience-feedback
+    # resolution tables; 0059/0061/0066 are alter-only). 0067 adds four
+    # service-feedback/quality/action/outbox tables (S4), for 13 new tables
+    # total since 0057.
+    "0067_service_feedback_playbook": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 71,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
 }
 
 _MODEL_DRAFTS_ADR = (

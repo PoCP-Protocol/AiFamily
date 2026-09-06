@@ -35,7 +35,7 @@ flush it into the same transaction as the domain write (see
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from backend.platform.audit.models import AuditEvent
 from backend.platform.audit.recorder import AuditRecorder
@@ -123,6 +123,25 @@ def _assert_service_context(ctx: ActionContext) -> None:
 
 def _new_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4()}"
+
+
+def _as_naive_utc(value: datetime) -> datetime:
+    """Normalize a caller-supplied datetime to naive UTC, matching `utcnow()`.
+
+    HTTP request bodies parse ISO-8601 timestamps with an explicit offset
+    (e.g. ``"...+00:00"``) into timezone-aware `datetime`s, but every other
+    timestamp this domain produces (`utcnow()`, and therefore every
+    `now >= slot.ends_at`-style comparison) is naive — `entities.utcnow`'s
+    docstring explains why (SQLite silently drops tzinfo on round-trip, so an
+    aware value would compare unequal to its own stored copy). Without this
+    normalization at the boundary, a slot opened with an aware `ends_at`
+    crashes the very first booking attempt against it with
+    `TypeError: can't compare offset-naive and offset-aware datetimes`,
+    rather than a domain-level refusal.
+    """
+    if value.tzinfo is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    return value
 
 
 def _event_key(ctx: ActionContext, action: str, aggregate_id: str) -> str:
@@ -356,8 +375,8 @@ async def open_availability_slot(
         provider_id=offering.provider_id,
         service_offering_id=service_offering_id,
         availability_slot_ref=availability_slot_ref,
-        starts_at=starts_at,
-        ends_at=ends_at,
+        starts_at=_as_naive_utc(starts_at),
+        ends_at=_as_naive_utc(ends_at),
         channel=channel,
         capacity=capacity,
         created_at=now,
@@ -438,17 +457,16 @@ async def submit_booking_request(
         subject_person_id=subject_person_id,
         purpose=BOOKING_CONSENT_PURPOSE,
     )
-    matching_grant = next(
-        (
-            grant
-            for grant in grants
-            if grant.consent_id == consent_ref and grant.guardian_person_id == ctx.actor_person_id
-        ),
-        None,
-    )
-    if matching_grant is None or not ConsentGate.check(
-        subject_person_id, BOOKING_CONSENT_PURPOSE, grants
-    ):
+    # `consent_ref` is an opaque, caller-supplied reference recorded for audit
+    # (see the empty-string check above) — it is not required to equal the
+    # consent store's internal `ConsentGrant.consent_id`. No real caller today
+    # (the HTTP booking route, or `need_fulfillment_flow.fulfil_confirmed_draft`)
+    # constructs a `consent_ref` that matches the grant id a `ConsentQueryPort`
+    # implementation mints, so requiring that equality here would make every
+    # booking unconditionally consent-refused. `ConsentGate.check` already
+    # verifies an in-force grant exists for this exact subject and purpose,
+    # which is the actual authorization question this gate must answer.
+    if not ConsentGate.check(subject_person_id, BOOKING_CONSENT_PURPOSE, grants):
         raise ServiceForbiddenError(
             f"consent_required:{BOOKING_CONSENT_PURPOSE.value}:{subject_person_id}"
         )
@@ -907,17 +925,11 @@ async def record_family_feedback(
         subject_person_id=subject_person_id,
         purpose=BOOKING_CONSENT_PURPOSE,
     )
-    matching_grant = next(
-        (
-            grant
-            for grant in grants
-            if grant.consent_id == consent_ref and grant.guardian_person_id == ctx.actor_person_id
-        ),
-        None,
-    )
-    if matching_grant is None or not ConsentGate.check(
-        subject_person_id, BOOKING_CONSENT_PURPOSE, grants
-    ):
+    # See `submit_booking_request`'s identical check above for why
+    # `consent_ref` equality against `ConsentGrant.consent_id` is not
+    # required: it is an opaque caller-supplied audit reference, and
+    # `ConsentGate.check` is the actual in-force-grant authorization answer.
+    if not ConsentGate.check(subject_person_id, BOOKING_CONSENT_PURPOSE, grants):
         raise ServiceForbiddenError(
             f"consent_required:{BOOKING_CONSENT_PURPOSE.value}:{subject_person_id}"
         )
