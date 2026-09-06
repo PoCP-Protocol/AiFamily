@@ -198,6 +198,16 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
+    # 0068 owns the Human Gate reviewed-understanding-signal table
+    # (assessment_reviewed_understanding_signals) — one new table.
+    # (Numbered 0068, not 0067, to avoid colliding with 0067's
+    # service-feedback/playbook tables landing via the sibling
+    # integrate/s4-http branch.)
+    "0068_reviewed_understanding_signal": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 68,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
 }
 
 _MODEL_DRAFTS_ADR = (
