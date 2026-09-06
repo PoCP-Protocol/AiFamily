@@ -16,6 +16,7 @@ from backend.domains.service.fgcn.scenario import (
     S01_OUTCOME_OBSERVATION,
     S01_PROVIDER_DELIVERABLE,
     S01_QUALITY_VERIFICATION_MARKER,
+    S01_REWORK_QUALITY_MARKER,
     S01_SCENARIO,
     S01_SERVICE_OUTCOME,
     S01_TASK_ACCEPTANCE_CRITERION,
@@ -25,6 +26,7 @@ from backend.domains.service.fgcn.scenario import (
     render_s01_scenario,
     validate_s01_outcome_observation,
     validate_s01_quality_note,
+    validate_s01_rework_note,
 )
 
 NOW = datetime(2026, 8, 30, 9, tzinfo=UTC)
@@ -138,6 +140,24 @@ def test_quality_requires_human_s01_outcome_attestation() -> None:
         review_note=S01_QUALITY_VERIFICATION_MARKER,
     )
     assert S01_QUALITY_VERIFICATION_MARKER in review.review_note
+
+
+def test_quality_rework_requires_localized_reason_and_preserves_score_red_line() -> None:
+    common = {
+        "quality_review_id": "review-s01-rework",
+        "case_id": "case-s01",
+        "task_id": "task-s01",
+        "reviewer_ref": "reviewer-s01",
+        "quality_state": TaskQualityState.REWORK_REQUIRED,
+        "reviewed_at": NOW,
+    }
+    with pytest.raises(ServiceValidationError, match="fgcn_s01_rework_reason_required"):
+        TaskQualityReview(**common, review_note="needs another attempt")
+    review = TaskQualityReview(**common, review_note=S01_REWORK_QUALITY_MARKER)
+    assert review.quality_state is TaskQualityState.REWORK_REQUIRED
+    assert validate_s01_rework_note(S01_REWORK_QUALITY_MARKER) == S01_REWORK_QUALITY_MARKER
+    with pytest.raises(ServiceValidationError, match="fgcn_s01_scoring_semantics_forbidden"):
+        validate_s01_rework_note(f"{S01_REWORK_QUALITY_MARKER} score=1")
 
 
 def test_s01_acceptance_criterion_is_the_only_task_outcome_boundary() -> None:

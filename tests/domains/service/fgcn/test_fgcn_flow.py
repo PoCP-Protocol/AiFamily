@@ -17,15 +17,18 @@ from backend.domains.service.fgcn.contracts import (
     BlueprintSnapshot,
     CaseStatus,
     GateServiceScope,
+    ServiceDelivery,
     ServiceTask,
     TaskAssignmentStatus,
     TaskQualityState,
     TaskStatus,
+    rework_task_id_for,
 )
 from backend.domains.service.fgcn.engine import FGCNEngine
 from backend.domains.service.fgcn.scenario import (
     S01_OUTCOME_OBSERVATION,
     S01_QUALITY_VERIFICATION_MARKER,
+    S01_REWORK_QUALITY_MARKER,
     S01_SCENARIO,
     S01_TASK_ACCEPTANCE_CRITERION,
 )
@@ -123,6 +126,7 @@ def _assignment_request(
     scope: GateScope | None = None,
     provider_id: str = "expert-1",
     proposal_id: str = "proposal-fgcn-1",
+    assignee_kind: str = "EXPERT",
 ):
     gate = InMemoryHumanGate()
     draft_provider = FakeProvider(
@@ -164,7 +168,7 @@ def _assignment_request(
             action_arguments={
                 "service_task_id": "task-1",
                 "provider_id": provider_id,
-                "assignee_kind": "EXPERT",
+                "assignee_kind": assignee_kind,
             },
             scope=scope or _gate_scope(),
             allowed_actor_types=(ActorType.GUARDIAN,),
@@ -203,6 +207,27 @@ async def test_ai_gateway_human_gate_and_fgcn_assignment_form_one_audited_path()
         "ACCEPT_SERVICE_TASK",
         "ASSIGN_SERVICE_CASE",
     ]
+    assignment_event = engine.audit.all_events()[2]
+    assert assignment_event.after["provider_credential_ref"] == "credential:expert-1:v1"
+    assert assignment_event.after["provider_slot_ref"] == "slot:expert-1:default"
+    assert assignment_event.after["provider_capacity_available"] == 1
+
+
+@pytest.mark.asyncio
+async def test_human_gate_cannot_assign_ai_as_the_s01_service_provider():
+    engine = _engine()
+    request = await _assignment_request(
+        provider_id="ai-provider",
+        assignee_kind="AI",
+        proposal_id="proposal-fgcn-ai-provider",
+    )()
+
+    with pytest.raises(ServiceForbiddenError, match="fgcn_service_provider_must_be_human"):
+        engine.execute_named_action(request)
+
+    assert engine.tasks["task-1"].status is TaskStatus.PENDING
+    assert engine.cases["case-1"].status is CaseStatus.OPEN
+    assert engine.assignments == {}
 
 
 @pytest.mark.asyncio
@@ -249,10 +274,135 @@ def test_provider_admission_snapshot_rejects_missing_or_malformed_capacity(capac
             provider_ref="expert-1",
             assignee_kind="EXPERT",
             admission_status="ACTIVE",
+            tenant_id="tenant-1",
+            family_id="family-1",
+            credential_ref="credential:expert-1:v1",
+            credential_valid_from=NOW,
+            credential_valid_until=NOW + timedelta(days=1),
+            slot_ref="slot:expert-1:1",
+            slot_start_at=NOW,
+            slot_end_at=NOW + timedelta(hours=1),
             capability_keys=("family_guidance",),
             allowed_purposes=("service_collaboration",),
             capacity_available=capacity,
         )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "error_code"),
+    (
+        ("tenant_id", "", "fgcn_provider_admission_tenant_id_required"),
+        ("family_id", "", "fgcn_provider_admission_family_id_required"),
+        ("credential_ref", "", "fgcn_provider_admission_credential_ref_required"),
+        ("slot_ref", "", "fgcn_provider_admission_slot_ref_required"),
+    ),
+)
+def test_provider_admission_snapshot_requires_scope_and_provenance_fields(field, value, error_code):
+    from backend.domains.service.fgcn.admission import ProviderAdmissionSnapshot
+
+    kwargs = {
+        "provider_ref": "expert-1",
+        "assignee_kind": "EXPERT",
+        "admission_status": "ACTIVE",
+        "tenant_id": "tenant-1",
+        "family_id": "family-1",
+        "credential_ref": "credential:expert-1:v1",
+        "credential_valid_from": NOW,
+        "credential_valid_until": NOW + timedelta(days=1),
+        "slot_ref": "slot:expert-1:1",
+        "slot_start_at": NOW,
+        "slot_end_at": NOW + timedelta(hours=1),
+        "capability_keys": ("family_guidance",),
+        "allowed_purposes": ("service_collaboration",),
+        "capacity_available": 1,
+    }
+    kwargs[field] = value
+    with pytest.raises(ServiceValidationError, match=error_code):
+        ProviderAdmissionSnapshot(**kwargs)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "error_code"),
+    (
+        (
+            {
+                "credential_valid_from": NOW,
+                "credential_valid_until": NOW,
+            },
+            "fgcn_provider_admission_credential_window_invalid",
+        ),
+        (
+            {
+                "slot_start_at": NOW,
+                "slot_end_at": NOW,
+            },
+            "fgcn_provider_admission_slot_window_invalid",
+        ),
+    ),
+)
+def test_provider_admission_snapshot_rejects_invalid_windows(kwargs, error_code):
+    from backend.domains.service.fgcn.admission import ProviderAdmissionSnapshot
+
+    base = {
+        "provider_ref": "expert-1",
+        "assignee_kind": "EXPERT",
+        "admission_status": "ACTIVE",
+        "tenant_id": "tenant-1",
+        "family_id": "family-1",
+        "credential_ref": "credential:expert-1:v1",
+        "credential_valid_from": NOW,
+        "credential_valid_until": NOW + timedelta(days=1),
+        "slot_ref": "slot:expert-1:1",
+        "slot_start_at": NOW,
+        "slot_end_at": NOW + timedelta(hours=1),
+        "capability_keys": ("family_guidance",),
+        "allowed_purposes": ("service_collaboration",),
+        "capacity_available": 1,
+    }
+    base.update(kwargs)
+    with pytest.raises(ServiceValidationError, match=error_code):
+        ProviderAdmissionSnapshot(**base)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kwargs", "error_code"),
+    (
+        ({"tenant_id": "tenant-other"}, "fgcn_provider_tenant_scope_violation"),
+        ({"family_id": "family-other"}, "fgcn_provider_family_scope_violation"),
+        (
+            # `execute_named_action` checks admission against the real wall
+            # clock (`effective_at` defaults to `datetime.now(UTC)`), not the
+            # fixed `NOW` fixture used elsewhere in this module — so "not yet
+            # valid" must be anchored to the real clock too, or this case
+            # silently stops exercising the intended branch once real time
+            # passes the fixture's `NOW`.
+            {"credential_valid_from": datetime.now(UTC) + timedelta(days=1)},
+            "fgcn_provider_credential_not_yet_valid",
+        ),
+        (
+            {"credential_valid_until": NOW - timedelta(days=1)},
+            "fgcn_provider_credential_expired",
+        ),
+        (
+            {"slot_end_at": NOW - timedelta(days=1)},
+            "fgcn_provider_slot_unavailable",
+        ),
+    ),
+)
+async def test_assignment_refuses_non_matching_or_stale_provider_snapshot_without_writes(
+    kwargs, error_code
+):
+    engine = _engine()
+    engine.provider_admission = SyncProviderAdmissionStub(admitted_snapshot(**kwargs))
+    request = await _assignment_request()()
+
+    with pytest.raises((ServiceForbiddenError, ServiceConflictError), match=error_code):
+        engine.execute_named_action(request)
+
+    assert engine.tasks["task-1"].status is TaskStatus.PENDING
+    assert engine.cases["case-1"].status is CaseStatus.OPEN
+    assert engine.assignments == {}
 
 
 @pytest.mark.parametrize(
@@ -463,16 +613,6 @@ async def test_delivery_quality_contribution_and_shadow_allocation_are_gated():
             review_note="same person",
             reviewed_at=NOW + timedelta(hours=2),
         )
-    with pytest.raises(ServiceConflictError, match="fgcn_non_pass_quality_requires_rework_flow"):
-        engine.verify_delivery(
-            quality_review_id="review-rework",
-            task_id="task-1",
-            reviewer_ref="quality-1",
-            review_note="needs rework",
-            quality_state=TaskQualityState.REWORK_REQUIRED,
-            reviewed_at=NOW + timedelta(hours=2),
-        )
-
     engine.verify_delivery(
         quality_review_id="review-1",
         task_id="task-1",
@@ -520,6 +660,105 @@ async def test_delivery_quality_contribution_and_shadow_allocation_are_gated():
             actor_id="operator-1",
             allocation_run_id="allocation-run-2",
         )
+
+
+@pytest.mark.asyncio
+async def test_rework_quality_creates_an_unassigned_follow_up_and_blocks_contribution():
+    engine = _engine()
+    engine.execute_named_action(await _assignment_request()())
+    engine.submit_delivery(
+        delivery_id="delivery-rework",
+        task_id="task-1",
+        assignee_ref="expert-1",
+        evidence_ref="evidence:rework",
+        outcome_observation=S01_OUTCOME_OBSERVATION,
+        submitted_at=NOW + timedelta(hours=1),
+    )
+
+    review = engine.verify_delivery(
+        quality_review_id="review-rework",
+        task_id="task-1",
+        reviewer_ref="quality-1",
+        review_note=S01_REWORK_QUALITY_MARKER,
+        quality_state=TaskQualityState.REWORK_REQUIRED,
+        reviewed_at=NOW + timedelta(hours=2),
+    )
+
+    follow_up = engine.tasks[rework_task_id_for("task-1", "review-rework")]
+    assert review.quality_state is TaskQualityState.REWORK_REQUIRED
+    assert engine.tasks["task-1"].status is TaskStatus.REWORK_REQUESTED
+    assert follow_up.status is TaskStatus.PENDING
+    assert follow_up.responsible_ref is None
+    assert follow_up.rework_of_task_id == "task-1"
+    assert follow_up.rework_attempt == 1
+    with pytest.raises(ServiceConflictError, match="fgcn_contribution_requires_verified_task"):
+        engine.record_contribution(
+            contribution_id="contribution-rework-blocked",
+            task_id="task-1",
+            delivery_id="delivery-rework",
+            provider_ref="expert-1",
+            role_key="DELIVERY_RESOURCE",
+            started_at=NOW,
+            completed_at=NOW + timedelta(hours=1),
+        )
+
+    replay = engine.verify_delivery(
+        quality_review_id="review-rework",
+        task_id="task-1",
+        reviewer_ref="quality-1",
+        review_note=S01_REWORK_QUALITY_MARKER,
+        quality_state=TaskQualityState.REWORK_REQUIRED,
+        reviewed_at=NOW + timedelta(hours=8),
+    )
+    assert replay == review
+    assert list(engine.tasks).count(follow_up.task_id) == 1
+    assert [event.action for event in engine.audit.all_events()].count(
+        "CREATE_SERVICE_REWORK_TASK"
+    ) == 1
+
+
+def test_rework_parent_is_history_after_verified_follow_up_and_case_can_close():
+    engine = _engine()
+    follow_up_id = rework_task_id_for("task-1", "review-rework-close")
+    engine.tasks["task-1"] = replace(
+        engine.tasks["task-1"],
+        status=TaskStatus.REWORK_REQUESTED,
+        responsible_ref="expert-1",
+        deliverable_ref="evidence:failed-first-attempt",
+    )
+    engine.tasks[follow_up_id] = replace(
+        engine.tasks["task-1"],
+        task_id=follow_up_id,
+        task_key="AI_GUIDANCE_DELIVERY:REWORK:1",
+        title="Rework: Guidance delivery",
+        status=TaskStatus.VERIFIED,
+        deliverable_ref="evidence:rework-success",
+        verified_at=NOW + timedelta(hours=3),
+        rework_of_task_id="task-1",
+        rework_attempt=1,
+    )
+    engine.deliveries["delivery-rework-success"] = ServiceDelivery(
+        delivery_id="delivery-rework-success",
+        case_id="case-1",
+        task_id=follow_up_id,
+        assignee_ref="expert-1",
+        evidence_ref="evidence:rework-success",
+        outcome_observation=S01_OUTCOME_OBSERVATION,
+        delivered_at=NOW + timedelta(hours=2),
+    )
+    engine._delivery_by_task[follow_up_id] = "delivery-rework-success"
+    engine.record_contribution(
+        contribution_id="contribution-rework-success",
+        task_id=follow_up_id,
+        delivery_id="delivery-rework-success",
+        provider_ref="expert-1",
+        role_key="DELIVERY_RESOURCE",
+        started_at=NOW,
+        completed_at=NOW + timedelta(hours=1),
+    )
+
+    closed = engine.close_case(case_id="case-1", actor_id="quality-1")
+    assert closed.status is CaseStatus.COMPLETED
 
 
 def test_scope_and_idempotency_replay_are_fail_closed():

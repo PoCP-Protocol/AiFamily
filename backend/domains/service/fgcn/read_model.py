@@ -277,7 +277,8 @@ def build_fgcn_pdca_projection(
             if exc.code == "RESOURCE_GAP":
                 resource_gap = exc.code
 
-    task_ids = {task.task_id for task in task_facts}
+    task_ids = _active_task_ids(task_facts)
+    active_tasks = tuple(task for task in task_facts if task.task_id in task_ids)
     assigned_task_ids = {assignment.task_id for assignment in assignment_facts}
     delivered_task_ids = {delivery.task_id for delivery in delivery_facts}
     reviewed_task_ids = {
@@ -299,7 +300,7 @@ def build_fgcn_pdca_projection(
         and all(
             task.status in {TaskStatus.DELIVERED, TaskStatus.VERIFIED, TaskStatus.CLOSED}
             and task.deliverable_ref is not None
-            for task in task_facts
+            for task in active_tasks
         )
     )
     if not do_ready:
@@ -308,7 +309,7 @@ def build_fgcn_pdca_projection(
     check_ready = (
         do_ready
         and task_ids.issubset(reviewed_task_ids)
-        and all(task.status in {TaskStatus.VERIFIED, TaskStatus.CLOSED} for task in task_facts)
+        and all(task.status in {TaskStatus.VERIFIED, TaskStatus.CLOSED} for task in active_tasks)
     )
     if not check_ready:
         blockers.append("fgcn_quality_decision_incomplete")
@@ -427,6 +428,25 @@ def _index_tasks(case: ServiceCase, tasks: tuple[ServiceTask, ...]) -> dict[str,
             raise ServiceValidationError("fgcn_projection_duplicate_task")
         indexed[task.task_id] = task
     return indexed
+
+
+def _active_task_ids(tasks: tuple[ServiceTask, ...]) -> set[str]:
+    """Return current work while retaining rework parents as history.
+
+    A rework parent remains ``REWORK_REQUESTED`` for auditability. Once its
+    deterministic follow-up task exists, the parent is historical rather than
+    an additional open requirement; the follow-up itself remains active until
+    it reaches delivery, human quality verification, and contribution.
+    """
+
+    rework_source_ids = {
+        task.rework_of_task_id for task in tasks if task.rework_of_task_id is not None
+    }
+    return {
+        task.task_id
+        for task in tasks
+        if not (task.status is TaskStatus.REWORK_REQUESTED and task.task_id in rework_source_ids)
+    }
 
 
 def _index_deliveries(
