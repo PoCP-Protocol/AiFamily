@@ -133,6 +133,71 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
+    # 0058 owns two family_need assignment/outcome tables.
+    "0058_family_need_assignment_and_outcome": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 60,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0059 is alter-only (plan-resolution columns); no new tables.
+    "0059_family_need_assignment_plan_resolution": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 60,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0060 owns the product_improvement_candidates table.
+    "0060_product_improvement_candidates": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 61,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0061 is alter-only (growth-action AI provenance columns); no new tables.
+    "0061_growth_action_ai_provenance": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 61,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0062 owns the domain outbox consumer deliveries table.
+    "0062_domain_outbox_consumer_deliveries": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 62,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0063 owns the achievement feedback Human Gate table.
+    "0063_achievement_feedback_human_gate": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 63,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0064 owns the family experience signals table.
+    "0064_family_experience_signals": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 64,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0065 owns three experience feedback resolution tables.
+    "0065_experience_feedback_resolution": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 67,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0066 is alter-only (FGCN provider qualification columns); no new tables.
+    # Keeping the current head explicit makes a future migration fail until its
+    # object ownership has been reviewed instead of silently accepting schema
+    # drift.
+    #
+    # *** If you just added a new migration and this test failed on
+    # "unknown migration head": add one entry here for your new revision,
+    # following the pattern above (copy the previous entry's table count and
+    # add however many NEW tables your migration's upgrade() creates; 0 if it
+    # only alters existing tables). This map is deliberately hand-maintained —
+    # see the module docstring for why it cannot be derived from a directory
+    # scan. ***
+    "0066_fgcn_provider_qualification_fields": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 67,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
 }
 
 _MODEL_DRAFTS_ADR = (
@@ -396,7 +461,9 @@ def _assert_accepted_head(head: str) -> str:
 
     assert head in EXPECTED_HEAD_COUNTS_BY_REVISION, (
         "unknown migration head; update the explicit object-owner map and review the chain: "
-        f"{head!r}"
+        f"{head!r}. If you just added a new migration, look at "
+        "EXPECTED_HEAD_COUNTS_BY_REVISION in this file — add an entry for your new head "
+        "(previous entry's table count + however many new tables your upgrade() creates)."
     )
     if head == "0009_ai_model_drafts":
         assert _model_drafts_head_is_approved(), (
