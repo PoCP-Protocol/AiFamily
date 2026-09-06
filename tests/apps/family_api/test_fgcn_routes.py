@@ -9,7 +9,7 @@ scope, and that rejected/non-AI/replayed paths do not create business facts.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 from backend.domains.service.application.context import ActionContext
+from backend.domains.service.domain.entities import BookingRequest, ServiceRecord
 from backend.domains.service.fgcn.api import dependencies as deps
 from backend.domains.service.fgcn.api.routes import register_exception_handlers, router
 from backend.domains.service.fgcn.contracts import (
@@ -30,7 +31,12 @@ from backend.domains.service.fgcn.contracts import (
     TaskStatus,
 )
 from backend.domains.service.fgcn.persistence import FGCNBase, SqlAlchemyFGCNRepository
-from backend.domains.service.fgcn.scenario import S01_SCENARIO, S01_TASK_ACCEPTANCE_CRITERION
+from backend.domains.service.fgcn.scenario import (
+    S01_OUTCOME_OBSERVATION,
+    S01_SCENARIO,
+    S01_TASK_ACCEPTANCE_CRITERION,
+)
+from backend.domains.service.infrastructure.fake_repository import FakeServiceRepository
 from backend.intelligence.human_gate import (
     ActorType as GateActorType,
 )
@@ -194,6 +200,7 @@ class _Wiring:
         self.idempotency_key: str | None = None
         self.family_id = FAMILY
         self.actor_type = ActorType.AI
+        self.actor_id: str | None = None
         self.reviewer = deps.HumanReviewerContext(
             actor_id="guardian-http-fgcn",
             actor_type=GateActorType.GUARDIAN,
@@ -203,9 +210,12 @@ class _Wiring:
         self.provider_admission = AsyncProviderAdmissionStub(
             admitted_snapshot(
                 provider_ref="expert-http-fgcn",
+                tenant_id=TENANT,
+                family_id=FAMILY,
                 capability_keys=("family_guidance",),
             )
         )
+        self.service_record_reader = FakeServiceRepository()
 
     def context(self) -> ActionContext:
         return ActionContext(
@@ -219,8 +229,9 @@ class _Wiring:
         )
 
     def actor(self) -> ActorContext:
+        default_id = "ai:http-fgcn" if self.actor_type is ActorType.AI else "human:http-fgcn"
         return ActorContext(
-            actor_id="ai:http-fgcn" if self.actor_type is ActorType.AI else "human:http-fgcn",
+            actor_id=self.actor_id or default_id,
             actor_type=self.actor_type,
             tenant_id=TENANT,
             correlation_id="corr-route-request",
@@ -263,6 +274,9 @@ def client(seeded_session: AsyncSession) -> Iterator[tuple[TestClient, _Wiring]]
     def get_provider_admission() -> AsyncProviderAdmissionStub:
         return wiring.provider_admission
 
+    def get_service_record_reader() -> FakeServiceRepository:
+        return wiring.service_record_reader
+
     application.dependency_overrides[deps.get_fgcn_session] = get_session
     application.dependency_overrides[deps.get_action_context] = get_context
     application.dependency_overrides[deps.get_actor_context] = get_actor
@@ -270,6 +284,7 @@ def client(seeded_session: AsyncSession) -> Iterator[tuple[TestClient, _Wiring]]
     application.dependency_overrides[deps.get_draft_provenance_resolver] = get_provenance_resolver
     application.dependency_overrides[deps.get_workflow_worker_context] = get_worker
     application.dependency_overrides[deps.get_provider_admission] = get_provider_admission
+    application.dependency_overrides[deps.get_service_record_reader] = get_service_record_reader
     with TestClient(application) as test_client:
         yield test_client, wiring
     application.dependency_overrides.clear()
@@ -339,6 +354,97 @@ def test_fgcn_http_path_persists_gate_and_creates_one_assignment(
     )
     assert reloaded.status_code == 200, reloaded.text
     assert reloaded.json()["action_request"]["request_id"].startswith("named-action-request:")
+
+
+def test_fgcn_http_receipt_delivery_bridges_a_completed_canonical_service_record(
+    client: tuple[TestClient, _Wiring],
+) -> None:
+    """The receipt bridge is the production entry point for `receipt_bridge.py`.
+
+    An admitted human provider submits one completed canonical ServiceRecord
+    through `/receipt-delivery`; the FGCN task moves to DELIVERED and a second
+    submission of the same record replays instead of writing twice.
+    """
+
+    test_client, wiring = client
+    proposal = test_client.post(
+        f"/families/{FAMILY}/fgcn/tasks/{TASK}/assignment-proposals",
+        json=_proposal_body(),
+        headers=_headers(wiring, "receipt-proposal-1"),
+    )
+    assert proposal.status_code == 201, proposal.text
+    decision = test_client.post(
+        f"/families/{FAMILY}/fgcn/human-tasks/{proposal.json()['task_id']}/decisions",
+        json={"outcome": "ACCEPT"},
+        headers=_headers(wiring, "receipt-decision-1"),
+    )
+    assert decision.status_code == 200, decision.text
+    consumed = test_client.post(
+        f"/families/{FAMILY}/fgcn/human-tasks/{proposal.json()['task_id']}/consume",
+        headers=_headers(wiring, "receipt-consume-1"),
+    )
+    assert consumed.status_code == 200, consumed.text
+    assert consumed.json()["assignee_ref"] == "expert-http-fgcn"
+
+    booking = BookingRequest(
+        booking_request_id="booking-receipt-http",
+        tenant_id=TENANT,
+        family_id=FAMILY,
+        actor_person_id="guardian-http-fgcn",
+        booking_ref="BOOK-RECEIPT-HTTP",
+        service_offering_id="offering-receipt-http",
+        availability_slot_id="slot-receipt-http",
+        source_page_id="UI-21",
+        consent_ref="consent-ref-http-1",
+        status="CONFIRMED",
+        service_snapshot={"provider_ref": "expert-http-fgcn"},
+        environment="TEST",
+        correlation_id="corr-http-fgcn",
+        idempotency_key="booking-key-receipt-http",
+        created_at=NOW.replace(tzinfo=None),
+        created_by="guardian-http-fgcn",
+        updated_at=NOW.replace(tzinfo=None),
+        updated_by="guardian-http-fgcn",
+    )
+    record = ServiceRecord(
+        booking_service_record_id="record-receipt-http",
+        tenant_id=TENANT,
+        family_id=FAMILY,
+        source_booking_request_id="booking-receipt-http",
+        status="COMPLETED",
+        environment="TEST",
+        created_at=NOW.replace(tzinfo=None),
+        created_by="guardian-http-fgcn",
+        updated_at=(NOW + timedelta(hours=2)).replace(tzinfo=None),
+        updated_by="expert-http-fgcn",
+    )
+    wiring.service_record_reader.bookings[booking.booking_request_id] = booking
+    wiring.service_record_reader.service_records[record.booking_service_record_id] = record
+
+    wiring.actor_type = ActorType.HUMAN
+    wiring.actor_id = "expert-http-fgcn"
+    delivery = test_client.post(
+        f"/families/{FAMILY}/fgcn/tasks/{TASK}/receipt-delivery",
+        json={
+            "service_record_id": "record-receipt-http",
+            "outcome_observation": S01_OUTCOME_OBSERVATION,
+        },
+        headers=_headers(wiring, "receipt-delivery-1"),
+    )
+    assert delivery.status_code == 200, delivery.text
+    assert delivery.json()["evidence_ref"] == "service-record:record-receipt-http"
+    assert delivery.json()["assignee_ref"] == "expert-http-fgcn"
+
+    replay = test_client.post(
+        f"/families/{FAMILY}/fgcn/tasks/{TASK}/receipt-delivery",
+        json={
+            "service_record_id": "record-receipt-http",
+            "outcome_observation": S01_OUTCOME_OBSERVATION,
+        },
+        headers=_headers(wiring, "receipt-delivery-replay"),
+    )
+    assert replay.status_code == 200, replay.text
+    assert replay.json() == delivery.json()
 
 
 @pytest.mark.asyncio

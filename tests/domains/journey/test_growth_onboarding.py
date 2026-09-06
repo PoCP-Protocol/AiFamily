@@ -241,6 +241,53 @@ async def test_fake_consent_requires_the_active_tenant_family_binding_window() -
 
 
 @pytest.mark.asyncio
+async def test_fake_consent_grant_honors_effective_from_and_exact_scope() -> None:
+    clock = {"now": NOW}
+    consent = FakeGrowthOnboardingConsent(now=lambda: clock["now"])
+    consent.grant(
+        SCOPE,
+        "child-a",
+        "GROWTH_TRACKING",
+        granted_at=NOW - timedelta(minutes=5),
+        effective_from=NOW + timedelta(minutes=5),
+    )
+
+    with pytest.raises(GrowthOnboardingForbiddenError, match="missing_consent"):
+        await consent.assert_granted(SCOPE, "child-a", "GROWTH_TRACKING")
+    with pytest.raises(GrowthOnboardingForbiddenError, match="missing_consent"):
+        await consent.assert_granted(SCOPE, "child-b", "GROWTH_TRACKING")
+    with pytest.raises(GrowthOnboardingForbiddenError, match="missing_consent"):
+        await consent.assert_granted(SCOPE, "child-a", "SERVICE")
+    with pytest.raises(GrowthOnboardingForbiddenError, match="missing_consent"):
+        await consent.assert_granted(
+            GrowthOnboardingScope("tenant-b", "family-b", "parent-b"),
+            "child-a",
+            "GROWTH_TRACKING",
+        )
+
+    clock["now"] = NOW + timedelta(minutes=5)
+    await consent.assert_granted(SCOPE, "child-a", "GROWTH_TRACKING")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("terminal_status", ["withdraw", "expire"])
+async def test_fake_consent_grant_terminal_status_is_fail_closed(terminal_status: str) -> None:
+    consent = FakeGrowthOnboardingConsent(now=lambda: NOW)
+    consent.grant(
+        SCOPE,
+        "child-a",
+        "GROWTH_TRACKING",
+        granted_at=NOW - timedelta(minutes=5),
+        effective_from=NOW - timedelta(minutes=2),
+    )
+
+    getattr(consent, terminal_status)(SCOPE, "child-a", "GROWTH_TRACKING")
+
+    with pytest.raises(GrowthOnboardingForbiddenError, match="missing_consent"):
+        await consent.assert_granted(SCOPE, "child-a", "GROWTH_TRACKING")
+
+
+@pytest.mark.asyncio
 async def test_idempotency_key_is_independent_between_tenants() -> None:
     other_scope = GrowthOnboardingScope("tenant-b", "family-b", "parent-b")
     reader = FakeConfirmedGrowthIntentReader(
