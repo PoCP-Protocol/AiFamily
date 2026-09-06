@@ -3,10 +3,10 @@ id: SYS-BASELINE-001
 title: AiFamily Current System Baseline
 type: system
 status: current
-version: 2.0
+version: 2.1
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-09-04
+updated: 2026-09-07
 canonical: true
 supersedes: docs/00_foundation/MASTER_BLUEPRINT.md
 superseded_by: null
@@ -50,13 +50,31 @@ V1 是 `MASTER_BLUEPRINT.md` 直接重命名而来，内容以"蓝图/愿景"为
 
 **没有内容被丢弃**，只是按信息类型重新分区。
 
-### 0.3 一句话现状
+### 0.3 一句话现状（历史值，2026-08-29 写作时为真；已被 §0.4 推翻，勿引用）
 
-**治理体系与文档架构已建立；Python 平台内核骨架可运行（只会回答 `/health` 与 `/ready`）；5 个 Python 域与整个 Mobile 前端已迁入 —— 但零业务 API，34 个 UI 屏幕全部无法工作，数据库尚未建立，没有任何域上线。**
+~~治理体系与文档架构已建立；Python 平台内核骨架可运行（只会回答 `/health` 与
+`/ready`）；5 个 Python 域与整个 Mobile 前端已迁入 —— 但零业务 API，34 个 UI 屏幕
+全部无法工作，数据库尚未建立，没有任何域上线。~~
+
+**当前一句话现状（2026-09-07 核实）**：治理体系与文档架构已建立；真实业务 HTTP
+operation 数 **87**（`app.openapi()['paths']` 实测，见下方命令），覆盖
+family_need/service·fgcn/assessment/product_intelligence/experience/growth/auth
+七个域；真实 PostgreSQL migration 66 个，`tests/architecture` 111 passed；**但 34
+个 Mobile UI 屏幕能否真的调用这些端点仍未核实，远端 CI 运行记录、生产部署、
+按域分 schema 均仍不存在**——"有真实业务 API"不等于"端到端可用"，见 §4.1 的
+精确边界。
 
 ### 0.4 现状核实追记（2026-09-04，本条不是全量 V3 改写）
 
-**上面 §0.3 的"零业务 API / 数据库尚未建立"这两句话已经不成立**，本条只如实记录新证据，不改动 §1–§4 的既有四分区结构（那需要 chief-architect 做一次完整的 V3 重写，逐域核对，本条追记是给那次重写用的输入，不是替代品）。
+**上面 §0.3 的"零业务 API / 数据库尚未建立"这两句话已经不成立**（§0.3 已于
+2026-09-07 就地划线标注，不再需要跳到本节才能发现矛盾）。本条只如实记录新证据，
+不改动 §1–§4 的既有四分区结构（那需要 chief-architect 做一次完整的 V3 重写，逐域
+核对，本条追记是给那次重写用的输入，不是替代品）。
+
+**2026-09-07 复核**：本条记录的 85 个 operation 已过期，实测当前为 **87**（同样
+用 `create_app()` + `app.openapi()['paths']` 方法复现，命令见下）——8 天内新增 2
+个，说明这个数字是活动值，跟 §1.3 对测试总数的警告（"不要引用本节的数字作为当前
+值，权威值只有一个来源：跑一次命令"）适用同一套纪律。
 
 以 `AIFAMILY_ENV=test` 起 `create_app()`，用 `app.openapi()['paths']` 实测（不是数它声称有多少条，是真的把 app 起起来读它的 OpenAPI spec）：
 
@@ -241,15 +259,33 @@ Batch 8  条件性收尾：删除范围 = 已完成 cutover 的域，不是"无�
 
 ## 4. Not Implemented（明确不存在 —— 用于阻断"我们有"）
 
-### 4.1 零业务 API —— 最重要的一条
+### 4.1 业务端点 vs 屏幕可用性 —— 标题已随 §0.4 事实变化而更新（原标题"零业务API"已不成立）
 
 ```text
-AiFamily 可用业务端点        0
-Mobile 依赖端点              ~40+ 业务路径 + 4 个 /auth/* 端点
-34 个 UI 屏幕可工作数量       0
+AiFamily 真实业务 HTTP operation 数   87（2026-09-07 实测，见下方复现命令，非 0）
+Mobile 依赖端点                      ~40+ 业务路径 + 4 个 /auth/* 端点
+34 个 UI 屏幕可工作数量               仍未核实（不是仍为 0——是"没查"，与"确认为 0"
+                                      是两个不同的断言，本次改动不混用）
 ```
 
-**34 个屏幕在 AiFamily 内全部无法真正工作。** 逐屏状态见 `CURRENT_PRODUCT_MAP.md`；那里的所有 `E2E_READY` / `BACKEND_READY` 等状态词都是**源仓库 NestJS 后端下测得的**，在 AiFamily 内一律不成立。
+复现命令（跟 §1.3 对测试总数的纪律一致：**不要引用本节数字作为当前值，跑一次
+命令**）：
+
+```bash
+AIFAMILY_ENV=test uv run python -c "
+from backend.apps.family_api.main import create_app
+app = create_app()
+paths = app.openapi()['paths']
+print('operations:', sum(len(v) for v in paths.values()))
+"
+```
+
+**"87 个真实业务 operation 存在"不等于"34 个 Mobile 屏幕能用"。** 这两件事是
+不同的核验对象：前者是 `create_app()` 的 OpenAPI spec（本次已实测），后者需要
+Mobile 前端实际发起请求并验证响应契约（本次未核实,§0.4 也明确写了"这次没查"）。
+逐屏状态见 `CURRENT_PRODUCT_MAP.md`；那里的所有 `E2E_READY` / `BACKEND_READY`
+等状态词都是**源仓库 NestJS 后端下测得的**，在 AiFamily 内是否成立仍需独立复核，
+不能因为后端 operation 数从 0 变成 87 就推断前端已经可用。
 
 附带风险：源仓库有 9+ 个屏幕（UI-10/11/12/22/23/25/27/28/29）依赖自述 `SYNTHETIC_DEV_ONLY` 的 `/dev/*` 合成路由。Python 后端必须为它们显式决定数据来源，否则结果不是"清理了假数据"而是"白屏"。
 
@@ -264,17 +300,55 @@ Mobile 依赖端点              ~40+ 业务路径 + 4 个 /auth/* 端点
 
 **仍然不存在的部分（不要据上面的进展推断已完成）**：
 
-- PostgreSQL **按域分 schema 未建立**。151 张表全在 `public`，`identity.*`/`family.*`/`assessment.*` 与每域独立 DB role 都还没做——baseline 刻意只做忠实快照，见 `docs/07_data/DATA_ARCHITECTURE.md` §5。
-- **没有任何域拥有持久化真相。** baseline 建的是空表，没有任何域的运行时读写落在这些表上；`membership`/`product_intelligence` 的 Postgres 测试用的是 `Base.metadata.create_all` 建在一次性 schema 里的表，**不是** baseline 化的表。因此源 SQL 里的 DB 级 CHECK 约束在这两个域仍未被覆盖。
+- PostgreSQL **按域分 schema 未建立**。151 张遗留表全在 `public`，`identity.*`/`family.*`/`assessment.*` 与每域独立 DB role 都还没做——baseline 刻意只做忠实快照，见 `docs/07_data/DATA_ARCHITECTURE.md` §5。
 - 已发现一处**待裁决的 schema 矛盾**：`product_intelligence` 域本地 SQL 副本比 baseline 多三列（`validated_by`/`validated_at`/`validation_reason`），而 ORM 要求这三列 —— 在只跑过 `alembic upgrade head` 的库上该域会失败。详见 `backend/domains/product_intelligence/migrations/README.md`。
+
+**2026-09-07 纠正（原"没有任何域拥有持久化真相"这句话已不成立，划线保留原文）**：
+
+~~没有任何域拥有持久化真相。baseline 建的是空表，没有任何域的运行时读写落在这些
+表上；`membership`/`product_intelligence` 的 Postgres 测试用的是
+`Base.metadata.create_all` 建在一次性 schema 里的表，**不是** baseline 化的表。
+因此源 SQL 里的 DB 级 CHECK 约束在这两个域仍未被覆盖。~~
+
+实测 `database/migrations/versions/` 现有 **67 个**迁移文件（不是写作时的 62），
+其中 `0055_family_need_domain.py` 等正式 Alembic migration 已经为
+`need_signals`/`family_needs`/`need_profiles`/`solution_drafts`（`family_need`
+域 N0-N8 全生命周期的持久化载体）建表，且带 `CHECK` 约束（如
+`ck_need_signals_data_class`）——这**是** baseline 化的表，不是一次性 schema。
+`family_need`/`service·fgcn` 等域已有真实 Postgres 集成测试覆盖端到端写读
+（见 §0.4）。原句"没有任何域拥有持久化真相"对这些域已不成立；`membership`/
+`product_intelligence` 两域当时用一次性 schema 测试这一具体描述本次未重新
+核实，可能仍然成立，不因本条纠正而自动推断为已解决。
 
 ### 4.3 AI Runtime
 
-`backend/intelligence/` 下**只有** `design_copilot`，其 `ProductCompiler` / `DesignSimulator` 每个方法都是 `NotImplementedError`，零调用方、零测试。
+**读前提示（2026-09-07）**：下面这段是 2026-08-29 迁移初始状态的历史记录，**已被
+紧跟着的"2026-08-30 基线校正"和 §0.4 推翻**——本次核实确认截至 2026-09-07，
+`backend/intelligence/` 下有 model_gateway/context_engine/agent_runtime/
+tool_runtime/human_gate/evaluation/safety/memory/prompt_registry/
+schema_registry/observability/design_copilot 共 12 个子目录，与 `CURRENT_AI_MAP.md`
+记录一致（11 项 `EXPERIMENT` + `design_copilot` 仍是 `NotImplementedError`）。
+划线段落原样保留以便追溯迁移起点，不代表当前状态：
 
-（历史基线）不存在：Model Gateway、Context Engine、Agent Runtime、Tool Runtime、Memory、Prompt Registry、Schema Registry、Safety、Human Gate、Evaluation、Observability、AI Provenance。5 个业务 Agent（家长顾问/孩子陪练/助教助手/成长规划师/经营助手）零实现。详见 `CURRENT_AI_MAP.md`。
+~~`backend/intelligence/` 下**只有** `design_copilot`，其 `ProductCompiler` /
+`DesignSimulator` 每个方法都是 `NotImplementedError`，零调用方、零测试。~~
+
+~~（历史基线）不存在：Model Gateway、Context Engine、Agent Runtime、Tool
+Runtime、Memory、Prompt Registry、Schema Registry、Safety、Human Gate、
+Evaluation、Observability、AI Provenance。5 个业务 Agent（家长顾问/孩子陪练/
+助教助手/成长规划师/经营助手）零实现。~~ 详见 `CURRENT_AI_MAP.md`（该文件是
+本节的权威展开，本节只做摘要，不重复维护）。
 
 > **2026-08-30 基线校正**：上述段落描述迁移初始状态，不再代表当前实现。当前 AI Map 已记录 12 项 EXPERIMENT；Context Engine 已通过 `AsyncSqlContextBroker`、`SqlContextBrokerFactory` 与 Alembic 0036 具备 durable 快照、作用域/consent/TTL 校验和主体删除证明，Experience operations audit 已通过 Alembic 0037 提供 metadata-only operator 访问记录，运维 HTTP 边界已增加请求 bearer 绑定与 `HttpRequestOperatorIdentityPort`（ADR-0129），dev/test 已能用 synthetic runtime 走完同一 operator query 契约；Memory 已通过 `SqlAlchemyMemoryStore` 与 Alembic 0022 具备 durable 引用、作用域读取、级联删除证明和过期清理。Growth Graph 与五类业务 Agent 仍未达到可生产状态。
+>
+> **2026-09-07 追记**：`CURRENT_AI_MAP.md` 记录的"12 项 EXPERIMENT、0 项
+> PILOT/PRODUCTION"结论截至今日复核仍然成立；`AI Coach`（`family_need` 域）
+> 已具备一条可选、已验证的真实供应商接入路径（DeepSeek，见
+> `tests/intelligence/experience/test_family_ai_coach_real_model.py`），但默认
+> 仍为 FakeProvider，不改变"0 项 PILOT/PRODUCTION"的结论——**真正的瓶颈不是
+> 工程**：`CURRENT_AI_MAP.md` §3.3 第 1 点记录"零个外部供应商完成第16条准入"，
+> 前提是法务确立厂商分包结构（《儿童个人信息网络保护规定》第16条不得转委托），
+> 这不是代码能自行解决的事。
 
 **源仓库 TS 侧有真实网关实现（`packages/ai-gateway/src/index.ts`，894 行）不等于 AiFamily 有** —— 按 R1，正式后端只能是 Python。
 
@@ -350,14 +424,24 @@ collector/exporter 仍需部署配置。
 | 原 §5 称 `backend/intelligence/*` "不存在" | — | 已更新：`design_copilot` 已迁入但全 `NotImplementedError` |
 | 原 §5 称 `backend/domains/*` "不存在于 AiFamily" | — | 已更新：5 个域已迁入，见 §1.6 |
 
+### 5.1.1 2026-09-07 核销（原 §5.2 四条，核实后确认已解决）
+
+以下四条原列为"未核销"，2026-09-07 核实磁盘与 `governance/DOMAIN_REGISTRY.yaml` 现状后
+确认**已在此前某次未留痕的改动中解决**，本条只是核实并把记录状态修正为准确，不代表
+本次新做了这些修复：
+
+| # | 原漂移 | 核实证据 |
+|---|---|---|
+| 1 | `DOMAIN_REGISTRY.yaml` 状态全面滞后，头部仍称全 `NOT_STARTED` | 头部注释现已明确写"2026-08-29 校正，取代原 'Wave 0：本表全部 NOT_STARTED' 声明"；`grep status: governance/DOMAIN_REGISTRY.yaml` 实测多数条目为 `MIGRATED_TESTED`，与 §1.3/§1.6 一致 |
+| 2 | 缺 `market_intelligence`、`growth_plan` 两个域的登记 | 两者均已有 `capability` 条目（`governance/DOMAIN_REGISTRY.yaml:398,411`），当前 `status: RETIRED_CANONICAL_CONFLICT`（不是"缺登记"，是登记后被降级，降级理由见条目自身的 `override_reference`） |
+| 3 | `tenancy` canonical path 写 `backend/platform/tenant`（磁盘不存在），实际落在 `backend/platform/identity` | registry 条目（第 118 行起）已明确记录"租户成为独立聚合时，canonical_path 迁往 `backend/platform/tenant`"——这不是漂移，是已规划的未来迁移路径，当前阶段有意共用 `identity` |
+| 4 | `identity` 两条 registry 条目共用同一 canonical_path，边界模糊 | 同上，registry 自身已写明这是阶段性共用，非误登记 |
+
 ### 5.2 未核销（需后续独立动作）
 
-| # | 漂移 | 依据 |
-|---|---|---|
-| 1 | **`DOMAIN_REGISTRY.yaml` 状态全面滞后** —— 头部注释仍称"本表全部 status = NOT_STARTED，不含任何业务代码"，Wave 1/2 全部条目仍写 `NOT_STARTED`，与 §1.3/§1.6 矛盾 | R2 要求"canonical_path 下若存在代码，必须能追溯到本文件的一行登记"；登记行存在但 status 失真 |
-| 2 | **`DOMAIN_REGISTRY.yaml` 缺 2 个已迁入域的登记** —— `market_intelligence`、`growth_plan` 有 manifest 条目且代码已在磁盘，但 registry 中无对应行 | R2 |
-| 3 | **`tenancy` canonical path 与实际不一致** —— manifest target 写 `backend/platform/tenant`，该目录不存在；`TenantContext` 实际落在 `backend/platform/identity` | `MIGRATION_MANIFEST.yaml` → `platform_actor_tenant_context` |
-| 4 | **`identity` 两条 registry 条目共用同一 canonical_path**（`platform_actor_tenant_context` + `auth_identity`），平台原语与业务身份域边界模糊 | R2 |
+本节曾列出上述四条，现已全部移至 §5.1.1。**当前无未核销条目**——下一次全量核实
+（例如按 §0.4 建议的 V3 重写）若发现新漂移，应在此补充，而不是留空造成"没有漂移"
+的错误印象；本条明确记录"截至 2026-09-07 未发现新的未核销漂移"这一事实本身。
 | 5 | **`growth_plan` stub 与未来 `journey` 域语义重叠**，Batch 4 前不裁决即违反 R2 | `CURRENT_DOMAIN_MAP.md` §3.16 |
 | 6 | ~~**`CURRENT_TECHNOLOGY_BASELINE.md` 缺 YAML front matter**，且正文仍引用已废弃的 `docs/00_foundation/` 路径~~ —— **已修（T-10, 2026-08-29）**：front matter 已补，`docs/00_foundation/` / `docs/40_platform/` 引用已改指现路径 | `SYSTEM_MANIFEST.md` front matter 规范 |
 | 7 | **`SYSTEM_MANIFEST.md` §5.1 列出的 `CURRENT_PROGRAM_STATUS.md` 与 `DOCUMENTATION_MAP.md` 尚不存在** | manifest 声明的 canonical 文档清单未齐 |
