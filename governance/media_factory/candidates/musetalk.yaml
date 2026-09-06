@@ -1,0 +1,38 @@
+candidate_id: MUSETALK
+display_name: MuseTalk
+shortlist_role: DEFERRED
+gate1_participation: DEFERRED
+deferred_class: DEFERRED_SOURCE_VIDEO_LIPSYNC_CANDIDATE
+upstream_repository: "https://github.com/TMElyralab/MuseTalk"
+input_modalities:
+  - video_or_image_face_region
+  - audio
+output_modalities:
+  - lip_synced_video
+code_license: MIT
+weights_license: COMMERCIAL_OK_DECLARED_BY_UPSTREAM
+commercial_status: LICENSE_REVIEW_REQUIRED
+tested_os: UNKNOWN
+python_requirement: "3.10 (official README)"
+cuda_requirement: "CUDA 11.7+ recommended in official README"
+tested_gpu: "Tesla V100 cited for realtime 30fps+; RTX 3050 Ti laptop 4GB Gradio note"
+minimum_vram_claim: UNKNOWN
+recommended_vram: UNKNOWN
+chinese_audio_support: YES
+offline_support: YES_WITH_LOCAL_CHECKPOINTS
+realtime_potential: YES_CLAIMED_OFFICIAL
+benchmark_status: NOT_RUN
+quality_scores: null
+winner: UNKNOWN
+evidence_refs:
+  - "https://raw.githubusercontent.com/TMElyralab/MuseTalk/main/README.md"
+deferral_rationale: >
+  Official MuseTalk is a real-time high-fidelity video dubbing / lip-sync model
+  that modifies a face region driven by audio. Complete virtual-human solutions
+  are described as MuseV (or other) video + MuseTalk. Config can accept an image
+  file as video_path, but that is not the same Gate1 class as engines whose
+  primary fair input is a single static reference portrait + fixed audio producing
+  a full talking-person video. Deferred from ACTIVE Gate1 shortlist; retain for
+  later lipsync / realtime dubbing evaluation.
+future_value: >
+  High-quality lipsync on existing video; realtime dubbing potential.

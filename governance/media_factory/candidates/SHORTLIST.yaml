@@ -1,0 +1,25 @@
+# Gate1 Avatar Candidate Index (FAMILY-MEDIA-002A)
+#
+# ACTIVE shortlist is for fair STATIC IMAGE + FIXED AUDIO → talking avatar video.
+# Deferred candidates remain in research inventory; they are NOT deleted.
+#
+# WINNER=UNKNOWN — no quality ranking before real benchmark runs.
+
+schema_version: "1.1"
+updated: "2026-09-03"
+gate1_input_contract:
+  image: FAMILI_V2_IDENTITY_MASTER_R01
+  audio: FAMILI_RDH_SMOKE_AUDIO_V0
+  modality_class: STATIC_IMAGE_PLUS_FIXED_AUDIO
+
+active_gate1_candidates:
+  - DITTO
+  - ECHOMIMIC_V3_FLASH
+  - SADTALKER
+
+deferred_candidates:
+  - MUSETALK
+  - HEYGEM
+
+winner: UNKNOWN
+quality_scores_prepopulated: false
