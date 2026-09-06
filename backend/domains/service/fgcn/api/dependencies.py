@@ -18,6 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.domains.service.api import dependencies as service_dependencies
 from backend.domains.service.application.context import ActionContext
+from backend.domains.service.infrastructure.sqlalchemy_repository import (
+    SqlAlchemyServiceRepository,
+)
 from backend.intelligence.human_gate import ActorType as GateActorType
 from backend.intelligence.human_gate import SqlAlchemyHumanGate
 from backend.intelligence.human_gate.contracts import HUMAN_ACTOR_TYPES
@@ -132,6 +135,20 @@ async def get_human_gate(
     session: AsyncSession = Depends(get_fgcn_session),
 ) -> SqlAlchemyHumanGate:
     return SqlAlchemyHumanGate(session)
+
+
+async def get_service_record_reader(
+    session: AsyncSession = Depends(get_fgcn_session),
+) -> SqlAlchemyServiceRepository:
+    """The read-only canonical ServiceRecord/BookingRequest source for the receipt bridge.
+
+    Shares the FGCN request's own session so the read of the canonical
+    booking receipt and the FGCN delivery mutation that follows it are one
+    transaction, not two independently-committed calls that could observe a
+    receipt that a concurrent request is still writing.
+    """
+
+    return SqlAlchemyServiceRepository(session)
 
 
 async def get_action_context(

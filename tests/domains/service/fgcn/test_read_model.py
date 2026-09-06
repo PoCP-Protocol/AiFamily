@@ -35,6 +35,7 @@ from backend.domains.service.fgcn.read_model import (
 from backend.domains.service.fgcn.scenario import (
     S01_OUTCOME_OBSERVATION,
     S01_QUALITY_VERIFICATION_MARKER,
+    S01_REWORK_QUALITY_MARKER,
     S01_SCENARIO,
     S01_TASK_ACCEPTANCE_CRITERION,
 )
@@ -225,6 +226,80 @@ def test_projection_shows_unverified_delivery_without_contribution() -> None:
     assert task.quality_state is None
     assert task.evidence_ref is None
     assert projection.verified_contributions == ()
+
+
+def test_pdca_retains_rework_parent_history_but_closes_on_verified_follow_up() -> None:
+    rework_parent = _task(status=TaskStatus.DELIVERED)
+    rework_parent = replace(rework_parent, status=TaskStatus.REWORK_REQUESTED)
+    follow_up_id = "task-1-rework-1"
+    follow_up = replace(
+        rework_parent,
+        task_id=follow_up_id,
+        task_key="HUMAN_HANDOFF:REWORK:1",
+        title="Rework: Family handoff",
+        status=TaskStatus.VERIFIED,
+        deliverable_ref="evidence:rework-1",
+        verified_at=NOW + timedelta(hours=3),
+        rework_of_task_id="task-1",
+        rework_attempt=1,
+    )
+    follow_up_assignment = replace(
+        _assignment(),
+        assignment_id="assignment-2",
+        task_id=follow_up_id,
+        source_request_id="request-2",
+    )
+    follow_up_delivery = replace(
+        _delivery(),
+        delivery_id="delivery-2",
+        task_id=follow_up_id,
+        evidence_ref="evidence:rework-1",
+    )
+    rework_review = replace(
+        _review(),
+        quality_review_id="review-rework",
+        quality_state=TaskQualityState.REWORK_REQUIRED,
+        review_note=S01_REWORK_QUALITY_MARKER,
+    )
+    follow_up_review = replace(
+        _review(),
+        quality_review_id="review-2",
+        task_id=follow_up_id,
+    )
+    follow_up_contribution = replace(
+        _contribution(),
+        contribution_id="contribution-2",
+        task_id=follow_up_id,
+        delivery_id="delivery-2",
+    )
+
+    progress = build_case_progress_projection(
+        _case(status=CaseStatus.COMPLETED),
+        tasks=(rework_parent, follow_up),
+        assignments=(_assignment(), follow_up_assignment),
+        deliveries=(_delivery(), follow_up_delivery),
+        quality_reviews=(rework_review, follow_up_review),
+        contributions=(follow_up_contribution,),
+        allocation=_allocation(),
+        viewer_scope=_scope(),
+    )
+    projection = build_fgcn_pdca_projection(
+        _case(status=CaseStatus.COMPLETED),
+        tasks=(rework_parent, follow_up),
+        assignments=(_assignment(), follow_up_assignment),
+        deliveries=(_delivery(), follow_up_delivery),
+        quality_reviews=(rework_review, follow_up_review),
+        contributions=(follow_up_contribution,),
+        allocation=_allocation(),
+        viewer_scope=_scope(),
+        provider_admission=admitted_snapshot(capability_keys=("family_guidance",)),
+    )
+
+    assert projection.do_ready is True
+    assert projection.check_ready is True
+    assert projection.act_ready is True
+    assert {task.task_id for task in progress.tasks} == {"task-1", follow_up_id}
+    assert progress.task_statuses["task-1"] is TaskStatus.REWORK_REQUESTED
 
 
 def test_projection_includes_only_verified_delivery_contribution_and_shadow_units() -> None:
