@@ -29,14 +29,15 @@ export function validateCourseSystem(value: unknown): CourseSystemBlueprint {
     if (!Number.isInteger(sequence)) return [];
     const artifacts = Array.isArray((item as Record<string, unknown>).artifacts) ? (item as Record<string, unknown>).artifacts as unknown[] : [];
     if (!artifacts.length) throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系BOM行必须包含课件资产。");
-    const artifact = artifacts[0] as Record<string, unknown> | undefined;
-    const qa = String(artifact?.qa_status ?? "DRAFT");
-    const rights = String(artifact?.rights_status ?? "UNKNOWN");
-    const safety = String(artifact?.safety_status ?? "UNKNOWN");
-    if (!["DRAFT", "REVIEW_REQUIRED", "APPROVED"].includes(qa) || !["UNKNOWN", "CLEARED", "RESTRICTED"].includes(rights) || !["UNKNOWN", "REVIEW_REQUIRED", "CLEARED"].includes(safety)) {
-      throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系BOM治理状态无效。");
-    }
-    bomStatuses[Number(sequence)] = { qa_status: qa, rights_status: rights, safety_status: safety };
+    const statuses = artifacts.map((asset) => {
+      const artifact = asset as Record<string, unknown>;
+      const qa = String(artifact?.qa_status ?? "DRAFT");
+      const rights = String(artifact?.rights_status ?? "UNKNOWN");
+      const safety = String(artifact?.safety_status ?? "UNKNOWN");
+      if (!["DRAFT", "REVIEW_REQUIRED", "APPROVED"].includes(qa) || !["UNKNOWN", "CLEARED", "RESTRICTED"].includes(rights) || !["UNKNOWN", "REVIEW_REQUIRED", "CLEARED"].includes(safety)) throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系BOM治理状态无效。");
+      return { qa_status: qa, rights_status: rights, safety_status: safety };
+    });
+    bomStatuses[Number(sequence)] = { qa_status: statuses.every((status) => status.qa_status === "APPROVED") ? "APPROVED" : "REVIEW_REQUIRED", rights_status: statuses.every((status) => status.rights_status === "CLEARED") ? "CLEARED" : "UNKNOWN", safety_status: statuses.every((status) => status.safety_status === "CLEARED") ? "CLEARED" : "REVIEW_REQUIRED" };
     return [Number(sequence)];
   }) : [];
   if (new Set(bom).size !== bom.length || bom.some((sequence) => sequence < 1 || sequence > 24)) {
