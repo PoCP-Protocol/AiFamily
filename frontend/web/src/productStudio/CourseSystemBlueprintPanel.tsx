@@ -1,11 +1,4 @@
-const COURSE_SYSTEM_STAGES = [
-  { id: "S1", title: "家庭觉察", lessons: "01–04", output: "家庭问题地图" },
-  { id: "S2", title: "关系连接", lessons: "05–08", output: "沟通与关系行动卡" },
-  { id: "S3", title: "成长目标", lessons: "09–12", output: "家庭成长目标树" },
-  { id: "S4", title: "日常行动", lessons: "13–16", output: "21 天行动计划" },
-  { id: "S5", title: "能力进阶", lessons: "17–20", output: "90 天成长路径" },
-  { id: "S6", title: "复盘共创", lessons: "21–24", output: "复盘报告与下一周期需求" },
-] as const;
+import { COURSE_SYSTEM_STAGES } from "./courseSystemBlueprint";
 
 /** Course system is the product-level map; CourseContent and BOM remain versioned implementations. */
 export function CourseSystemBlueprintPanel() {
@@ -19,7 +12,7 @@ export function CourseSystemBlueprintPanel() {
       <div className="course-system-flow" role="list" aria-label="六阶段课程体系">
         {COURSE_SYSTEM_STAGES.map((stage) => (
           <article key={stage.id} role="listitem" className="course-system-stage">
-            <span className="draft-badge">{stage.id} · {stage.lessons}</span>
+            <span className="draft-badge">{stage.id} · {String(stage.lesson_start).padStart(2, "0")}–{String(stage.lesson_end).padStart(2, "0")}</span>
             <h3>{stage.title}</h3>
             <p>{stage.output}</p>
           </article>
