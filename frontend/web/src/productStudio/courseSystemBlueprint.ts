@@ -43,6 +43,7 @@ export type LessonDeliveryReadiness = {
   bom_ready_lessons: number;
   blocked_lessons: number;
   publish_ready: boolean;
+  blocked_by_reason: Record<Exclude<LessonDeliveryRow["governance_reason"], "READY">, number>;
 };
 
 export type StageDeliveryReadiness = {
@@ -102,11 +103,14 @@ export function buildLessonDeliveryMatrix(stages: readonly CourseSystemStage[], 
 
 export function summarizeLessonDelivery(rows: readonly LessonDeliveryRow[]): LessonDeliveryReadiness {
   const bomReady = rows.filter((row) => row.courseware_status === "READY").length;
+  const blockedByReason = { NO_ASSET: 0, QA: 0, RIGHTS: 0, SAFETY: 0 } as Record<Exclude<LessonDeliveryRow["governance_reason"], "READY">, number>;
+  rows.forEach((row) => { if (row.governance_reason !== "READY") blockedByReason[row.governance_reason] += 1; });
   return {
     total_lessons: rows.length,
     bom_ready_lessons: bomReady,
     blocked_lessons: rows.length - bomReady,
     publish_ready: rows.length === COURSE_SYSTEM_LESSON_COUNT && bomReady === rows.length,
+    blocked_by_reason: blockedByReason,
   };
 }
 

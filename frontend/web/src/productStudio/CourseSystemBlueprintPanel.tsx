@@ -39,6 +39,7 @@ export function CourseSystemBlueprintPanel({ client = new HttpCourseSystemApiCli
           交付准备度：{readiness.bom_ready_lessons}/{readiness.total_lessons} 节课件已就绪；
           {readiness.publish_ready ? "可进入发布评审" : `仍有 ${readiness.blocked_lessons} 节被 BOM 阻断`}
         </p>
+        <p aria-label="全局阻断原因">阻断构成：缺资产 {readiness.blocked_by_reason.NO_ASSET} · QA {readiness.blocked_by_reason.QA} · 版权 {readiness.blocked_by_reason.RIGHTS} · 安全 {readiness.blocked_by_reason.SAFETY}</p>
         <ul aria-label="阶段交付准备度">
           {stageReadiness.map((stage) => <li key={stage.stage_id}><button type="button" aria-pressed={selectedStageId === stage.stage_id} onClick={() => setSelectedStageId(selectedStageId === stage.stage_id ? null : stage.stage_id)}><strong>{stage.stage_id} · {stage.stage_title}</strong><span>{stage.ready_lessons}/{stage.total_lessons} 就绪 · {stage.next_action}</span></button></li>)}
         </ul>

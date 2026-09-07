@@ -40,7 +40,7 @@ describe("course system blueprint", () => {
 
   it("blocks release readiness while any lesson lacks a courseware BOM", () => {
     const readiness = summarizeLessonDelivery(buildLessonDeliveryMatrix(COURSE_SYSTEM_STAGES));
-    expect(readiness).toMatchObject({ total_lessons: 24, bom_ready_lessons: 0, blocked_lessons: 24, publish_ready: false });
+    expect(readiness).toMatchObject({ total_lessons: 24, bom_ready_lessons: 0, blocked_lessons: 24, publish_ready: false, blocked_by_reason: { NO_ASSET: 24, QA: 0, RIGHTS: 0, SAFETY: 0 } });
   });
 
   it("requires QA, rights, and safety clearance before a lesson is READY", () => {
