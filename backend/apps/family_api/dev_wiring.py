@@ -190,11 +190,29 @@ class DevWiringNotPermittedError(RuntimeError):
 
 
 DEV_DEFAULT_DATABASE_URL = (
-    "postgresql+asyncpg://aifamily:aifamily@localhost:55442/aifamily_dev_claude"
+    "postgresql+asyncpg://aifamily:aifamily@127.0.0.1:55442/aifamily_dev_claude"
 )
 """Fallback dev/test PostgreSQL URL — same `aifamily-dev-postgres` container
 `docker-compose.dev.yml` starts, but a **separate database**
 (`aifamily_dev_claude`), not `aifamily_test`.
+
+Host is the literal `127.0.0.1`, not `localhost`: on Windows, asyncpg's
+connect resolves `localhost` via `getaddrinfo`, which tries the `::1` (IPv6)
+candidate first, waits out that connection attempt against a Postgres
+container that is IPv4-only (`docker-compose.dev.yml` publishes
+`127.0.0.1:55442`, not `[::1]:55442`), and only then falls back to IPv4 — a
+consistent ~2s tax *per connection*. `family_need`'s dev/test wiring opens a
+brand-new connection (fresh `AsyncEngine`, `NullPool`) for every single
+repository call rather than pooling one (see `_get_dev_engine`'s docstring for
+why), so that tax multiplies into tens of seconds per HTTP request across a
+test that makes several calls, and multi-test-file runs blow well past any
+reasonable timeout. That symptom presented as `family_need_not_found` flaking
+under `test_need_fulfillment_e2e.py` (a request timing out/being aborted
+before its write's `_dev_connection` block committed, so the next request's
+read raced an in-flight write) and as the FGCN human-gate escalation test
+hanging rather than failing when run as part of the full file. Pinning to
+`127.0.0.1` measured at ~0.03s/connection instead of ~2.1s and made the whole
+file pass reliably (repeatedly, including back-to-back and stacked runs).
 
 `aifamily_test` is shared, long-lived state other gated integration tests
 (and other concurrent development work against this same repository/
