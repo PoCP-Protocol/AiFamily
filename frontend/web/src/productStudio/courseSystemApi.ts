@@ -16,7 +16,10 @@ const stages = (value: unknown): CourseSystemStage[] => {
     return { id: row.stage_id, title: row.title, lesson_start: Number(row.lesson_start), lesson_end: Number(row.lesson_end), output: row.outcome };
   });
   let expected = 1;
+  const stageIds = new Set<string>();
   for (const stage of normalized) {
+    if (!stage.id.trim() || !stage.title.trim() || stageIds.has(stage.id)) throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系阶段ID与标题必须非空且阶段ID不可重复。");
+    stageIds.add(stage.id);
     if (stage.lesson_start !== expected || stage.lesson_end - stage.lesson_start !== 3) throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系阶段必须连续覆盖24节课。");
     expected = stage.lesson_end + 1;
   }
