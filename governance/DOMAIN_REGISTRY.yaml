@@ -41,12 +41,10 @@ entries:
       仅提供"当前是谁、属于哪个租户"的类型载体，不含任何账号生命周期业务逻辑。
     tests: [tests/platform/identity/test_context.py]
     r2_boundary_note: >
-      本条目与 auth_identity 共用目录 backend/platform/identity，但**职责边界已在此显式切分**：
-      本条目只拥有 context.py 的不可变上下文原语；auth_identity 拥有 Account / IdentitySession /
-      OtpChallenge 等业务对象与登录流程。架构测试 test_no_capability_has_multiple_canonical_paths
-      的 docstring 已明确：两个*不同* capability 有意共享一个目录属 manifest 级决定，不是 R2 违规；
-      R2 禁止的是同一 capability 指向两个"真实位置"。共享目录是否长期保留、还是把业务身份域拆到
-      backend/domains/identity，是 Wave 3 开工前需裁决的开放项（见 CURRENT_DOMAIN_MAP.md §3.17）。
+      ADR-0011 已裁决并落地(2026-09-07)：auth_identity 的 canonical_path 已改为独立的
+      backend/domains/identity，本条目不再与其共用目录。本条目**永久限定**为不含业务生命周期的
+      纯值对象——不得拥有 repository、不得四层分层，判据见 ADR-0011 §1。原 Wave 3 开放项已闭合，
+      见 governance/ADR/ADR-0011-platform-identity-versus-business-identity-boundary.md。
 
   - capability: platform_locale_context
     canonical_path: backend/platform/localization
@@ -647,19 +645,31 @@ entries:
          记忆写入不触碰 family_need canonical 状态（R9），30天TTL+删除级联"
 
   - capability: auth_identity
-    canonical_path: backend/platform/identity
-    status: NOT_STARTED
+    canonical_path: backend/domains/identity
+    status: MIGRATED_TESTED
     disposition: MIGRATE
     source_reference: "50_开发_dev/apps/api/src/modules/auth"
     scope: >
-      业务身份域：Account / IdentitySession / OtpChallenge、登录与会话生命周期、4 个 /auth/* 端点。
-      **与 platform_actor_tenant_context 的边界**：后者只拥有 context.py 的不可变上下文原语，
-      本条目拥有账号与会话的业务对象与流程。磁盘上目前只有前者存在，本条目 status = NOT_STARTED。
-    r2_boundary_note: "见 platform_actor_tenant_context.r2_boundary_note —— 共享目录是有意的 manifest 级决定，长期是否拆分为开放裁决项。"
+      业务身份域：Account / IdentitySession(真实落地)、OtpChallenge(仅设计出接口，未接线)、
+      4 个 /auth/* 端点(account-session/me/contexts/session-revoke)。四层结构
+      api/application/domain/infrastructure，遵 ADR-0011 §2 裁决。
+      **与 platform_actor_tenant_context 的边界**：后者(canonical_path 仍为
+      backend/platform/identity)只拥有 context.py 的不可变上下文原语(ActorContext/
+      TenantContext)，永久不含业务生命周期状态机、不含 repository、不四层分层；
+      本条目拥有账号与会话的业务对象、真实 repository 与四层分层——ADR-0011 §1 的判据。
+    r2_boundary_note: >
+      ADR-0011 已裁决:canonical_path 由共享的 backend/platform/identity 改为独立的
+      backend/domains/identity，不再与 platform_actor_tenant_context 共用目录。
+      见 governance/ADR/ADR-0011-platform-identity-versus-business-identity-boundary.md。
+    tests:
+      - tests/domains/identity/test_identity_application_service.py
+      - tests/domains/identity/test_postgres_repository_integration.py
     known_gaps:
-      - "Mobile 硬依赖的 4 个 /auth/* 端点仍由 dev/test 临时实现提供"
-      - "源仓库 OtpService 的 StubOtpSender 是唯一显式标注的替换点"
-      - "已冻结 AI 组合根所需的 IdentitySessionPort/HTTP 签发、轮换、撤销适配器；真实 auth_identity 服务与数据库写入仍待迁移"
+      - "OtpChallenge 仅设计出 domain 实体 + OtpSender Protocol + StubOtpSender 占位实现；未接线到任何端点，真实短信/邮箱供应商选型是业务/法务决策，不在本次范围"
+      - "GuardianRelation 尚未在本域落地(ADR-0011 提及但本次范围判断为下一步;backend/platform/consent/models.py 已有同名但不同用途的枚举,不可直接复用)"
+      - "复用遗留 baseline 的 accounts/identity_sessions 表(0015/0018/0019)+ 附加迁移 0071(family_scope_ref 列 + identity_receipts 幂等表);person_id/family_id 真实 UUID FK 链(Account→TenantMembership→Family)仍未接线，session 的 family 作用域走 family_scope_ref opaque string(dev 惯例)"
+      - "dev/test 场景下，backend/apps/family_api/dev_wiring.py 的 8+ 处 _identity() 调用点仍直接读 dev_auth.py 的进程内 dict；本域通过 DevAuthMirroringIdentityService 桥接写入同一份 dict 保持兼容，未来彻底改造这些调用点走本域 API 是独立后续工作"
+      - "已冻结 AI 组合根所需的 IdentitySessionPort/HTTP 签发、轮换、撤销适配器(backend/platform/identity/session_port.py)是面向*外部*身份服务的 client 端口，与本域(*作为*该身份服务的实现)是两个不同方向，尚未连接"
 
   - capability: assessment
     canonical_path: backend/domains/assessment

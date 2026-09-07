@@ -228,6 +228,17 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
+    # 0071 adds one additive column to the legacy baseline's identity_sessions
+    # (family_scope_ref, per ADR-0011 §4 — see the migration's own docstring
+    # for why the existing family_id uuid FK does not fit this domain's
+    # opaque-family-scope-string convention) plus one wholly new table this
+    # domain owns outright, identity_receipts (idempotency-key replay
+    # ledger). One new table.
+    "0071_identity_sessions_family_scope_ref": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 74,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
 }
 
 _MODEL_DRAFTS_ADR = (
