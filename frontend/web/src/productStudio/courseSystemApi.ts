@@ -17,8 +17,8 @@ const stages = (value: unknown): CourseSystemStage[] => {
   });
   let expected = 1;
   const stageIds = new Set<string>();
-  for (const stage of normalized) {
-    if (!stage.id.trim() || !stage.title.trim() || stageIds.has(stage.id)) throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系阶段ID与标题必须非空且阶段ID不可重复。");
+  for (const [index, stage] of normalized.entries()) {
+    if (stage.id !== `S${index + 1}` || !stage.title.trim() || stageIds.has(stage.id)) throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系阶段必须使用按顺序排列的S1-S6 ID，且标题不可为空。");
     stageIds.add(stage.id);
     if (stage.lesson_start !== expected || stage.lesson_end - stage.lesson_start !== 3) throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系阶段必须连续覆盖24节课。");
     expected = stage.lesson_end + 1;
