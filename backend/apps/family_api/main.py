@@ -92,11 +92,11 @@ from backend.domains.product_intelligence.application.context import (
 from backend.domains.product_intelligence.infrastructure.course_content_repository import (
     InMemoryCourseContentRepository,
 )
-from backend.domains.product_intelligence.infrastructure.course_system_repository import (
-    InMemoryCourseSystemRepository,
-)
 from backend.domains.product_intelligence.infrastructure.course_content_wiring import (
     install_course_content_production_wiring,
+)
+from backend.domains.product_intelligence.infrastructure.course_system_repository import (
+    development_course_system_repository,
 )
 from backend.domains.product_intelligence.infrastructure.family_experience_signal_wiring import (
     install_family_experience_signal_production_wiring,
@@ -307,7 +307,7 @@ def _mount_course_content(application: FastAPI, *, database_url: str | None = No
         return
 
     configure_course_content_repository(InMemoryCourseContentRepository())
-    configure_course_system_repository(InMemoryCourseSystemRepository())
+    configure_course_system_repository(development_course_system_repository())
     configure_course_content_gate(InMemoryHumanGate())
 
     def _dev_product_intelligence_actor(request) -> ProductIntelligenceActorContext:  # noqa: ANN001
