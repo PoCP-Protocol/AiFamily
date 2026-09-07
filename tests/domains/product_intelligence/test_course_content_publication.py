@@ -252,6 +252,12 @@ def test_http_chain_draft_submit_review_and_published_listing() -> None:
     assert get_response.status_code == 200
     assert get_response.json()["status"] == "PUBLISHED"
 
+    delivery_response = client.get(
+        f"/product-intelligence/courses/{course_id}/delivery-projection"
+    )
+    assert delivery_response.status_code == 400
+    assert delivery_response.json()["detail"] == "course_delivery_lineage_incomplete"
+
 
 def test_http_review_rejection_does_not_publish_and_task_mismatch_is_rejected() -> None:
     from backend.apps.family_api.dev_wiring import reset_dev_state
@@ -297,3 +303,9 @@ def test_http_review_rejection_does_not_publish_and_task_mismatch_is_rejected() 
     current = client.get(f"/product-intelligence/courses/{course_id}")
     assert current.status_code == 200
     assert current.json()["status"] == "DRAFT"
+
+    projection = client.get(
+        f"/product-intelligence/courses/{course_id}/delivery-projection"
+    )
+    assert projection.status_code == 400
+    assert projection.json()["detail"] == "course_delivery_requires_published_course"

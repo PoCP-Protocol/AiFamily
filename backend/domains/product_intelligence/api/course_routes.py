@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from backend.intelligence.human_gate.gate import InMemoryHumanGate
 
 from ..application.context import ActorContext
+from ..application.course_delivery_projection import compile_course_delivery_projection
 from ..application.course_publication import (
     CourseContentRepository,
     create_course_content_draft,
@@ -240,6 +241,21 @@ async def get_one(
 ):
     try:
         return await get_course_content(repo, context, course_content_id=course_content_id)
+    except ProductIntelligenceDomainError as exc:
+        _raise_http(exc)
+
+
+@router.get("/{course_content_id}/delivery-projection")
+async def get_delivery_projection(
+    course_content_id: str,
+    repo: CourseContentRepository = Depends(get_course_content_repository),
+    context: ActorContext = Depends(get_actor_context),
+):
+    """Expose the read-only course-to-service delivery contract."""
+
+    try:
+        course = await get_course_content(repo, context, course_content_id=course_content_id)
+        return compile_course_delivery_projection(course)
     except ProductIntelligenceDomainError as exc:
         _raise_http(exc)
 
