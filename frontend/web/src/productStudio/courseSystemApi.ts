@@ -32,6 +32,9 @@ export function validateCourseSystem(value: unknown): CourseSystemBlueprint {
     bomStatuses[Number(sequence)] = { qa_status: String(artifact?.qa_status ?? "DRAFT"), rights_status: String(artifact?.rights_status ?? "UNKNOWN"), safety_status: String(artifact?.safety_status ?? "UNKNOWN") };
     return [Number(sequence)];
   }) : [];
+  if (new Set(bom).size !== bom.length || bom.some((sequence) => sequence < 1 || sequence > 24)) {
+    throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系BOM课次必须在1-24范围内且不可重复。");
+  }
   const normalized = { system_id: row.system_id, version: `v${row.version}`, product_package_version_ref: row.product_package_version_ref, stages: stages(row.stages), bom_lesson_sequences: bom, bom_lesson_statuses: bomStatuses };
   return normalized;
 }
