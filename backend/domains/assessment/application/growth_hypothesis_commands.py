@@ -1,10 +1,32 @@
-"""Port of `GrowthHypothesisService.decide` (growth-hypothesis.service.ts).
+"""Port of `GrowthHypothesisService.decide` (growth-hypothesis.service.ts),
+extended for ADR-0158 Slice A's `FAMILY_DECISION` node: a guardian may
+CONFIRM, EDIT, PARTIAL-accept, DISMISS, or defer (LATER) a growth
+hypothesis. Per decision type:
 
-CONFIRM bridges to the `growth_intents` table with
-`boundary='HUMAN_CONFIRMED_INTENT_NOT_OUTCOME'` — this is the Named Action
-boundary the migration plan (section 6/10) requires: AI Runtime output
-(the hypothesis draft) never writes canonical state directly; only this
-human-confirmed decision does.
+- CONFIRM: bridges to the `growth_intents` table with
+  `boundary='HUMAN_CONFIRMED_INTENT_NOT_OUTCOME'` — the Named Action
+  boundary the migration plan (section 6/10) requires: AI Runtime output
+  (the hypothesis draft) never writes canonical state directly; only a
+  human-confirmed decision does. `goal_text` is the AI's evidence
+  description, unedited.
+- EDIT: the guardian rewrote the understanding statement (carried as
+  `parent_note`) and is confirming *that* rewritten statement, not the AI's
+  original draft. This is still a real commitment — it also bridges to
+  `growth_intents` with the same boundary, but `goal_text` is the guardian's
+  own words (`parent_note`) rather than the AI's evidence description. R9
+  (human-only) applies exactly as it does to CONFIRM: a rewritten-and-adopted
+  understanding is as much a commitment as an as-is one.
+- PARTIAL: the guardian accepts only part of the hypothesis. This is
+  deliberately *not* a commitment — no `growth_intents` row is created,
+  because a partial acceptance does not name a single, well-formed goal the
+  household is signing up for. It is recorded as an audited fact only
+  (`outcome=FEEDBACK_RECORDED`), carrying `parent_note` if the guardian said
+  which part. R9 does not gate this path: no canonical write happens.
+- LATER: the guardian is deferring, not accepting or rejecting. No
+  `growth_intents` row, no interpretation re-run — this produces the
+  smallest possible fact ("deferred, ask again"), not a rejection. R9 does
+  not gate this path either.
+- DISMISS: unchanged — the guardian rejects the hypothesis; no intent.
 
 R9 enforcement (`PolicyEngine`, `human_only=True`): `assert_tenant_family_scope`
 alone only proves the actor belongs to the family; it says nothing about
@@ -15,7 +37,8 @@ apart, because it never asked. `command.actor_type` (the caller's *real*,
 server-derived identity — never inferred from the confirmation itself) is
 what makes that distinction possible, and `_authorize_confirmation` below is
 the single place that consults it before any hypothesis, evidence or intent
-write happens.
+write happens — for both CONFIRM and EDIT, the two decision types that can
+produce a `growth_intents` row.
 """
 
 from __future__ import annotations
@@ -60,6 +83,28 @@ def _is_uuid(value: str) -> bool:
 
 def _hash_request(value: dict) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _outcome_for(
+    decision_type: GrowthHypothesisDecisionType,
+) -> Literal["INTENT_CREATED", "FEEDBACK_RECORDED", "NO_ACTION"]:
+    """Maps decision_type to the receipt's `outcome` — the guardian-facing
+    signal of *what actually happened*, independent of `action`/`decision_type`
+    naming. CONFIRM/EDIT commit a `growth_intents` row (INTENT_CREATED).
+    PARTIAL records an audited fact with no canonical write
+    (FEEDBACK_RECORDED) — neither a rejection nor a commitment. DISMISS and
+    LATER both leave no trace beyond the decision record itself (NO_ACTION):
+    LATER is a deferral, not a rejection, but it is equally "no action taken
+    on the hypothesis" from the growth-intent's point of view — the
+    `decision_type` field (persisted verbatim) is what distinguishes a
+    deferral from a rejection on replay/audit, not `outcome`.
+    """
+
+    if decision_type in _INTENT_CREATING_DECISIONS:
+        return "INTENT_CREATED"
+    if decision_type == "PARTIAL":
+        return "FEEDBACK_RECORDED"
+    return "NO_ACTION"
 
 
 class _AlreadyScopedTenantDirectory(TenantDirectory):
@@ -135,6 +180,20 @@ class DecideGrowthHypothesisCommand:
     draft_version: int = 0
     provenance_ref: str = ""
     human_gate_receipt_ref: str = ""
+    # ADR-0158 Slice A: free-text guardian note. For EDIT this *is* the
+    # rewritten understanding statement the guardian is confirming instead
+    # of the AI's draft (becomes `growth_intents.goal_text`); for PARTIAL it
+    # optionally records which part the guardian accepted; for LATER it may
+    # record why the guardian is deferring. Never interpreted as structured
+    # input to the AI Runtime — see module docstring.
+    parent_note: str = ""
+
+
+_INTENT_CREATING_DECISIONS = frozenset({"CONFIRM", "EDIT"})
+_NON_COMMITTING_DECISIONS = frozenset({"PARTIAL", "LATER"})
+_GROWTH_HYPOTHESIS_DECISION_TYPES = frozenset(
+    {"CONFIRM", "EDIT", "PARTIAL", "DISMISS", "LATER"}
+)
 
 
 def _authorize_confirmation(actor_id: str, actor_type: PlatformActorType, tenant_id: str) -> None:
@@ -191,15 +250,27 @@ class GrowthHypothesisCommandHandler:
         if (
             not _is_uuid(command.assessment_session_id)
             or not command.hypothesis_ref.strip()
-            or command.decision_type not in ("CONFIRM", "DISMISS")
+            or command.decision_type not in _GROWTH_HYPOTHESIS_DECISION_TYPES
         ):
             raise AssessmentValidationError("valid_hypothesis_decision_required")
+        if command.decision_type == "EDIT" and not command.parent_note.strip():
+            # EDIT means the guardian is confirming a *rewritten* statement —
+            # without that rewritten text there is nothing to confirm instead
+            # of the AI's draft, and this must not silently fall back to
+            # confirming the unedited draft under a different label.
+            raise AssessmentValidationError("edit_decision_requires_parent_note")
 
-        action: Literal["CONFIRM_GROWTH_HYPOTHESIS", "DISMISS_GROWTH_HYPOTHESIS"] = (
-            "CONFIRM_GROWTH_HYPOTHESIS"
-            if command.decision_type == "CONFIRM"
-            else "DISMISS_GROWTH_HYPOTHESIS"
-        )
+        action: Literal[
+            "CONFIRM_GROWTH_HYPOTHESIS",
+            "CALIBRATE_GROWTH_HYPOTHESIS",
+            "DISMISS_GROWTH_HYPOTHESIS",
+        ]
+        if command.decision_type == "CONFIRM":
+            action = "CONFIRM_GROWTH_HYPOTHESIS"
+        elif command.decision_type in ("EDIT", "PARTIAL"):
+            action = "CALIBRATE_GROWTH_HYPOTHESIS"
+        else:  # DISMISS, LATER
+            action = "DISMISS_GROWTH_HYPOTHESIS"
         request_hash = _hash_request(
             {
                 "assessment_session_id": command.assessment_session_id,
@@ -211,6 +282,7 @@ class GrowthHypothesisCommandHandler:
                 "draft_version": command.draft_version,
                 "provenance_ref": command.provenance_ref,
                 "human_gate_receipt_ref": command.human_gate_receipt_ref,
+                "parent_note": command.parent_note,
             }
         )
 
@@ -230,8 +302,11 @@ class GrowthHypothesisCommandHandler:
         )
         # R9: only a HUMAN actor may confirm — checked right after the
         # ordinary family-membership scope check and before any evidence,
-        # signal or intent read/write. See `_authorize_confirmation`.
-        if command.decision_type == "CONFIRM":
+        # signal or intent read/write. Gates both decision types that can
+        # produce a `growth_intents` row (CONFIRM and EDIT); PARTIAL/LATER/
+        # DISMISS never write a canonical intent, so they are not gated
+        # here. See `_authorize_confirmation`.
+        if command.decision_type in _INTENT_CREATING_DECISIONS:
             _authorize_confirmation(command.actor_id, command.actor_type, command.tenant_id)
 
         if self._growth_intents is not None:
@@ -243,7 +318,11 @@ class GrowthHypothesisCommandHandler:
     async def _decide_via_legacy_evidence_interpretation(
         self,
         command: DecideGrowthHypothesisCommand,
-        action: Literal["CONFIRM_GROWTH_HYPOTHESIS", "DISMISS_GROWTH_HYPOTHESIS"],
+        action: Literal[
+            "CONFIRM_GROWTH_HYPOTHESIS",
+            "CALIBRATE_GROWTH_HYPOTHESIS",
+            "DISMISS_GROWTH_HYPOTHESIS",
+        ],
         request_hash: str,
     ) -> dict:
         # The evidence contains the child's response set. Check the current
@@ -267,12 +346,22 @@ class GrowthHypothesisCommandHandler:
             raise AssessmentConflictError("growth_hypothesis_reference_mismatch")
 
         intent: dict | None = None
-        if command.decision_type == "CONFIRM":
+        if command.decision_type in _INTENT_CREATING_DECISIONS:
+            # EDIT: the guardian's own rewritten statement (`parent_note`)
+            # becomes the intent's goal text instead of the AI's evidence
+            # description — the commitment is to what the family actually
+            # said, not to the unedited draft. CONFIRM keeps the AI's
+            # description verbatim.
+            goal_text = (
+                command.parent_note.strip()
+                if command.decision_type == "EDIT"
+                else evidence.description
+            )
             intent = await self._repository.load_or_create_growth_intent(
                 family_id=command.family_id,
                 subject_person_id=evidence.subject_person_id,
                 need_type=evidence.need_type_ref,
-                goal_text=evidence.description,
+                goal_text=goal_text,
                 required_capability_keys=evidence.required_capability_keys,
                 confirmed_by=command.actor_id,
                 source_ref=hypothesis["hypothesis_ref"],
@@ -282,10 +371,11 @@ class GrowthHypothesisCommandHandler:
 
         receipt = {
             "action": action,
-            "outcome": "INTENT_CREATED" if command.decision_type == "CONFIRM" else "NO_ACTION",
+            "outcome": _outcome_for(command.decision_type),
             "hypothesis_ref": hypothesis["hypothesis_ref"],
             "intent": intent,
             "replayed": False,
+            "parent_note": command.parent_note.strip() or None,
         }
         await self._repository.persist_hypothesis_decision(
             tenant_id=command.tenant_id,
@@ -305,7 +395,11 @@ class GrowthHypothesisCommandHandler:
     async def _decide_via_growth_intent_confirmation(
         self,
         command: DecideGrowthHypothesisCommand,
-        action: Literal["CONFIRM_GROWTH_HYPOTHESIS", "DISMISS_GROWTH_HYPOTHESIS"],
+        action: Literal[
+            "CONFIRM_GROWTH_HYPOTHESIS",
+            "CALIBRATE_GROWTH_HYPOTHESIS",
+            "DISMISS_GROWTH_HYPOTHESIS",
+        ],
         request_hash: str,
     ) -> dict:
         """Canonical path: a Human-Gate-reviewed signal, confirmed through
@@ -351,8 +445,17 @@ class GrowthHypothesisCommandHandler:
         )
 
         intent: dict | None = None
-        if command.decision_type == "CONFIRM":
+        if command.decision_type in _INTENT_CREATING_DECISIONS:
             assert self._growth_intents is not None
+            # EDIT: the guardian's rewritten statement (`parent_note`)
+            # replaces the reviewed signal's `goal_text` as the commitment
+            # being made — see module docstring. CONFIRM keeps the signal's
+            # goal_text verbatim.
+            goal_text = (
+                command.parent_note.strip()
+                if command.decision_type == "EDIT"
+                else signal.goal_text
+            )
             receipt_obj = await self._growth_intents.confirm_growth_intent(
                 ConfirmGrowthIntentInput(
                     tenant_id=signal.tenant_id,
@@ -367,7 +470,7 @@ class GrowthHypothesisCommandHandler:
                     provenance_ref=signal.provenance_ref,
                     human_gate_receipt_ref=signal.human_gate_receipt_ref,
                     need_type=signal.need_type,
-                    goal_text=signal.goal_text,
+                    goal_text=goal_text,
                     required_capability_keys=signal.required_capability_keys,
                     evidence_refs=signal.evidence_refs,
                     correlation_id=command.correlation_id,
@@ -387,10 +490,11 @@ class GrowthHypothesisCommandHandler:
 
         receipt = {
             "action": action,
-            "outcome": "INTENT_CREATED" if command.decision_type == "CONFIRM" else "NO_ACTION",
+            "outcome": _outcome_for(command.decision_type),
             "hypothesis_ref": signal.signal_ref,
             "intent": intent,
             "replayed": False,
+            "parent_note": command.parent_note.strip() or None,
         }
         await self._repository.persist_hypothesis_decision(
             tenant_id=command.tenant_id,

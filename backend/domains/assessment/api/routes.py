@@ -273,5 +273,6 @@ async def decide_growth_hypothesis(
             draft_version=body.draft_version,
             provenance_ref=body.provenance_ref,
             human_gate_receipt_ref=body.human_gate_receipt_ref,
+            parent_note=body.parent_note,
         )
     )
