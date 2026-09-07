@@ -18,7 +18,7 @@ from backend.domains.service.infrastructure.sqlalchemy_repository import (
     SqlAlchemyServiceRepository,
 )
 from backend.platform.audit.recorder import AuditRecorder
-from backend.platform.audit.store import AuditBase
+from backend.platform.audit.store import AuditBase, read_all_events
 from tests.support.postgres import SKIP_REASON, postgres_schema_engine, postgres_test_url
 
 from .helpers import CHILD, CONSENT_REF, granted, make_ctx, seed_supply
@@ -65,9 +65,15 @@ async def test_booking_state_survives_session_restart(service_session_factory) -
         restarted_repo = SqlAlchemyServiceRepository(restarted_session)
         loaded_booking = await restarted_repo.load_booking(booking.booking_request_id)
         loaded_slot = await restarted_repo.load_slot(slot.availability_slot_id)
+        persisted_audit = await read_all_events(restarted_session, tenant_id="tenant-001")
 
     assert loaded_booking.booking_ref == "RESTART-BOOKING"
     assert loaded_booking.status == "REQUESTED"
     assert loaded_booking.external_effect is False
     assert loaded_slot.reserved_count == 1
     assert loaded_slot.status == "RESERVED"
+    assert any(
+        event.action == "submit_booking_request"
+        and event.resource_id == booking.booking_request_id
+        for event in persisted_audit
+    )
