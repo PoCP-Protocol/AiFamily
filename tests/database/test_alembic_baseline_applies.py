@@ -210,7 +210,7 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
     # service-feedback/playbook tables landing via the sibling
     # integrate/s4-http branch.)
     "0068_reviewed_understanding_signal": {
-        "tables": EXPECTED_0008_COUNTS["tables"] + 68,
+        "tables": EXPECTED_0008_COUNTS["tables"] + 72,
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },

@@ -24,7 +24,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0068_reviewed_understanding_signal"
-down_revision: str | None = "0066_fgcn_provider_qualification_fields"
+down_revision: str | None = "0067_service_feedback_playbook"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
