@@ -36,8 +36,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0071_growth_hypothesis_decision_partial_edit_later"
-down_revision: str | None = "0070_service_cases_scope_refs_string"
+revision: str = "0072_growth_hypothesis_decision_partial_edit_later"
+down_revision: str | None = "0071_identity_sessions_family_scope_ref"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
