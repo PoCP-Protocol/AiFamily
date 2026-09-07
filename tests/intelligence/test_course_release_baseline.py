@@ -32,6 +32,11 @@ def test_course_release_compiles_to_shared_draft_baseline():
     assert baseline.blueprint_version_id == "course-system:family-growth@v1"
     assert baseline.package_id == "product-package:family-growth"
     assert baseline.package_version == "v1"
+    assert baseline.release_id == "course-release:course-content:family-growth@v1"
+    assert baseline.component_refs == (
+        "course-system:family-growth@v1",
+        "course-content:family-growth@v1",
+    )
 
 
 def test_course_release_requires_all_lessons():
