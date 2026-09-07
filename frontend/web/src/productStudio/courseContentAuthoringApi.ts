@@ -34,12 +34,12 @@ type Options = {
 const COURSE_PREFIX = "/product-intelligence/courses";
 const COURSE_KEYS = new Set([
   "id", "version", "status", "tenant_scope", "created_by", "created_at", "updated_at", "title",
-  "product_component_id", "problem_statement", "assessment_criteria", "learning_goal", "lessons",
+  "product_component_id", "course_system_version_ref", "problem_statement", "assessment_criteria", "learning_goal", "lessons",
   "ai_coach_prompt_ref", "review_cadence", "outcome_metrics", "content_accuracy_claim_refs",
   "reviewed_by", "reviewed_at", "review_reason", "published_at",
 ]);
 const LESSON_KEYS = new Set([
-  "lesson_id", "sequence", "title", "knowledge_point", "action_task", "media_asset_ids", "tool_refs",
+  "lesson_id", "sequence", "title", "knowledge_point", "action_task", "media_asset_ids", "tool_refs", "stage_id", "bom_line_ref",
 ]);
 
 function asRecord(value: unknown, label: string): Record<string, unknown> {
@@ -101,6 +101,8 @@ function validateLesson(value: unknown, index: number): CourseLessonDraft {
     action_task: requiredText(lesson.action_task, "行动任务"),
     media_asset_ids: requiredTextList(lesson.media_asset_ids, "课件资产引用", true),
     tool_refs: requiredTextList(lesson.tool_refs, "工具引用", true),
+    stage_id: requiredText(lesson.stage_id, "阶段引用"),
+    bom_line_ref: requiredText(lesson.bom_line_ref, "BOM行引用"),
   };
 }
 
@@ -139,6 +141,7 @@ export function validateCourseContentDraftResponse(value: unknown): CourseConten
     updated_at: updatedAt,
     title: requiredText(draft.title, "课程名称"),
     product_component_id: null,
+    course_system_version_ref: requiredText(draft.course_system_version_ref, "课程体系版本引用"),
     problem_statement: requiredText(draft.problem_statement, "问题陈述"),
     assessment_criteria: requiredTextList(draft.assessment_criteria, "评估标准"),
     learning_goal: requiredText(draft.learning_goal, "学习目标"),
@@ -165,6 +168,7 @@ function designProjection(draft: CourseContentDraftResponse): CourseContentDraft
     outcome_metrics: draft.outcome_metrics,
     content_accuracy_claim_refs: draft.content_accuracy_claim_refs,
     product_component_id: null,
+    course_system_version_ref: draft.course_system_version_ref,
     ai_coach_prompt_ref: draft.ai_coach_prompt_ref,
   };
 }

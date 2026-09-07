@@ -8,6 +8,8 @@ export type CourseLessonDraft = {
   action_task: string;
   media_asset_ids: string[];
   tool_refs: string[];
+  stage_id: string;
+  bom_line_ref: string;
 };
 
 export type CourseContentDraftInput = {
@@ -20,6 +22,7 @@ export type CourseContentDraftInput = {
   outcome_metrics: string[];
   content_accuracy_claim_refs: string[];
   product_component_id: null;
+  course_system_version_ref: string;
   ai_coach_prompt_ref: string | null;
 };
 
@@ -50,11 +53,14 @@ export function createCourseContentTemplate(): CourseContentTemplateState {
       action_task: "",
       media_asset_ids: [],
       tool_refs: [],
+      stage_id: `S${Math.floor(index / 4) + 1}`,
+      bom_line_ref: `courseware:family-growth:lesson-${String(index + 1).padStart(2, "0")}@v1`,
     })),
     review_cadence: "",
     outcome_metrics: "",
     content_accuracy_claim_refs: "",
     product_component_id: null,
+    course_system_version_ref: "course-system:family-growth@v1",
     ai_coach_prompt_ref: null,
   };
 }
@@ -76,7 +82,7 @@ export function compileCourseContentDraft(state: CourseContentTemplateState): Co
   if (scalarFields.some((value) => !value.trim())
     || assessmentCriteria.length === 0
     || outcomeMetrics.length === 0
-    || claimRefs.length === 0) {
+    || claimRefs.length === 0 || !state.course_system_version_ref.trim()) {
     throw new Error("COURSE_OVERVIEW_INCOMPLETE");
   }
   if (state.lessons.length !== COURSE_LESSON_COUNT) throw new Error("COURSE_REQUIRES_24_LESSONS");
@@ -100,11 +106,14 @@ export function compileCourseContentDraft(state: CourseContentTemplateState): Co
       action_task: lesson.action_task.trim(),
       media_asset_ids: [...new Set(lesson.media_asset_ids.map((item) => item.trim()).filter(Boolean))],
       tool_refs: [...new Set(lesson.tool_refs.map((item) => item.trim()).filter(Boolean))],
+      stage_id: lesson.stage_id.trim(),
+      bom_line_ref: lesson.bom_line_ref.trim(),
     })),
     review_cadence: state.review_cadence.trim(),
     outcome_metrics: outcomeMetrics,
     content_accuracy_claim_refs: claimRefs,
     product_component_id: null,
+    course_system_version_ref: state.course_system_version_ref.trim(),
     ai_coach_prompt_ref: state.ai_coach_prompt_ref?.trim() || null,
   };
 }
