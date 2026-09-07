@@ -18,6 +18,7 @@ from backend.domains.service.infrastructure.sqlalchemy_repository import (
     SqlAlchemyServiceRepository,
 )
 from backend.platform.audit.recorder import AuditRecorder
+from backend.platform.audit.store import AuditBase
 from tests.support.postgres import SKIP_REASON, postgres_schema_engine, postgres_test_url
 
 from .helpers import CHILD, CONSENT_REF, granted, make_ctx, seed_supply
@@ -32,6 +33,7 @@ async def service_session_factory():
     async with postgres_schema_engine(Base.metadata) as engine:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
+            await connection.run_sync(AuditBase.metadata.create_all)
         factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         yield factory
 

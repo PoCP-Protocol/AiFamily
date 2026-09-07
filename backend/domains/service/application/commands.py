@@ -89,6 +89,12 @@ RECORD_RESOURCE = "ServiceRecord"
 CHECKIN_RESOURCE = "PrivateCheckinDraft"
 
 
+async def _commit(repo: ServiceRepositoryPort, recorder: AuditRecorder) -> None:
+    """Persist audit facts in the same transaction as service state."""
+    await repo.flush_audit(recorder)
+    await repo.commit()
+
+
 def _new_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4()}"
 
@@ -171,7 +177,7 @@ async def register_service_provider(
         resource_id=provider.provider_id,
         after={"provider_ref": provider_ref, "admission_status": admission_status},
     )
-    await repo.commit()
+    await _commit(repo, recorder)
     return provider
 
 
@@ -229,7 +235,7 @@ async def publish_service_offering(
         resource_id=offering.service_offering_id,
         after={"service_offering_ref": service_offering_ref, "version_no": version_no},
     )
-    await repo.commit()
+    await _commit(repo, recorder)
     return offering
 
 
@@ -281,7 +287,7 @@ async def open_availability_slot(
         resource_id=slot.availability_slot_id,
         after={"availability_slot_ref": availability_slot_ref, "capacity": capacity},
     )
-    await repo.commit()
+    await _commit(repo, recorder)
     return slot
 
 
@@ -438,7 +444,7 @@ async def submit_booking_request(
         before={"reserved_count": slot.reserved_count, "status": slot.status},
         after={"reserved_count": reserved.reserved_count, "status": reserved.status},
     )
-    await repo.commit()
+    await _commit(repo, recorder)
     return booking
 
 
@@ -502,7 +508,7 @@ async def confirm_booking_request(
         resource_id=record.booking_service_record_id,
         after={"status": record.status, "source_booking_request_id": booking_request_id},
     )
-    await repo.commit()
+    await _commit(repo, recorder)
     return confirmed, record
 
 
@@ -552,7 +558,7 @@ async def cancel_booking_request(
         before={"reserved_count": slot.reserved_count, "status": slot.status},
         after={"reserved_count": released.reserved_count, "status": released.status},
     )
-    await repo.commit()
+    await _commit(repo, recorder)
     return cancelled
 
 
@@ -583,7 +589,7 @@ async def fulfil_service_record(
         before={"status": record.status},
         after={"status": completed.status, "service_quality_rating": quality_rating},
     )
-    await repo.commit()
+    await _commit(repo, recorder)
     return completed
 
 
@@ -633,5 +639,6 @@ async def create_private_checkin_draft(
         resource_id=draft.private_checkin_draft_id,
         after={"onboarding_id": onboarding_id, "action_ref": action_ref},
     )
-    await repo.commit()
+    await _commit(repo, recorder)
     return draft
+

@@ -15,6 +15,8 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.platform.audit.recorder import AuditRecorder
+
 from ..domain.entities import (
     AvailabilitySlot,
     BookingRequest,
@@ -37,6 +39,11 @@ class SqlAlchemyServiceRepository:
 
     async def commit(self) -> None:
         await self._session.commit()
+
+    async def flush_audit(self, recorder: AuditRecorder) -> int:
+        # Keep the recorder's in-process evidence available to service callers;
+        # durable rows are still written exactly once in this transaction.
+        return await recorder.flush(self._session, clear=False)
 
     async def _stage(self, row: object) -> None:
         # `merge` rather than `add`: the domain entities are immutable and every
