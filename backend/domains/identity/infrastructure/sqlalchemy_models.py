@@ -38,6 +38,7 @@ never persisted; a real table must not repeat that.
 from __future__ import annotations
 
 from sqlalchemy import Boolean, Column, DateTime, String
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.types import TypeDecorator
@@ -62,6 +63,34 @@ class _PortableUuid(TypeDecorator):
         return dialect.type_descriptor(String(36))
 
 
+def _existing_enum(*values: str, name: str) -> TypeDecorator:
+    """A `TypeDecorator` for a Postgres-native `ENUM` the baseline already
+    created (`create_type=False`), widened to `VARCHAR` on SQLite — same
+    convention `domains/service/fgcn/persistence.py` uses for
+    `service_case_status` / `service_task_status`, kept here as its own
+    helper because this module still builds plain `Column` ORM models rather
+    than `sqlalchemy.Table` objects.
+    """
+
+    class _Enum(TypeDecorator):
+        impl = String
+        cache_ok = True
+
+        def load_dialect_impl(self, dialect):
+            if dialect.name == "postgresql":
+                return dialect.type_descriptor(
+                    postgresql.ENUM(*values, name=name, create_type=False, validate_strings=True)
+                )
+            return dialect.type_descriptor(String(32))
+
+    return _Enum()
+
+
+# `database/baseline/0018_account_family_membership.sql` line 8:
+# `CREATE TYPE account_status AS ENUM ('ACTIVE','DISABLED');`
+_ACCOUNT_STATUS = _existing_enum("ACTIVE", "DISABLED", name="account_status")
+
+
 class AccountRow(Base):
     """Maps onto the baseline's `accounts` (0018)."""
 
@@ -69,7 +98,7 @@ class AccountRow(Base):
 
     account_id = Column(_PortableUuid(), primary_key=True)
     external_ref = Column(String, nullable=True, unique=True)
-    status = Column(String, nullable=False, default="ACTIVE")
+    status = Column(_ACCOUNT_STATUS, nullable=False, default="ACTIVE")
     created_at = Column(DateTime(timezone=True), nullable=False)
     updated_at = Column(DateTime(timezone=True), nullable=False)
 
