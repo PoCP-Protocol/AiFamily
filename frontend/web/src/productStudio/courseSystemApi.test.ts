@@ -16,7 +16,7 @@ describe("CourseSystem API client", () => {
   });
 
   it("turns missing master data into a typed error", async () => {
-    const client = new HttpCourseSystemApiClient({ fetchImpl: async () => response({}, false, 404) });
+    const client = new HttpCourseSystemApiClient({ tenantScope: "dev", fetchImpl: async () => response({}, false, 404) });
     await expect(client.get("missing")).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
@@ -99,4 +99,5 @@ describe("CourseSystem API client", () => {
     await client.get("course-system:family-growth");
     expect(request?.headers).toMatchObject({ "x-tenant-scope": "tenant-a" });
   });
+
 });
