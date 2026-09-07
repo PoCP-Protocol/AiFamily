@@ -1,0 +1,72 @@
+"""Translate the Web course release contract into the shared PLM baseline."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+
+from .ipd_contracts import ReleaseBaseline
+
+
+def compile_course_release_baseline(payload: Mapping[str, object]) -> ReleaseBaseline:
+    """Build a shared ``ReleaseBaseline`` from a validated course payload.
+
+    This is intentionally a compiler only: it creates a DRAFT baseline and
+    never approves or releases it. Human Gate lifecycle methods remain the
+    sole path to PLM state changes.
+    """
+
+    lessons = payload.get("lessons")
+    if not isinstance(lessons, list) or len(lessons) != 24:
+        raise ValueError("COURSE_RELEASE_REQUIRES_24_LESSONS")
+    def refs(key: str) -> tuple[str, ...]:
+        value = payload.get(key, ())
+        if not isinstance(value, (list, tuple)):
+            return ()
+        return tuple(str(item).strip() for item in value if str(item).strip())
+    required = (
+        "course_content_version_ref", "course_system_version_ref",
+        "product_package_version_ref", "product_definition_version_ref",
+        "safety_policy_version_ref", "prompt_bundle_version_ref",
+    )
+    if any(not str(payload.get(key, "")).strip() for key in required):
+        raise ValueError("COURSE_RELEASE_VERSION_REFS_REQUIRED")
+    lesson_refs = tuple(
+        str(item.get("lesson_version_ref", "")).strip()
+        for item in lessons if isinstance(item, dict)
+    )
+    asset_refs = tuple(
+        str(item.get("asset_bundle_version_ref", "")).strip()
+        for item in lessons if isinstance(item, dict)
+    )
+    skill_refs = tuple(
+        str(skill).strip()
+        for item in lessons if isinstance(item, dict)
+        for skill in item.get("skill_version_refs", ())
+        if str(skill).strip()
+    )
+    if len(lesson_refs) != 24 or any(not ref for ref in lesson_refs + asset_refs):
+        raise ValueError("COURSE_RELEASE_LESSON_REFS_REQUIRED")
+    return ReleaseBaseline(
+        release_id=f"course-release:{payload['course_content_version_ref']}",
+        package_id=str(payload["product_package_version_ref"]),
+        package_version=str(payload["product_package_version_ref"]),
+        component_refs=(
+            str(payload["course_system_version_ref"]),
+            str(payload["course_content_version_ref"]),
+        ),
+        skill_refs=skill_refs,
+        blueprint_version_id=str(payload["course_system_version_ref"]),
+        model_refs=("model-gateway:approved",),
+        prompt_refs=(str(payload["prompt_bundle_version_ref"]),),
+        schema_refs=(str(payload["schema_version"]),),
+        knowledge_refs=refs("evidence_receipt_refs"),
+        migration_refs=(str(payload["product_definition_version_ref"]),),
+        runbook_ref="course-service:runbook@v1",
+        rollback_ref="course-service:rollback@v1",
+        environment=str(payload.get("delivery_channel", "WEB")),
+        evidence_refs=refs("evidence_receipt_refs"),
+        generated_by="course-release-compiler",
+    )
+
+
+__all__ = ["compile_course_release_baseline"]
