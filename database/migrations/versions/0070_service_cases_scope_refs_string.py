@@ -62,8 +62,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0068_service_cases_scope_refs_string"
-down_revision: str | None = "0067_service_feedback_playbook"
+revision: str = "0070_service_cases_scope_refs_string"
+down_revision: str | None = "0069_ai_run_ledger"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
