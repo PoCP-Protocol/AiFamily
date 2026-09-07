@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { HttpCourseSystemApiClient, type CourseSystemApiClient } from "./courseSystemApi";
 import { buildLessonDeliveryMatrix, COURSE_SYSTEM_STAGES, summarizeLessonDelivery, summarizeStageDelivery } from "./courseSystemBlueprint";
 import { HttpCourseDeliveryProjectionApiClient, type CourseDeliveryProjectionApiClient } from "./courseDeliveryProjectionApi";
+import { HttpCourseContentReadApiClient, type CourseContentReadApiClient, type PublishedCourseContent } from "./courseContentApi";
 
 /** Course system is the product-level map; CourseContent and BOM remain versioned implementations. */
-export function CourseSystemBlueprintPanel({ client, deliveryClient, courseContentId, tenantScope }: { client?: CourseSystemApiClient; deliveryClient?: CourseDeliveryProjectionApiClient; courseContentId?: string; tenantScope?: string }) {
+export function CourseSystemBlueprintPanel({ client, deliveryClient, courseContentClient, courseContentId, tenantScope }: { client?: CourseSystemApiClient; deliveryClient?: CourseDeliveryProjectionApiClient; courseContentClient?: CourseContentReadApiClient; courseContentId?: string; tenantScope?: string }) {
   const resolvedClient = useMemo(() => client ?? new HttpCourseSystemApiClient({ tenantScope }), [client, tenantScope]);
   const resolvedDeliveryClient = useMemo(() => deliveryClient ?? new HttpCourseDeliveryProjectionApiClient({ tenantScope }), [deliveryClient, tenantScope]);
+  const resolvedCourseContentClient = useMemo(() => courseContentClient ?? new HttpCourseContentReadApiClient({ tenantScope }), [courseContentClient, tenantScope]);
   const [stages, setStages] = useState<typeof COURSE_SYSTEM_STAGES[number][]>([]);
   const [bomLessonSequences, setBomLessonSequences] = useState<number[]>([]);
   const [bomStatuses, setBomStatuses] = useState<Record<number, { qa_status: string; rights_status: string; safety_status: string }>>({});
@@ -16,8 +18,11 @@ export function CourseSystemBlueprintPanel({ client, deliveryClient, courseConte
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
   const [state, setState] = useState("尚未读取课程体系主数据；下方蓝图仅为设计模板，不代表已发布课程。");
   const [serviceProjection, setServiceProjection] = useState<{ ready_lessons: number; blocked_lessons: number; publishable_to_service: boolean } | null>(null);
+  const [publishedCourses, setPublishedCourses] = useState<PublishedCourseContent[]>([]);
+  const [selectedCourseContentId, setSelectedCourseContentId] = useState(courseContentId ?? "");
   useEffect(() => { let active = true; void resolvedClient.get("course-system:family-growth").then((system) => { if (active) { setStages(system.stages); setProductPackageRef(system.product_package_version_ref); setCourseSystemVersion(system.version); setBomLessonSequences(system.bom_lesson_sequences ?? []); setBomStatuses(system.bom_lesson_statuses ?? {}); setState("已读取课程体系主数据版本：" + system.version); } }).catch(() => { if (active) setState("课程体系主数据暂不可用；蓝图仍为设计模板，不代表已发布课程。"); }); return () => { active = false; }; }, [resolvedClient]);
-  useEffect(() => { if (!courseContentId) return; let active = true; void resolvedDeliveryClient.get(courseContentId).then((projection) => { if (active) setServiceProjection(projection); }).catch(() => { if (active) setServiceProjection(null); }); return () => { active = false; }; }, [courseContentId, resolvedDeliveryClient]);
+  useEffect(() => { let active = true; void resolvedCourseContentClient.listPublished().then((courses) => { if (active) { setPublishedCourses(courses); setSelectedCourseContentId((current) => current || courses[0]?.id || ""); } }).catch(() => { if (active) setPublishedCourses([]); }); return () => { active = false; }; }, [resolvedCourseContentClient]);
+  useEffect(() => { if (!selectedCourseContentId) return; let active = true; void resolvedDeliveryClient.get(selectedCourseContentId).then((projection) => { if (active) setServiceProjection(projection); }).catch(() => { if (active) setServiceProjection(null); }); return () => { active = false; }; }, [selectedCourseContentId, resolvedDeliveryClient]);
   const delivery = buildLessonDeliveryMatrix(stages.length ? stages : COURSE_SYSTEM_STAGES, bomLessonSequences, bomStatuses);
   const readiness = summarizeLessonDelivery(delivery);
   const stageReadiness = summarizeStageDelivery(delivery);
@@ -30,7 +35,7 @@ export function CourseSystemBlueprintPanel({ client, deliveryClient, courseConte
         课程不是孤立内容，而是从市场洞察衍生出的可交付服务产品。体系层定义成长路径，课程层编排 24 节课，课件层通过 BOM 固化 PPT、工作纸、图片、视频与 Skill 的版本血缘。
       </p>
       <div className="callout" role="status"><strong>主数据状态</strong><p>{state}</p></div>
-      {courseContentId ? <div className="callout" role="status" aria-label="服务交付投影状态"><strong>服务交付投影</strong><p>{serviceProjection ? `${serviceProjection.ready_lessons}/24 节已具备服务交付条件；${serviceProjection.publishable_to_service ? "允许进入服务发布" : `仍阻断 ${serviceProjection.blocked_lessons} 节`}` : "尚未读取已发布课程交付投影。"}</p></div> : null}
+      <div className="callout" role="status" aria-label="服务交付投影状态"><strong>服务交付投影</strong><label>选择已发布课程<select aria-label="选择已发布课程" value={selectedCourseContentId} onChange={(event) => setSelectedCourseContentId(event.target.value)}><option value="">暂无已发布课程</option>{publishedCourses.map((course) => <option key={course.id} value={course.id}>{course.title} · v{course.version}</option>)}</select></label><p>{serviceProjection ? `${serviceProjection.ready_lessons}/24 节已具备服务交付条件；${serviceProjection.publishable_to_service ? "允许进入服务发布" : `仍阻断 ${serviceProjection.blocked_lessons} 节`}` : "尚未读取已发布课程交付投影。"}</p></div>
       <div className="callout" role="note" aria-label="产品包版本追溯"><strong>产品包版本追溯</strong><p>{productPackageRef && courseSystemVersion ? <><code>{productPackageRef}</code> → <code>course-system:family-growth@{courseSystemVersion}</code></> : "ProductPackage（待读取）"}</p></div>
       <div className="course-system-flow" role="list" aria-label="六阶段课程体系">
         {(stages.length ? stages : COURSE_SYSTEM_STAGES).map((stage) => (

@@ -59,6 +59,7 @@ export interface CourseContentReadApiClient {
 type Options = {
   baseUrl?: string;
   fetchImpl?: ProductStudioFetch;
+  tenantScope?: string;
   accessToken?: string;
   accessTokenProvider?: ProductStudioAccessTokenProvider;
 };
