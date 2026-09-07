@@ -72,7 +72,9 @@ async def test_course_system_older_version_cannot_overwrite_newer_version() -> N
         async with engine.begin() as connection:
             repository = SqlAlchemyCourseSystemRepository(connection)
             current = _system().model_copy(update={"version": 2})
-            older = _system().model_copy(update={"version": 1, "product_package_version_ref": "package:old@v1"})
+            older = _system().model_copy(
+                update={"version": 1, "product_package_version_ref": "package:old@v1"}
+            )
             await repository.save_course_system(current)
             await repository.save_course_system(older)
             loaded = await repository.load_course_system(current.system_id, current.tenant_scope)
