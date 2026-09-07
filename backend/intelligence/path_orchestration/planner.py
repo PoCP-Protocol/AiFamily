@@ -47,7 +47,7 @@ class ContextDrivenPathDraftPlanner:
     async def draft(self, *, scope: ContextScope, need_id: str) -> PathDraft:
         scope.assert_active()
         context = await self._context_port.read(scope=scope, need_id=need_id)
-        _assert_context_scope(scope, context)
+        _assert_context_scope(scope, context, requested_need_id=need_id)
         candidates = await self._capability_port.list_candidates(scope=scope, context=context)
         if any(candidate is None for candidate in candidates):
             raise PathDraftError("capability candidate port returned null")
@@ -84,13 +84,20 @@ class ContextDrivenPathDraftPlanner:
         )
 
 
-def _assert_context_scope(scope: ContextScope, context: FamilyPathContext) -> None:
+def _assert_context_scope(
+    scope: ContextScope,
+    context: FamilyPathContext,
+    *,
+    requested_need_id: str,
+) -> None:
     if context.tenant_id != scope.tenant_id or context.family_id != scope.family_id:
         raise PathDraftScopeError("path context scope mismatch")
     if scope.subject_ids != tuple(context.subject_ids):
         raise PathDraftScopeError("path context subject scope mismatch")
     if context.need_id.strip() == "":
         raise PathDraftError("path context need id is required")
+    if context.need_id != requested_need_id:
+        raise PathDraftScopeError("path context need mismatch")
 
 
 def _candidate_score(candidate: CapabilityCandidate, context: FamilyPathContext) -> int:
@@ -103,6 +110,7 @@ def _reasons(candidate: CapabilityCandidate, context: FamilyPathContext) -> tupl
     matched = sorted(candidate.fit_tags & context.fit_tags)
     reasons = [f"context_fit:{tag}" for tag in matched]
     reasons.append(f"evidence:{context.evidence[0].ref}")
+    reasons.extend(f"candidate_evidence:{item.ref}" for item in candidate.evidence)
     return tuple(reasons)
 
 

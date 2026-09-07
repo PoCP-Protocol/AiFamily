@@ -19,6 +19,11 @@ class ContextPort:
         return self.context
 
 
+class MismatchedContextPort(ContextPort):
+    async def read(self, *, scope, need_id):
+        return self.context
+
+
 class CandidatePort:
     def __init__(self, candidates):
         self.candidates = tuple(candidates)
@@ -96,6 +101,9 @@ async def test_different_family_contexts_choose_different_candidate_sequences():
     assert [node.capability_ref for node in draft_b.nodes] == ["capability:repair-dialogue"]
     assert draft_a.may_mutate_business_state is False
     assert draft_a.feedback_refs == ("feedback-family-a",)
+    assert "candidate_evidence:knowledge-capability:study-start" in draft_a.selected_reasons[
+        "capability:study-start"
+    ]
 
 
 @pytest.mark.asyncio
@@ -124,3 +132,14 @@ async def test_cross_family_context_is_rejected_before_draft_creation():
 
     with pytest.raises(PathDraftScopeError, match="scope mismatch"):
         await planner.draft(scope=scope(), need_id="need-family-b")
+
+
+@pytest.mark.asyncio
+async def test_context_port_cannot_return_a_different_need_in_the_same_family():
+    planner = ContextDrivenPathDraftPlanner(
+        MismatchedContextPort(context(tags=("study_start",))),
+        CandidatePort((candidate("capability:study-start", "study_start"),)),
+    )
+
+    with pytest.raises(PathDraftScopeError, match="need mismatch"):
+        await planner.draft(scope=scope(), need_id="need-family-a-other")
