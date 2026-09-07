@@ -25,6 +25,7 @@ export type CourseSystemBlueprint = {
   product_package_version_ref: string;
   stages: CourseSystemStage[];
   bom_lesson_sequences?: number[];
+  bom_lesson_statuses?: Record<number, { qa_status: string; rights_status: string; safety_status: string }>;
 };
 
 export type LessonDeliveryRow = {
@@ -61,7 +62,7 @@ const SERVICE_ACTIONS = [
   "确认结果并沉淀下一周期需求",
 ] as const;
 
-export function buildLessonDeliveryMatrix(stages: readonly CourseSystemStage[], bomLessonSequences: readonly number[] = []): LessonDeliveryRow[] {
+export function buildLessonDeliveryMatrix(stages: readonly CourseSystemStage[], bomLessonSequences: readonly number[] = [], bomStatuses: Record<number, { qa_status: string; rights_status: string; safety_status: string }> = {}): LessonDeliveryRow[] {
   const bom = new Set(bomLessonSequences);
   return stages.flatMap((stage, stageIndex) => Array.from({ length: 4 }, (_, offset) => ({
     sequence: stage.lesson_start + offset,
@@ -69,7 +70,7 @@ export function buildLessonDeliveryMatrix(stages: readonly CourseSystemStage[], 
     stage_title: stage.title,
     product_outcome: stage.output,
     service_action: SERVICE_ACTIONS[stageIndex],
-    courseware_status: bom.has(stage.lesson_start + offset) ? "REVIEW_REQUIRED" as const : "BOM_REQUIRED" as const,
+    courseware_status: !bom.has(stage.lesson_start + offset) ? "BOM_REQUIRED" as const : (bomStatuses[stage.lesson_start + offset]?.qa_status === "APPROVED" && bomStatuses[stage.lesson_start + offset]?.rights_status === "CLEARED" && bomStatuses[stage.lesson_start + offset]?.safety_status === "CLEARED" ? "READY" as const : "REVIEW_REQUIRED" as const),
   })));
 }
 

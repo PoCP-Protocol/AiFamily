@@ -40,4 +40,13 @@ describe("course system blueprint", () => {
     const readiness = summarizeLessonDelivery(buildLessonDeliveryMatrix(COURSE_SYSTEM_STAGES));
     expect(readiness).toMatchObject({ total_lessons: 24, bom_ready_lessons: 0, blocked_lessons: 24, publish_ready: false });
   });
+
+  it("requires QA, rights, and safety clearance before a lesson is READY", () => {
+    const rows = buildLessonDeliveryMatrix(COURSE_SYSTEM_STAGES, [1, 2], {
+      1: { qa_status: "APPROVED", rights_status: "CLEARED", safety_status: "CLEARED" },
+      2: { qa_status: "APPROVED", rights_status: "UNKNOWN", safety_status: "CLEARED" },
+    });
+    expect(rows[0].courseware_status).toBe("READY");
+    expect(rows[1].courseware_status).toBe("REVIEW_REQUIRED");
+  });
 });
