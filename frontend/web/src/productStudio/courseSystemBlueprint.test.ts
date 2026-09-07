@@ -5,6 +5,7 @@ import {
   buildLessonDeliveryMatrix,
   summarizeLessonDelivery,
   evaluateCoursewareGovernance,
+  summarizeStageDelivery,
   validateCourseSystemBlueprint,
 } from "./courseSystemBlueprint";
 
@@ -57,5 +58,16 @@ describe("course system blueprint", () => {
     expect(evaluateCoursewareGovernance(undefined).reason).toBe("NO_ASSET");
     expect(evaluateCoursewareGovernance([{ qa_status: "DRAFT", rights_status: "CLEARED", safety_status: "CLEARED" }]).reason).toBe("QA");
     expect(evaluateCoursewareGovernance([{ qa_status: "APPROVED", rights_status: "CLEARED", safety_status: "CLEARED" }]).governed).toBe(true);
+  });
+
+  it("summarizes readiness per product stage", () => {
+    const rows = buildLessonDeliveryMatrix(COURSE_SYSTEM_STAGES, [1, 2, 3, 4], {
+      1: { qa_status: "APPROVED", rights_status: "CLEARED", safety_status: "CLEARED" },
+      2: { qa_status: "APPROVED", rights_status: "CLEARED", safety_status: "CLEARED" },
+      3: { qa_status: "APPROVED", rights_status: "CLEARED", safety_status: "CLEARED" },
+      4: { qa_status: "APPROVED", rights_status: "CLEARED", safety_status: "CLEARED" },
+    });
+    expect(summarizeStageDelivery(rows)[0]).toMatchObject({ stage_id: "S1", ready_lessons: 4, blocked_lessons: 0, publish_ready: true });
+    expect(summarizeStageDelivery(rows)[1]).toMatchObject({ stage_id: "S2", ready_lessons: 0, blocked_lessons: 4, publish_ready: false });
   });
 });

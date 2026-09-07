@@ -45,6 +45,15 @@ export type LessonDeliveryReadiness = {
   publish_ready: boolean;
 };
 
+export type StageDeliveryReadiness = {
+  stage_id: string;
+  stage_title: string;
+  total_lessons: number;
+  ready_lessons: number;
+  blocked_lessons: number;
+  publish_ready: boolean;
+};
+
 export type CoursewareGovernanceCheck = {
   governed: boolean;
   missing: number;
@@ -98,6 +107,19 @@ export function summarizeLessonDelivery(rows: readonly LessonDeliveryRow[]): Les
     blocked_lessons: rows.length - bomReady,
     publish_ready: rows.length === COURSE_SYSTEM_LESSON_COUNT && bomReady === rows.length,
   };
+}
+
+export function summarizeStageDelivery(rows: readonly LessonDeliveryRow[]): StageDeliveryReadiness[] {
+  const grouped = new Map<string, LessonDeliveryRow[]>();
+  rows.forEach((row) => grouped.set(row.stage_id, [...(grouped.get(row.stage_id) ?? []), row]));
+  return [...grouped.entries()].map(([stageId, stageRows]) => ({
+    stage_id: stageId,
+    stage_title: stageRows[0].stage_title,
+    total_lessons: stageRows.length,
+    ready_lessons: stageRows.filter((row) => row.courseware_status === "READY").length,
+    blocked_lessons: stageRows.filter((row) => row.courseware_status !== "READY").length,
+    publish_ready: stageRows.every((row) => row.courseware_status === "READY"),
+  }));
 }
 
 export function validateCourseSystemBlueprint(value: CourseSystemBlueprint): CourseSystemBlueprint {
