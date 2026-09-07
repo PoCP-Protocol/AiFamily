@@ -61,20 +61,23 @@ def _course(**overrides) -> CourseContent:
 
 
 async def _apply_course_content_migration(engine) -> None:
-    """Replay the 0056 migration's `upgrade()` directly against the
-    schema-scoped engine, matching how the family_need integration test
-    applies its own migration to a per-test disposable schema.
-    """
+    """Replay the course-content migrations against a disposable schema."""
 
     import importlib
 
     course_content_migration = importlib.import_module(
         "database.migrations.versions.0056_course_content"
     )
+    course_lineage_migration = importlib.import_module(
+        "database.migrations.versions.0069_course_content_lineage"
+    )
 
     async with engine.begin() as connection:
         await connection.run_sync(
             lambda sync_conn: _run_upgrade(sync_conn, course_content_migration)
+        )
+        await connection.run_sync(
+            lambda sync_conn: _run_upgrade(sync_conn, course_lineage_migration)
         )
 
 
