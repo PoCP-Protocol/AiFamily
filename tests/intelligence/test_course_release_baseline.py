@@ -30,6 +30,8 @@ def test_course_release_compiles_to_shared_draft_baseline():
     baseline = compile_course_release_baseline(_payload())
     assert baseline.status.value == "DRAFT"
     assert baseline.blueprint_version_id == "course-system:family-growth@v1"
+    assert baseline.package_id == "product-package:family-growth"
+    assert baseline.package_version == "v1"
 
 
 def test_course_release_requires_all_lessons():

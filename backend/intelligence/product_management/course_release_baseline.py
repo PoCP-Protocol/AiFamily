@@ -7,6 +7,16 @@ from collections.abc import Mapping
 from .ipd_contracts import ReleaseBaseline
 
 
+def _split_versioned_ref(value: str, code: str) -> tuple[str, str]:
+    normalized = value.strip()
+    if "@v" not in normalized:
+        raise ValueError(code)
+    resource, version = normalized.rsplit("@v", 1)
+    if not resource or not version.isdigit() or int(version) < 1:
+        raise ValueError(code)
+    return resource, f"v{version}"
+
+
 def compile_course_release_baseline(payload: Mapping[str, object]) -> ReleaseBaseline:
     """Build a shared ``ReleaseBaseline`` from a validated course payload.
 
@@ -36,6 +46,10 @@ def compile_course_release_baseline(payload: Mapping[str, object]) -> ReleaseBas
     evidence_refs = refs("evidence_receipt_refs")
     if not evidence_refs:
         raise ValueError("COURSE_RELEASE_EVIDENCE_REQUIRED")
+    package_id, package_version = _split_versioned_ref(
+        str(payload["product_package_version_ref"]),
+        "COURSE_RELEASE_PACKAGE_REF_INVALID",
+    )
     lesson_refs = tuple(
         str(item.get("lesson_version_ref", "")).strip()
         for item in lessons if isinstance(item, dict)
@@ -63,8 +77,8 @@ def compile_course_release_baseline(payload: Mapping[str, object]) -> ReleaseBas
         raise ValueError("COURSE_RELEASE_LESSON_REFS_REQUIRED")
     return ReleaseBaseline(
         release_id=f"course-release:{payload['course_content_version_ref']}",
-        package_id=str(payload["product_package_version_ref"]),
-        package_version=str(payload["product_package_version_ref"]),
+        package_id=package_id,
+        package_version=package_version,
         component_refs=(
             str(payload["course_system_version_ref"]),
             str(payload["course_content_version_ref"]),
