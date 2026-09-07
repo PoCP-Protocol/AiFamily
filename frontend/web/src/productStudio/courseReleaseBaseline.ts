@@ -85,7 +85,7 @@ export function compileCourseReleaseBaseline(form: CourseReleaseBaselineForm): C
   if (!sha256Pattern.test(form.product_package_content_hash.trim())) throw new Error("PRODUCT_PACKAGE_HASH_INVALID");
   const receiptRefs = uniqueLines(form.evidence_receipt_refs);
   if (receiptRefs.length === 0) throw new Error("EVIDENCE_RECEIPTS_REQUIRED");
-  const lessons = form.lessons.map((binding, index) => {
+  const lessons: CourseReleaseLessonBinding[] = form.lessons.map((binding, index) => {
     if (binding.sequence !== index + 1 || !isReleaseLessonComplete(binding)) {
       throw new Error(`RELEASE_LESSON_${index + 1}_INCOMPLETE`);
     }
