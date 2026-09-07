@@ -46,7 +46,7 @@ export function CourseSystemBlueprintPanel({ client = new HttpCourseSystemApiCli
         <ul aria-label="阶段交付准备度">
           {stageReadiness.map((stage) => <li key={stage.stage_id}><button type="button" aria-pressed={selectedStageId === stage.stage_id} onClick={() => setSelectedStageId(selectedStageId === stage.stage_id ? null : stage.stage_id)}><strong>{stage.stage_id} · {stage.stage_title}</strong><span>{stage.ready_lessons}/{stage.total_lessons} 就绪 · {stage.next_action}</span></button></li>)}
         </ul>
-        {selectedStageId ? <p role="status">当前筛选：{stageReadiness.find((stage) => stage.stage_id === selectedStageId)?.stage_title} · <button type="button" onClick={() => setSelectedStageId(null)}>显示全部课时</button></p> : null}
+        {selectedStageId || selectedReason ? <p role="status">当前筛选：{selectedStageId ? stageReadiness.find((stage) => stage.stage_id === selectedStageId)?.stage_title : "全部阶段"}{selectedReason ? ` · ${selectedReason}` : ""} · <button type="button" onClick={() => { setSelectedStageId(null); setSelectedReason(null); }}>清除全部筛选</button></p> : null}
         <div aria-label="治理原因筛选" role="group">
           {(["NO_ASSET", "QA", "RIGHTS", "SAFETY"] as const).map((reason) => <button key={reason} type="button" aria-pressed={selectedReason === reason} onClick={() => setSelectedReason(selectedReason === reason ? null : reason)}>{reason}</button>)}
           {selectedReason ? <button type="button" onClick={() => setSelectedReason(null)}>清除原因筛选</button> : null}
