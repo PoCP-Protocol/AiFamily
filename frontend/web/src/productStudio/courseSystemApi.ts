@@ -6,7 +6,7 @@ export interface CourseSystemApiClient { get(systemId: string): Promise<CourseSy
 type Options = { baseUrl?: string; fetchImpl?: ProductStudioFetch };
 const stages = (value: unknown): CourseSystemStage[] => {
   if (!Array.isArray(value) || value.length !== 6) throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系阶段数据无效。");
-  return value.map((item, index) => {
+  const normalized = value.map((item, index) => {
     if (!item || typeof item !== "object") throw new ProductStudioApiError("INVALID_RESPONSE", `第${index + 1}阶段无效。`);
     const row = item as Record<string, unknown>;
     if (typeof row.stage_id !== "string" || typeof row.title !== "string" || typeof row.outcome !== "string"
@@ -15,6 +15,13 @@ const stages = (value: unknown): CourseSystemStage[] => {
     }
     return { id: row.stage_id, title: row.title, lesson_start: Number(row.lesson_start), lesson_end: Number(row.lesson_end), output: row.outcome };
   });
+  let expected = 1;
+  for (const stage of normalized) {
+    if (stage.lesson_start !== expected || stage.lesson_end - stage.lesson_start !== 3) throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系阶段必须连续覆盖24节课。");
+    expected = stage.lesson_end + 1;
+  }
+  if (expected !== 25) throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系阶段必须覆盖1-24课次。");
+  return normalized;
 };
 
 export function validateCourseSystem(value: unknown): CourseSystemBlueprint {
