@@ -28,6 +28,7 @@ export function validateCourseSystem(value: unknown): CourseSystemBlueprint {
     const sequence = (item as Record<string, unknown>).lesson_sequence;
     if (!Number.isInteger(sequence)) return [];
     const artifacts = Array.isArray((item as Record<string, unknown>).artifacts) ? (item as Record<string, unknown>).artifacts as unknown[] : [];
+    if (!artifacts.length) throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系BOM行必须包含课件资产。");
     const artifact = artifacts[0] as Record<string, unknown> | undefined;
     const qa = String(artifact?.qa_status ?? "DRAFT");
     const rights = String(artifact?.rights_status ?? "UNKNOWN");
