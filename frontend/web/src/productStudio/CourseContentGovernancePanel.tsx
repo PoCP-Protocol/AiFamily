@@ -22,6 +22,7 @@ export function CourseContentGovernancePanel({
     system: Boolean(selected.course_system_version_ref),
     lessons: selected.lessons.length === 24 && selected.lessons.every((lesson) => lesson.stage_id && lesson.bom_line_ref),
     package: Boolean(selected.product_component_id),
+    assets: selected.lessons.every((lesson) => lesson.courseware_assets?.every((asset) => asset.qa_status === "APPROVED" && asset.rights_status === "CLEARED" && asset.safety_status === "CLEARED")),
   } : null;
   const totals = useMemo(() => ({
     lessons: courses.reduce((sum, course) => sum + course.lessons.length, 0),
@@ -78,7 +79,7 @@ export function CourseContentGovernancePanel({
                   <li><strong>课程体系：{lineage?.system ? "BOUND" : "MISSING_FROM_CONTRACT"}</strong><span>{lineage?.system ? `已绑定 ${selected.course_system_version_ref}` : "课程体系版本没有进入 CourseContent/API。"}</span></li>
                   <li><strong>课时/BOM血缘：{lineage?.lessons ? "BOUND" : "INCOMPLETE"}</strong><span>{lineage?.lessons ? "24个课时均有阶段与BOM引用。" : "存在缺失的阶段或BOM引用。"}</span></li>
                   <li><strong>产品包血缘：{lineage?.package ? "COMPONENT_REF_ONLY" : "NOT_LINKED"}</strong><span>没有 ProductPackage/ProductDefinition 冻结版本与内容哈希。</span></li>
-                  <li><strong>课件资产：REFERENCE_ONLY</strong><span>资产没有版本、哈希、生成 provenance、版权、安全及 QA 状态。</span></li>
+                  <li><strong>课件资产：{lineage?.assets ? "GOVERNED" : "REFERENCE_ONLY"}</strong><span>{lineage?.assets ? "课件版本、来源、版权、安全与 QA 均已通过。" : "资产仍缺少完整版本、版权、安全或 QA 准入。"}</span></li>
                   <li><strong>证据准入：NOT_EVALUATED</strong><span>claim refs 不等同于 EvidenceVerificationReceipt 准入。</span></li>
                 </ul>
               </section>

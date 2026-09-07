@@ -14,6 +14,16 @@ export type PublishedCourseLesson = {
   tool_refs: string[];
   stage_id?: string;
   bom_line_ref?: string;
+  courseware_assets?: CoursewareGovernanceAsset[];
+};
+
+export type CoursewareGovernanceAsset = {
+  asset_id: string;
+  version_ref: string;
+  provenance_ref: string;
+  qa_status: "DRAFT" | "REVIEW_REQUIRED" | "APPROVED";
+  rights_status: "UNKNOWN" | "CLEARED" | "RESTRICTED";
+  safety_status: "UNKNOWN" | "REVIEW_REQUIRED" | "CLEARED";
 };
 
 export type PublishedCourseContent = {
@@ -61,7 +71,7 @@ const COURSE_KEYS = new Set([
   "content_accuracy_claim_refs", "reviewed_by", "reviewed_at", "review_reason", "published_at",
 ]);
 const LESSON_KEYS = new Set([
-  "lesson_id", "sequence", "title", "knowledge_point", "action_task", "media_asset_ids", "tool_refs", "stage_id", "bom_line_ref",
+  "lesson_id", "sequence", "title", "knowledge_point", "action_task", "media_asset_ids", "tool_refs", "stage_id", "bom_line_ref", "courseware_assets",
 ]);
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -123,7 +133,23 @@ function lesson(value: unknown, index: number): PublishedCourseLesson {
     tool_refs: textList(item.tool_refs, "工具引用", true),
     stage_id: item.stage_id === undefined ? undefined : text(item.stage_id, "阶段引用"),
     bom_line_ref: item.bom_line_ref === undefined ? undefined : text(item.bom_line_ref, "BOM行引用"),
+    courseware_assets: item.courseware_assets === undefined ? undefined : assetList(item.courseware_assets),
   };
+}
+
+function assetList(value: unknown): CoursewareGovernanceAsset[] {
+  if (!Array.isArray(value)) throw new ProductStudioApiError("INVALID_RESPONSE", "课件治理资产不是数组。");
+  return value.map((raw) => {
+    const item = record(raw, "课件治理资产");
+    return {
+      asset_id: text(item.asset_id, "asset_id"),
+      version_ref: text(item.version_ref, "课件版本引用"),
+      provenance_ref: text(item.provenance_ref, "课件来源凭证"),
+      qa_status: item.qa_status as CoursewareGovernanceAsset["qa_status"],
+      rights_status: item.rights_status as CoursewareGovernanceAsset["rights_status"],
+      safety_status: item.safety_status as CoursewareGovernanceAsset["safety_status"],
+    };
+  });
 }
 
 export function validatePublishedCourse(value: unknown): PublishedCourseContent {
