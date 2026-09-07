@@ -3,6 +3,7 @@ import pytest
 from backend.intelligence.product_management.course_release_baseline import (
     compile_course_release_baseline,
 )
+from backend.intelligence.product_management.ipd_contracts import GateEvidence
 
 
 def _payload():
@@ -57,3 +58,14 @@ def test_course_release_rejects_lesson_without_skill_or_asset_ref():
     payload["lessons"][0]["skill_version_refs"] = []
     with pytest.raises(ValueError, match="LESSON_REFS_REQUIRED"):
         compile_course_release_baseline(payload)
+
+
+def test_course_release_draft_enters_shared_human_release_lifecycle():
+    baseline = compile_course_release_baseline(_payload())
+    evidence = (GateEvidence("evidence-1", "QA", "qa://course-24", "课件治理通过"),)
+    reviewed = baseline.approve(
+        decided_by="human:operator-1", human_gate_ref="gate:course-24", evidence=evidence
+    )
+    released = reviewed.release(decided_by="human:operator-1", evidence=evidence)
+    assert released.status.value == "RELEASED"
+    assert released.approved_by == "human:operator-1"
