@@ -110,7 +110,7 @@ export function ProductStudioWorkspace() {
       <div aria-labelledby="workspace-tab-course-content" hidden={activeTab !== "course-content"} id="workspace-panel-course-content" role="tabpanel" tabIndex={0}>
         <div className="course-content-stage">
           <CourseContentWorkbench contractPreview />
-          <CourseSystemBlueprintPanel />
+          <CourseSystemBlueprintPanel enabled={activeTab === "course-content"} />
           <CourseContentGovernancePanel contractPreview />
           <CourseReleaseBaselineWorkbench />
         </div>
