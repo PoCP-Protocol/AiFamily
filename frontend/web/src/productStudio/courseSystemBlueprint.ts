@@ -44,6 +44,20 @@ export type LessonDeliveryReadiness = {
   publish_ready: boolean;
 };
 
+export type CoursewareGovernanceCheck = {
+  governed: boolean;
+  missing: number;
+  reason: "NO_ASSET" | "QA" | "RIGHTS" | "SAFETY" | "READY";
+};
+
+export function evaluateCoursewareGovernance(assets: readonly { qa_status: string; rights_status: string; safety_status: string }[] | undefined): CoursewareGovernanceCheck {
+  if (!assets?.length) return { governed: false, missing: 1, reason: "NO_ASSET" };
+  if (assets.some((asset) => asset.qa_status !== "APPROVED")) return { governed: false, missing: assets.length, reason: "QA" };
+  if (assets.some((asset) => asset.rights_status !== "CLEARED")) return { governed: false, missing: assets.length, reason: "RIGHTS" };
+  if (assets.some((asset) => asset.safety_status !== "CLEARED")) return { governed: false, missing: assets.length, reason: "SAFETY" };
+  return { governed: true, missing: 0, reason: "READY" };
+}
+
 export const COURSE_SYSTEM_STAGES: readonly CourseSystemStage[] = [
   { id: "S1", title: "家庭觉察", lesson_start: 1, lesson_end: 4, output: "家庭问题地图" },
   { id: "S2", title: "关系连接", lesson_start: 5, lesson_end: 8, output: "沟通与关系行动卡" },

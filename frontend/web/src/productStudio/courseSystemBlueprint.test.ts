@@ -4,6 +4,7 @@ import {
   COURSE_SYSTEM_STAGES,
   buildLessonDeliveryMatrix,
   summarizeLessonDelivery,
+  evaluateCoursewareGovernance,
   validateCourseSystemBlueprint,
 } from "./courseSystemBlueprint";
 
@@ -48,5 +49,11 @@ describe("course system blueprint", () => {
     });
     expect(rows[0].courseware_status).toBe("READY");
     expect(rows[1].courseware_status).toBe("REVIEW_REQUIRED");
+  });
+
+  it("explains the first failing courseware governance gate", () => {
+    expect(evaluateCoursewareGovernance(undefined).reason).toBe("NO_ASSET");
+    expect(evaluateCoursewareGovernance([{ qa_status: "DRAFT", rights_status: "CLEARED", safety_status: "CLEARED" }]).reason).toBe("QA");
+    expect(evaluateCoursewareGovernance([{ qa_status: "APPROVED", rights_status: "CLEARED", safety_status: "CLEARED" }]).governed).toBe(true);
   });
 });

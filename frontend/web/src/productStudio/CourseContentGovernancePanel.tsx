@@ -5,6 +5,7 @@ import {
   type CourseContentReadApiClient,
   type PublishedCourseContent,
 } from "./courseContentApi";
+import { evaluateCoursewareGovernance } from "./courseSystemBlueprint";
 
 export function CourseContentGovernancePanel({
   client = new HttpCourseContentReadApiClient(),
@@ -22,7 +23,7 @@ export function CourseContentGovernancePanel({
     system: Boolean(selected.course_system_version_ref),
     lessons: selected.lessons.length === 24 && selected.lessons.every((lesson) => lesson.stage_id && lesson.bom_line_ref),
     package: Boolean(selected.product_component_id),
-    assets: selected.lessons.every((lesson) => lesson.courseware_assets?.every((asset) => asset.qa_status === "APPROVED" && asset.rights_status === "CLEARED" && asset.safety_status === "CLEARED")),
+    assets: selected.lessons.every((lesson) => evaluateCoursewareGovernance(lesson.courseware_assets).governed),
   } : null;
   const totals = useMemo(() => ({
     lessons: courses.reduce((sum, course) => sum + course.lessons.length, 0),
