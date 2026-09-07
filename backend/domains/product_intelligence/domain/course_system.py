@@ -15,6 +15,8 @@ from .errors import ProductIntelligenceValidationError
 
 CoursewareKind = Literal["DECK", "WORKSHEET", "IMAGE", "VIDEO", "AUDIO", "DOCUMENT"]
 CoursewareQaStatus = Literal["DRAFT", "REVIEW_REQUIRED", "APPROVED"]
+CoursewareRightsStatus = Literal["UNKNOWN", "CLEARED", "RESTRICTED"]
+CoursewareSafetyStatus = Literal["UNKNOWN", "REVIEW_REQUIRED", "CLEARED"]
 
 
 def _required(value: str, field_name: str) -> str:
@@ -52,6 +54,8 @@ class CoursewareArtifactRef(BaseModel):
     version_ref: str
     provenance_ref: str
     qa_status: CoursewareQaStatus = "DRAFT"
+    rights_status: CoursewareRightsStatus = "UNKNOWN"
+    safety_status: CoursewareSafetyStatus = "UNKNOWN"
 
     @field_validator("artifact_id", "version_ref", "provenance_ref")
     @classmethod

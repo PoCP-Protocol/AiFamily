@@ -45,6 +45,25 @@ def test_course_system_covers_six_stages_and_can_bind_bom() -> None:
     )
     assert system.stages[-1].lesson_end == 24
     assert system.bom[0].artifacts[0].qa_status == "DRAFT"
+    assert system.bom[0].artifacts[0].rights_status == "UNKNOWN"
+    assert system.bom[0].artifacts[0].safety_status == "UNKNOWN"
+
+
+def test_courseware_asset_is_not_governed_until_all_gates_clear() -> None:
+    asset = CoursewareArtifactRef(
+        artifact_id="deck:lesson-01",
+        kind="DECK",
+        version_ref="deck:lesson-01@v1",
+        provenance_ref="generation-run:abc",
+        qa_status="APPROVED",
+        rights_status="CLEARED",
+        safety_status="REVIEW_REQUIRED",
+    )
+    assert not (
+        asset.qa_status == "APPROVED"
+        and asset.rights_status == "CLEARED"
+        and asset.safety_status == "CLEARED"
+    )
 
 
 def test_design_time_system_binds_all_24_lesson_positions() -> None:
