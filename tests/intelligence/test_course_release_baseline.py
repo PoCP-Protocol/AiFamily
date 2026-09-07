@@ -97,3 +97,19 @@ def test_course_release_supports_pause_rollback_and_retire():
     assert paused.status.value == "PAUSED"
     assert rolled_back.rollback_target_ref.endswith("@v0")
     assert retired.status.value == "RETIRED"
+
+
+def test_course_release_rejects_illegal_lifecycle_transitions():
+    baseline = compile_course_release_baseline(_payload())
+    evidence = (GateEvidence("evidence-1", "QA", "qa://course-24", "治理证据"),)
+    with pytest.raises(Exception, match="RELEASE_REQUIRES_APPROVAL"):
+        baseline.release(decided_by="human:operator-1", evidence=evidence)
+    released = baseline.approve(
+        decided_by="human:operator-1", human_gate_ref="gate:course-24", evidence=evidence
+    ).release(decided_by="human:operator-1", evidence=evidence)
+    paused = released.pause(decided_by="human:operator-1", evidence=evidence)
+    with pytest.raises(Exception, match="RELEASE_PAUSE_INVALID"):
+        paused.pause(decided_by="human:operator-1", evidence=evidence)
+    retired = paused.retire(decided_by="human:operator-1", evidence=evidence)
+    with pytest.raises(Exception, match="RELEASE_ROLLBACK_STATUS_INVALID"):
+        retired.rollback(target_ref="course-release:old@v1", decided_by="human:operator-1", evidence=evidence)
