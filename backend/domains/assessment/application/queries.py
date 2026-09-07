@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ..domain.errors import AssessmentForbiddenError
+from ..domain.knowledge_grounding import family_facing_grounding
 from ..domain.value_objects import Ui02AssessmentAvailability
 from .ports import AssessmentInterpretationPort, AssessmentRepositoryPort
 
@@ -24,6 +26,13 @@ class GetUi03ProjectionQuery:
     tenant_id: str
     actor_id: str
     correlation_id: str = ""
+
+
+@dataclass(frozen=True)
+class GetAssessmentResultProjectionQuery:
+    family_id: str
+    tenant_id: str
+    actor_id: str
 
 
 class AssessmentQueryHandler:
@@ -124,6 +133,74 @@ class AssessmentQueryHandler:
         hypothesis = _map_hypothesis(evidence, interpretation)
         return _ui03_projection(
             query.tenant_id, query.family_id, "READY", hypothesis, ai_state="MODEL_DRAFT_READY"
+        )
+
+    async def get_assessment_result_projection(
+        self, query: GetAssessmentResultProjectionQuery
+    ) -> dict:
+        """Return the latest submitted assessment as a family-scoped read model.
+
+        The result is derived from the submitted session and its evidence
+        lineage. It does not create a second ``FamilyNeed``/``Consent`` object,
+        write a canonical Fact, or calculate a family score. Consent is checked
+        again at read time so withdrawal cannot leave a stale result visible.
+        """
+        await self._repository.assert_tenant_family_scope(
+            query.tenant_id, query.family_id, query.actor_id
+        )
+        if not await self._repository.tenant_allows_page(query.tenant_id, "UI-02"):
+            return _assessment_result_projection(
+                query.tenant_id, query.family_id, "POLICY_BLOCKED", None
+            )
+
+        evidence = await self._repository.load_hypothesis_evidence(
+            query.family_id, query.tenant_id
+        )
+        if evidence is None:
+            return _assessment_result_projection(
+                query.tenant_id, query.family_id, "NO_RESULT", None
+            )
+
+        try:
+            await self._repository.assert_subject_consent(
+                query.family_id, evidence.subject_person_id, "ASSESSMENT"
+            )
+        except AssessmentForbiddenError:
+            # The repository port exposes the domain error rather than a
+            # boolean, preserving fail-closed behavior without leaking the
+            # submitted result after consent withdrawal.
+            return _assessment_result_projection(
+                query.tenant_id, query.family_id, "CONSENT_REQUIRED", None
+            )
+
+        await self._repository.record_read_access(
+            tenant_id=query.tenant_id,
+            family_id=query.family_id,
+            actor_id=query.actor_id,
+            action="assessment.result.read",
+            resource_type="ASSESSMENT_PROJECTION",
+            resource_id=f"ASSESSMENT_RESULT:{query.family_id}",
+            subject_person_id=evidence.subject_person_id,
+            accessed_fields=(
+                "subject_person_id",
+                "subject_display_name",
+                "assessment_response_set",
+                "growth_hypothesis_evidence",
+            ),
+            access_purpose="ASSESSMENT",
+            reason="family assessment result projection",
+            correlation_id=f"assessment-read:RESULT:{query.family_id}",
+            approval_ref=f"consent:ASSESSMENT:{evidence.subject_person_id}",
+        )
+
+        interpretation = await self._interpretation.interpret(
+            query.family_id, evidence, "ASSESSMENT_RESULT_EXPLANATION"
+        )
+        return _assessment_result_projection(
+            query.tenant_id,
+            query.family_id,
+            "READY",
+            _map_assessment_result(evidence, interpretation),
         )
 
 
@@ -348,4 +425,173 @@ def _map_hypothesis(evidence, interpretation: dict) -> dict:
         ],
         "fact_boundary": "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS",
         "scorecard": interpretation.get("scorecard"),
+    }
+
+
+def _assessment_result_projection(
+    tenant_id: str, family_id: str, status: str, result: dict | None
+) -> dict:
+    return {
+        "projection_version": "ASSESSMENT_RESULT_V1",
+        "tenant_id": tenant_id,
+        "family_id": family_id,
+        "status": status,
+        "result": result,
+    }
+
+
+def _map_assessment_result(evidence, interpretation: dict) -> dict:
+    """Map submitted evidence into a bounded, explainable result projection."""
+    draft = interpretation.get("interpretation", {}).get("draft", {})
+    knowledge = family_facing_grounding(evidence.focus_ref)
+    source_refs = [
+        evidence.assessment_evidence_id,
+        evidence.assessment_session_id,
+        evidence.assessment_response_id,
+    ]
+    recommendation_text = knowledge.get("core_claim") or evidence.description
+    recommendations = [
+        {
+            "text": evidence.description,
+            "source": "FAMILY_ASSESSMENT_EVIDENCE",
+            "status": "DRAFT",
+        },
+        {
+            "text": recommendation_text,
+            "source": (
+                knowledge.get("primary_card_ref")
+                if knowledge.get("status") == "GROUNDED"
+                else "FAMILY_ASSESSMENT_EVIDENCE"
+            ),
+            "status": "DRAFT",
+        },
+    ]
+    hypothesis_ref = f"ASSESSMENT:{evidence.assessment_session_id}:H1"
+    hypotheses = [
+        {
+            "hypothesis_ref": hypothesis_ref,
+            "text": (
+                f"家庭可能正在围绕“{evidence.title}”经历一个需要共同调整的循环，"
+                "先改变互动与环境，再观察孩子的回应。"
+            ),
+            "basis": "本次家庭回答与已审核知识参考",
+            "status": "DRAFT",
+        },
+        {
+            "hypothesis_ref": f"ASSESSMENT:{evidence.assessment_session_id}:H2",
+            "text": (
+                "也可能是当前信息还不足以判断主要卡点，需要在不同日常场景中继续观察，"
+                "再决定先调整沟通、节奏还是家庭约定。"
+            ),
+            "basis": "本次回答范围有限",
+            "status": "DRAFT",
+        },
+    ]
+    dimension_titles = {
+        "LEARNING_HABITS": "学习习惯",
+        "EMOTION_REGULATION": "情绪管理",
+        "PARENT_CHILD_COMMUNICATION": "亲子沟通",
+        "DEVICE_USE_CONTEXT": "手机依赖",
+        "SELF_REGULATION": "自律能力",
+    }
+    response_refs = {str(response["item_ref"]) for response in evidence.response_set}
+    dimension_snapshots = [
+        {
+            "focus_ref": focus_ref,
+            "title": title,
+            "observation_status": (
+                "OBSERVED" if f"{focus_ref}_Q01" in response_refs else "NOT_YET_OBSERVED"
+            ),
+            "observed_item_refs": sorted(
+                ref for ref in response_refs if ref.startswith(f"{focus_ref}_")
+            ),
+        }
+        for focus_ref, title in dimension_titles.items()
+    ]
+    plan_source_refs = source_refs + knowledge.get("card_refs", [])
+    return {
+        "result_id": f"ASSESSMENT_RESULT:{evidence.assessment_session_id}",
+        "assessment_session_id": evidence.assessment_session_id,
+        "subject": {
+            "person_id": evidence.subject_person_id,
+            "display_name": evidence.subject_display_name,
+        },
+        "focus_ref": evidence.focus_ref,
+        "family_need_ref": evidence.need_type_ref,
+        "title": evidence.title,
+        "explanation": {
+            "headline": f"家庭可以先从“{evidence.title}”开始",
+            "summary": evidence.description,
+            "observations": [
+                {
+                    "item_ref": response["item_ref"],
+                    "response_value": response["response_value"],
+                    "kind": "ASSESSMENT_RESPONSE",
+                }
+                for response in evidence.response_set
+            ],
+            "hypothesis": (
+                "这是基于本次家庭回答整理出的待验证支持方向，"
+                "你可以拒绝它或重新开始一次测评。"
+            ),
+            "hypotheses": hypotheses,
+            "mechanism": knowledge.get("mechanism"),
+            "recommendations": recommendations,
+        },
+        "dimensions": dimension_snapshots,
+        "knowledge_grounding": knowledge,
+        "growth_plan": {
+            "plan_ref": f"ASSESSMENT_PLAN:{evidence.assessment_session_id}",
+            "status": "DRAFT",
+            "goal": (
+                f"让家庭围绕“{evidence.title}”形成共同参与、共同调整的日常节奏。"
+            ),
+            "phases": [
+                {
+                    "phase_ref": "OBSERVE_7D",
+                    "title": "看见循环",
+                    "duration_days": 7,
+                    "prompt": "记录触发、回应和结果，不急着评价谁做得对。",
+                },
+                {
+                    "phase_ref": "PRACTICE_21D",
+                    "title": "共同练习",
+                    "duration_days": 21,
+                    "prompt": "选择一种家庭回应方式，由家长和孩子一起调整。",
+                },
+                {
+                    "phase_ref": "REVIEW_90D",
+                    "title": "形成节奏",
+                    "duration_days": 90,
+                    "prompt": "每周回看一次：什么更顺了，什么需要换一种方法。",
+                },
+            ],
+            "source_refs": plan_source_refs,
+            "boundary": "FAMILY_PLAN_DRAFT_REQUIRES_FAMILY_CONFIRMATION",
+        },
+        "evidence_lineage": {
+            "source_refs": source_refs,
+            "tool_ref": evidence.tool_ref,
+            "tool_version": evidence.tool_version,
+            "submitted_at": evidence.submitted_at,
+        },
+        "ai": {
+            "generator": interpretation.get("interpretation", {}).get(
+                "generator", "DETERMINISTIC_TEST_BASELINE"
+            ),
+            "model": None,
+            "model_version": None,
+            "prompt_version": None,
+            "context_snapshot_ref": None,
+            "provenance_refs": source_refs,
+            "model_gateway_status": "NOT_INVOKED",
+            "may_mutate_business_state": False,
+        },
+        "boundary": "FAMILY_PERSPECTIVE_NOT_SCORE_OR_DIAGNOSIS",
+        "draft_metadata": {
+            "boundary_labels": draft.get(
+                "boundary_labels", ["hypothesis_not_fact", "recommendation_not_decision"]
+            ),
+            "review_required": False,
+        },
     }
