@@ -29,4 +29,5 @@ describe("CourseReleaseBaselineWorkbench", () => {
     render(<CourseReleaseBaselineWorkbench />);
     expect(screen.getByText(/CourseContent DRAFT 与本发布基线是两个不同层级的对象/)).toBeInTheDocument();
   });
+
 });

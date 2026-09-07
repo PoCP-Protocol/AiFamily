@@ -86,7 +86,7 @@ export function CourseReleaseBaselineWorkbench() {
         <button className="primary-button" disabled type="button">提交人工发布门禁</button>
       </div>
       {error ? <div className="callout" role="alert"><strong>发布基线未通过</strong><p>{error}</p></div> : null}
-      {compiled ? <details className="course-contract-preview"><summary>查看不可变发布基线合同</summary><pre>{compiled}</pre></details> : null}
+      {compiled ? <div className="callout" role="status" aria-label="共享PLM草稿状态"><strong>共享 PLM ReleaseBaseline DRAFT 已编译</strong><p>该结果已映射到统一 ReleaseBaseline 合同，状态仍为 DRAFT；尚未审批、发布或写入生产状态。</p><details className="course-contract-preview"><summary>查看不可变发布基线合同</summary><pre>{compiled}</pre></details></div> : null}
     </section>
   );
 }
