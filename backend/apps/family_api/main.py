@@ -66,6 +66,7 @@ from backend.domains.membership.api.routes import router as membership_router
 from backend.domains.product_intelligence.api.course_routes import (
     configure_course_content_gate,
     configure_course_content_repository,
+    configure_course_system_repository,
 )
 from backend.domains.product_intelligence.api.course_routes import (
     router as course_content_router,
@@ -90,6 +91,9 @@ from backend.domains.product_intelligence.application.context import (
 )
 from backend.domains.product_intelligence.infrastructure.course_content_repository import (
     InMemoryCourseContentRepository,
+)
+from backend.domains.product_intelligence.infrastructure.course_system_repository import (
+    InMemoryCourseSystemRepository,
 )
 from backend.domains.product_intelligence.infrastructure.course_content_wiring import (
     install_course_content_production_wiring,
@@ -303,6 +307,7 @@ def _mount_course_content(application: FastAPI, *, database_url: str | None = No
         return
 
     configure_course_content_repository(InMemoryCourseContentRepository())
+    configure_course_system_repository(InMemoryCourseSystemRepository())
     configure_course_content_gate(InMemoryHumanGate())
 
     def _dev_product_intelligence_actor(request) -> ProductIntelligenceActorContext:  # noqa: ANN001
@@ -397,6 +402,7 @@ def create_app(
     experience_operations_query_service: AuthorizedExperienceOperationsQueryService | None = None,
     experience_operations_cursor_signer: HmacExperienceOperationsCursorSigner | None = None,
     experience_operations_query_wiring: Callable[[FastAPI], None] | None = None,
+    assessment_production_ai_wiring: Callable[[FastAPI], None] | None = None,
 ) -> FastAPI:
     _configure_fgcn_persistence()
     application = FastAPI(title="AiFamily family_api", version="0.1.0")
@@ -528,6 +534,20 @@ def create_app(
         experience_runtime_wiring(application)
     if engagement_runtime_resolver is not None:
         install_engagement_runtime_resolver(application, engagement_runtime_resolver)
+    # Same "install after dev wiring" rule as experience_runtime_wiring above:
+    # an explicitly supplied assessment AI composition (real Model Gateway +
+    # Agent Runtime + Context Engine, per `ProductionAssessmentAiComposition`)
+    # must overwrite dev_wiring's `DeterministicInterpretationAdapter`
+    # dependency_overrides, not lose a race against them. Without this hook,
+    # `create_app()` could never actually serve the generative UI-02 -> UI-03
+    # interpretation path over HTTP — the composition and its 7 tests
+    # (`tests/apps/family_api/test_production_assessment_ai_wiring.py`) existed
+    # but nothing called `install_production_assessment_http_wiring` from the
+    # app factory itself.
+    if assessment_production_ai_wiring is not None:
+        if not callable(assessment_production_ai_wiring):
+            raise TypeError("assessment_production_ai_wiring must be callable")
+        assessment_production_ai_wiring(application)
     if engagement_runtime_wiring is not None:
         if not callable(engagement_runtime_wiring):
             raise TypeError("engagement_runtime_wiring must be callable")

@@ -28,7 +28,12 @@ from ..application.course_publication import (
     list_published_course_content,
     submit_course_content_for_review,
 )
+from ..application.course_system_queries import (
+    CourseSystemRepository,
+    get_course_system,
+)
 from ..domain.course_content import CourseLesson
+from ..domain.course_system import CourseSystem
 from ..domain.errors import ProductIntelligenceDomainError
 from .dependencies import get_actor_context
 
@@ -41,12 +46,18 @@ _ERROR_STATUS = {
 }
 
 _repository: CourseContentRepository | None = None
+_course_system_repository: CourseSystemRepository | None = None
 _gate: InMemoryHumanGate | None = None
 
 
 def configure_course_content_repository(repository: CourseContentRepository | None) -> None:
     global _repository
     _repository = repository
+
+
+def configure_course_system_repository(repository: CourseSystemRepository | None) -> None:
+    global _course_system_repository
+    _course_system_repository = repository
 
 
 def configure_course_content_gate(gate: InMemoryHumanGate | None) -> None:
@@ -56,6 +67,7 @@ def configure_course_content_gate(gate: InMemoryHumanGate | None) -> None:
 
 def clear_course_content_wiring() -> None:
     configure_course_content_repository(None)
+    configure_course_system_repository(None)
     configure_course_content_gate(None)
 
 
@@ -69,6 +81,12 @@ async def get_course_content_gate() -> InMemoryHumanGate:
     if _gate is None:
         raise RuntimeError("course_content Human Gate not configured — no owning app exists yet")
     return _gate
+
+
+async def get_course_system_repository() -> CourseSystemRepository:
+    if _course_system_repository is None:
+        raise RuntimeError("course_system repository not configured")
+    return _course_system_repository
 
 
 def _raise_http(exc: ProductIntelligenceDomainError) -> NoReturn:
@@ -107,6 +125,20 @@ class DecideCourseContentReviewRequest(BaseModel):
     task_id: str
     approved: bool
     reason: str
+
+
+@router.get("/system/{system_id}", response_model=CourseSystem)
+async def get_system(
+    system_id: str,
+    repository: CourseSystemRepository = Depends(get_course_system_repository),
+    context: ActorContext = Depends(get_actor_context),
+):
+    try:
+        return await get_course_system(
+            repository, system_id=system_id, tenant_scope=context.tenant_scope
+        )
+    except ProductIntelligenceDomainError as exc:
+        _raise_http(exc)
 
 
 @router.post("")
@@ -210,5 +242,6 @@ __all__ = [
     "clear_course_content_wiring",
     "configure_course_content_gate",
     "configure_course_content_repository",
+    "configure_course_system_repository",
     "router",
 ]
