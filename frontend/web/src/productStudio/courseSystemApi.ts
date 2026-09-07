@@ -1,0 +1,38 @@
+import { ProductStudioApiError, type ProductStudioFetch } from "./api";
+import type { CourseSystemBlueprint, CourseSystemStage } from "./courseSystemBlueprint";
+
+export interface CourseSystemApiClient { get(systemId: string): Promise<CourseSystemBlueprint>; }
+
+type Options = { baseUrl?: string; fetchImpl?: ProductStudioFetch };
+const stages = (value: unknown): CourseSystemStage[] => {
+  if (!Array.isArray(value) || value.length !== 6) throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系阶段数据无效。");
+  return value.map((item, index) => {
+    if (!item || typeof item !== "object") throw new ProductStudioApiError("INVALID_RESPONSE", `第${index + 1}阶段无效。`);
+    const row = item as Record<string, unknown>;
+    if (typeof row.stage_id !== "string" || typeof row.title !== "string" || typeof row.outcome !== "string"
+      || !Number.isInteger(row.lesson_start) || !Number.isInteger(row.lesson_end)) {
+      throw new ProductStudioApiError("INVALID_RESPONSE", `第${index + 1}阶段字段无效。`);
+    }
+    return { id: row.stage_id, title: row.title, lesson_start: Number(row.lesson_start), lesson_end: Number(row.lesson_end), output: row.outcome };
+  });
+};
+
+export function validateCourseSystem(value: unknown): CourseSystemBlueprint {
+  if (!value || typeof value !== "object") throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系响应无效。");
+  const row = value as Record<string, unknown>;
+  if (typeof row.system_id !== "string" || typeof row.tenant_scope !== "string" || !Number.isInteger(row.version)
+    || typeof row.product_package_version_ref !== "string") throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系主数据字段无效。");
+  const normalized = { system_id: row.system_id, version: `v${row.version}`, product_package_version_ref: row.product_package_version_ref, stages: stages(row.stages) };
+  return normalized;
+}
+
+export class HttpCourseSystemApiClient implements CourseSystemApiClient {
+  private readonly baseUrl: string;
+  private readonly fetchImpl: ProductStudioFetch;
+  constructor(options: Options = {}) { this.baseUrl = options.baseUrl ?? ""; this.fetchImpl = options.fetchImpl ?? fetch; }
+  async get(systemId: string): Promise<CourseSystemBlueprint> {
+    const response = await this.fetchImpl(`${this.baseUrl}/product-intelligence/courses/system/${encodeURIComponent(systemId)}`);
+    if (!response.ok) throw new ProductStudioApiError(response.status === 404 ? "NOT_FOUND" : "UNAVAILABLE", "课程体系暂不可读取。", response.status);
+    return validateCourseSystem(await response.json());
+  }
+}
