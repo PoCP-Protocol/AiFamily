@@ -66,7 +66,7 @@ export class HttpCourseSystemApiClient implements CourseSystemApiClient {
   private readonly tenantScope?: string;
   constructor(options: Options = {}) { this.baseUrl = options.baseUrl ?? ""; this.fetchImpl = options.fetchImpl ?? fetch; this.tenantScope = options.tenantScope?.trim() || undefined; }
   async get(systemId: string): Promise<CourseSystemBlueprint> {
-    const response = await this.fetchImpl(`${this.baseUrl}/product-intelligence/courses/system/${encodeURIComponent(systemId)}`);
+    const response = await this.fetchImpl(`${this.baseUrl}/product-intelligence/courses/system/${encodeURIComponent(systemId)}`, { headers: this.tenantScope ? { "x-tenant-scope": this.tenantScope } : undefined });
     if (!response.ok) throw new ProductStudioApiError(response.status === 404 ? "NOT_FOUND" : "UNAVAILABLE", "课程体系暂不可读取。", response.status);
     const system = validateCourseSystem(await response.json());
     if (this.tenantScope && system.tenant_scope !== this.tenantScope) throw new ProductStudioApiError("FORBIDDEN", "课程体系租户边界不一致。", response.status);
