@@ -883,9 +883,9 @@ entries:
   - capability: auth_identity
     disposition: MIGRATE
     source: ["50_开发_dev/apps/api/src/modules/auth"]
-    target: [backend/platform/identity]
-    status: PLANNED
-    evidence: ["1546行，真实 Postgres(identity_sessions/otp_challenges/accounts/tenants等)，唯一显式标注为替换点的是 OtpService 的 StubOtpSender", "AI 组合根已新增 provider-neutral IdentitySessionPort 与 mTLS HTTP 签发/轮换/撤销适配器（ADR-0117）；业务域迁移与真实 endpoint 仍未完成"]
+    target: [backend/domains/identity]
+    status: IN_PROGRESS
+    evidence: ["ADR-0011 裁决 canonical_path 由 backend/platform/identity 改为 backend/domains/identity（四层结构，platform/identity 永久限定为纯值对象）；已落地 Account/IdentitySession 真实 SqlAlchemy repository，复用遗留 baseline 的 accounts/identity_sessions 表（0015/0018/0019）+ 附加迁移 0071（family_scope_ref 列 + identity_receipts 幂等表）；4 个 /auth/* 端点已迁出 backend/domains/assessment/api/dev_auth.py，dev_auth.py 保留作 dev/test 替身+向后兼容的 DevAuthMirroringIdentityService 桥接层", "OtpChallenge 仅设计出接口(OtpSender Protocol)+StubOtpSender 占位，未接真实短信/邮箱供应商；未接线到任何端点"]
 
   - capability: assessment
     disposition: REIMPLEMENT
