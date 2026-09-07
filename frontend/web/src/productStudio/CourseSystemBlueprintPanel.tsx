@@ -39,7 +39,10 @@ export function CourseSystemBlueprintPanel({ client = new HttpCourseSystemApiCli
           交付准备度：{readiness.bom_ready_lessons}/{readiness.total_lessons} 节课件已就绪；
           {readiness.publish_ready ? "可进入发布评审" : `仍有 ${readiness.blocked_lessons} 节被 BOM 阻断`}
         </p>
-        <p aria-label="全局阻断原因">阻断构成：缺资产 {readiness.blocked_by_reason.NO_ASSET} · QA {readiness.blocked_by_reason.QA} · 版权 {readiness.blocked_by_reason.RIGHTS} · 安全 {readiness.blocked_by_reason.SAFETY}</p>
+        <div aria-label="全局阻断原因" role="group">
+          <span>阻断构成：</span>
+          {([['NO_ASSET', '缺资产'], ['QA', 'QA'], ['RIGHTS', '版权'], ['SAFETY', '安全']] as const).map(([reason, label]) => <button key={reason} type="button" aria-pressed={selectedReason === reason} onClick={() => setSelectedReason(selectedReason === reason ? null : reason)}>{label} {readiness.blocked_by_reason[reason]}</button>)}
+        </div>
         <ul aria-label="阶段交付准备度">
           {stageReadiness.map((stage) => <li key={stage.stage_id}><button type="button" aria-pressed={selectedStageId === stage.stage_id} onClick={() => setSelectedStageId(selectedStageId === stage.stage_id ? null : stage.stage_id)}><strong>{stage.stage_id} · {stage.stage_title}</strong><span>{stage.ready_lessons}/{stage.total_lessons} 就绪 · {stage.next_action}</span></button></li>)}
         </ul>
