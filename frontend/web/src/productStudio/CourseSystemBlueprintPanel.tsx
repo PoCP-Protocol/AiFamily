@@ -7,11 +7,13 @@ export function CourseSystemBlueprintPanel({ client = new HttpCourseSystemApiCli
   const [stages, setStages] = useState<typeof COURSE_SYSTEM_STAGES[number][]>([]);
   const [bomLessonSequences, setBomLessonSequences] = useState<number[]>([]);
   const [bomStatuses, setBomStatuses] = useState<Record<number, { qa_status: string; rights_status: string; safety_status: string }>>({});
+  const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
   const [state, setState] = useState("尚未读取课程体系主数据；下方蓝图仅为设计模板，不代表已发布课程。");
   useEffect(() => { let active = true; void client.get("course-system:family-growth").then((system) => { if (active) { setStages(system.stages); setBomLessonSequences(system.bom_lesson_sequences ?? []); setBomStatuses(system.bom_lesson_statuses ?? {}); setState("已读取课程体系主数据版本：" + system.version); } }).catch(() => { if (active) setState("课程体系主数据暂不可用；蓝图仍为设计模板，不代表已发布课程。"); }); return () => { active = false; }; }, [client]);
   const delivery = buildLessonDeliveryMatrix(stages.length ? stages : COURSE_SYSTEM_STAGES, bomLessonSequences, bomStatuses);
   const readiness = summarizeLessonDelivery(delivery);
   const stageReadiness = summarizeStageDelivery(delivery);
+  const visibleLessons = selectedStageId ? delivery.filter((lesson) => lesson.stage_id === selectedStageId) : delivery;
   return (
     <section aria-label="课程体系蓝图" className="panel course-system-blueprint">
       <p className="section-kicker">IPD · Service Product Architecture · Course System</p>
@@ -37,10 +39,11 @@ export function CourseSystemBlueprintPanel({ client = new HttpCourseSystemApiCli
           {readiness.publish_ready ? "可进入发布评审" : `仍有 ${readiness.blocked_lessons} 节被 BOM 阻断`}
         </p>
         <ul aria-label="阶段交付准备度">
-          {stageReadiness.map((stage) => <li key={stage.stage_id}><strong>{stage.stage_id} · {stage.stage_title}</strong><span>{stage.ready_lessons}/{stage.total_lessons} 就绪 · {stage.next_action}</span></li>)}
+          {stageReadiness.map((stage) => <li key={stage.stage_id}><button type="button" aria-pressed={selectedStageId === stage.stage_id} onClick={() => setSelectedStageId(selectedStageId === stage.stage_id ? null : stage.stage_id)}><strong>{stage.stage_id} · {stage.stage_title}</strong><span>{stage.ready_lessons}/{stage.total_lessons} 就绪 · {stage.next_action}</span></button></li>)}
         </ul>
+        {selectedStageId ? <p role="status">当前筛选：{stageReadiness.find((stage) => stage.stage_id === selectedStageId)?.stage_title} · <button type="button" onClick={() => setSelectedStageId(null)}>显示全部课时</button></p> : null}
         <ol aria-label="24课时交付清单">
-          {delivery.map((lesson) => (
+          {visibleLessons.map((lesson) => (
             <li key={lesson.sequence}>
               <strong>第{lesson.sequence}课 · {lesson.stage_title}</strong>
               <span>{lesson.product_outcome} · {lesson.service_action} · {lesson.courseware_status} · {lesson.governance_reason === "READY" ? "治理通过" : `阻断：${lesson.governance_reason}`}</span>
