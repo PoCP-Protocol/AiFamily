@@ -103,3 +103,46 @@ def test_course_system_rejects_stage_gap_and_duplicate_bom_position() -> None:
                 ),
             ),
         )
+
+
+def test_course_content_lineage_rejects_wrong_bom_reference() -> None:
+    from datetime import UTC, datetime
+
+    from backend.domains.product_intelligence.domain.course_content import (
+        CourseContent,
+        CourseLesson,
+    )
+
+    lessons = tuple(
+        CourseLesson(
+            lesson_id=f"lesson-{index:02d}",
+            sequence=index,
+            title=f"课时{index}",
+            knowledge_point="知识",
+            action_task="行动",
+            stage_id=f"S{(index - 1) // 4 + 1}",
+            bom_line_ref=(
+                f"courseware:family-growth:lesson-{index:02d}@v2"
+                if index == 1
+                else f"courseware:family-growth:lesson-{index:02d}@v1"
+            ),
+        )
+        for index in range(1, 25)
+    )
+    with raises(ProductIntelligenceValidationError, match="lesson_lineage_invalid"):
+        CourseContent(
+            id="course-content:test",
+            tenant_scope="dev",
+            created_by="author",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+            title="课程",
+            course_system_version_ref="course-system:family-growth@v1",
+            problem_statement="问题",
+            assessment_criteria=("标准",),
+            learning_goal="目标",
+            lessons=lessons,
+            review_cadence="每6节",
+            outcome_metrics=("指标",),
+            content_accuracy_claim_refs=("claim:1",),
+        )
