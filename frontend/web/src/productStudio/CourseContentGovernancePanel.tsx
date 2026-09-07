@@ -18,6 +18,11 @@ export function CourseContentGovernancePanel({
   const [error, setError] = useState<ProductStudioApiError | null>(null);
   const [busy, setBusy] = useState(false);
   const selected = courses.find((course) => course.id === selectedId) ?? courses[0] ?? null;
+  const lineage = selected ? {
+    system: Boolean(selected.course_system_version_ref),
+    lessons: selected.lessons.length === 24 && selected.lessons.every((lesson) => lesson.stage_id && lesson.bom_line_ref),
+    package: Boolean(selected.product_component_id),
+  } : null;
   const totals = useMemo(() => ({
     lessons: courses.reduce((sum, course) => sum + course.lessons.length, 0),
     assets: courses.reduce((sum, course) => sum + course.lessons.reduce((count, lesson) => count + lesson.media_asset_ids.length, 0), 0),
@@ -70,8 +75,9 @@ export function CourseContentGovernancePanel({
               <section aria-label="课程治理缺口" className="course-governance-gaps">
                 <h4>当前契约缺口</h4>
                 <ul>
-                  <li><strong>课程体系：MISSING_FROM_CONTRACT</strong><span>六大体系分类没有进入 CourseContent/API。</span></li>
-                  <li><strong>产品包血缘：{selected.product_component_id ? "COMPONENT_REF_ONLY" : "NOT_LINKED"}</strong><span>没有 ProductPackage/ProductDefinition 冻结版本与内容哈希。</span></li>
+                  <li><strong>课程体系：{lineage?.system ? "BOUND" : "MISSING_FROM_CONTRACT"}</strong><span>{lineage?.system ? `已绑定 ${selected.course_system_version_ref}` : "课程体系版本没有进入 CourseContent/API。"}</span></li>
+                  <li><strong>课时/BOM血缘：{lineage?.lessons ? "BOUND" : "INCOMPLETE"}</strong><span>{lineage?.lessons ? "24个课时均有阶段与BOM引用。" : "存在缺失的阶段或BOM引用。"}</span></li>
+                  <li><strong>产品包血缘：{lineage?.package ? "COMPONENT_REF_ONLY" : "NOT_LINKED"}</strong><span>没有 ProductPackage/ProductDefinition 冻结版本与内容哈希。</span></li>
                   <li><strong>课件资产：REFERENCE_ONLY</strong><span>资产没有版本、哈希、生成 provenance、版权、安全及 QA 状态。</span></li>
                   <li><strong>证据准入：NOT_EVALUATED</strong><span>claim refs 不等同于 EvidenceVerificationReceipt 准入。</span></li>
                 </ul>
