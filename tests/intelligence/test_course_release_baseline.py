@@ -62,6 +62,13 @@ def test_course_release_rejects_lesson_without_skill_or_asset_ref():
         compile_course_release_baseline(payload)
 
 
+def test_course_release_rejects_unversioned_global_reference():
+    payload = _payload()
+    payload["course_system_version_ref"] = "course-system:family-growth"
+    with pytest.raises(ValueError, match="VERSION_REF_INVALID"):
+        compile_course_release_baseline(payload)
+
+
 def test_course_release_draft_enters_shared_human_release_lifecycle():
     baseline = compile_course_release_baseline(_payload())
     evidence = (GateEvidence("evidence-1", "QA", "qa://course-24", "课件治理通过"),)

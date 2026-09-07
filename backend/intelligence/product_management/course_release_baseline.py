@@ -17,6 +17,13 @@ def _split_versioned_ref(value: str, code: str) -> tuple[str, str]:
     return resource, f"v{version}"
 
 
+def _require_versioned_ref(value: object, code: str) -> str:
+    normalized = str(value).strip()
+    if "@v" not in normalized or not normalized.rsplit("@v", 1)[1].isdigit():
+        raise ValueError(code)
+    return normalized
+
+
 def compile_course_release_baseline(payload: Mapping[str, object]) -> ReleaseBaseline:
     """Build a shared ``ReleaseBaseline`` from a validated course payload.
 
@@ -43,6 +50,8 @@ def compile_course_release_baseline(payload: Mapping[str, object]) -> ReleaseBas
         for key in required
     ):
         raise ValueError("COURSE_RELEASE_VERSION_REFS_REQUIRED")
+    for key in required:
+        _require_versioned_ref(payload[key], "COURSE_RELEASE_VERSION_REF_INVALID")
     evidence_refs = refs("evidence_receipt_refs")
     if not evidence_refs:
         raise ValueError("COURSE_RELEASE_EVIDENCE_REQUIRED")
@@ -75,6 +84,8 @@ def compile_course_release_baseline(payload: Mapping[str, object]) -> ReleaseBas
         )
     ):
         raise ValueError("COURSE_RELEASE_LESSON_REFS_REQUIRED")
+    for ref in lesson_refs + asset_refs + skill_refs:
+        _require_versioned_ref(ref, "COURSE_RELEASE_LESSON_REF_INVALID")
     return ReleaseBaseline(
         release_id=f"course-release:{payload['course_content_version_ref']}",
         package_id=package_id,
