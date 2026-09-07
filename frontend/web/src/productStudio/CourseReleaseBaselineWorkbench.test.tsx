@@ -24,4 +24,9 @@ describe("CourseReleaseBaselineWorkbench", () => {
     await user.click(screen.getByRole("button", { name: "编译发布基线 DRAFT" }));
     expect(screen.getByRole("alert")).toHaveTextContent("发布基线未通过");
   });
+
+  it("states that the baseline is not the CourseContent review object", () => {
+    render(<CourseReleaseBaselineWorkbench />);
+    expect(screen.getByText(/CourseContent DRAFT 与本发布基线是两个不同层级的对象/)).toBeInTheDocument();
+  });
 });

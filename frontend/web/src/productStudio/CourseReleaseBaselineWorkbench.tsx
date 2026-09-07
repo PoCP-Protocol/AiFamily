@@ -49,7 +49,7 @@ export function CourseReleaseBaselineWorkbench() {
       <p className="section-kicker">PLM · Immutable BOM · Release candidate · Human decision</p>
       <h2>课程发布基线与课件 BOM</h2>
       <p className="muted">冻结课程体系、产品包、产品定义、24课时、内容规格、课件资产包、Skill、Prompt、安全策略与证据回执的精确版本。编译成功仍只是 DRAFT。</p>
-      <div className="callout" role="note"><strong>合同预览，尚无生产发布路由</strong><p>浏览器不能创建 RELEASED 状态、回滚目标或人工决定；正式发布必须由服务端 Human Gate 生成。</p></div>
+      <div className="callout" role="note"><strong>合同预览，尚无生产发布路由</strong><p>浏览器不能创建 RELEASED 状态、回滚目标或人工决定；正式发布必须由服务端 Human Gate 生成。</p><p>当前 CourseContent DRAFT 与本发布基线是两个不同层级的对象；编译结果不会自动提交或升级为课程发布版本。</p></div>
 
       <div className="course-release-lineage-grid">
         <label>课程体系版本引用<input value={form.course_system_version_ref} onChange={(event) => updateField("course_system_version_ref", event.target.value)} placeholder="course-system:learning-growth@v1" /></label>
