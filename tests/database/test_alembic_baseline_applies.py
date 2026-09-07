@@ -214,6 +214,13 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
+    # 0069 owns the ai_run_ledger table — one new table. Cross-cutting AI-runtime
+    # diagnostic ledger, no domain prefix by design (see migration docstring).
+    "0069_ai_run_ledger": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 73,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
 }
 
 _MODEL_DRAFTS_ADR = (
