@@ -102,6 +102,8 @@ class CourseLessonRequest(BaseModel):
     action_task: str
     media_asset_ids: list[str] = Field(default_factory=list)
     tool_refs: list[str] = Field(default_factory=list)
+    stage_id: str | None = None
+    bom_line_ref: str | None = None
 
 
 class CreateCourseContentDraftRequest(BaseModel):
@@ -164,6 +166,8 @@ async def create_draft(
                     action_task=lesson.action_task,
                     media_asset_ids=tuple(lesson.media_asset_ids),
                     tool_refs=tuple(lesson.tool_refs),
+                    stage_id=lesson.stage_id,
+                    bom_line_ref=lesson.bom_line_ref,
                 )
                 for lesson in body.lessons
             ],

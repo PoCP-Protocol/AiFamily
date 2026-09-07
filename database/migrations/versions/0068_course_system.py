@@ -30,8 +30,10 @@ def upgrade() -> None:
         "course_system",
         ["tenant_scope", "version"],
     )
+    op.add_column("course_content", sa.Column("course_system_version_ref", sa.String(length=256), nullable=True))
 
 
 def downgrade() -> None:
+    op.drop_column("course_content", "course_system_version_ref")
     op.drop_index("ix_course_system_tenant_version", table_name="course_system")
     op.drop_table("course_system")

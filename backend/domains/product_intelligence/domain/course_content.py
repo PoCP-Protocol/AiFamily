@@ -87,6 +87,8 @@ class CourseLesson(BaseModel):
     action_task: str
     media_asset_ids: tuple[str, ...] = ()
     tool_refs: tuple[str, ...] = ()
+    stage_id: str | None = None
+    bom_line_ref: str | None = None
 
     @field_validator("lesson_id", "title", "knowledge_point", "action_task")
     @classmethod
@@ -97,6 +99,11 @@ class CourseLesson(BaseModel):
     @classmethod
     def _refs_valid(cls, value: tuple[str, ...], info):
         return _refs(value, info.field_name, allow_empty=True)
+
+    @field_validator("stage_id", "bom_line_ref")
+    @classmethod
+    def _optional_ref(cls, value: str | None, info) -> str | None:
+        return _text(value, info.field_name) if value is not None else None
 
 
 class CourseContent(BaseModel):
@@ -134,6 +141,7 @@ class CourseContent(BaseModel):
 
     title: str
     product_component_id: str | None = None
+    course_system_version_ref: str | None = None
     problem_statement: str
     assessment_criteria: tuple[str, ...]
     learning_goal: str

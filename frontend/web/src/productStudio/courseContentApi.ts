@@ -53,7 +53,7 @@ type Options = {
 const COURSE_PREFIX = "/product-intelligence/courses";
 const COURSE_KEYS = new Set([
   "id", "version", "status", "tenant_scope", "created_by", "created_at", "updated_at",
-  "title", "product_component_id", "problem_statement", "assessment_criteria", "learning_goal",
+  "title", "product_component_id", "course_system_version_ref", "problem_statement", "assessment_criteria", "learning_goal",
   "lessons", "ai_coach_prompt_ref", "review_cadence", "outcome_metrics",
   "content_accuracy_claim_refs", "reviewed_by", "reviewed_at", "review_reason", "published_at",
 ]);
