@@ -60,4 +60,9 @@ describe("CourseSystemBlueprintPanel", () => {
     expect(calls).toBe(0);
   });
 
+  it("shows a visible error when the published course directory fails", async () => {
+    render(<CourseSystemBlueprintPanel enabled courseContentClient={{ listPublished: async () => { throw new Error("offline"); }, get: async () => { throw new Error("unused"); } }} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("已发布课程目录暂不可读取");
+  });
+
 });
