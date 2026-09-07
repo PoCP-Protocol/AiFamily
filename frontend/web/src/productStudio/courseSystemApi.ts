@@ -20,8 +20,8 @@ const stages = (value: unknown): CourseSystemStage[] => {
 export function validateCourseSystem(value: unknown): CourseSystemBlueprint {
   if (!value || typeof value !== "object") throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系响应无效。");
   const row = value as Record<string, unknown>;
-  if (typeof row.system_id !== "string" || typeof row.tenant_scope !== "string" || !Number.isInteger(row.version)
-    || typeof row.product_package_version_ref !== "string") throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系主数据字段无效。");
+  if (typeof row.system_id !== "string" || !row.system_id.trim() || typeof row.tenant_scope !== "string" || !row.tenant_scope.trim() || !Number.isInteger(row.version) || Number(row.version) < 1
+    || typeof row.product_package_version_ref !== "string" || !row.product_package_version_ref.trim()) throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系主数据字段无效。");
   const bomStatuses: Record<number, { qa_status: string; rights_status: string; safety_status: string }> = {};
   if (row.bom !== undefined && !Array.isArray(row.bom)) throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系BOM必须是数组。");
   const bom = Array.isArray(row.bom) ? row.bom.flatMap((item) => {

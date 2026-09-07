@@ -61,4 +61,10 @@ describe("CourseSystem API client", () => {
     const client = new HttpCourseSystemApiClient({ fetchImpl: async () => response(payload) });
     await expect(client.get("course-system:family-growth")).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
+
+  it("rejects blank identity and package references", async () => {
+    const payload = { system_id: " ", tenant_scope: "dev", version: 0, product_package_version_ref: "", stages: [] };
+    const client = new HttpCourseSystemApiClient({ fetchImpl: async () => response(payload) });
+    await expect(client.get("course-system:family-growth")).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
 });
