@@ -3,7 +3,7 @@ import type { CourseSystemBlueprint, CourseSystemStage } from "./courseSystemBlu
 
 export interface CourseSystemApiClient { get(systemId: string): Promise<CourseSystemBlueprint>; }
 
-type Options = { baseUrl?: string; fetchImpl?: ProductStudioFetch };
+type Options = { baseUrl?: string; fetchImpl?: ProductStudioFetch; tenantScope?: string };
 const stages = (value: unknown): CourseSystemStage[] => {
   if (!Array.isArray(value) || value.length !== 6) throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系阶段数据无效。");
   const normalized = value.map((item, index) => {
@@ -56,17 +56,20 @@ export function validateCourseSystem(value: unknown): CourseSystemBlueprint {
   if (new Set(bom).size !== bom.length || bom.some((sequence) => sequence < 1 || sequence > 24)) {
     throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系BOM课次必须在1-24范围内且不可重复。");
   }
-  const normalized = { system_id: row.system_id, version: `v${row.version}`, product_package_version_ref: row.product_package_version_ref, stages: stages(row.stages), bom_lesson_sequences: bom, bom_lesson_statuses: bomStatuses };
+  const normalized = { system_id: row.system_id, tenant_scope: row.tenant_scope, version: `v${row.version}`, product_package_version_ref: row.product_package_version_ref, stages: stages(row.stages), bom_lesson_sequences: bom, bom_lesson_statuses: bomStatuses };
   return normalized;
 }
 
 export class HttpCourseSystemApiClient implements CourseSystemApiClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: ProductStudioFetch;
-  constructor(options: Options = {}) { this.baseUrl = options.baseUrl ?? ""; this.fetchImpl = options.fetchImpl ?? fetch; }
+  private readonly tenantScope?: string;
+  constructor(options: Options = {}) { this.baseUrl = options.baseUrl ?? ""; this.fetchImpl = options.fetchImpl ?? fetch; this.tenantScope = options.tenantScope?.trim() || undefined; }
   async get(systemId: string): Promise<CourseSystemBlueprint> {
     const response = await this.fetchImpl(`${this.baseUrl}/product-intelligence/courses/system/${encodeURIComponent(systemId)}`);
     if (!response.ok) throw new ProductStudioApiError(response.status === 404 ? "NOT_FOUND" : "UNAVAILABLE", "课程体系暂不可读取。", response.status);
-    return validateCourseSystem(await response.json());
+    const system = validateCourseSystem(await response.json());
+    if (this.tenantScope && system.tenant_scope !== this.tenantScope) throw new ProductStudioApiError("FORBIDDEN", "课程体系租户边界不一致。", response.status);
+    return system;
   }
 }

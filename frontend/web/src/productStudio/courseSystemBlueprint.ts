@@ -21,6 +21,7 @@ export type CoursewareArtifactRef = {
 
 export type CourseSystemBlueprint = {
   system_id: string;
+  tenant_scope?: string;
   version: string;
   product_package_version_ref: string;
   stages: CourseSystemStage[];
