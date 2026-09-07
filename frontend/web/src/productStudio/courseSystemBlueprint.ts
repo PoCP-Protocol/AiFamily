@@ -35,6 +35,13 @@ export type LessonDeliveryRow = {
   courseware_status: "BOM_REQUIRED";
 };
 
+export type LessonDeliveryReadiness = {
+  total_lessons: number;
+  bom_ready_lessons: number;
+  blocked_lessons: number;
+  publish_ready: boolean;
+};
+
 export const COURSE_SYSTEM_STAGES: readonly CourseSystemStage[] = [
   { id: "S1", title: "家庭觉察", lesson_start: 1, lesson_end: 4, output: "家庭问题地图" },
   { id: "S2", title: "关系连接", lesson_start: 5, lesson_end: 8, output: "沟通与关系行动卡" },
@@ -62,6 +69,16 @@ export function buildLessonDeliveryMatrix(stages: readonly CourseSystemStage[]):
     service_action: SERVICE_ACTIONS[stageIndex],
     courseware_status: "BOM_REQUIRED" as const,
   })));
+}
+
+export function summarizeLessonDelivery(rows: readonly LessonDeliveryRow[]): LessonDeliveryReadiness {
+  const bomReady = rows.filter((row) => row.courseware_status !== "BOM_REQUIRED").length;
+  return {
+    total_lessons: rows.length,
+    bom_ready_lessons: bomReady,
+    blocked_lessons: rows.length - bomReady,
+    publish_ready: rows.length === COURSE_SYSTEM_LESSON_COUNT && bomReady === rows.length,
+  };
 }
 
 export function validateCourseSystemBlueprint(value: CourseSystemBlueprint): CourseSystemBlueprint {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { HttpCourseSystemApiClient, type CourseSystemApiClient } from "./courseSystemApi";
-import { buildLessonDeliveryMatrix, COURSE_SYSTEM_STAGES } from "./courseSystemBlueprint";
+import { buildLessonDeliveryMatrix, COURSE_SYSTEM_STAGES, summarizeLessonDelivery } from "./courseSystemBlueprint";
 
 /** Course system is the product-level map; CourseContent and BOM remain versioned implementations. */
 export function CourseSystemBlueprintPanel({ client = new HttpCourseSystemApiClient() }: { client?: CourseSystemApiClient }) {
@@ -8,6 +8,7 @@ export function CourseSystemBlueprintPanel({ client = new HttpCourseSystemApiCli
   const [state, setState] = useState("尚未读取课程体系主数据；下方蓝图仅为设计模板，不代表已发布课程。");
   useEffect(() => { let active = true; void client.get("course-system:family-growth").then((system) => { if (active) { setStages(system.stages); setState("已读取课程体系主数据版本：" + system.version); } }).catch(() => { if (active) setState("课程体系主数据暂不可用；蓝图仍为设计模板，不代表已发布课程。"); }); return () => { active = false; }; }, [client]);
   const delivery = buildLessonDeliveryMatrix(stages.length ? stages : COURSE_SYSTEM_STAGES);
+  const readiness = summarizeLessonDelivery(delivery);
   return (
     <section aria-label="课程体系蓝图" className="panel course-system-blueprint">
       <p className="section-kicker">IPD · Service Product Architecture · Course System</p>
@@ -28,6 +29,10 @@ export function CourseSystemBlueprintPanel({ client = new HttpCourseSystemApiCli
       <div className="callout" role="region" aria-label="24课时交付矩阵">
         <strong>24课时交付矩阵</strong>
         <p className="muted">每节课必须同时绑定产品结果、家庭服务动作和课件BOM；BOM未完成时不得进入发布基线。</p>
+        <p role="status" aria-label="课程发布准备度">
+          交付准备度：{readiness.bom_ready_lessons}/{readiness.total_lessons} 节课件已就绪；
+          {readiness.publish_ready ? "可进入发布评审" : `仍有 ${readiness.blocked_lessons} 节被 BOM 阻断`}
+        </p>
         <ol aria-label="24课时交付清单">
           {delivery.map((lesson) => (
             <li key={lesson.sequence}>

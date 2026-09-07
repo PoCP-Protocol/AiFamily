@@ -3,6 +3,7 @@ import {
   COURSE_SYSTEM_LESSON_COUNT,
   COURSE_SYSTEM_STAGES,
   buildLessonDeliveryMatrix,
+  summarizeLessonDelivery,
   validateCourseSystemBlueprint,
 } from "./courseSystemBlueprint";
 
@@ -33,5 +34,10 @@ describe("course system blueprint", () => {
     expect(rows).toHaveLength(24);
     expect(rows[0]).toMatchObject({ sequence: 1, stage_id: "S1", courseware_status: "BOM_REQUIRED" });
     expect(rows.at(-1)).toMatchObject({ sequence: 24, stage_id: "S6" });
+  });
+
+  it("blocks release readiness while any lesson lacks a courseware BOM", () => {
+    const readiness = summarizeLessonDelivery(buildLessonDeliveryMatrix(COURSE_SYSTEM_STAGES));
+    expect(readiness).toMatchObject({ total_lessons: 24, bom_ready_lessons: 0, blocked_lessons: 24, publish_ready: false });
   });
 });
