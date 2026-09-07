@@ -53,4 +53,11 @@ describe("CourseSystemBlueprintPanel", () => {
     expect(screen.getByRole("combobox", { name: "选择已发布课程" })).toHaveValue("course-24");
   });
 
+  it("does not load course data while the workspace tab is inactive", () => {
+    let calls = 0;
+    const blocked = async () => { calls += 1; throw new Error("should not load"); };
+    render(<CourseSystemBlueprintPanel enabled={false} client={{ get: blocked }} courseContentClient={{ listPublished: blocked, get: blocked }} deliveryClient={{ get: blocked }} />);
+    expect(calls).toBe(0);
+  });
+
 });
