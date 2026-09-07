@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.domains.product_intelligence.api.course_routes import (
+    configure_course_content_gate,
+    configure_course_content_repository,
     configure_course_system_repository,
     router,
 )
@@ -11,9 +13,13 @@ from backend.domains.product_intelligence.domain.course_system import (
     CourseSystem,
     CourseSystemStage,
 )
+from backend.domains.product_intelligence.infrastructure.course_content_repository import (
+    InMemoryCourseContentRepository,
+)
 from backend.domains.product_intelligence.infrastructure.course_system_repository import (
     InMemoryCourseSystemRepository,
 )
+from backend.intelligence.human_gate.gate import InMemoryHumanGate
 
 
 def test_course_system_read_route_is_tenant_scoped() -> None:
@@ -54,3 +60,43 @@ def test_course_system_read_route_is_tenant_scoped() -> None:
         .status_code
         == 404
     )
+
+
+def test_course_draft_route_rejects_invalid_lineage_with_400() -> None:
+    configure_course_content_repository(InMemoryCourseContentRepository())
+    configure_course_content_gate(InMemoryHumanGate())
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_actor_context] = lambda: ActorContext(
+        actor_id="author",
+        actor_type="HUMAN",
+        tenant_scope="tenant-a",
+        permissions=frozenset({"product_intelligence.course_content.author"}),
+    )
+    body = {
+        "title": "课程",
+        "problem_statement": "问题",
+        "assessment_criteria": ["标准"],
+        "learning_goal": "目标",
+        "review_cadence": "每6节",
+        "outcome_metrics": ["指标"],
+        "content_accuracy_claim_refs": ["claim:1"],
+        "course_system_version_ref": "course-system:family-growth@v1",
+        "lessons": [
+            {
+                "lesson_id": f"lesson-{index:02d}",
+                "sequence": index,
+                "title": f"课时{index}",
+                "knowledge_point": "知识",
+                "action_task": "行动",
+                "stage_id": f"S{(index - 1) // 4 + 1}",
+                "bom_line_ref": f"courseware:family-growth:lesson-{index:02d}@v2"
+                if index == 1
+                else f"courseware:family-growth:lesson-{index:02d}@v1",
+            }
+            for index in range(1, 25)
+        ],
+    }
+    response = TestClient(app).post("/product-intelligence/courses", json=body)
+    assert response.status_code == 400
+    assert response.json()["detail"] == "course_content_lesson_lineage_invalid"
