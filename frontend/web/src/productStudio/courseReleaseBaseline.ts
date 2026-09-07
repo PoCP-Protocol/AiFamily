@@ -6,6 +6,7 @@ export type CourseReleaseLessonBinding = {
   content_spec_version_ref: string;
   asset_bundle_version_ref: string;
   skill_version_refs: string[];
+  courseware_governance_status: "DRAFT" | "REVIEW_REQUIRED" | "GOVERNED";
 };
 
 export type CourseReleaseBaselineDraft = {
@@ -53,7 +54,8 @@ export function createCourseReleaseBaselineForm(): CourseReleaseBaselineForm {
       lesson_version_ref: "",
       content_spec_version_ref: "",
       asset_bundle_version_ref: "",
-      skill_version_refs: [],
+    skill_version_refs: [],
+      courseware_governance_status: "GOVERNED" as const,
     })),
     release_notes: "",
   };
@@ -75,6 +77,7 @@ export function isReleaseLessonComplete(binding: CourseReleaseLessonBinding): bo
     && versionedRefPattern.test(binding.asset_bundle_version_ref.trim())
     && binding.skill_version_refs.length > 0
     && binding.skill_version_refs.every((ref) => versionedRefPattern.test(ref.trim()));
+    
 }
 
 export function compileCourseReleaseBaseline(form: CourseReleaseBaselineForm): CourseReleaseBaselineDraft {
@@ -86,12 +89,16 @@ export function compileCourseReleaseBaseline(form: CourseReleaseBaselineForm): C
     if (binding.sequence !== index + 1 || !isReleaseLessonComplete(binding)) {
       throw new Error(`RELEASE_LESSON_${index + 1}_INCOMPLETE`);
     }
+    if (binding.courseware_governance_status !== "GOVERNED") {
+      throw new Error(`RELEASE_LESSON_${index + 1}_COURSEWARE_NOT_GOVERNED`);
+    }
     return {
       sequence: binding.sequence,
       lesson_version_ref: versionedRef(binding.lesson_version_ref, "LESSON_VERSION_REF_INVALID"),
       content_spec_version_ref: versionedRef(binding.content_spec_version_ref, "CONTENT_SPEC_VERSION_REF_INVALID"),
       asset_bundle_version_ref: versionedRef(binding.asset_bundle_version_ref, "ASSET_BUNDLE_VERSION_REF_INVALID"),
       skill_version_refs: [...new Set(binding.skill_version_refs.map((ref) => versionedRef(ref, "SKILL_VERSION_REF_INVALID")))],
+      courseware_governance_status: "GOVERNED",
     };
   });
   for (const field of ["lesson_version_ref", "content_spec_version_ref", "asset_bundle_version_ref"] as const) {

@@ -55,4 +55,10 @@ describe("CourseReleaseBaseline compiler", () => {
     form.lessons[1].lesson_version_ref = form.lessons[0].lesson_version_ref;
     expect(() => compileCourseReleaseBaseline(form)).toThrow("LESSON_VERSION_REF_MUST_BE_UNIQUE");
   });
+
+  it("blocks a lesson whose courseware governance is not complete", () => {
+    const form = completeReleaseBaselineForm();
+    form.lessons[0].courseware_governance_status = "DRAFT";
+    expect(() => compileCourseReleaseBaseline(form)).toThrow("RELEASE_LESSON_1_COURSEWARE_NOT_GOVERNED");
+  });
 });
