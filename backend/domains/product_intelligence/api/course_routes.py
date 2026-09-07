@@ -116,6 +116,7 @@ class CreateCourseContentDraftRequest(BaseModel):
     outcome_metrics: list[str]
     content_accuracy_claim_refs: list[str]
     product_component_id: str | None = None
+    course_system_version_ref: str | None = None
     ai_coach_prompt_ref: str | None = None
 
 
@@ -175,6 +176,7 @@ async def create_draft(
             outcome_metrics=body.outcome_metrics,
             content_accuracy_claim_refs=body.content_accuracy_claim_refs,
             product_component_id=body.product_component_id,
+            course_system_version_ref=body.course_system_version_ref,
             ai_coach_prompt_ref=body.ai_coach_prompt_ref,
         )
     except ProductIntelligenceDomainError as exc:

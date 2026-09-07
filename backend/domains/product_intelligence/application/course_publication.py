@@ -87,6 +87,7 @@ async def create_course_content_draft(
     outcome_metrics: list[str],
     content_accuracy_claim_refs: list[str],
     product_component_id: str | None = None,
+    course_system_version_ref: str | None = None,
     ai_coach_prompt_ref: str | None = None,
 ) -> CourseContent:
     """Create a `DRAFT` `CourseContent`. Requires `course_content.author`."""
@@ -101,6 +102,7 @@ async def create_course_content_draft(
         updated_at=now,
         title=title,
         product_component_id=product_component_id,
+        course_system_version_ref=course_system_version_ref,
         problem_statement=problem_statement,
         assessment_criteria=tuple(assessment_criteria),
         learning_goal=learning_goal,

@@ -26,6 +26,7 @@ inventing a course-specific claim taxonomy.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -195,6 +196,23 @@ class CourseContent(BaseModel):
                 "course_content_lesson_sequence_must_be_unique"
             )
         return tuple(sorted(value, key=lambda lesson: lesson.sequence))
+
+    @model_validator(mode="after")
+    def _validate_lineage(self) -> CourseContent:
+        if self.course_system_version_ref is None:
+            return self
+        if not re.fullmatch(r"course-system:\S+@v[1-9]\d*", self.course_system_version_ref):
+            raise ProductIntelligenceValidationError(
+                "course_content_course_system_version_ref_invalid"
+            )
+        if len(self.lessons) != 24:
+            raise ProductIntelligenceValidationError("course_content_lineage_requires_24_lessons")
+        for lesson in self.lessons:
+            expected_stage = f"S{(lesson.sequence - 1) // 4 + 1}"
+            expected_bom = f"courseware:family-growth:lesson-{lesson.sequence:02d}@v1"
+            if lesson.stage_id != expected_stage or lesson.bom_line_ref != expected_bom:
+                raise ProductIntelligenceValidationError("course_content_lesson_lineage_invalid")
+        return self
 
     def submit_for_review(self) -> CourseContent:
         """`DRAFT -> UNDER_REVIEW`. Same "anyone can ask, only a permissioned
