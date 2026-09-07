@@ -228,6 +228,14 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
+    # 0071 is alter-only (widens family_growth_hypothesis_decisions.decision_type's
+    # CHECK constraint to add PARTIAL/EDIT/LATER and adds a nullable
+    # parent_note column); no new tables.
+    "0071_growth_hypothesis_decision_partial_edit_later": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 73,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
 }
 
 _MODEL_DRAFTS_ADR = (

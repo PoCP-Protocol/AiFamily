@@ -128,6 +128,7 @@ decisions = Table(
     Column("request_hash", String(128), nullable=False),
     Column("response_body", JSON().with_variant(JSONB(), "postgresql"), nullable=False),
     Column("correlation_id", String(128), nullable=False),
+    Column("parent_note", String, nullable=True),
 )
 AuditBase.metadata.tables["platform_audit_events"].to_metadata(metadata)
 OutboxMetadata.tables["outbox_events"].to_metadata(metadata)
@@ -283,6 +284,96 @@ async def test_http_confirmation_persists_and_replays_after_app_rebuild(database
             await session.scalar(select(func.count()).select_from(metadata.tables["outbox_events"]))
             == 1
         )
+
+
+async def test_edit_decision_creates_intent_with_parent_note_as_goal_text(database) -> None:
+    """EDIT confirms the guardian's rewritten statement — the growth_intent's
+    `goal_text` must be the guardian's own words, not the reviewed signal's
+    original `goal_text`."""
+    rewritten = "其实我们家更需要先解决睡前拖延，不是沟通问题"
+    response = await post(
+        app_for(database, SignalReader(signal())),
+        payload=body(decision_type="EDIT", parent_note=rewritten),
+        key="edit-1",
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["action"] == "CALIBRATE_GROWTH_HYPOTHESIS"
+    assert payload["outcome"] == "INTENT_CREATED"
+    assert payload["parent_note"] == rewritten
+    intent_id = uuid.UUID(payload["intent"]["intent_id"])
+
+    async with database() as session:
+        assert await session.scalar(select(func.count()).select_from(growth_intents)) == 1
+        assert await session.scalar(select(func.count()).select_from(decisions)) == 1
+        goal_text = await session.scalar(
+            select(growth_intents.c.goal_text).where(growth_intents.c.intent_id == intent_id)
+        )
+        assert goal_text == rewritten
+        decision_type_stored = await session.scalar(
+            select(decisions.c.decision_type).where(decisions.c.parent_note == rewritten)
+        )
+        assert decision_type_stored == "EDIT"
+
+
+async def test_edit_decision_without_parent_note_is_rejected(database) -> None:
+    response = await post(
+        app_for(database, SignalReader(signal())),
+        payload=body(decision_type="EDIT"),
+        key="edit-blank-1",
+        raise_app_exceptions=False,
+    )
+    assert response.status_code == 400, response.text
+
+    async with database() as session:
+        assert await session.scalar(select(func.count()).select_from(growth_intents)) == 0
+
+
+async def test_partial_decision_records_feedback_without_growth_intent(database) -> None:
+    note = "沟通部分说得对，但学习习惯那部分不太符合"
+    response = await post(
+        app_for(database, SignalReader(signal())),
+        payload=body(decision_type="PARTIAL", parent_note=note),
+        key="partial-1",
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["action"] == "CALIBRATE_GROWTH_HYPOTHESIS"
+    assert payload["outcome"] == "FEEDBACK_RECORDED"
+    assert payload["intent"] is None
+    assert payload["parent_note"] == note
+
+    async with database() as session:
+        assert await session.scalar(select(func.count()).select_from(growth_intents)) == 0
+        stored = await session.scalar(
+            select(decisions.c.decision_type).where(decisions.c.idempotency_key == "partial-1")
+        )
+        assert stored == "PARTIAL"
+
+
+async def test_later_decision_defers_without_growth_intent_or_consent_read(database) -> None:
+    """LATER must not create a growth_intents row, and — because the
+    hypothesis is left exactly as-is for a future re-presentation — must not
+    require re-running the interpretation/evidence path either."""
+    note = "今晚太累了，明天再看"
+    response = await post(
+        app_for(database, SignalReader(signal())),
+        payload=body(decision_type="LATER", parent_note=note),
+        key="later-1",
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["action"] == "DISMISS_GROWTH_HYPOTHESIS"
+    assert payload["outcome"] == "NO_ACTION"
+    assert payload["intent"] is None
+    assert payload["parent_note"] == note
+
+    async with database() as session:
+        assert await session.scalar(select(func.count()).select_from(growth_intents)) == 0
+        stored = await session.scalar(
+            select(decisions.c.decision_type).where(decisions.c.idempotency_key == "later-1")
+        )
+        assert stored == "LATER"
 
 
 async def test_conflict_cross_scope_and_withdrawal_fail_closed(database) -> None:

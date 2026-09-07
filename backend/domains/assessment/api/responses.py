@@ -319,8 +319,13 @@ class GrowthIntentModel(BaseModel):
 
 
 class GrowthHypothesisDecisionReceiptResponse(BaseModel):
-    action: Literal["CONFIRM_GROWTH_HYPOTHESIS", "DISMISS_GROWTH_HYPOTHESIS"]
-    outcome: Literal["INTENT_CREATED", "NO_ACTION"]
+    action: Literal[
+        "CONFIRM_GROWTH_HYPOTHESIS",
+        "CALIBRATE_GROWTH_HYPOTHESIS",
+        "DISMISS_GROWTH_HYPOTHESIS",
+    ]
+    outcome: Literal["INTENT_CREATED", "FEEDBACK_RECORDED", "NO_ACTION"]
     hypothesis_ref: str
     intent: GrowthIntentModel | None
     replayed: bool
+    parent_note: str | None = None

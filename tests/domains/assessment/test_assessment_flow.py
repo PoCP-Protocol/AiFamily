@@ -423,6 +423,212 @@ class TestGrowthHypothesisFlow:
         assert receipt["outcome"] == "NO_ACTION"
         assert receipt["intent"] is None
 
+    async def test_later_decision_defers_without_creating_intent_or_record(
+        self, repo, command_handler, query_handler, growth_hypothesis_handler
+    ):
+        """LATER must produce no growth_intents row and no other business
+        fact beyond the decision record itself — it is a deferral, not a
+        rejection or a commitment."""
+        session_id = await self._submit_full_session(repo, command_handler)
+        family_id = repo._test_family_id
+        projection = await query_handler.get_ui03_projection(
+            GetUi03ProjectionQuery(family_id, TENANT_ID, "actor-1")
+        )
+        hypothesis_ref = projection["hypothesis"]["hypothesis_ref"]
+
+        receipt = await growth_hypothesis_handler.decide(
+            DecideGrowthHypothesisCommand(
+                family_id,
+                TENANT_ID,
+                "actor-1",
+                session_id,
+                hypothesis_ref,
+                "LATER",
+                "corr-later",
+                "decide-later",
+                parent_note="今晚太累了，明天再看",
+            )
+        )
+        assert receipt["outcome"] == "NO_ACTION"
+        assert receipt["action"] == "DISMISS_GROWTH_HYPOTHESIS"
+        assert receipt["intent"] is None
+        assert receipt["parent_note"] == "今晚太累了，明天再看"
+        assert hypothesis_ref not in repo.growth_intents
+
+        # The hypothesis is still there to decide on again later — LATER did
+        # not consume or invalidate it.
+        projection_after = await query_handler.get_ui03_projection(
+            GetUi03ProjectionQuery(family_id, TENANT_ID, "actor-1")
+        )
+        assert projection_after["hypothesis"]["hypothesis_ref"] == hypothesis_ref
+
+        # The deferral is durably recorded under its own decision_type so a
+        # later re-presentation can distinguish "deferred" from "rejected".
+        stored = repo.hypothesis_decisions[(TENANT_ID, family_id, "LATER", "decide-later")]
+        assert stored["response_body"]["outcome"] == "NO_ACTION"
+
+    async def test_partial_decision_records_feedback_without_creating_intent(
+        self, repo, command_handler, query_handler, growth_hypothesis_handler
+    ):
+        """PARTIAL must not bridge to growth_intents — a partial acceptance
+        does not name a single, well-formed goal the family committed to."""
+        session_id = await self._submit_full_session(repo, command_handler)
+        family_id = repo._test_family_id
+        projection = await query_handler.get_ui03_projection(
+            GetUi03ProjectionQuery(family_id, TENANT_ID, "actor-1")
+        )
+        hypothesis_ref = projection["hypothesis"]["hypothesis_ref"]
+
+        receipt = await growth_hypothesis_handler.decide(
+            DecideGrowthHypothesisCommand(
+                family_id,
+                TENANT_ID,
+                "actor-1",
+                session_id,
+                hypothesis_ref,
+                "PARTIAL",
+                "corr-partial",
+                "decide-partial",
+                parent_note="沟通部分说得对，但学习习惯那部分不太符合",
+            )
+        )
+        assert receipt["outcome"] == "FEEDBACK_RECORDED"
+        assert receipt["action"] == "CALIBRATE_GROWTH_HYPOTHESIS"
+        assert receipt["intent"] is None
+        assert receipt["parent_note"] == "沟通部分说得对，但学习习惯那部分不太符合"
+        assert hypothesis_ref not in repo.growth_intents
+
+        stored = repo.hypothesis_decisions[(TENANT_ID, family_id, "PARTIAL", "decide-partial")]
+        assert stored["response_body"]["outcome"] == "FEEDBACK_RECORDED"
+
+    async def test_partial_decision_does_not_require_r9_human_gate(
+        self, repo, command_handler, query_handler, growth_hypothesis_handler
+    ):
+        """R9's human_only veto exists to protect intent-creating writes.
+        PARTIAL never writes a growth_intents row, so an AI/SYSTEM actor_type
+        must not be collaterally blocked the way CONFIRM/EDIT are."""
+        from backend.platform.identity.context import ActorType as PlatformActorType
+
+        session_id = await self._submit_full_session(repo, command_handler)
+        family_id = repo._test_family_id
+        projection = await query_handler.get_ui03_projection(
+            GetUi03ProjectionQuery(family_id, TENANT_ID, "actor-1")
+        )
+        hypothesis_ref = projection["hypothesis"]["hypothesis_ref"]
+
+        receipt = await growth_hypothesis_handler.decide(
+            DecideGrowthHypothesisCommand(
+                family_id,
+                TENANT_ID,
+                "actor-1",
+                session_id,
+                hypothesis_ref,
+                "PARTIAL",
+                "corr-partial-ai",
+                "decide-partial-ai",
+                actor_type=PlatformActorType.SYSTEM,
+            )
+        )
+        assert receipt["outcome"] == "FEEDBACK_RECORDED"
+
+    async def test_edit_decision_creates_intent_with_guardian_rewritten_goal_text(
+        self, repo, command_handler, query_handler, growth_hypothesis_handler
+    ):
+        """EDIT confirms the guardian's rewritten statement, not the AI's
+        draft: `growth_intents.goal_text` must be the guardian's own words
+        (`parent_note`), not the AI's evidence description."""
+        session_id = await self._submit_full_session(repo, command_handler)
+        family_id = repo._test_family_id
+        projection = await query_handler.get_ui03_projection(
+            GetUi03ProjectionQuery(family_id, TENANT_ID, "actor-1")
+        )
+        hypothesis_ref = projection["hypothesis"]["hypothesis_ref"]
+        ai_description = projection["hypothesis"]["statement"]
+
+        receipt = await growth_hypothesis_handler.decide(
+            DecideGrowthHypothesisCommand(
+                family_id,
+                TENANT_ID,
+                "actor-1",
+                session_id,
+                hypothesis_ref,
+                "EDIT",
+                "corr-edit",
+                "decide-edit",
+                parent_note="其实我们家更需要先解决睡前拖延，不是沟通问题",
+            )
+        )
+        assert receipt["outcome"] == "INTENT_CREATED"
+        assert receipt["action"] == "CALIBRATE_GROWTH_HYPOTHESIS"
+        assert receipt["intent"]["boundary"] == "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME"
+        assert receipt["parent_note"] == "其实我们家更需要先解决睡前拖延，不是沟通问题"
+
+        stored_intent = repo.growth_intents[hypothesis_ref]
+        assert stored_intent is receipt["intent"]
+        # The AI's draft description must not silently become the intent's
+        # goal — EDIT's whole point is that the guardian overrode it.
+        assert ai_description != "其实我们家更需要先解决睡前拖延，不是沟通问题"
+
+    async def test_edit_decision_without_parent_note_is_rejected(
+        self, repo, command_handler, query_handler, growth_hypothesis_handler
+    ):
+        """EDIT without a rewritten statement has nothing to confirm instead
+        of the AI's draft and must not silently degrade into a CONFIRM."""
+        session_id = await self._submit_full_session(repo, command_handler)
+        family_id = repo._test_family_id
+        projection = await query_handler.get_ui03_projection(
+            GetUi03ProjectionQuery(family_id, TENANT_ID, "actor-1")
+        )
+        hypothesis_ref = projection["hypothesis"]["hypothesis_ref"]
+
+        with pytest.raises(AssessmentValidationError) as exc:
+            await growth_hypothesis_handler.decide(
+                DecideGrowthHypothesisCommand(
+                    family_id,
+                    TENANT_ID,
+                    "actor-1",
+                    session_id,
+                    hypothesis_ref,
+                    "EDIT",
+                    "corr-edit-blank",
+                    "decide-edit-blank",
+                )
+            )
+        assert exc.value.code == "edit_decision_requires_parent_note"
+        assert hypothesis_ref not in repo.growth_intents
+
+    async def test_ai_actor_edit_is_denied_same_as_confirm(
+        self, repo, command_handler, query_handler, growth_hypothesis_handler
+    ):
+        """R9 regression for EDIT: it creates a growth_intents row exactly
+        like CONFIRM, so it must be gated by the same human_only veto."""
+        from backend.platform.identity.context import ActorType as PlatformActorType
+
+        session_id = await self._submit_full_session(repo, command_handler)
+        family_id = repo._test_family_id
+        projection = await query_handler.get_ui03_projection(
+            GetUi03ProjectionQuery(family_id, TENANT_ID, "actor-1")
+        )
+        hypothesis_ref = projection["hypothesis"]["hypothesis_ref"]
+
+        with pytest.raises(AssessmentForbiddenError) as exc:
+            await growth_hypothesis_handler.decide(
+                DecideGrowthHypothesisCommand(
+                    family_id,
+                    TENANT_ID,
+                    "actor-1",
+                    session_id,
+                    hypothesis_ref,
+                    "EDIT",
+                    "corr-edit-ai",
+                    "decide-edit-ai",
+                    actor_type=PlatformActorType.AI,
+                    parent_note="AI不能代替家长编辑理解",
+                )
+            )
+        assert exc.value.code == "growth_hypothesis_confirmation_requires_human_actor"
+        assert hypothesis_ref not in repo.growth_intents
+
     async def test_stale_hypothesis_ref_is_conflict(
         self, repo, command_handler, growth_hypothesis_handler
     ):
