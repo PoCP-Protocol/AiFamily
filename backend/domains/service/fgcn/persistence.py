@@ -144,10 +144,22 @@ class ServiceCaseRow(FGCNBase):
 
     case_id: Mapped[str] = mapped_column(_UUID, primary_key=True)
     tenant_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    family_id: Mapped[str] = mapped_column(_UUID, nullable=False)
-    subject_person_id: Mapped[str] = mapped_column(_UUID, nullable=False)
-    intent_ref: Mapped[str] = mapped_column(_UUID, nullable=False)
-    plan_ref: Mapped[str] = mapped_column(_UUID, nullable=False)
+    # `family_id`, `subject_person_id`, `intent_ref` and `plan_ref` were
+    # originally baseline (0020) `uuid` columns with foreign keys to
+    # `families` / `persons` / `growth_intents` / `orchestration_plans`.
+    # Migration 0068 widened them to plain strings: the FGCN P0 durable
+    # adapter (this module) is fed opaque dev/test identifiers from
+    # `backend/domains/assessment/api/dev_auth.py` (family_id is a raw
+    # `external_ref` slug, never a `families` row) and
+    # `backend/apps/family_api/orchestration/need_fulfillment_flow.py`
+    # (`intent_ref` is `draft.need_id`), matching the convention every other
+    # domain already uses for `family_id` (`family_need`, `commerce`,
+    # `loyalty_points`, `membership` all use `String`, not `uuid`+FK). See
+    # 0068's docstring for the full rationale.
+    family_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    subject_person_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    intent_ref: Mapped[str] = mapped_column(String(128), nullable=False)
+    plan_ref: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(_CASE_STATUS, nullable=False)
     owner: Mapped[str] = mapped_column(String(96), nullable=False)
     opened_at: Mapped[datetime] = mapped_column(_TIMESTAMP, nullable=False)
@@ -202,7 +214,9 @@ class ServiceTaskRow(FGCNBase):
     status: Mapped[str] = mapped_column(_TASK_STATUS, nullable=False)
     responsible_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
     due_at: Mapped[datetime | None] = mapped_column(_TIMESTAMP, nullable=True)
-    deliverable: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    deliverable: Mapped[dict | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
     verified_at: Mapped[datetime | None] = mapped_column(_TIMESTAMP, nullable=True)
     created_at: Mapped[datetime] = mapped_column(_TIMESTAMP, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(_TIMESTAMP, nullable=False)

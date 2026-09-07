@@ -221,6 +221,13 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
+    # 0070 is alter-only (widens service_cases scope-ref columns from uuid+FK
+    # to String, dropping the FKs); no new tables.
+    "0070_service_cases_scope_refs_string": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 73,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
 }
 
 _MODEL_DRAFTS_ADR = (

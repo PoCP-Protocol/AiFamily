@@ -60,8 +60,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import cast, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.types import String as _SqlString
 
 from backend.domains.service.fgcn.admission import ProviderAdmissionSnapshot
 from backend.domains.service.fgcn.contracts import GateServiceScope
@@ -104,11 +105,27 @@ class SqlAlchemyProviderAdmissionQuery:
         required_capability_keys: tuple[str, ...],
         scope: GateServiceScope,
     ) -> ProviderAdmissionSnapshot | None:
+        # `family_service_providers.tenant_id`/`scope_type` are real Postgres
+        # `uuid`/enum (`family_product_scope`) columns in production; this
+        # module's own ORM model (`sqlalchemy_models.py`) deliberately widens
+        # both to plain `String` so the same model also runs against the
+        # SQLite fast-test path (see that module's docstring). A bound
+        # `String`-typed parameter renders on the wire as `character
+        # varying`, which neither Postgres's `uuid =` nor its enum `=`
+        # operator accepts without an explicit cast — even though the
+        # *value* itself (this dev/test `scope.tenant_id`, e.g.
+        # `"family-need-e2e-fgcn-escalation"`, is not even syntactically a
+        # UUID) would otherwise just fail to match, not raise.
+        #
+        # Casting the *column* to `text` on both sides of the OR (not
+        # casting the literal to `uuid`/the enum type) works uniformly
+        # whether the column is really `uuid`/the enum (Postgres) or already
+        # a plain string (SQLite) — `cast(x, String)` is a no-op there.
         result = await self._session.execute(
             select(ServiceProviderRow).where(
                 ServiceProviderRow.provider_ref == provider_ref,
-                (ServiceProviderRow.tenant_id == scope.tenant_id)
-                | (ServiceProviderRow.scope_type == "PLATFORM"),
+                (cast(ServiceProviderRow.tenant_id, _SqlString) == scope.tenant_id)
+                | (cast(ServiceProviderRow.scope_type, _SqlString) == "PLATFORM"),
             )
         )
         row = result.scalars().first()
