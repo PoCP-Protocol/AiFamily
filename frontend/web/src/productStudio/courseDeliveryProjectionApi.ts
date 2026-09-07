@@ -45,6 +45,11 @@ function validate(value: unknown): CourseDeliveryProjection {
     }
     return { sequence: Number(lesson.sequence), lesson_id: lesson.lesson_id, stage_id: lesson.stage_id, product_outcome: lesson.product_outcome, family_action: lesson.family_action, courseware_refs: lesson.courseware_refs as string[], status: lesson.status as LessonDeliveryProjection["status"] };
   });
+  if (lessons.length !== 24 || Number(row.ready_lessons) + Number(row.blocked_lessons) !== 24
+    || lessons.filter((lesson) => lesson.status === "READY").length !== Number(row.ready_lessons)
+    || Boolean(row.publishable_to_service) !== (Number(row.blocked_lessons) === 0)) {
+    throw new ProductStudioApiError("INVALID_RESPONSE", "课程交付投影必须完整覆盖24节且汇总一致。");
+  }
   return { course_content_id: row.course_content_id, course_system_version_ref: row.course_system_version_ref, product_component_id: typeof row.product_component_id === "string" ? row.product_component_id : null, lessons, ready_lessons: Number(row.ready_lessons), blocked_lessons: Number(row.blocked_lessons), publishable_to_service: row.publishable_to_service };
 }
 
@@ -59,4 +64,3 @@ export class HttpCourseDeliveryProjectionApiClient implements CourseDeliveryProj
     return validate(await response.json());
   }
 }
-
