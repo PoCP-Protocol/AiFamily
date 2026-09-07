@@ -1,16 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { HttpCourseSystemApiClient, type CourseSystemApiClient } from "./courseSystemApi";
 import { buildLessonDeliveryMatrix, COURSE_SYSTEM_STAGES, summarizeLessonDelivery, summarizeStageDelivery } from "./courseSystemBlueprint";
 
 /** Course system is the product-level map; CourseContent and BOM remain versioned implementations. */
-export function CourseSystemBlueprintPanel({ client = new HttpCourseSystemApiClient() }: { client?: CourseSystemApiClient }) {
+export function CourseSystemBlueprintPanel({ client, tenantScope }: { client?: CourseSystemApiClient; tenantScope?: string }) {
+  const resolvedClient = useMemo(() => client ?? new HttpCourseSystemApiClient({ tenantScope }), [client, tenantScope]);
   const [stages, setStages] = useState<typeof COURSE_SYSTEM_STAGES[number][]>([]);
   const [bomLessonSequences, setBomLessonSequences] = useState<number[]>([]);
   const [bomStatuses, setBomStatuses] = useState<Record<number, { qa_status: string; rights_status: string; safety_status: string }>>({});
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
   const [state, setState] = useState("尚未读取课程体系主数据；下方蓝图仅为设计模板，不代表已发布课程。");
-  useEffect(() => { let active = true; void client.get("course-system:family-growth").then((system) => { if (active) { setStages(system.stages); setBomLessonSequences(system.bom_lesson_sequences ?? []); setBomStatuses(system.bom_lesson_statuses ?? {}); setState("已读取课程体系主数据版本：" + system.version); } }).catch(() => { if (active) setState("课程体系主数据暂不可用；蓝图仍为设计模板，不代表已发布课程。"); }); return () => { active = false; }; }, [client]);
+  useEffect(() => { let active = true; void resolvedClient.get("course-system:family-growth").then((system) => { if (active) { setStages(system.stages); setBomLessonSequences(system.bom_lesson_sequences ?? []); setBomStatuses(system.bom_lesson_statuses ?? {}); setState("已读取课程体系主数据版本：" + system.version); } }).catch(() => { if (active) setState("课程体系主数据暂不可用；蓝图仍为设计模板，不代表已发布课程。"); }); return () => { active = false; }; }, [resolvedClient]);
   const delivery = buildLessonDeliveryMatrix(stages.length ? stages : COURSE_SYSTEM_STAGES, bomLessonSequences, bomStatuses);
   const readiness = summarizeLessonDelivery(delivery);
   const stageReadiness = summarizeStageDelivery(delivery);
