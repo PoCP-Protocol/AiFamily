@@ -20,6 +20,7 @@ from backend.domains.assessment.infrastructure.sqlalchemy_repository import (
 from backend.domains.growth.infrastructure.sqlalchemy_growth_intent_confirmation import (
     SqlAlchemyGrowthIntentConfirmationAdapter,
 )
+from backend.intelligence.growth_graph.store import SqlAlchemyGrowthGraphProjection
 from backend.platform.persistence import SqlAlchemyUnitOfWork
 
 
@@ -48,7 +49,10 @@ class ProductionGrowthConfirmationWiring:
             yield GrowthHypothesisCommandHandler(
                 SqlAlchemyAssessmentRepository(connection),
                 self._viewed_signals,
-                SqlAlchemyGrowthIntentConfirmationAdapter(session),
+                SqlAlchemyGrowthIntentConfirmationAdapter(
+                    session,
+                    growth_graph=SqlAlchemyGrowthGraphProjection(session),
+                ),
             )
             await unit_of_work.commit()
 

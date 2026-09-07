@@ -21,6 +21,14 @@ from backend.domains.growth.application.growth_intent_confirmation import (
 from backend.domains.growth.infrastructure.sqlalchemy_growth_intent_confirmation import (
     SqlAlchemyGrowthIntentConfirmationAdapter,
 )
+from backend.intelligence.experience.contracts import (
+    DeletionRef,
+    ExperienceScope,
+)
+from backend.intelligence.growth_graph.store import (
+    GrowthGraphPersistenceBase,
+    SqlAlchemyGrowthGraphProjection,
+)
 from backend.platform.audit import AuditBase
 from backend.platform.outbox import OutboxMetadata, SqlAlchemyOutboxWriter
 from backend.platform.persistence import SqlAlchemyUnitOfWork
@@ -59,6 +67,7 @@ idempotency_keys = Table(
 )
 AuditBase.metadata.tables["platform_audit_events"].to_metadata(metadata)
 OutboxMetadata.tables["outbox_events"].to_metadata(metadata)
+GrowthGraphPersistenceBase.metadata.tables["ai_growth_graph_edges"].to_metadata(metadata)
 
 
 @pytest.fixture
@@ -240,3 +249,71 @@ async def test_outbox_failure_rolls_intent_audit_and_receipt_back_then_retry_suc
     async with session_factory() as verify:
         assert await count_rows(verify, growth_intents) == 1
         assert await count_rows(verify, idempotency_keys) == 1
+
+
+async def test_confirmation_projects_a_queryable_growth_graph_edge(
+    session_factory,
+) -> None:
+    """The real hypothesis-confirmation write path feeds the Growth Graph.
+
+    Runs the exact same adapter used in production
+    (`ProductionGrowthConfirmationWiring`) with a real `growth_graph` port
+    bound to the same `AsyncSession`, then queries
+    `SqlAlchemyGrowthGraphProjection` on a fresh session/scope to prove the
+    edge this confirmation produced is durable and independently readable —
+    not just constructed in memory.
+    """
+
+    original = command()
+    async with SqlAlchemyUnitOfWork(session_factory) as uow:
+        adapter = SqlAlchemyGrowthIntentConfirmationAdapter(
+            uow.session,
+            growth_graph=SqlAlchemyGrowthGraphProjection(uow.session),
+        )
+        receipt = await adapter.confirm_growth_intent(original)
+        await uow.commit()
+
+    async with session_factory() as verify:
+        assert await count_rows(verify, metadata.tables["ai_growth_graph_edges"]) == 1
+        scope = ExperienceScope(
+            global_id=f"family://{original.tenant_id}/{original.family_id}",
+            tenant_id=original.tenant_id,
+            region_id="CN",
+            family_id=original.family_id,
+            subject_ids=(original.subject_person_id,),
+            purpose="growth_support",
+            consent_version=f"signal:{original.signal_version}",
+            consent_granted=True,
+            data_class="MINOR_PERSONAL_DATA",  # type: ignore[arg-type]
+            locale="zh-CN",
+            content_locale="zh-CN",
+            model_locale="zh-CN",
+            policy_locale="zh-CN",
+            deletion_ref=DeletionRef(
+                deletion_id=f"growth-intent:{receipt.intent_id}",
+                retention_policy="growth_graph.default_v1",
+            ),
+            correlation_id=original.correlation_id,
+            causation_id=original.human_gate_receipt_ref,
+        )
+        projection = SqlAlchemyGrowthGraphProjection(verify)
+        edges = await projection.query(scope, subject_id=original.subject_person_id)
+    assert len(edges) == 1
+    edge = edges[0]
+    assert edge.relation == "growth_hypothesis.confirmed"
+    assert edge.target_node == f"growth_intent:{receipt.intent_id}"
+    assert edge.source_node == f"hypothesis:{original.signal_ref}"
+    assert edge.event_ref == receipt.receipt_ref
+    assert edge.evidence_refs == original.evidence_refs
+    assert edge.provenance.provenance_ref == original.provenance_ref
+
+    # A replayed confirmation is idempotent and does not duplicate the edge.
+    async with SqlAlchemyUnitOfWork(session_factory) as uow:
+        adapter = SqlAlchemyGrowthIntentConfirmationAdapter(
+            uow.session,
+            growth_graph=SqlAlchemyGrowthGraphProjection(uow.session),
+        )
+        replay = await adapter.confirm_growth_intent(original)
+    assert replay.replayed is True
+    async with session_factory() as verify:
+        assert await count_rows(verify, metadata.tables["ai_growth_graph_edges"]) == 1
