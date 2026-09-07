@@ -2022,6 +2022,29 @@ entries:
       - "No orchestrator, no ASR/TTS/LLM wiring, no concurrency (max_concurrent_sessions=1)"
       - "The progressive poll and bounded final drain (ADR-0019 decision 13) are an architecture seam, not evidence that any engine streams frames"
       - "Final-drain bound of 8 polls is an unmeasured safety limit, not a measured production optimum"
+# ============ AGI 原生路径编排（Slice C-01） ============
+
+  - capability: ai_family_path_drafting_slice_c01
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/path_orchestration
+      - backend/intelligence/path_orchestration/contracts.py
+      - backend/intelligence/path_orchestration/planner.py
+      - tests/intelligence/path_orchestration/test_path_draft_planner.py
+      - tests/intelligence/path_orchestration/test_path_draft_persistence_contract.py
+      - governance/ADR/ADR-0158-agi-native-family-growth-platform.md
+    status: FOUNDATION_TESTED
+    evidence:
+      - "只读 FamilyPathContextPort 与 CapabilityCandidatePort 生成版本化 PathDraft，不提供业务事实写入方法"
+      - "guardian反馈(PathFeedbackSignal)真实参与候选打分(_candidate_score)，拒绝会改变下一次结果，见test_guardian_rejection_changes_the_next_draft"
+      - "PathDraftPersistencePort契约已定义(get_or_create/get_latest/get_versions)，区分'重算幂等'与'持久化幂等'，13个契约层测试全过；无PostgreSQL adapter实现"
+    reason: "建立 AGI 原生路径编排的最小可验证能力原语，不创建第二套 FamilyNeed、Growth Graph 或业务状态机"
+    known_gaps:
+      - "【方向性缺口，ADR-0158红蓝评审确认】Slice C-01当前零次调用Model Gateway/大模型；候选打分是tag交集算术，候选池(dev wiring里的ReviewedDevelopmentCapabilityPort)是硬编码固定列表，丢弃scope/context参数——按AI_NATIVE_PRINCIPLES.md判据，这是确定性编排骨架，不是AGI原生能力，不得描述为AGI能力完成"
+      - "尚无 Agent Runtime/Model Gateway 生产组合根接线"
+      - "PathDraftPersistencePort契约已设计，尚无真实adapter实现，未完成跨进程/PostgreSQL重启回读验证"
+      - "生产CapabilityCandidatePort实现应接哪个真实知识/能力来源(governance/CAPABILITY_REGISTRY.yaml已登记条目还是新建目录)尚未决定"
 
 # ============ 待人工裁决清单（disposition = REVIEW_REQUIRED 的完整索引） ============
 review_required_index:
