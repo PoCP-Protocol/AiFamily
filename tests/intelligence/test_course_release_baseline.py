@@ -112,4 +112,8 @@ def test_course_release_rejects_illegal_lifecycle_transitions():
         paused.pause(decided_by="human:operator-1", evidence=evidence)
     retired = paused.retire(decided_by="human:operator-1", evidence=evidence)
     with pytest.raises(Exception, match="RELEASE_ROLLBACK_STATUS_INVALID"):
-        retired.rollback(target_ref="course-release:old@v1", decided_by="human:operator-1", evidence=evidence)
+        retired.rollback(
+            target_ref="course-release:old@v1",
+            decided_by="human:operator-1",
+            evidence=evidence,
+        )
