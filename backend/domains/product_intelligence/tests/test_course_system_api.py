@@ -138,3 +138,11 @@ def test_delivery_projection_route_returns_ready_for_complete_published_course()
     assert response.status_code == 200
     assert response.json()["ready_lessons"] == 24
     assert response.json()["publishable_to_service"] is True
+
+    app.dependency_overrides[get_actor_context] = lambda: ActorContext(
+        actor_id="other-human", actor_type="HUMAN", tenant_scope="tenant-b"
+    )
+    forbidden = TestClient(app).get(
+        "/product-intelligence/courses/course-24/delivery-projection"
+    )
+    assert forbidden.status_code == 404
