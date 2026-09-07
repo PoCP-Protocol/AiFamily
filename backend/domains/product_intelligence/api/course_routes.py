@@ -12,12 +12,22 @@ because no SQLAlchemy mapping exists yet for `CourseContent` — see
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from backend.intelligence.human_gate.contracts import ActorType, DecisionOutcome, HumanDecision
 from backend.intelligence.human_gate.gate import InMemoryHumanGate
+from backend.intelligence.product_management.application.course_release_lifecycle import (
+    CourseReleaseLifecycleError,
+    advance_course_release_lifecycle,
+)
+from backend.intelligence.product_management.course_release_baseline import (
+    compile_course_release_baseline,
+)
+from backend.intelligence.product_management.ipd_contracts import GateEvidence, ReleaseBaseline
 
 from ..application.context import ActorContext
 from ..application.course_delivery_projection import compile_course_delivery_projection
@@ -49,6 +59,7 @@ _ERROR_STATUS = {
 _repository: CourseContentRepository | None = None
 _course_system_repository: CourseSystemRepository | None = None
 _gate: InMemoryHumanGate | None = None
+_release_baselines: dict[tuple[str, str], ReleaseBaseline] = {}
 
 
 def configure_course_content_repository(repository: CourseContentRepository | None) -> None:
@@ -70,6 +81,16 @@ def clear_course_content_wiring() -> None:
     configure_course_content_repository(None)
     configure_course_system_repository(None)
     configure_course_content_gate(None)
+    _release_baselines.clear()
+
+
+def configure_course_release_baseline_store(
+    store: dict[tuple[str, str], ReleaseBaseline] | None,
+) -> None:
+    """Install the owning app's release-baseline store; ``None`` is fail-closed."""
+
+    global _release_baselines
+    _release_baselines = store if store is not None else {}
 
 
 async def get_course_content_repository() -> CourseContentRepository:
@@ -129,6 +150,26 @@ class DecideCourseContentReviewRequest(BaseModel):
     task_id: str
     approved: bool
     reason: str
+
+
+class CompileCourseReleaseBaselineRequest(BaseModel):
+    payload: dict[str, object]
+
+
+class CourseReleaseEvidenceRequest(BaseModel):
+    evidence_id: str
+    kind: str
+    reference: str
+    summary: str
+
+
+class CourseReleaseLifecycleRequest(BaseModel):
+    action: str
+    decision_id: str
+    task_id: str
+    reason: str | None = None
+    evidence: list[CourseReleaseEvidenceRequest] = Field(min_length=1)
+    rollback_target_ref: str | None = None
 
 
 @router.get("/system/{system_id}", response_model=CourseSystem)
@@ -233,6 +274,52 @@ async def list_published(
     return await list_published_course_content(repo, context)
 
 
+@router.post("/release-baselines")
+async def compile_release_baseline(
+    body: CompileCourseReleaseBaselineRequest,
+    context: ActorContext = Depends(get_actor_context),
+):
+    try:
+        baseline = compile_course_release_baseline(body.payload)
+    except (ValueError, ProductIntelligenceDomainError) as exc:
+        detail = str(exc)
+        raise HTTPException(status_code=400, detail=detail) from exc
+    _release_baselines[(context.tenant_scope, baseline.release_id)] = baseline
+    return baseline
+
+
+@router.post("/release-baselines/{release_id:path}/lifecycle")
+async def advance_release_baseline(
+    release_id: str,
+    body: CourseReleaseLifecycleRequest,
+    context: ActorContext = Depends(get_actor_context),
+):
+    baseline = _release_baselines.get((context.tenant_scope, release_id))
+    if baseline is None:
+        raise HTTPException(status_code=404, detail="COURSE_RELEASE_BASELINE_NOT_FOUND")
+    try:
+        decision = HumanDecision(
+            decision_id=body.decision_id,
+            task_id=body.task_id,
+            actor_id=context.actor_id,
+            actor_type=ActorType.OPERATOR,
+            outcome=DecisionOutcome.ACCEPT,
+            reason=body.reason,
+            decided_at=datetime.now(UTC),
+        )
+        result = advance_course_release_lifecycle(
+            baseline,
+            action=body.action,  # type: ignore[arg-type]
+            decision=decision,
+            evidence=tuple(GateEvidence(**item.model_dump()) for item in body.evidence),
+            rollback_target_ref=body.rollback_target_ref,
+        )
+    except (ValueError, CourseReleaseLifecycleError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _release_baselines[(context.tenant_scope, release_id)] = result.baseline
+    return {"baseline": result.baseline, "audit": result.audit}
+
+
 @router.get("/{course_content_id}")
 async def get_one(
     course_content_id: str,
@@ -264,6 +351,7 @@ __all__ = [
     "clear_course_content_wiring",
     "configure_course_content_gate",
     "configure_course_content_repository",
+    "configure_course_release_baseline_store",
     "configure_course_system_repository",
     "router",
 ]
