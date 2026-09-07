@@ -6,6 +6,7 @@ from backend.intelligence.path_orchestration.contracts import (
     FamilyPathContext,
     PathDraftEvidence,
     PathDraftScopeError,
+    PathFeedbackSignal,
 )
 from backend.intelligence.path_orchestration.planner import ContextDrivenPathDraftPlanner
 
@@ -53,7 +54,9 @@ def evidence(ref: str) -> PathDraftEvidence:
     return PathDraftEvidence(ref, "family_need", "v1", "guardian-confirmed context")
 
 
-def context(*, family_id="family-a", subject_id="child-a", tags=(), unknowns=()):
+def context(
+    *, family_id="family-a", subject_id="child-a", tags=(), unknowns=(), feedback_signals=()
+):
     return FamilyPathContext(
         tenant_id="tenant-1",
         family_id=family_id,
@@ -65,6 +68,7 @@ def context(*, family_id="family-a", subject_id="child-a", tags=(), unknowns=())
         fit_tags=frozenset(tags),
         unknowns=tuple(unknowns),
         feedback_refs=(f"feedback-{family_id}",),
+        feedback_signals=tuple(feedback_signals),
     )
 
 
@@ -143,3 +147,31 @@ async def test_context_port_cannot_return_a_different_need_in_the_same_family():
 
     with pytest.raises(PathDraftScopeError, match="need mismatch"):
         await planner.draft(scope=scope(), need_id="need-family-a-other")
+
+
+@pytest.mark.asyncio
+async def test_guardian_rejection_changes_the_next_draft():
+    candidates = (
+        candidate("capability:study-start", "study_start"),
+        candidate("capability:repair-dialogue", "repair_dialogue"),
+    )
+    feedback = PathFeedbackSignal(
+        feedback_ref="feedback-family-a-2",
+        decision="REJECT",
+        reason="先修复关系，不从任务设计开始。",
+        excluded_capability_refs=("capability:study-start",),
+    )
+    planner = ContextDrivenPathDraftPlanner(
+        ContextPort(
+            context(
+                tags=("study_start", "repair_dialogue"),
+                feedback_signals=(feedback,),
+            )
+        ),
+        CandidatePort(candidates),
+    )
+
+    draft = await planner.draft(scope=scope(), need_id="need-family-a")
+
+    assert [node.capability_ref for node in draft.nodes] == ["capability:repair-dialogue"]
+    assert draft.feedback_signals == (feedback,)

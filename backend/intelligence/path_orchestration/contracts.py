@@ -26,6 +26,25 @@ class PathDraftScopeError(PathDraftError):
 
 
 @dataclass(frozen=True, slots=True)
+class PathFeedbackSignal:
+    """Structured guardian correction consumed by the next draft."""
+
+    feedback_ref: str
+    decision: Literal["REJECT", "PREFER", "CLARIFY"]
+    reason: str
+    excluded_capability_refs: tuple[str, ...] = ()
+    preferred_fit_tags: frozenset[str] = field(default_factory=frozenset)
+
+    def __post_init__(self) -> None:
+        if not self.feedback_ref.strip() or not self.reason.strip():
+            raise PathDraftError("path feedback ref and reason are required")
+        if any(not ref.strip() for ref in self.excluded_capability_refs):
+            raise PathDraftError("path feedback excluded refs cannot be blank")
+        if any(not tag.strip() for tag in self.preferred_fit_tags):
+            raise PathDraftError("path feedback preferred tags cannot be blank")
+
+
+@dataclass(frozen=True, slots=True)
 class PathDraftEvidence:
     """A source reference explaining why a draft node was selected."""
 
@@ -56,6 +75,7 @@ class FamilyPathContext:
     fit_tags: frozenset[str] = field(default_factory=frozenset)
     unknowns: tuple[str, ...] = ()
     feedback_refs: tuple[str, ...] = ()
+    feedback_signals: tuple[PathFeedbackSignal, ...] = ()
 
     def __post_init__(self) -> None:
         required = (
@@ -113,6 +133,7 @@ class PathDraft:
     selected_reasons: Mapping[str, tuple[str, ...]]
     clarifying_questions: tuple[str, ...]
     feedback_refs: tuple[str, ...]
+    feedback_signals: tuple[PathFeedbackSignal, ...] = ()
     generated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     status: PathDraftStatus = "DRAFT"
 
@@ -163,6 +184,7 @@ __all__ = [
     "FamilyPathContextPort",
     "PathDraft",
     "PathDraftEvidence",
+    "PathFeedbackSignal",
     "PathDraftError",
     "PathDraftScopeError",
 ]

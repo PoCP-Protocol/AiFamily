@@ -80,6 +80,7 @@ class ContextDrivenPathDraftPlanner:
             selected_reasons=reasons,
             clarifying_questions=questions,
             feedback_refs=context.feedback_refs,
+            feedback_signals=context.feedback_signals,
             generated_at=generated_at,
         )
 
@@ -101,9 +102,15 @@ def _assert_context_scope(
 
 
 def _candidate_score(candidate: CapabilityCandidate, context: FamilyPathContext) -> int:
-    return len(candidate.fit_tags & context.fit_tags) * 10 + len(
+    score = len(candidate.fit_tags & context.fit_tags) * 10 + len(
         candidate.prerequisite_tags & context.fit_tags
     )
+    for signal in context.feedback_signals:
+        if candidate.capability_ref in signal.excluded_capability_refs:
+            score -= 1000
+        if signal.decision == "PREFER":
+            score += len(candidate.fit_tags & signal.preferred_fit_tags) * 25
+    return score
 
 
 def _reasons(candidate: CapabilityCandidate, context: FamilyPathContext) -> tuple[str, ...]:
@@ -111,6 +118,11 @@ def _reasons(candidate: CapabilityCandidate, context: FamilyPathContext) -> tupl
     reasons = [f"context_fit:{tag}" for tag in matched]
     reasons.append(f"evidence:{context.evidence[0].ref}")
     reasons.extend(f"candidate_evidence:{item.ref}" for item in candidate.evidence)
+    for signal in context.feedback_signals:
+        if candidate.capability_ref in signal.excluded_capability_refs:
+            reasons.append(f"feedback_excluded:{signal.feedback_ref}")
+        for tag in sorted(candidate.fit_tags & signal.preferred_fit_tags):
+            reasons.append(f"feedback_preference:{signal.feedback_ref}:{tag}")
     return tuple(reasons)
 
 
