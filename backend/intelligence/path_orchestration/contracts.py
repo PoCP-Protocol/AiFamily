@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Literal, Protocol
+from typing import Literal, Protocol, runtime_checkable
 
 from backend.intelligence.context_engine.contracts import ContextScope
 
@@ -177,6 +177,51 @@ class CapabilityCandidatePort(Protocol):
     ) -> tuple[CapabilityCandidate, ...]: ...
 
 
+@runtime_checkable
+class PathDraftPersistencePort(Protocol):
+    """Durable seam for idempotent path draft version storage.
+
+    A deterministic ``draft_id`` (same tenant/family/need/context_snapshot_ref
+    and same selected capability refs always hash to the same id) proves that
+    the *planner's computation* is idempotent, but it does not by itself prove
+    that a draft survives a process restart, that a caller re-requesting the
+    same need+snapshot gets back the exact same persisted row (not a fresh
+    in-memory recomputation that merely happens to collide on id), or that the
+    model version, evidence lineage, and feedback lineage that produced a
+    draft remain retrievable later.  This port is the adapter seam that closes
+    that gap; it deliberately says nothing about *how* drafts are stored
+    (SQL table, event store, etc.) — only the contract an adapter must honor.
+
+    Implementations MUST satisfy:
+      * ``get_or_create`` is idempotent by ``(tenant_id, family_id, need_id,
+        context_snapshot_ref, draft_id)``: calling it twice with an
+        equal draft returns the same persisted version both times and does
+        not create a second row.
+      * The returned ``PathDraft`` is the one already durably stored when one
+        exists for that key, not a re-derived value — callers must be able to
+        trust the returned ``version`` and ``generated_at`` as the original
+        write's values, not the second call's inputs.
+      * A new ``context_snapshot_ref`` for the same ``need_id`` is a new
+        logical draft lineage; it never silently overwrites a prior version,
+        and querying by ``need_id`` alone must be able to return history
+        (``get_versions``) across snapshot changes.
+      * Storage is scoped to the same tenant/family boundary already enforced
+        by ``FamilyPathContextPort`` — this port trusts its caller to pass a
+        draft that has already passed scope validation; it does not
+        re-derive or re-check scope itself.
+    """
+
+    async def get_or_create(self, draft: PathDraft) -> PathDraft: ...
+
+    async def get_latest(
+        self, *, tenant_id: str, family_id: str, need_id: str
+    ) -> PathDraft | None: ...
+
+    async def get_versions(
+        self, *, tenant_id: str, family_id: str, need_id: str
+    ) -> tuple[PathDraft, ...]: ...
+
+
 __all__ = [
     "CapabilityCandidate",
     "CapabilityCandidatePort",
@@ -184,6 +229,7 @@ __all__ = [
     "FamilyPathContextPort",
     "PathDraft",
     "PathDraftEvidence",
+    "PathDraftPersistencePort",
     "PathFeedbackSignal",
     "PathDraftError",
     "PathDraftScopeError",
