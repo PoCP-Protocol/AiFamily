@@ -32,6 +32,7 @@ from backend.domains.assessment.api.dependencies import FamilyContext, get_famil
 from backend.domains.assessment.application.growth_intent_handoff import (
     ViewedUnderstandingSignal,
 )
+from backend.intelligence.growth_graph.store import GrowthGraphPersistenceBase
 from backend.platform.audit import AuditBase
 from backend.platform.outbox import OutboxMetadata
 from tests.support.postgres import SKIP_REASON, postgres_schema_engine, postgres_test_url
@@ -131,6 +132,7 @@ decisions = Table(
 )
 AuditBase.metadata.tables["platform_audit_events"].to_metadata(metadata)
 OutboxMetadata.tables["outbox_events"].to_metadata(metadata)
+GrowthGraphPersistenceBase.metadata.tables["ai_growth_graph_edges"].to_metadata(metadata)
 
 TENANT = uuid.UUID("10000000-0000-4000-8000-000000000001")
 FAMILY = uuid.UUID("20000000-0000-4000-8000-000000000001")

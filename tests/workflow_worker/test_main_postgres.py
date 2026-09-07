@@ -98,4 +98,5 @@ async def test_worker_composition_runs_and_restarts_on_fresh_postgres(
     assert {outcome.activity for outcome in restarted_outcomes} == {
         "accepted_named_actions",
         "growth_action_experience_relay",
+        "experience_outbox_fanout",
     }

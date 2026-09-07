@@ -21,6 +21,10 @@ from backend.domains.growth.application.growth_intent_confirmation import (
     GrowthConfirmationConflictError,
     ValidatedConfirmationBinding,
 )
+from backend.intelligence.growth_graph.projectors import (
+    GrowthGraphProjectionPort,
+    project_growth_hypothesis_confirmation,
+)
 from backend.platform.audit import AuditEvent, AuditRecorder
 from backend.platform.outbox import OutboxEvent, OutboxWriterPort, SqlAlchemyOutboxWriter
 
@@ -41,9 +45,11 @@ class SqlAlchemyGrowthIntentConfirmationAdapter(GrowthIntentConfirmationPort):
         session: AsyncSession,
         *,
         outbox_writer: OutboxWriterPort | None = None,
+        growth_graph: GrowthGraphProjectionPort | None = None,
     ) -> None:
         self._session = session
         self._outbox = outbox_writer or SqlAlchemyOutboxWriter()
+        self._growth_graph = growth_graph
 
     async def confirm_growth_intent(self, command: ConfirmGrowthIntentInput) -> GrowthIntentReceipt:
         binding = ValidatedConfirmationBinding.from_command(command)
@@ -88,6 +94,29 @@ class SqlAlchemyGrowthIntentConfirmationAdapter(GrowthIntentConfirmationPort):
             ),
         )
         await self._persist_receipt(storage_key, receipt)
+        if self._growth_graph is not None:
+            # Consent for `binding.subject_person_id` has already been
+            # asserted fail-closed by the Assessment caller
+            # (`GrowthHypothesisCommandHandler.decide` ->
+            # `assert_subject_consent`) before this adapter is ever reached;
+            # no separate consent-version value exists on this binding to
+            # forward, so the signal version stands in for the reviewed-draft
+            # generation this confirmation is bound to.
+            edge = project_growth_hypothesis_confirmation(
+                tenant_id=binding.tenant_id,
+                family_id=binding.family_id,
+                subject_person_id=binding.subject_person_id,
+                actor_id=binding.actor_id,
+                intent_id=receipt.intent_id,
+                signal_ref=binding.signal_ref,
+                receipt_ref=receipt.receipt_ref,
+                evidence_refs=binding.evidence_refs,
+                provenance_ref=binding.provenance_ref,
+                correlation_id=binding.correlation_id,
+                causation_id=binding.human_gate_receipt_ref,
+                consent_version=f"signal:{binding.signal_version}",
+            )
+            await self._growth_graph.project(edge)
         return receipt
 
     async def _load_replay_or_reserve(
