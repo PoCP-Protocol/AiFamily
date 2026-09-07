@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { CourseSystemBlueprintPanel } from "./CourseSystemBlueprintPanel";
 import { COURSE_SYSTEM_STAGES } from "./courseSystemBlueprint";
@@ -61,8 +61,12 @@ describe("CourseSystemBlueprintPanel", () => {
   });
 
   it("shows a visible error when the published course directory fails", async () => {
-    render(<CourseSystemBlueprintPanel enabled courseContentClient={{ listPublished: async () => { throw new Error("offline"); }, get: async () => { throw new Error("unused"); } }} />);
+    let attempts = 0;
+    render(<CourseSystemBlueprintPanel enabled courseContentClient={{ listPublished: async () => { attempts += 1; if (attempts === 1) throw new Error("offline"); return []; }, get: async () => { throw new Error("unused"); } }} />);
     expect(await screen.findByRole("alert")).toHaveTextContent("已发布课程目录暂不可读取");
+    fireEvent.click(await screen.findByRole("button", { name: "重试读取课程目录" }));
+    await waitFor(() => expect(screen.getByText("尚未读取已发布课程交付投影。")).toBeInTheDocument());
+    expect(attempts).toBe(2);
   });
 
 });

@@ -22,7 +22,19 @@ export function CourseSystemBlueprintPanel({ client, deliveryClient, courseConte
   const [selectedCourseContentId, setSelectedCourseContentId] = useState(courseContentId ?? "");
   const [courseDirectoryState, setCourseDirectoryState] = useState<"IDLE" | "LOADING" | "READY" | "ERROR">("IDLE");
   useEffect(() => { if (!enabled) return; let active = true; void resolvedClient.get("course-system:family-growth").then((system) => { if (active) { setStages(system.stages); setProductPackageRef(system.product_package_version_ref); setCourseSystemVersion(system.version); setBomLessonSequences(system.bom_lesson_sequences ?? []); setBomStatuses(system.bom_lesson_statuses ?? {}); setState("已读取课程体系主数据版本：" + system.version); } }).catch(() => { if (active) setState("课程体系主数据暂不可用；蓝图仍为设计模板，不代表已发布课程。"); }); return () => { active = false; }; }, [enabled, resolvedClient]);
-  useEffect(() => { if (!enabled) return; let active = true; setCourseDirectoryState("LOADING"); void resolvedCourseContentClient.listPublished().then((courses) => { if (active) { setPublishedCourses(courses); setSelectedCourseContentId((current) => current || courses[0]?.id || ""); setCourseDirectoryState("READY"); } }).catch(() => { if (active) { setPublishedCourses([]); setCourseDirectoryState("ERROR"); } }); return () => { active = false; }; }, [enabled, resolvedCourseContentClient]);
+  const loadPublishedCourses = async () => {
+    setCourseDirectoryState("LOADING");
+    try {
+      const courses = await resolvedCourseContentClient.listPublished();
+      setPublishedCourses(courses);
+      setSelectedCourseContentId((current) => current || courses[0]?.id || "");
+      setCourseDirectoryState("READY");
+    } catch {
+      setPublishedCourses([]);
+      setCourseDirectoryState("ERROR");
+    }
+  };
+  useEffect(() => { if (!enabled) return; let active = true; void resolvedCourseContentClient.listPublished().then((courses) => { if (active) { setPublishedCourses(courses); setSelectedCourseContentId((current) => current || courses[0]?.id || ""); setCourseDirectoryState("READY"); } }).catch(() => { if (active) { setPublishedCourses([]); setCourseDirectoryState("ERROR"); } }); return () => { active = false; }; }, [enabled, resolvedCourseContentClient]);
   useEffect(() => { if (!enabled || !selectedCourseContentId) return; let active = true; void resolvedDeliveryClient.get(selectedCourseContentId).then((projection) => { if (active) setServiceProjection(projection); }).catch(() => { if (active) setServiceProjection(null); }); return () => { active = false; }; }, [enabled, selectedCourseContentId, resolvedDeliveryClient]);
   const delivery = buildLessonDeliveryMatrix(stages.length ? stages : COURSE_SYSTEM_STAGES, bomLessonSequences, bomStatuses);
   const readiness = summarizeLessonDelivery(delivery);
@@ -36,7 +48,7 @@ export function CourseSystemBlueprintPanel({ client, deliveryClient, courseConte
         课程不是孤立内容，而是从市场洞察衍生出的可交付服务产品。体系层定义成长路径，课程层编排 24 节课，课件层通过 BOM 固化 PPT、工作纸、图片、视频与 Skill 的版本血缘。
       </p>
       <div className="callout" role="status"><strong>主数据状态</strong><p>{state}</p></div>
-      <div className="callout" role="status" aria-label="服务交付投影状态"><strong>服务交付投影</strong><label>选择已发布课程<select aria-label="选择已发布课程" value={selectedCourseContentId} onChange={(event) => setSelectedCourseContentId(event.target.value)}><option value="">{courseDirectoryState === "ERROR" ? "课程目录读取失败" : courseDirectoryState === "LOADING" ? "课程目录读取中…" : "暂无已发布课程"}</option>{publishedCourses.map((course) => <option key={course.id} value={course.id}>{course.title} · v{course.version}</option>)}</select></label>{courseDirectoryState === "ERROR" ? <p role="alert">已发布课程目录暂不可读取，未使用本地或缓存数据替代。</p> : null}<p>{serviceProjection ? `${serviceProjection.ready_lessons}/24 节已具备服务交付条件；${serviceProjection.publishable_to_service ? "允许进入服务发布" : `仍阻断 ${serviceProjection.blocked_lessons} 节`}` : "尚未读取已发布课程交付投影。"}</p></div>
+      <div className="callout" role="status" aria-label="服务交付投影状态"><strong>服务交付投影</strong><label>选择已发布课程<select aria-label="选择已发布课程" value={selectedCourseContentId} onChange={(event) => setSelectedCourseContentId(event.target.value)}><option value="">{courseDirectoryState === "ERROR" ? "课程目录读取失败" : courseDirectoryState === "LOADING" ? "课程目录读取中…" : "暂无已发布课程"}</option>{publishedCourses.map((course) => <option key={course.id} value={course.id}>{course.title} · v{course.version}</option>)}</select></label>{courseDirectoryState === "ERROR" ? <><p role="alert">已发布课程目录暂不可读取，未使用本地或缓存数据替代。</p><button type="button" onClick={() => void loadPublishedCourses()}>重试读取课程目录</button></> : null}<p>{serviceProjection ? `${serviceProjection.ready_lessons}/24 节已具备服务交付条件；${serviceProjection.publishable_to_service ? "允许进入服务发布" : `仍阻断 ${serviceProjection.blocked_lessons} 节`}` : "尚未读取已发布课程交付投影。"}</p></div>
       <div className="callout" role="note" aria-label="产品包版本追溯"><strong>产品包版本追溯</strong><p>{productPackageRef && courseSystemVersion ? <><code>{productPackageRef}</code> → <code>course-system:family-growth@{courseSystemVersion}</code></> : "ProductPackage（待读取）"}</p></div>
       <div className="course-system-flow" role="list" aria-label="六阶段课程体系">
         {(stages.length ? stages : COURSE_SYSTEM_STAGES).map((stage) => (
