@@ -19,8 +19,12 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from ..api.course_routes import configure_course_content_repository
+from ..api.course_routes import (
+    configure_course_content_repository,
+    configure_course_system_repository,
+)
 from .course_content_postgres_repository import SqlAlchemyCourseContentRepository
+from .course_system_postgres_repository import SqlAlchemyCourseSystemRepository
 
 
 class _ConnectionScopedCourseContentRepository:
@@ -52,6 +56,17 @@ class _ConnectionScopedCourseContentRepository:
             ).list_published_course_content(tenant_scope)
 
 
+class _ConnectionScopedCourseSystemRepository:
+    def __init__(self, engine: AsyncEngine) -> None:
+        self._engine = engine
+
+    async def load_course_system(self, system_id: str, tenant_scope: str):
+        async with self._engine.begin() as connection:
+            return await SqlAlchemyCourseSystemRepository(connection).load_course_system(
+                system_id, tenant_scope
+            )
+
+
 def install_course_content_production_wiring(*, engine: AsyncEngine) -> None:
     """Install a PostgreSQL-backed `CourseContent` repository.
 
@@ -59,6 +74,7 @@ def install_course_content_production_wiring(*, engine: AsyncEngine) -> None:
     """
 
     configure_course_content_repository(_ConnectionScopedCourseContentRepository(engine))
+    configure_course_system_repository(_ConnectionScopedCourseSystemRepository(engine))
 
 
 __all__ = [
