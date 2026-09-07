@@ -39,7 +39,7 @@ export function CourseSystemBlueprintPanel({ client = new HttpCourseSystemApiCli
           {delivery.map((lesson) => (
             <li key={lesson.sequence}>
               <strong>第{lesson.sequence}课 · {lesson.stage_title}</strong>
-              <span>{lesson.product_outcome} · {lesson.service_action} · {lesson.courseware_status}</span>
+              <span>{lesson.product_outcome} · {lesson.service_action} · {lesson.courseware_status} · {lesson.governance_reason === "READY" ? "治理通过" : `阻断：${lesson.governance_reason}`}</span>
             </li>
           ))}
         </ol>

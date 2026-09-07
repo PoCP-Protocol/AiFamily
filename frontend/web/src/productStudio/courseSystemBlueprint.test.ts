@@ -48,7 +48,9 @@ describe("course system blueprint", () => {
       2: { qa_status: "APPROVED", rights_status: "UNKNOWN", safety_status: "CLEARED" },
     });
     expect(rows[0].courseware_status).toBe("READY");
+    expect(rows[0].governance_reason).toBe("READY");
     expect(rows[1].courseware_status).toBe("REVIEW_REQUIRED");
+    expect(rows[1].governance_reason).toBe("RIGHTS");
   });
 
   it("explains the first failing courseware governance gate", () => {

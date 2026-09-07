@@ -35,6 +35,7 @@ export type LessonDeliveryRow = {
   product_outcome: string;
   service_action: string;
   courseware_status: "BOM_REQUIRED" | "REVIEW_REQUIRED" | "READY";
+  governance_reason: "NO_ASSET" | "QA" | "RIGHTS" | "SAFETY" | "READY";
 };
 
 export type LessonDeliveryReadiness = {
@@ -85,6 +86,7 @@ export function buildLessonDeliveryMatrix(stages: readonly CourseSystemStage[], 
     product_outcome: stage.output,
     service_action: SERVICE_ACTIONS[stageIndex],
     courseware_status: !bom.has(stage.lesson_start + offset) ? "BOM_REQUIRED" as const : (bomStatuses[stage.lesson_start + offset]?.qa_status === "APPROVED" && bomStatuses[stage.lesson_start + offset]?.rights_status === "CLEARED" && bomStatuses[stage.lesson_start + offset]?.safety_status === "CLEARED" ? "READY" as const : "REVIEW_REQUIRED" as const),
+    governance_reason: !bom.has(stage.lesson_start + offset) ? "NO_ASSET" as const : (bomStatuses[stage.lesson_start + offset]?.qa_status !== "APPROVED" ? "QA" as const : bomStatuses[stage.lesson_start + offset]?.rights_status !== "CLEARED" ? "RIGHTS" as const : bomStatuses[stage.lesson_start + offset]?.safety_status !== "CLEARED" ? "SAFETY" as const : "READY" as const),
   })));
 }
 
