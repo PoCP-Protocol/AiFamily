@@ -214,7 +214,9 @@ class ServiceTaskRow(FGCNBase):
     status: Mapped[str] = mapped_column(_TASK_STATUS, nullable=False)
     responsible_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
     due_at: Mapped[datetime | None] = mapped_column(_TIMESTAMP, nullable=True)
-    deliverable: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    deliverable: Mapped[dict | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
     verified_at: Mapped[datetime | None] = mapped_column(_TIMESTAMP, nullable=True)
     created_at: Mapped[datetime] = mapped_column(_TIMESTAMP, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(_TIMESTAMP, nullable=False)

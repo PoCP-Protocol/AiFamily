@@ -190,7 +190,7 @@ class DevWiringNotPermittedError(RuntimeError):
 
 
 DEV_DEFAULT_DATABASE_URL = (
-    "postgresql+asyncpg://aifamily:aifamily@localhost:55442/aifamily_dev_claude"
+    "postgresql+asyncpg://aifamily:aifamily@127.0.0.1:55442/aifamily_dev_claude"
 )
 """Fallback dev/test PostgreSQL URL — same `aifamily-dev-postgres` container
 `docker-compose.dev.yml` starts, but a **separate database**
@@ -654,6 +654,118 @@ class _DevProviderAdmissionQuery:
 
 
 _dev_fgcn_provider_admission = _DevProviderAdmissionQuery()
+
+
+async def _ensure_dev_fgcn_provider_admission_rows() -> None:
+    """Seed real `family_service_providers` rows for the durable FGCN path.
+
+    `need_fulfillment_flow.fulfil_confirmed_draft` prefers the durable branch
+    (`fgcn_session_factory is not None`, always true in this dev wiring — see
+    `_dev_fulfillment_deps`), which resolves provider admission through
+    `SqlAlchemyProviderAdmissionQuery` against the real PostgreSQL
+    `family_service_providers` table, not through `_DevProviderAdmissionQuery`
+    /`_repository` above. `ensure_mobile_master_data` only ever writes to the
+    in-memory `_repository` (`FakeServiceRepository`), so without this, the
+    durable path's real-DB read always finds no row and every escalation to a
+    real teacher fails closed with `fgcn_provider_admission_unavailable` —
+    not a business rejection, just a missing fixture row in the table the
+    durable path actually reads from.
+
+    Mirrors `ensure_mobile_master_data`'s own `CATALOGUE` (same
+    `provider_ref`s, same `fgcn_capability_keys`/`fgcn_allowed_purposes`
+    attributes) so a real teacher match made against the in-memory catalogue
+    also resolves as admitted against the real table the durable FGCN command
+    reads.
+
+    Unlike `ensure_mobile_master_data`'s in-memory `provider_id` (a readable
+    `f"master-provider-{tenant_key}-{provider_ref.lower()}"` string, fine for
+    a Python dict key), `family_service_providers.provider_id`/`tenant_id`
+    are real Postgres `uuid` columns (see this module's own `DEV_DEFAULT_
+    DATABASE_URL` docstring on why dev/test here is a real-database
+    requirement) — a non-UUID string in either column fails the insert
+    outright with asyncpg's own `invalid UUID` error. `provider_id` is
+    derived as a stable UUID5 from `provider_ref` alone (not per-tenant: the
+    dev catalogue's two teachers are shared fixture data, not one row per
+    family), same "real UUID on the wire, still idempotent per intent"
+    approach `authorize_real_teacher_assignment_durable` already uses for
+    `case_id`/`task_id`/`plan_ref`.
+
+    `scope_type="PLATFORM"`/`tenant_id=None` (not `"TENANT"`/this family's own
+    `tenant_id`) is the deliberate choice here, not an oversight:
+    `SqlAlchemyProviderAdmissionQuery.resolve`'s own `WHERE ... tenant_id =
+    scope.tenant_id OR scope_type = 'PLATFORM'` clause exists precisely for
+    fixture data admitted platform-wide rather than scoped to one family's
+    `uuid` — and this dev family_id (e.g. `"family-need-e2e-fgcn-escalation"`)
+    is not itself a valid `uuid` literal, so a `tenant_id`-scoped row could
+    never satisfy that column's real type anyway.
+    """
+
+    import json
+    from uuid import NAMESPACE_URL, uuid5
+
+    from backend.domains.service.application.master_data import CATALOGUE
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    engine = _get_dev_engine()
+    try:
+        async with engine.begin() as connection:
+            for provider_ref, name, _offering_ref, _title, _channel in CATALOGUE:
+                provider_id = str(uuid5(NAMESPACE_URL, f"fgcn-provider-admission:{provider_ref}"))
+                existing = await connection.execute(
+                    text(
+                        "SELECT 1 FROM family_service_providers"
+                        " WHERE provider_id = CAST(:provider_id AS uuid)"
+                    ),
+                    {"provider_id": provider_id},
+                )
+                if existing.first() is not None:
+                    continue
+                # Raw SQL with explicit `::uuid` casts, not `ServiceProviderRow
+                # .__table__.insert()`: the ORM model widens `uuid` -> `String`
+                # for the SQLite fast-test path (see that module's own
+                # docstring), which renders every bound parameter as
+                # `$n::VARCHAR` — Postgres refuses that against a real `uuid`
+                # column outright (`DatatypeMismatchError`), even though the
+                # *value* itself is a valid UUID string.
+                await connection.execute(
+                    text(
+                        """
+                        INSERT INTO family_service_providers (
+                            provider_id, scope_type, tenant_id, provider_ref,
+                            display_name, provider_kind, qualification_status,
+                            admission_status, source_ref, fixture_only,
+                            attributes_schema_version, attributes, status,
+                            effective_from, row_version, created_at,
+                            created_by, updated_at, updated_by
+                        ) VALUES (
+                            CAST(:provider_id AS uuid), 'PLATFORM', NULL,
+                            :provider_ref, :display_name, 'TEACHER', 'ACTIVE',
+                            'ADMITTED', 'aifamily.mobile.master-data.v1',
+                            true, 1, CAST(:attributes AS jsonb), 'ACTIVE',
+                            :effective_from, 1, :created_at,
+                            'system:dev-master-data', :updated_at,
+                            'system:dev-master-data'
+                        )
+                        """
+                    ),
+                    {
+                        "provider_id": provider_id,
+                        "provider_ref": provider_ref,
+                        "display_name": name,
+                        "attributes": json.dumps(
+                            {
+                                "fgcn_capability_keys": [],
+                                "fgcn_allowed_purposes": ["service_collaboration"],
+                            }
+                        ),
+                        "effective_from": now,
+                        "created_at": now,
+                        "updated_at": now,
+                    },
+                )
+    finally:
+        await engine.dispose()
+
 
 DEV_COURSE_CATALOG_TENANT_SCOPE = "dev"
 """Tenant scope the seeded course catalog is published under (see
@@ -1387,15 +1499,24 @@ async def _dev_consent_query() -> _DevConsentQuery:
     return _DevConsentQuery()
 
 
-def _dev_fulfillment_deps() -> family_need_fulfillment_deps.FulfillmentDeps:
+async def _dev_fulfillment_deps() -> family_need_fulfillment_deps.FulfillmentDeps:
     """Wire the confirm-draft/complete-and-review routes to real (dev) domains.
 
     Reuses the same process-local `_repository` / `_commerce_repository` the
     mobile SERVICE/PRODUCT journeys and `family_need`'s own supply adapters
     already share, so a booking made through this flow is visible to the same
     `FakeServiceRepository` the ordinary SERVICE routes query.
+
+    Also seeds the real `family_service_providers` rows the durable FGCN
+    path's `SqlAlchemyProviderAdmissionQuery` reads (see
+    `_ensure_dev_fgcn_provider_admission_rows`'s own docstring) — this route's
+    dependency chain does not otherwise call `_dev_action_context` (the other
+    place that seeds dev master data), so without this call here too, an
+    escalation confirmed through `confirm_solution_draft` would never find an
+    admitted provider even though the ordinary SERVICE browse/book routes do.
     """
 
+    await _ensure_dev_fgcn_provider_admission_rows()
     return family_need_fulfillment_deps.FulfillmentDeps(
         commerce_repository=_commerce_repository,
         service_repository=_repository,
@@ -1427,6 +1548,7 @@ async def _dev_action_context(
     identity = _identity(authorization)
     await ensure_mobile_product_master_data(_commerce_repository)
     await ensure_mobile_master_data(_repository, identity["family_id"])
+    await _ensure_dev_fgcn_provider_admission_rows()
     return ActionContext(
         tenant_id=identity["family_id"],
         family_id=identity["family_id"],
