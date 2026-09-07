@@ -79,3 +79,21 @@ def test_course_release_requires_evidence_for_release_after_approval():
     )
     with pytest.raises(Exception, match="RELEASE_EVIDENCE_REQUIRED"):
         reviewed.release(decided_by="human:operator-1", evidence=())
+
+
+def test_course_release_supports_pause_rollback_and_retire():
+    baseline = compile_course_release_baseline(_payload())
+    evidence = (GateEvidence("evidence-1", "QA", "qa://course-24", "治理证据"),)
+    released = baseline.approve(
+        decided_by="human:operator-1", human_gate_ref="gate:course-24", evidence=evidence
+    ).release(decided_by="human:operator-1", evidence=evidence)
+    paused = released.pause(decided_by="human:operator-1", evidence=evidence)
+    rolled_back = paused.rollback(
+        target_ref="course-release:course-content:family-growth@v0",
+        decided_by="human:operator-1",
+        evidence=evidence,
+    )
+    retired = rolled_back.retire(decided_by="human:operator-1", evidence=evidence)
+    assert paused.status.value == "PAUSED"
+    assert rolled_back.rollback_target_ref.endswith("@v0")
+    assert retired.status.value == "RETIRED"
