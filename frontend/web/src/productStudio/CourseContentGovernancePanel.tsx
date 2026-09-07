@@ -80,7 +80,7 @@ export function CourseContentGovernancePanel({
                 {selected.lessons.map((lesson) => (
                   <li key={lesson.lesson_id}>
                     <span>{lesson.sequence}</span>
-                    <div><h4>{lesson.title}</h4><p><strong>知识：</strong>{lesson.knowledge_point}</p><p><strong>行动：</strong>{lesson.action_task}</p><small>课件：{lesson.media_asset_ids.join("、") || "无引用"} · 工具：{lesson.tool_refs.join("、") || "无引用"}</small></div>
+                    <div><h4>{lesson.title}</h4><p><strong>知识：</strong>{lesson.knowledge_point}</p><p><strong>行动：</strong>{lesson.action_task}</p>{lesson.stage_id && lesson.bom_line_ref ? <small>阶段：{lesson.stage_id} · BOM：{lesson.bom_line_ref}</small> : null}<small>课件：{lesson.media_asset_ids.join("、") || "无引用"} · 工具：{lesson.tool_refs.join("、") || "无引用"}</small></div>
                   </li>
                 ))}
               </ol>

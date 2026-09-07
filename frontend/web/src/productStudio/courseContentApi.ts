@@ -12,6 +12,8 @@ export type PublishedCourseLesson = {
   action_task: string;
   media_asset_ids: string[];
   tool_refs: string[];
+  stage_id?: string;
+  bom_line_ref?: string;
 };
 
 export type PublishedCourseContent = {
@@ -24,6 +26,7 @@ export type PublishedCourseContent = {
   updated_at: string;
   title: string;
   product_component_id: string | null;
+  course_system_version_ref?: string | null;
   problem_statement: string;
   assessment_criteria: string[];
   learning_goal: string;
@@ -58,7 +61,7 @@ const COURSE_KEYS = new Set([
   "content_accuracy_claim_refs", "reviewed_by", "reviewed_at", "review_reason", "published_at",
 ]);
 const LESSON_KEYS = new Set([
-  "lesson_id", "sequence", "title", "knowledge_point", "action_task", "media_asset_ids", "tool_refs",
+  "lesson_id", "sequence", "title", "knowledge_point", "action_task", "media_asset_ids", "tool_refs", "stage_id", "bom_line_ref",
 ]);
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -118,6 +121,8 @@ function lesson(value: unknown, index: number): PublishedCourseLesson {
     action_task: text(item.action_task, "行动任务"),
     media_asset_ids: textList(item.media_asset_ids, "课件资产引用", true),
     tool_refs: textList(item.tool_refs, "工具引用", true),
+    stage_id: item.stage_id === undefined ? undefined : text(item.stage_id, "阶段引用"),
+    bom_line_ref: item.bom_line_ref === undefined ? undefined : text(item.bom_line_ref, "BOM行引用"),
   };
 }
 
@@ -156,6 +161,7 @@ export function validatePublishedCourse(value: unknown): PublishedCourseContent 
     updated_at: updatedAt,
     title: text(item.title, "课程名称"),
     product_component_id: nullableText(item.product_component_id, "product_component_id"),
+    course_system_version_ref: item.course_system_version_ref === undefined ? null : nullableText(item.course_system_version_ref, "course_system_version_ref"),
     problem_statement: text(item.problem_statement, "问题陈述"),
     assessment_criteria: textList(item.assessment_criteria, "评估标准"),
     learning_goal: text(item.learning_goal, "学习目标"),
