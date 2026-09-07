@@ -251,3 +251,49 @@ def test_http_chain_draft_submit_review_and_published_listing() -> None:
     get_response = client.get(f"/product-intelligence/courses/{course_id}")
     assert get_response.status_code == 200
     assert get_response.json()["status"] == "PUBLISHED"
+
+
+def test_http_review_rejection_does_not_publish_and_task_mismatch_is_rejected() -> None:
+    from backend.apps.family_api.dev_wiring import reset_dev_state
+    from backend.apps.family_api.main import create_app
+
+    reset_dev_state()
+    client = TestClient(create_app())
+    body = {
+        "title": "21天亲子沟通课",
+        "problem_statement": "家庭需要稳定的沟通节奏",
+        "assessment_criteria": ["家长能完成一次倾听练习"],
+        "learning_goal": "建立可重复的家庭沟通动作",
+        "lessons": [{
+            "lesson_id": "lesson-1",
+            "sequence": 1,
+            "title": "先听再答",
+            "knowledge_point": "先复述再回应",
+            "action_task": "今晚完成一次复述练习",
+        }],
+        "review_cadence": "每周一次",
+        "outcome_metrics": ["有效对话次数"],
+        "content_accuracy_claim_refs": ["evidence-claim:content-accuracy:reject"],
+    }
+    created = client.post("/product-intelligence/courses", json=body)
+    assert created.status_code == 200
+    course_id = created.json()["id"]
+    submitted = client.post(f"/product-intelligence/courses/{course_id}/submit-for-review", json={})
+    assert submitted.status_code == 200
+    task_id = submitted.json()["task_id"]
+
+    mismatch = client.post(
+        f"/product-intelligence/courses/{course_id}/review-decision",
+        json={"task_id": "wrong-task-id", "approved": True, "reason": "错误测试"},
+    )
+    assert mismatch.status_code in {400, 404, 422}
+
+    rejected = client.post(
+        f"/product-intelligence/courses/{course_id}/review-decision",
+        json={"task_id": task_id, "approved": False, "reason": "内容准确性证据不足"},
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["course"]["status"] == "DRAFT"
+    current = client.get(f"/product-intelligence/courses/{course_id}")
+    assert current.status_code == 200
+    assert current.json()["status"] == "DRAFT"
