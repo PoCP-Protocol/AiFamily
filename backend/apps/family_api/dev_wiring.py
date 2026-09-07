@@ -609,10 +609,44 @@ class _DevProviderAdmissionQuery:
             # No FGCN admission facts recorded against this provider: refusal,
             # never an implicit allow.
             return None
+
+        # `tenant_id`/`family_id`/`credential_ref`/`credential_valid_from`/
+        # `credential_valid_until`/`slot_ref`/`slot_start_at`/`slot_end_at`
+        # mirror `SqlAlchemyProviderAdmissionQuery`'s reasoning exactly (see
+        # that module's docstring): `tenant_id`/`family_id` echo the caller's
+        # own `scope` (there is no separate family-scoped admission fact to
+        # look up), `credential_ref`/`credential_valid_from` come from the
+        # provider's real `qualification_ref`/`effective_from`, and
+        # `credential_valid_until`/the slot window fall back to a far-future
+        # sentinel/"available now" when the dev-seeded provider carries no
+        # real expiry — `family_service_providers` has no slot table yet.
+        from datetime import UTC, datetime
+
+        no_expiry_sentinel = datetime(9999, 1, 1, tzinfo=UTC)
+        credential_valid_until = no_expiry_sentinel
+        if provider.qualification_expires_at is not None:
+            expires_at = provider.qualification_expires_at
+            credential_valid_until = (
+                expires_at if expires_at.tzinfo is not None else expires_at.replace(tzinfo=UTC)
+            )
+        effective_from = provider.effective_from
+        credential_valid_from = (
+            effective_from
+            if effective_from.tzinfo is not None
+            else effective_from.replace(tzinfo=UTC)
+        )
         return ProviderAdmissionSnapshot(
             provider_ref=provider_ref,
             assignee_kind=assignee_kind,
             admission_status="ACTIVE",
+            tenant_id=scope.tenant_id,
+            family_id=scope.family_id,
+            credential_ref=provider.qualification_ref or f"qualification:{provider_ref}",
+            credential_valid_from=credential_valid_from,
+            credential_valid_until=credential_valid_until,
+            slot_ref=f"slot:{provider_ref}:current",
+            slot_start_at=datetime.now(UTC),
+            slot_end_at=credential_valid_until,
             capability_keys=tuple(capability_keys),
             allowed_purposes=tuple(allowed_purposes),
             capacity_available=1,
