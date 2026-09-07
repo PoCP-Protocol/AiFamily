@@ -28,8 +28,14 @@ def compile_course_release_baseline(payload: Mapping[str, object]) -> ReleaseBas
         "product_package_version_ref", "product_definition_version_ref",
         "safety_policy_version_ref", "prompt_bundle_version_ref",
     )
-    if any(not str(payload.get(key, "")).strip() for key in required):
+    if any(
+        not isinstance(payload.get(key), str) or not str(payload[key]).strip()
+        for key in required
+    ):
         raise ValueError("COURSE_RELEASE_VERSION_REFS_REQUIRED")
+    evidence_refs = refs("evidence_receipt_refs")
+    if not evidence_refs:
+        raise ValueError("COURSE_RELEASE_EVIDENCE_REQUIRED")
     lesson_refs = tuple(
         str(item.get("lesson_version_ref", "")).strip()
         for item in lessons if isinstance(item, dict)
@@ -44,7 +50,16 @@ def compile_course_release_baseline(payload: Mapping[str, object]) -> ReleaseBas
         for skill in item.get("skill_version_refs", ())
         if str(skill).strip()
     )
-    if len(lesson_refs) != 24 or any(not ref for ref in lesson_refs + asset_refs):
+    if (
+        len(lesson_refs) != 24
+        or any(not ref for ref in lesson_refs + asset_refs)
+        or any(
+            not isinstance(item, dict)
+            or not isinstance(item.get("skill_version_refs"), (list, tuple))
+            or not item["skill_version_refs"]
+            for item in lessons
+        )
+    ):
         raise ValueError("COURSE_RELEASE_LESSON_REFS_REQUIRED")
     return ReleaseBaseline(
         release_id=f"course-release:{payload['course_content_version_ref']}",
@@ -59,12 +74,12 @@ def compile_course_release_baseline(payload: Mapping[str, object]) -> ReleaseBas
         model_refs=("model-gateway:approved",),
         prompt_refs=(str(payload["prompt_bundle_version_ref"]),),
         schema_refs=(str(payload["schema_version"]),),
-        knowledge_refs=refs("evidence_receipt_refs"),
+        knowledge_refs=evidence_refs,
         migration_refs=(str(payload["product_definition_version_ref"]),),
         runbook_ref="course-service:runbook@v1",
         rollback_ref="course-service:rollback@v1",
         environment=str(payload.get("delivery_channel", "WEB")),
-        evidence_refs=refs("evidence_receipt_refs"),
+        evidence_refs=evidence_refs,
         generated_by="course-release-compiler",
     )
 

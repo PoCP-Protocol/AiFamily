@@ -36,3 +36,24 @@ def test_course_release_requires_all_lessons():
     payload["lessons"] = payload["lessons"][:23]
     with pytest.raises(ValueError, match="24_LESSONS"):
         compile_course_release_baseline(payload)
+
+
+@pytest.mark.parametrize(
+    ("field", "message"),
+    [
+        ("evidence_receipt_refs", "COURSE_RELEASE_EVIDENCE_REQUIRED"),
+        ("prompt_bundle_version_ref", "COURSE_RELEASE_VERSION_REFS_REQUIRED"),
+    ],
+)
+def test_course_release_rejects_ungoverned_global_refs(field, message):
+    payload = _payload()
+    payload[field] = []
+    with pytest.raises((ValueError, Exception), match=message):
+        compile_course_release_baseline(payload)
+
+
+def test_course_release_rejects_lesson_without_skill_or_asset_ref():
+    payload = _payload()
+    payload["lessons"][0]["skill_version_refs"] = []
+    with pytest.raises(ValueError, match="LESSON_REFS_REQUIRED"):
+        compile_course_release_baseline(payload)
