@@ -32,6 +32,7 @@ export function validateCourseSystem(value: unknown): CourseSystemBlueprint {
     const statuses = artifacts.map((asset) => {
       if (!asset || typeof asset !== "object" || Array.isArray(asset)) throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系BOM课件资产结构无效。");
       const artifact = asset as Record<string, unknown>;
+      if (typeof artifact.artifact_id !== "string" || !artifact.artifact_id.trim() || typeof artifact.version_ref !== "string" || !artifact.version_ref.trim() || typeof artifact.provenance_ref !== "string" || !artifact.provenance_ref.trim()) throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系BOM课件血缘字段缺失。");
       const qa = String(artifact?.qa_status ?? "DRAFT");
       const rights = String(artifact?.rights_status ?? "UNKNOWN");
       const safety = String(artifact?.safety_status ?? "UNKNOWN");
