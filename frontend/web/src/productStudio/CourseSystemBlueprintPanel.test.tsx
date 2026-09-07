@@ -24,5 +24,7 @@ describe("CourseSystemBlueprintPanel", () => {
     expect(within(list).getAllByRole("listitem")).toHaveLength(3);
     fireEvent.click(screen.getByRole("button", { name: "清除原因筛选" }));
     expect(within(list).getAllByRole("listitem")).toHaveLength(4);
+    fireEvent.click(screen.getByRole("button", { name: /缺资产 23/ }));
+    expect(within(list).getAllByRole("listitem")).toHaveLength(3);
   });
 });
