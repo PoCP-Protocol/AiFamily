@@ -67,7 +67,7 @@ describe("course system blueprint", () => {
       3: { qa_status: "APPROVED", rights_status: "CLEARED", safety_status: "CLEARED" },
       4: { qa_status: "APPROVED", rights_status: "CLEARED", safety_status: "CLEARED" },
     });
-    expect(summarizeStageDelivery(rows)[0]).toMatchObject({ stage_id: "S1", ready_lessons: 4, blocked_lessons: 0, publish_ready: true });
-    expect(summarizeStageDelivery(rows)[1]).toMatchObject({ stage_id: "S2", ready_lessons: 0, blocked_lessons: 4, publish_ready: false });
+    expect(summarizeStageDelivery(rows)[0]).toMatchObject({ stage_id: "S1", ready_lessons: 4, blocked_lessons: 0, publish_ready: true, next_action: "进入阶段发布评审" });
+    expect(summarizeStageDelivery(rows)[1]).toMatchObject({ stage_id: "S2", ready_lessons: 0, blocked_lessons: 4, publish_ready: false, next_action: "优先处理NO_ASSET门禁" });
   });
 });

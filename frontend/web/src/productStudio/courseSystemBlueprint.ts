@@ -52,6 +52,7 @@ export type StageDeliveryReadiness = {
   ready_lessons: number;
   blocked_lessons: number;
   publish_ready: boolean;
+  next_action: string;
 };
 
 export type CoursewareGovernanceCheck = {
@@ -119,6 +120,7 @@ export function summarizeStageDelivery(rows: readonly LessonDeliveryRow[]): Stag
     ready_lessons: stageRows.filter((row) => row.courseware_status === "READY").length,
     blocked_lessons: stageRows.filter((row) => row.courseware_status !== "READY").length,
     publish_ready: stageRows.every((row) => row.courseware_status === "READY"),
+    next_action: stageRows.every((row) => row.courseware_status === "READY") ? "进入阶段发布评审" : `优先处理${stageRows.find((row) => row.courseware_status !== "READY")?.governance_reason ?? "治理"}门禁`,
   }));
 }
 

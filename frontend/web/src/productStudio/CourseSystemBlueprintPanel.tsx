@@ -37,7 +37,7 @@ export function CourseSystemBlueprintPanel({ client = new HttpCourseSystemApiCli
           {readiness.publish_ready ? "可进入发布评审" : `仍有 ${readiness.blocked_lessons} 节被 BOM 阻断`}
         </p>
         <ul aria-label="阶段交付准备度">
-          {stageReadiness.map((stage) => <li key={stage.stage_id}><strong>{stage.stage_id} · {stage.stage_title}</strong><span>{stage.ready_lessons}/{stage.total_lessons} 就绪 · {stage.publish_ready ? "阶段可发布评审" : `阻断 ${stage.blocked_lessons} 节`}</span></li>)}
+          {stageReadiness.map((stage) => <li key={stage.stage_id}><strong>{stage.stage_id} · {stage.stage_title}</strong><span>{stage.ready_lessons}/{stage.total_lessons} 就绪 · {stage.next_action}</span></li>)}
         </ul>
         <ol aria-label="24课时交付清单">
           {delivery.map((lesson) => (
