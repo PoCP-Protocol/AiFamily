@@ -23,6 +23,7 @@ export function validateCourseSystem(value: unknown): CourseSystemBlueprint {
   if (typeof row.system_id !== "string" || typeof row.tenant_scope !== "string" || !Number.isInteger(row.version)
     || typeof row.product_package_version_ref !== "string") throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系主数据字段无效。");
   const bomStatuses: Record<number, { qa_status: string; rights_status: string; safety_status: string }> = {};
+  if (row.bom !== undefined && !Array.isArray(row.bom)) throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系BOM必须是数组。");
   const bom = Array.isArray(row.bom) ? row.bom.flatMap((item) => {
     if (!item || typeof item !== "object") return [];
     const sequence = (item as Record<string, unknown>).lesson_sequence;
