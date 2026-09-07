@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   COURSE_SYSTEM_LESSON_COUNT,
   COURSE_SYSTEM_STAGES,
+  buildLessonDeliveryMatrix,
   validateCourseSystemBlueprint,
 } from "./courseSystemBlueprint";
 
@@ -25,5 +26,12 @@ describe("course system blueprint", () => {
       product_package_version_ref: "product-package:family-growth@v1",
       stages,
     })).toThrow("COURSE_SYSTEM_STAGE_COVERAGE_INVALID");
+  });
+
+  it("derives one governed delivery row for every lesson", () => {
+    const rows = buildLessonDeliveryMatrix(COURSE_SYSTEM_STAGES);
+    expect(rows).toHaveLength(24);
+    expect(rows[0]).toMatchObject({ sequence: 1, stage_id: "S1", courseware_status: "BOM_REQUIRED" });
+    expect(rows.at(-1)).toMatchObject({ sequence: 24, stage_id: "S6" });
   });
 });

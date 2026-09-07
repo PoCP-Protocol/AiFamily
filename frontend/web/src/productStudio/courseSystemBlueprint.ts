@@ -26,6 +26,15 @@ export type CourseSystemBlueprint = {
   stages: CourseSystemStage[];
 };
 
+export type LessonDeliveryRow = {
+  sequence: number;
+  stage_id: string;
+  stage_title: string;
+  product_outcome: string;
+  service_action: string;
+  courseware_status: "BOM_REQUIRED";
+};
+
 export const COURSE_SYSTEM_STAGES: readonly CourseSystemStage[] = [
   { id: "S1", title: "家庭觉察", lesson_start: 1, lesson_end: 4, output: "家庭问题地图" },
   { id: "S2", title: "关系连接", lesson_start: 5, lesson_end: 8, output: "沟通与关系行动卡" },
@@ -34,6 +43,26 @@ export const COURSE_SYSTEM_STAGES: readonly CourseSystemStage[] = [
   { id: "S5", title: "能力进阶", lesson_start: 17, lesson_end: 20, output: "90 天成长路径" },
   { id: "S6", title: "复盘共创", lesson_start: 21, lesson_end: 24, output: "复盘报告与下一周期需求" },
 ];
+
+const SERVICE_ACTIONS = [
+  "AI引导家庭完成觉察记录",
+  "家长练习并记录关系行动",
+  "共创家庭目标并确认计划",
+  "执行每日行动，异常时升级支持",
+  "阶段复盘并连接真人服务",
+  "确认结果并沉淀下一周期需求",
+] as const;
+
+export function buildLessonDeliveryMatrix(stages: readonly CourseSystemStage[]): LessonDeliveryRow[] {
+  return stages.flatMap((stage, stageIndex) => Array.from({ length: 4 }, (_, offset) => ({
+    sequence: stage.lesson_start + offset,
+    stage_id: stage.id,
+    stage_title: stage.title,
+    product_outcome: stage.output,
+    service_action: SERVICE_ACTIONS[stageIndex],
+    courseware_status: "BOM_REQUIRED" as const,
+  })));
+}
 
 export function validateCourseSystemBlueprint(value: CourseSystemBlueprint): CourseSystemBlueprint {
   if (!value.system_id.trim() || !/^v[1-9]\d*$/.test(value.version.trim())) {

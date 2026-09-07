@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { HttpCourseSystemApiClient, type CourseSystemApiClient } from "./courseSystemApi";
-import { COURSE_SYSTEM_STAGES } from "./courseSystemBlueprint";
+import { buildLessonDeliveryMatrix, COURSE_SYSTEM_STAGES } from "./courseSystemBlueprint";
 
 /** Course system is the product-level map; CourseContent and BOM remain versioned implementations. */
 export function CourseSystemBlueprintPanel({ client = new HttpCourseSystemApiClient() }: { client?: CourseSystemApiClient }) {
   const [stages, setStages] = useState<typeof COURSE_SYSTEM_STAGES[number][]>([]);
   const [state, setState] = useState("尚未读取课程体系主数据；下方蓝图仅为设计模板，不代表已发布课程。");
   useEffect(() => { let active = true; void client.get("course-system:family-growth").then((system) => { if (active) { setStages(system.stages); setState("已读取课程体系主数据版本：" + system.version); } }).catch(() => { if (active) setState("课程体系主数据暂不可用；蓝图仍为设计模板，不代表已发布课程。"); }); return () => { active = false; }; }, [client]);
+  const delivery = buildLessonDeliveryMatrix(stages.length ? stages : COURSE_SYSTEM_STAGES);
   return (
     <section aria-label="课程体系蓝图" className="panel course-system-blueprint">
       <p className="section-kicker">IPD · Service Product Architecture · Course System</p>
@@ -23,6 +24,18 @@ export function CourseSystemBlueprintPanel({ client = new HttpCourseSystemApiCli
             <p>{stage.output}</p>
           </article>
         ))}
+      </div>
+      <div className="callout" role="region" aria-label="24课时交付矩阵">
+        <strong>24课时交付矩阵</strong>
+        <p className="muted">每节课必须同时绑定产品结果、家庭服务动作和课件BOM；BOM未完成时不得进入发布基线。</p>
+        <ol aria-label="24课时交付清单">
+          {delivery.map((lesson) => (
+            <li key={lesson.sequence}>
+              <strong>第{lesson.sequence}课 · {lesson.stage_title}</strong>
+              <span>{lesson.product_outcome} · {lesson.service_action} · {lesson.courseware_status}</span>
+            </li>
+          ))}
+        </ol>
       </div>
       <div className="callout" role="note">
         <strong>一条可追溯的产品链</strong>
