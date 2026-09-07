@@ -61,3 +61,20 @@ async def test_course_system_postgres_round_trip_and_tenant_isolation() -> None:
             assert loaded.stages[-1].lesson_end == 24
             with pytest.raises(ProductIntelligenceNotFoundError):
                 await repository.load_course_system(system.system_id, "tenant-b")
+
+
+@pytest.mark.skipif(postgres_test_url() is None, reason=SKIP_REASON)
+async def test_course_system_older_version_cannot_overwrite_newer_version() -> None:
+    from sqlalchemy import MetaData
+
+    async with postgres_schema_engine(MetaData()) as engine:
+        await _apply_migration(engine)
+        async with engine.begin() as connection:
+            repository = SqlAlchemyCourseSystemRepository(connection)
+            current = _system().model_copy(update={"version": 2})
+            older = _system().model_copy(update={"version": 1, "product_package_version_ref": "package:old@v1"})
+            await repository.save_course_system(current)
+            await repository.save_course_system(older)
+            loaded = await repository.load_course_system(current.system_id, current.tenant_scope)
+            assert loaded.version == 2
+            assert loaded.product_package_version_ref == current.product_package_version_ref
