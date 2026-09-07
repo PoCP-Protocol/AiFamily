@@ -5,9 +5,10 @@ import { buildLessonDeliveryMatrix, COURSE_SYSTEM_STAGES, summarizeLessonDeliver
 /** Course system is the product-level map; CourseContent and BOM remain versioned implementations. */
 export function CourseSystemBlueprintPanel({ client = new HttpCourseSystemApiClient() }: { client?: CourseSystemApiClient }) {
   const [stages, setStages] = useState<typeof COURSE_SYSTEM_STAGES[number][]>([]);
+  const [bomLessonSequences, setBomLessonSequences] = useState<number[]>([]);
   const [state, setState] = useState("尚未读取课程体系主数据；下方蓝图仅为设计模板，不代表已发布课程。");
-  useEffect(() => { let active = true; void client.get("course-system:family-growth").then((system) => { if (active) { setStages(system.stages); setState("已读取课程体系主数据版本：" + system.version); } }).catch(() => { if (active) setState("课程体系主数据暂不可用；蓝图仍为设计模板，不代表已发布课程。"); }); return () => { active = false; }; }, [client]);
-  const delivery = buildLessonDeliveryMatrix(stages.length ? stages : COURSE_SYSTEM_STAGES);
+  useEffect(() => { let active = true; void client.get("course-system:family-growth").then((system) => { if (active) { setStages(system.stages); setBomLessonSequences(system.bom_lesson_sequences ?? []); setState("已读取课程体系主数据版本：" + system.version); } }).catch(() => { if (active) setState("课程体系主数据暂不可用；蓝图仍为设计模板，不代表已发布课程。"); }); return () => { active = false; }; }, [client]);
+  const delivery = buildLessonDeliveryMatrix(stages.length ? stages : COURSE_SYSTEM_STAGES, bomLessonSequences);
   const readiness = summarizeLessonDelivery(delivery);
   return (
     <section aria-label="课程体系蓝图" className="panel course-system-blueprint">

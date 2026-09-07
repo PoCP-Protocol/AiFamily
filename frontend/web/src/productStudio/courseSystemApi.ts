@@ -22,7 +22,12 @@ export function validateCourseSystem(value: unknown): CourseSystemBlueprint {
   const row = value as Record<string, unknown>;
   if (typeof row.system_id !== "string" || typeof row.tenant_scope !== "string" || !Number.isInteger(row.version)
     || typeof row.product_package_version_ref !== "string") throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系主数据字段无效。");
-  const normalized = { system_id: row.system_id, version: `v${row.version}`, product_package_version_ref: row.product_package_version_ref, stages: stages(row.stages) };
+  const bom = Array.isArray(row.bom) ? row.bom.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const sequence = (item as Record<string, unknown>).lesson_sequence;
+    return Number.isInteger(sequence) ? [Number(sequence)] : [];
+  }) : [];
+  const normalized = { system_id: row.system_id, version: `v${row.version}`, product_package_version_ref: row.product_package_version_ref, stages: stages(row.stages), bom_lesson_sequences: bom };
   return normalized;
 }
 
