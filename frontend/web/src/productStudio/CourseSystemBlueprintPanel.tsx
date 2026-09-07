@@ -8,10 +8,11 @@ export function CourseSystemBlueprintPanel({ client, tenantScope }: { client?: C
   const [stages, setStages] = useState<typeof COURSE_SYSTEM_STAGES[number][]>([]);
   const [bomLessonSequences, setBomLessonSequences] = useState<number[]>([]);
   const [bomStatuses, setBomStatuses] = useState<Record<number, { qa_status: string; rights_status: string; safety_status: string }>>({});
+  const [productPackageRef, setProductPackageRef] = useState<string | null>(null);
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
   const [state, setState] = useState("尚未读取课程体系主数据；下方蓝图仅为设计模板，不代表已发布课程。");
-  useEffect(() => { let active = true; void resolvedClient.get("course-system:family-growth").then((system) => { if (active) { setStages(system.stages); setBomLessonSequences(system.bom_lesson_sequences ?? []); setBomStatuses(system.bom_lesson_statuses ?? {}); setState("已读取课程体系主数据版本：" + system.version); } }).catch(() => { if (active) setState("课程体系主数据暂不可用；蓝图仍为设计模板，不代表已发布课程。"); }); return () => { active = false; }; }, [resolvedClient]);
+  useEffect(() => { let active = true; void resolvedClient.get("course-system:family-growth").then((system) => { if (active) { setStages(system.stages); setProductPackageRef(system.product_package_version_ref); setBomLessonSequences(system.bom_lesson_sequences ?? []); setBomStatuses(system.bom_lesson_statuses ?? {}); setState("已读取课程体系主数据版本：" + system.version); } }).catch(() => { if (active) setState("课程体系主数据暂不可用；蓝图仍为设计模板，不代表已发布课程。"); }); return () => { active = false; }; }, [resolvedClient]);
   const delivery = buildLessonDeliveryMatrix(stages.length ? stages : COURSE_SYSTEM_STAGES, bomLessonSequences, bomStatuses);
   const readiness = summarizeLessonDelivery(delivery);
   const stageReadiness = summarizeStageDelivery(delivery);
@@ -24,6 +25,7 @@ export function CourseSystemBlueprintPanel({ client, tenantScope }: { client?: C
         课程不是孤立内容，而是从市场洞察衍生出的可交付服务产品。体系层定义成长路径，课程层编排 24 节课，课件层通过 BOM 固化 PPT、工作纸、图片、视频与 Skill 的版本血缘。
       </p>
       <div className="callout" role="status"><strong>主数据状态</strong><p>{state}</p></div>
+      <div className="callout" role="note" aria-label="产品包版本追溯"><strong>产品包版本追溯</strong><p>{productPackageRef ? <><code>{productPackageRef}</code> → Course System</> : "ProductPackage（待读取）"}</p></div>
       <div className="course-system-flow" role="list" aria-label="六阶段课程体系">
         {(stages.length ? stages : COURSE_SYSTEM_STAGES).map((stage) => (
           <article key={stage.id} role="listitem" className="course-system-stage">
