@@ -4,6 +4,7 @@ import { ProductConceptDecisionWorkbench } from "./ProductConceptDecisionWorkben
 import { CourseContentWorkbench } from "./CourseContentWorkbench";
 import { CourseContentGovernancePanel } from "./CourseContentGovernancePanel";
 import { CourseReleaseBaselineWorkbench } from "./CourseReleaseBaselineWorkbench";
+import { CourseSystemBlueprintPanel } from "./CourseSystemBlueprintPanel";
 import { ProductDefinitionOperatorReviewWorkbench } from "./ProductDefinitionOperatorReviewWorkbench";
 import { ProductFactoryComposer } from "./ProductFactoryComposer";
 import { ProductPackageReviewWorkbench } from "./ProductPackageReviewWorkbench";
@@ -109,6 +110,7 @@ export function ProductStudioWorkspace() {
       <div aria-labelledby="workspace-tab-course-content" hidden={activeTab !== "course-content"} id="workspace-panel-course-content" role="tabpanel" tabIndex={0}>
         <div className="course-content-stage">
           <CourseContentWorkbench contractPreview />
+          <CourseSystemBlueprintPanel />
           <CourseContentGovernancePanel contractPreview />
           <CourseReleaseBaselineWorkbench />
         </div>

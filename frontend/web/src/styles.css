@@ -185,6 +185,11 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
 .product-studio-workspace [role="tabpanel"] > .panel,
 .product-studio-workspace [role="tabpanel"] > .product-studio { margin: 0; max-width: none; }
 .course-content-workbench { margin: 24px auto; max-width: 1180px; }
+.course-system-blueprint { margin: 0 auto; max-width: 1180px; }
+.course-system-flow { display: grid; gap: 12px; grid-template-columns: repeat(6, minmax(0, 1fr)); margin-top: 20px; }
+.course-system-stage { background: #f8faf8; border: 1px solid #dce5dc; border-radius: 14px; padding: 14px; }
+.course-system-stage h3 { font-size: 1rem; margin: 12px 0 6px; }
+.course-system-stage p { color: #557168; font-size: 0.8rem; margin: 0; }
 .course-content-stage { display: grid; gap: 20px; }
 .course-content-stage > .panel { margin: 0; max-width: none; }
 .course-content-workbench label { color: #415e53; display: grid; font-size: 0.82rem; font-weight: 700; gap: 6px; }
@@ -257,6 +262,7 @@ textarea:focus, input:focus-visible, button:focus-visible { outline: 3px solid #
   .review-state { text-align: left; }
   .product-workspace-tabs { grid-template-columns: 1fr 1fr; }
   .course-overview-grid, .course-lesson-layout, .course-asset-grid, .course-governance-layout, .course-release-lineage-grid, .course-release-bom-layout { grid-template-columns: minmax(0, 1fr); }
+  .course-system-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .course-wide-field { grid-column: auto; }
   .course-lesson-rail ol { grid-template-columns: repeat(4, minmax(0, 1fr)); max-height: none; overflow: visible; padding-right: 0; }
   .course-lesson-rail button { display: block; padding: 8px 4px; text-align: center; }
