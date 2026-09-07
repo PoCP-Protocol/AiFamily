@@ -88,20 +88,6 @@ def _admitted_teacher_row() -> ServiceProvider:
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(postgres_test_url() is None, reason=SKIP_REASON)
-@pytest.mark.xfail(
-    reason=(
-        "df618d8 extended ProviderAdmissionSnapshot to require tenant_id/family_id/"
-        "credential_ref/credential_valid_from/credential_valid_until/slot_ref/"
-        "slot_start_at/slot_end_at, but the real Postgres query adapter "
-        "(SqlAlchemyProviderAdmissionQuery.resolve()) and dev_wiring were never updated "
-        "to populate those fields, so resolve() returns None for an admitted provider and "
-        "this test's snapshot assertion fails. Pre-existing defect on the source branch, "
-        "not introduced by this migration; tracked as an independent task pending an "
-        "architecture decision on whether family_service_providers gains a credential-"
-        "window/slot schema or the adapter gets a simpler always-available semantics."
-    ),
-    strict=True,
-)
 async def test_provider_admission_is_read_from_postgres_not_memory() -> None:
     async with postgres_schema_engine(Base.metadata) as engine:
         session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -250,20 +236,6 @@ async def test_expired_qualification_is_a_refusal_even_when_status_still_says_ac
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(postgres_test_url() is None, reason=SKIP_REASON)
-@pytest.mark.xfail(
-    reason=(
-        "df618d8 extended ProviderAdmissionSnapshot to require tenant_id/family_id/"
-        "credential_ref/credential_valid_from/credential_valid_until/slot_ref/"
-        "slot_start_at/slot_end_at, but the real Postgres query adapter "
-        "(SqlAlchemyProviderAdmissionQuery.resolve()) and dev_wiring were never updated "
-        "to populate those fields, so resolve() returns None for an admitted provider and "
-        "this test's snapshot assertion fails. Pre-existing defect on the source branch, "
-        "not introduced by this migration; tracked as an independent task pending an "
-        "architecture decision on whether family_service_providers gains a credential-"
-        "window/slot schema or the adapter gets a simpler always-available semantics."
-    ),
-    strict=True,
-)
 async def test_future_expiry_still_admits() -> None:
     """A qualification with a future expiry date must not be rejected —
     proves the check is a real date comparison, not an accidental

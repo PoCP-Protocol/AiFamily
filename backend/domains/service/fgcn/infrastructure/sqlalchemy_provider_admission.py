@@ -28,6 +28,32 @@ JSONB catch-all (the same column ``ensure_mobile_master_data`` already writes
 FGCN attributes is a refusal (``None``), not an implicit allow — matching
 ``AsyncRejectingProviderAdmissionQuery``'s default and
 ``assert_provider_admitted``'s fail-closed contract.
+
+``tenant_id``/``family_id``/``credential_ref``/``credential_valid_from``/
+``credential_valid_until``/``slot_ref``/``slot_start_at``/``slot_end_at``
+(added to ``ProviderAdmissionSnapshot`` by df618d8/c29d738 for the in-memory
+`FGCNEngine` path's scope-binding and credential/slot-window tests) are
+populated here from data that is real today, not invented:
+
+- ``tenant_id``/``family_id`` come straight from the caller's own ``scope`` —
+  there is no separate "admission scoped to this family" fact to look up;
+  ``assert_provider_admitted`` checks these against ``scope`` anyway, so
+  echoing ``scope`` back is exactly what the caller already asserts is true.
+- ``credential_ref`` is the row's real ``qualification_ref`` (falling back to
+  a stable ``provider_ref``-derived value when a provider has none on file,
+  since the field is required but not every seeded provider carries a
+  qualification reference).
+- ``credential_valid_from`` is the row's real ``effective_from`` (when the
+  provider became bookable at all) and ``credential_valid_until`` is the real
+  ``qualification_expires_at`` already used above to fail closed on expiry —
+  or a far-future sentinel when the provider carries no expiry, matching this
+  adapter's existing "no expiry column set is not itself a rejection" reading.
+- ``slot_ref``/``slot_start_at``/``slot_end_at``: `family_service_providers`
+  has no discrete booking/slot table yet (`governance/DOMAIN_REGISTRY.yaml`'s
+  `service_fgcn_collaboration.known_gaps` records this explicitly — "provider
+  admission 本身仍无持久化表"). Until that concept exists, this adapter
+  synthesizes an "available now" slot bounded by the same real credential
+  window rather than inventing calendar precision that does not exist yet.
 """
 
 from __future__ import annotations
@@ -44,6 +70,17 @@ from backend.domains.service.infrastructure.sqlalchemy_models import ServiceProv
 _FGCN_CAPABILITY_KEYS_ATTR = "fgcn_capability_keys"
 _FGCN_ALLOWED_PURPOSES_ATTR = "fgcn_allowed_purposes"
 _FGCN_CAPACITY_ATTR = "fgcn_capacity_available"
+
+# No `family_service_providers` row carries a real expiry: treat the
+# credential as valid indefinitely rather than reject an otherwise-admitted
+# provider for a column that was never populated. Kept a fixed sentinel (not
+# `datetime.max`) so repeated resolves are stable and comparisons against it
+# stay well inside `datetime`'s representable range.
+_NO_EXPIRY_SENTINEL = datetime(9999, 1, 1, tzinfo=UTC)
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 class SqlAlchemyProviderAdmissionQuery:
@@ -79,11 +116,10 @@ class SqlAlchemyProviderAdmissionQuery:
             return None
         if row.status != "ACTIVE" or row.qualification_status != "ACTIVE":
             return None
+        credential_valid_until = _NO_EXPIRY_SENTINEL
         if row.qualification_expires_at is not None:
-            expires_at = row.qualification_expires_at
-            if expires_at.tzinfo is None:
-                expires_at = expires_at.replace(tzinfo=UTC)
-            if expires_at <= datetime.now(UTC):
+            credential_valid_until = _as_utc(row.qualification_expires_at)
+            if credential_valid_until <= datetime.now(UTC):
                 # An expired credential is a refusal regardless of what
                 # `qualification_status` still says — that column is not
                 # automatically revisited when a certificate lapses, so this
@@ -112,11 +148,28 @@ class SqlAlchemyProviderAdmissionQuery:
             "ACTIVE" if row.admission_status == "ADMITTED" else row.admission_status
         )
 
+        credential_valid_from = _as_utc(row.effective_from)
+        credential_ref = row.qualification_ref or f"qualification:{provider_ref}"
+        # No discrete booking/slot table exists yet (see module docstring):
+        # an admitted provider is treated as available starting now through
+        # the end of its real credential window, rather than a fabricated
+        # calendar slot.
+        slot_start_at = datetime.now(UTC)
+        slot_end_at = credential_valid_until
+
         try:
             return ProviderAdmissionSnapshot(
                 provider_ref=provider_ref,
                 assignee_kind=assignee_kind,
                 admission_status=fgcn_admission_status,
+                tenant_id=scope.tenant_id,
+                family_id=scope.family_id,
+                credential_ref=credential_ref,
+                credential_valid_from=credential_valid_from,
+                credential_valid_until=credential_valid_until,
+                slot_ref=f"slot:{provider_ref}:current",
+                slot_start_at=slot_start_at,
+                slot_end_at=slot_end_at,
                 capability_keys=tuple(raw_capability_keys),
                 allowed_purposes=tuple(raw_allowed_purposes),
                 capacity_available=capacity_available,

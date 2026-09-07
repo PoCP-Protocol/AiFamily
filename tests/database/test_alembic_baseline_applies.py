@@ -204,6 +204,23 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
+    # 0068 owns the Human Gate reviewed-understanding-signal table
+    # (assessment_reviewed_understanding_signals) — one new table.
+    # (Numbered 0068, not 0067, to avoid colliding with 0067's
+    # service-feedback/playbook tables landing via the sibling
+    # integrate/s4-http branch.)
+    "0068_reviewed_understanding_signal": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 72,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0069 owns the ai_run_ledger table — one new table. Cross-cutting AI-runtime
+    # diagnostic ledger, no domain prefix by design (see migration docstring).
+    "0069_ai_run_ledger": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 73,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
 }
 
 _MODEL_DRAFTS_ADR = (
