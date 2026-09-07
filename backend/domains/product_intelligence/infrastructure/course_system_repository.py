@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from ..domain.course_system import CourseSystem, CourseSystemStage
+from ..domain.course_system import (
+    CourseSystem,
+    CourseSystemStage,
+    CoursewareArtifactRef,
+    CoursewareBomLine,
+)
 from ..domain.errors import ProductIntelligenceNotFoundError
 
 
@@ -46,6 +51,20 @@ def development_course_system_repository() -> InMemoryCourseSystemRepository:
                 ),
                 start=1,
             )
+        ),
+        bom=tuple(
+            CoursewareBomLine(
+                lesson_sequence=sequence,
+                artifacts=(
+                    CoursewareArtifactRef(
+                        artifact_id=f"courseware:family-growth:lesson-{sequence:02d}",
+                        kind="DOCUMENT",
+                        version_ref=f"courseware:family-growth:lesson-{sequence:02d}@v1",
+                        provenance_ref="design-time-template:family-growth@v1",
+                    ),
+                ),
+            )
+            for sequence in range(1, 25)
         ),
     )
     return InMemoryCourseSystemRepository((system,))

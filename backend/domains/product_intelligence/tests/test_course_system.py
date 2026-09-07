@@ -47,6 +47,18 @@ def test_course_system_covers_six_stages_and_can_bind_bom() -> None:
     assert system.bom[0].artifacts[0].qa_status == "DRAFT"
 
 
+def test_design_time_system_binds_all_24_lesson_positions() -> None:
+    from backend.domains.product_intelligence.infrastructure.course_system_repository import (
+        development_course_system_repository,
+    )
+
+    system = development_course_system_repository()._by_key[
+        ("dev-tenant", "course-system:family-growth")
+    ]
+    assert [line.lesson_sequence for line in system.bom] == list(range(1, 25))
+    assert all(line.artifacts[0].qa_status == "DRAFT" for line in system.bom)
+
+
 def test_course_system_rejects_stage_gap_and_duplicate_bom_position() -> None:
     stages = list(_stages())
     stages[2] = stages[2].model_copy(update={"lesson_start": 10, "lesson_end": 13})
