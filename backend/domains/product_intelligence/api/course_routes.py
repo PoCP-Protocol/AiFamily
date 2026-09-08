@@ -13,7 +13,7 @@ because no SQLAlchemy mapping exists yet for `CourseContent` — see
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import NoReturn
+from typing import Literal, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -173,7 +173,7 @@ class CourseReleaseEvidenceRequest(BaseModel):
 
 
 class CourseReleaseLifecycleRequest(BaseModel):
-    action: str
+    action: Literal["APPROVE", "RELEASE", "PAUSE", "ROLLBACK", "RETIRE"]
     decision_id: str
     task_id: str
     reason: str | None = None
@@ -344,7 +344,7 @@ async def advance_release_baseline(
         )
         result = advance_course_release_lifecycle(
             baseline,
-            action=body.action,  # type: ignore[arg-type]
+            action=body.action,
             decision=decision,
             evidence=tuple(GateEvidence(**item.model_dump()) for item in body.evidence),
             rollback_target_ref=body.rollback_target_ref,
