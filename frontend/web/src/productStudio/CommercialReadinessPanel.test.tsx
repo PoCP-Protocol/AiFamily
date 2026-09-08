@@ -22,6 +22,7 @@ describe("CommercialReadinessPanel", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "评估当前证据" }));
 
     expect(await screen.findByText("暂不可商业化")).toBeInTheDocument();
+    expect(screen.getByText(/EVALUATION_ONLY/)).toBeInTheDocument();
     expect(screen.getByText(/支付沙箱已验证/)).toBeInTheDocument();
     expect(screen.getByText("evidence:payment-sandbox@v1")).toBeInTheDocument();
     expect(fetchImpl).toHaveBeenCalledOnce();
