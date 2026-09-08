@@ -35,9 +35,12 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
     payload = dict(snapshot.draft_payload)
     family_need_id = str(payload.get("family_need_id", "")).strip()
     path_id = str(payload.get("path_id", "")).strip()
+    payload_run_id = str(payload.get("run_id", snapshot.run_id)).strip()
     context_ref = str(payload.get("context_snapshot_ref", "")).strip()
     if not all((family_need_id, path_id, snapshot.run_id, context_ref)):
         raise ValueError("GROWTH_PATH_CORRELATION_REQUIRED")
+    if payload_run_id != snapshot.run_id:
+        raise ValueError("GROWTH_PATH_RUN_ID_MISMATCH")
     decision_ref: str | None = None
     decision_state: str | None = None
     decision_edit: dict[str, Any] = {}

@@ -114,6 +114,27 @@ def test_deleted_run_projection_fails_closed():
         project_next_growth_path(Deleted())  # type: ignore[arg-type]
 
 
+def test_projection_rejects_payload_from_different_run():
+    ledger = InMemoryExperienceRunLedger()
+    scope = RunScope("tenant-1", "family-1", ("child-1",))
+    snapshot = ledger.create_draft(
+        scope=scope,
+        run_id="run-safe",
+        request_ref="request-safe",
+        draft_payload={
+            "family_need_id": "need-1",
+            "path_id": "path-1",
+            "run_id": "run-forged",
+            "context_snapshot_ref": "ctx-1",
+            "output": {"next_step": "不应读取", "path": []},
+            "status": "DRAFT",
+        },
+        idempotency_key="create-safe",
+    )
+    with pytest.raises(ValueError, match="GROWTH_PATH_RUN_ID_MISMATCH"):
+        project_next_growth_path(snapshot)
+
+
 @pytest.mark.parametrize(
     ("decision", "state", "expected_status", "expected_path"),
     [
