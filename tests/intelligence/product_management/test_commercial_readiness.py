@@ -14,6 +14,7 @@ def test_24_lesson_release_is_blocked_without_real_commerce_evidence() -> None:
         delivery_readback_verified=False,
         refund_recovery_verified=False,
         human_gate_accepted=True,
+        evidence_refs=["evidence:all@v1"],
         evidence_refs=["evidence:pilot@v1"],
     )
 
@@ -37,6 +38,7 @@ def test_four_lesson_pilot_can_pass_scope_gate_when_commerce_evidence_is_ready()
         delivery_readback_verified=True,
         refund_recovery_verified=True,
         human_gate_accepted=True,
+        evidence_refs=["evidence:scope@v1"],
         evidence_refs=["evidence:full@v1"],
     )
 
