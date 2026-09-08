@@ -23,6 +23,11 @@ async def test_projection_reads_decision_and_returns_same_need_path_run_chain():
             "path_id": "path-1",
             "context_snapshot_ref": "ctx-1",
             "output": {"next_step": "开始仪式", "path": ["拆解任务"]},
+            "guardian_calibration": {
+                "decision_ref": "decision-1",
+                "state": "EDIT",
+                "edits": {"next_step": "先做第一小步"},
+            },
             "status": "DRAFT",
         },
         idempotency_key="create-1",
@@ -42,6 +47,11 @@ async def test_projection_reads_decision_and_returns_same_need_path_run_chain():
     assert projection.decision_ref == "decision-1"
     assert projection.decision_state == "EDIT"
     assert projection.path == ("拆解任务",)
+    assert projection.guardian_calibration == {
+        "decision_ref": "decision-1",
+        "state": "EDIT",
+        "edits": {"next_step": "先做第一小步"},
+    }
 
 
 def test_projection_preserves_evidence_unknowns_and_contradictions():

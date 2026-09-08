@@ -347,6 +347,7 @@ class GrowthPathResponse(BaseModel):
     path: tuple[Any, ...]
     status: Literal["DRAFT"]
     requires_human_confirmation: Literal[True]
+    guardian_calibration: dict[str, Any] | None = None
 
 
 class MultimodalDraftResponse(BaseModel):
@@ -628,6 +629,7 @@ def _growth_path_response(projection: GrowthPathProjection) -> GrowthPathRespons
         path=projection.path,
         status="DRAFT",
         requires_human_confirmation=True,
+        guardian_calibration=projection.guardian_calibration,
     )
 
 

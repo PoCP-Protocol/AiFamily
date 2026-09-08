@@ -26,6 +26,7 @@ class GrowthPathProjection:
     requires_human_confirmation: bool = True
     feedback_refs: tuple[str, ...] = ()
     feedback_signals: tuple[str, ...] = ()
+    guardian_calibration: dict[str, Any] | None = None
 
 
 def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjection:
@@ -51,6 +52,9 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
     decision_edit: dict[str, Any] = {}
     feedback_refs: list[str] = []
     feedback_signals: list[str] = []
+    guardian_calibration = payload.get("guardian_calibration")
+    if not isinstance(guardian_calibration, dict):
+        guardian_calibration = None
     for entry in snapshot.interactions:
         if entry.interaction_type.value == "feedback":
             if entry.event_id:
@@ -112,6 +116,7 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
         status=status,
         feedback_refs=tuple(feedback_refs),
         feedback_signals=tuple(feedback_signals),
+        guardian_calibration=guardian_calibration,
     )
 
 
