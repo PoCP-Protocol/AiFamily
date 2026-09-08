@@ -126,3 +126,35 @@ def test_commercial_readiness_rejects_unsupported_product_scope() -> None:
     assert response.json()["scope"] == "FULL_24"
     assert response.json()["ready"] is False
     assert response.json()["blockers"] == ["lesson_scope_valid"]
+
+
+def test_commercial_readiness_only_returns_ready_when_every_paid_pilot_gate_is_verified() -> None:
+    app = FastAPI()
+    app.include_router(router)
+    response = TestClient(app).post(
+        "/product-intelligence/courses/commercial-readiness",
+        json={
+            "lesson_count": 4,
+            "courseware_approved": True,
+            "product_package_released": True,
+            "evidence_verified": True,
+            "payment_sandbox_verified": True,
+            "entitlement_grant_verified": True,
+            "delivery_readback_verified": True,
+            "refund_recovery_verified": True,
+            "human_gate_accepted": True,
+            "evidence_refs": [
+                "evidence:payment-sandbox@v1",
+                "evidence:entitlement-grant@v1",
+                "evidence:delivery-readback@v1",
+                "evidence:refund-recovery@v1",
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ready"] is True
+    assert body["scope"] == "PILOT_21D"
+    assert body["blockers"] == []
+    assert all(body["checks"].values())
