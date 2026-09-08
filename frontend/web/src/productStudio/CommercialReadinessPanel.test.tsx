@@ -20,7 +20,9 @@ describe("CommercialReadinessPanel", () => {
     vi.stubGlobal("fetch", fetchImpl);
 
     render(<CommercialReadinessPanel />);
-    await userEvent.setup().click(screen.getByRole("button", { name: "评估当前证据" }));
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "证据引用" }), "evidence:payment-sandbox@v1");
+    await user.click(screen.getByRole("button", { name: "评估当前证据" }));
 
     expect(await screen.findByText("暂不可商业化")).toBeInTheDocument();
     expect(screen.getByText(/EVALUATION_ONLY/)).toBeInTheDocument();
@@ -64,7 +66,9 @@ describe("CommercialReadinessPanel", () => {
     }), { status: 200, headers: { "content-type": "application/json" } })));
 
     render(<CommercialReadinessPanel />);
-    await userEvent.setup().click(screen.getByRole("button", { name: "评估当前证据" }));
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "证据引用" }), "evidence:contract@v1");
+    await user.click(screen.getByRole("button", { name: "评估当前证据" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("commercial_readiness_invalid_response");
   });
