@@ -298,6 +298,21 @@ async def compile_release_baseline(
     return baseline
 
 
+@router.get("/release-baselines/{release_id:path}")
+async def get_release_baseline(
+    release_id: str,
+    context: ActorContext = Depends(get_actor_context),
+):
+    baseline = (
+        await _release_baseline_store.get(context.tenant_scope, release_id)
+        if _release_baseline_store is not None
+        else _release_baselines.get((context.tenant_scope, release_id))
+    )
+    if baseline is None:
+        raise HTTPException(status_code=404, detail="COURSE_RELEASE_BASELINE_NOT_FOUND")
+    return baseline
+
+
 @router.post("/release-baselines/{release_id:path}/lifecycle")
 async def advance_release_baseline(
     release_id: str,

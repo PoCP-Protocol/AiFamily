@@ -7,6 +7,7 @@ export type CourseReleaseLifecycleResult = {
 
 export interface CourseReleaseLifecycleApiClient {
   compile(payload: CourseReleaseBaselineDraft): Promise<{ release_id: string; status: string }>;
+  get(releaseId: string): Promise<CourseReleaseBaselineDraft & { release_id: string; status: string }>;
   approve(releaseId: string, evidenceRefs: string[], taskId: string): Promise<CourseReleaseLifecycleResult>;
 }
 
@@ -40,6 +41,12 @@ export class HttpCourseReleaseLifecycleApiClient implements CourseReleaseLifecyc
     return json<{ release_id: string; status: string }>(await this.fetchImpl(`${this.baseUrl}${prefix}`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ payload }),
     }));
+  }
+
+  async get(releaseId: string) {
+    return json<CourseReleaseBaselineDraft & { release_id: string; status: string }>(await this.fetchImpl(
+      `${this.baseUrl}${prefix}/${encodeURIComponent(releaseId)}`,
+    ));
   }
 
   async approve(releaseId: string, evidenceRefs: string[], taskId: string) {

@@ -63,6 +63,17 @@ export function CourseReleaseBaselineWorkbench({ client }: { client?: CourseRele
     }
   };
 
+  const restoreBaseline = async () => {
+    if (!releaseId) return;
+    try {
+      const baseline = await api.get(releaseId);
+      setGateState(`已从服务端恢复发布基线：${baseline.status}`);
+      setCompiled(JSON.stringify(baseline, null, 2));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "发布基线恢复失败");
+    }
+  };
+
   return (
     <section aria-label="Course release baseline compiler" className="panel course-release-workbench">
       <p className="section-kicker">PLM · Immutable BOM · Release candidate · Human decision</p>
@@ -103,6 +114,7 @@ export function CourseReleaseBaselineWorkbench({ client }: { client?: CourseRele
         <label className="consent-row"><input checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} type="checkbox" />我确认该结果只是发布基线 DRAFT，仍需证据准入、资产 QA 和人工发布决定。</label>
         <button className="secondary-button" disabled={!confirmed} onClick={() => void compile()} type="button">编译发布基线 DRAFT</button>
         <button className="primary-button" disabled={!releaseId} onClick={() => void submitGate()} type="button">提交人工发布门禁</button>
+        <button className="secondary-button" disabled={!releaseId} onClick={() => void restoreBaseline()} type="button">恢复已保存基线</button>
       </div>
       {error ? <div className="callout" role="alert"><strong>发布基线未通过</strong><p>{error}</p></div> : null}
       {compiled ? <div className="callout" role="status" aria-label="共享PLM草稿状态"><strong>共享 PLM ReleaseBaseline DRAFT 已编译</strong><p>该结果已映射到统一 ReleaseBaseline 合同，状态仍为 DRAFT；尚未审批、发布或写入生产状态。</p><details className="course-contract-preview"><summary>查看不可变发布基线合同</summary><pre>{compiled}</pre></details></div> : null}
