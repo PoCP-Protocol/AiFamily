@@ -15,6 +15,7 @@ from collections.abc import Callable
 from fastapi import FastAPI
 
 from backend.apps.family_api.dev_operator_query_wiring import install_dev_operator_query_wiring
+from backend.apps.family_api.ai_coach_wiring import ai_coach_provider_registry
 from backend.apps.family_api.dev_wiring import install_dev_wiring, is_dev_environment
 from backend.apps.family_api.evaluation_query_api import router as evaluation_query_router
 from backend.apps.family_api.evaluation_query_wiring import install_evaluation_query_service
@@ -68,6 +69,12 @@ from backend.domains.product_intelligence.api.course_routes import (
     configure_course_content_repository,
     configure_course_system_repository,
 )
+from backend.domains.product_intelligence.api.courseware_dependencies import (
+    configure_courseware_gateway,
+)
+from backend.intelligence.model_gateway.gateway import build_gateway
+from backend.intelligence.model_gateway.providers.fake import FakeProvider
+from backend.intelligence.product_management.courseware_generation import COURSEWARE_USE_CASE
 from backend.domains.product_intelligence.api.course_routes import (
     router as course_content_router,
 )
@@ -115,6 +122,10 @@ from backend.domains.service.fgcn.api.routes import (
     register_exception_handlers as register_fgcn_exception_handlers,
 )
 from backend.domains.service.fgcn.api.routes import router as fgcn_router
+from backend.intelligence.agi_vertical_composition import (
+    install_vertical_family_growth_runtime,
+)
+from backend.intelligence.agi_vertical_runtime import VerticalFamilyGrowthRuntime
 from backend.intelligence.evaluation.query import AuthorizedEvaluationQueryService
 from backend.intelligence.experience.api import MultimodalDraftRuntimeResolver
 from backend.intelligence.experience.engagement_api import EngagementDraftRuntimeResolver
@@ -309,6 +320,25 @@ def _mount_course_content(application: FastAPI, *, database_url: str | None = No
     configure_course_content_repository(InMemoryCourseContentRepository())
     configure_course_system_repository(development_course_system_repository())
     configure_course_content_gate(InMemoryHumanGate())
+    configure_courseware_gateway(
+        build_gateway(
+            environment="development",
+            providers={
+                "fake-deterministic": FakeProvider(
+                    provider_id="fake-deterministic",
+                    responses_by_use_case={
+                        COURSEWARE_USE_CASE: {
+                            "title": "课程课件候选",
+                            "outline": ["理解主题", "完成练习", "记录复盘"],
+                            "family_action": "完成一项家庭行动并记录观察",
+                            "evidence_refs": ["claim:curriculum"],
+                        }
+                    },
+                )
+            },
+            registry=ai_coach_provider_registry(),
+        )
+    )
 
     def _dev_product_intelligence_actor(request) -> ProductIntelligenceActorContext:  # noqa: ANN001
         tenant_scope = request.headers.get("x-tenant-scope", "dev-tenant")
@@ -404,9 +434,12 @@ def create_app(
     experience_operations_cursor_signer: HmacExperienceOperationsCursorSigner | None = None,
     experience_operations_query_wiring: Callable[[FastAPI], None] | None = None,
     assessment_production_ai_wiring: Callable[[FastAPI], None] | None = None,
+    vertical_family_growth_runtime: VerticalFamilyGrowthRuntime | None = None,
 ) -> FastAPI:
     _configure_fgcn_persistence()
     application = FastAPI(title="AiFamily family_api", version="0.1.0")
+    if vertical_family_growth_runtime is not None:
+        install_vertical_family_growth_runtime(application, vertical_family_growth_runtime)
     # Operator-only evaluation evidence is mounted in every environment for
     # contract parity; without an explicitly composed identity-bound service,
     # the routes remain fail-closed with 503.
