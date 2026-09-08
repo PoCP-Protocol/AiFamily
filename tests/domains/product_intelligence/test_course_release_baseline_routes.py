@@ -98,6 +98,35 @@ def test_release_baseline_lifecycle_requires_release_review_permission(
     assert response.status_code == 403
 
 
+def test_release_baseline_lifecycle_rejects_unknown_action_at_http_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AIFAMILY_ENV", "test")
+    client = TestClient(create_app())
+    headers = {"x-tenant-scope": "tenant-contract", "x-actor-id": "operator-contract"}
+    created = client.post(
+        "/product-intelligence/courses/release-baselines",
+        json={"payload": _payload()},
+        headers=headers,
+    )
+    response = client.post(
+        f"/product-intelligence/courses/release-baselines/{created.json()['release_id']}/lifecycle",
+        json={
+            "action": "PUBLISH_NOW",
+            "decision_id": "decision:invalid",
+            "task_id": "task:invalid",
+            "evidence": [{
+                "evidence_id": "receipt:course",
+                "kind": "QA",
+                "reference": "qa://course",
+                "summary": "通过",
+            }],
+        },
+        headers=headers,
+    )
+    assert response.status_code == 422
+
+
 def test_release_baseline_lifecycle_rejects_ai_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
