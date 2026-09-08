@@ -85,3 +85,40 @@ def test_deleted_run_projection_fails_closed():
 
     with pytest.raises(ValueError, match="DELETED_RUN_NOT_READABLE"):
         project_next_growth_path(Deleted())  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("decision", "state", "expected_status", "expected_path"),
+    [
+        ("rejected", "REJECT", "REJECTED", ()),
+        ("pending_human_confirmation", "DEFER", "REVIEW_REQUIRED", ("原路径",)),
+    ],
+)
+def test_reject_and_defer_do_not_look_like_accepted_actions(
+    decision, state, expected_status, expected_path
+):
+    ledger = InMemoryExperienceRunLedger()
+    scope = RunScope("tenant-1", "family-1", ("child-1",))
+    ledger.create_draft(
+        scope=scope,
+        run_id=f"run-{state}",
+        request_ref=f"request-{state}",
+        draft_payload={
+            "family_need_id": "need-1",
+            "path_id": "path-1",
+            "context_snapshot_ref": "ctx-1",
+            "output": {"next_step": "原建议", "path": ["原路径"]},
+            "status": "DRAFT",
+        },
+        idempotency_key=f"create-{state}",
+    )
+    ledger.append_interaction(
+        scope=scope,
+        run_id=f"run-{state}",
+        interaction_type=InteractionType.DECISION,
+        payload={"decision": decision, "decision_ref": f"decision-{state}", "state": state},
+        idempotency_key=f"decision-{state}",
+    )
+    projection = project_next_growth_path(ledger.replay(scope=scope, run_id=f"run-{state}"))
+    assert projection.status == expected_status
+    assert projection.path == expected_path

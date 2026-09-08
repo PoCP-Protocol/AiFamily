@@ -65,6 +65,14 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
             next_step = decision_edit["next_step"]
         if isinstance(decision_edit.get("path"), (list, tuple)):
             path = decision_edit["path"]
+    if decision_state == "REJECT":
+        next_step = None
+        path = ()
+    status = "DRAFT"
+    if decision_state == "DEFER":
+        status = "REVIEW_REQUIRED"
+    elif decision_state == "REJECT":
+        status = "REJECTED"
     return GrowthPathProjection(
         family_need_id=family_need_id,
         path_id=path_id,
@@ -74,7 +82,7 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
         decision_state=decision_state,
         next_step=str(next_step) if next_step is not None else None,
         path=tuple(path),
-        status="DRAFT",
+        status=status,
     )
 
 
