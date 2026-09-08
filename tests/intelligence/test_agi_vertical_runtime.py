@@ -461,6 +461,23 @@ async def test_guardian_decision_is_carried_into_next_round_and_replay_is_read_o
         "state": "EDIT",
         "edits": {"next_step": "visual timer"},
     }
+    edited_lineage = ledger.read("run-2").lineage_ref
+    clean_ledger = EvaluationLedger()
+    clean_runtime = VerticalFamilyGrowthRuntime(
+        gateway=Gateway(),
+        context=Context({"delay": "high"}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=clean_ledger,
+    )
+    await clean_runtime.run(
+        family_need_id="need-1",
+        path_id="path-1",
+        run_id="run-clean",
+        family_id="family-1",
+        knowledge_ref="growth.v1",
+    )
+    assert edited_lineage != clean_ledger.read("run-clean").lineage_ref
     assert ledger.read("run-2").guardian_calibration == {
         "decision_ref": "decision:edit-1",
         "state": "EDIT",
@@ -474,6 +491,81 @@ async def test_guardian_decision_is_carried_into_next_round_and_replay_is_read_o
     assert deletion_ref == "deletion:run-2"
     with pytest.raises(VerticalRuntimeError, match="EVALUATION_ENTRY_NOT_FOUND"):
         ledger.replay("run-2")
+
+
+@pytest.mark.asyncio
+async def test_lineage_changes_when_guardian_calibration_changes():
+    first_ledger = EvaluationLedger()
+    first = VerticalFamilyGrowthRuntime(
+        gateway=Gateway(),
+        context=Context({}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=first_ledger,
+    )
+    await first.run(
+        family_need_id="need-lineage",
+        path_id="path-1",
+        run_id="run-lineage",
+        family_id="family-1",
+        knowledge_ref="growth.v1",
+        guardian_decision=GuardianDecision(
+            "decision:accept",
+            "need-lineage",
+            "run-lineage",
+            "path-1",
+            "ACCEPT",
+        ),
+    )
+    second_ledger = EvaluationLedger()
+    second = VerticalFamilyGrowthRuntime(
+        gateway=Gateway(),
+        context=Context({}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=second_ledger,
+    )
+    await second.run(
+        family_need_id="need-lineage",
+        path_id="path-1",
+        run_id="run-lineage",
+        family_id="family-1",
+        knowledge_ref="growth.v1",
+        guardian_decision=GuardianDecision(
+            "decision:defer",
+            "need-lineage",
+            "run-lineage",
+            "path-1",
+            "DEFER",
+        ),
+    )
+    first_ref = first_ledger.read("run-lineage").lineage_ref
+    second_ref = second_ledger.read("run-lineage").lineage_ref
+    assert first_ref != second_ref
+
+
+@pytest.mark.asyncio
+async def test_identical_generation_inputs_have_stable_lineage_across_ledgers():
+    first_ledger = EvaluationLedger()
+    second_ledger = EvaluationLedger()
+    for ledger in (first_ledger, second_ledger):
+        runtime = VerticalFamilyGrowthRuntime(
+            gateway=Gateway(),
+            context=Context({"focus": "作业启动"}),
+            knowledge=Knowledge(),
+            feedback=Feedback(),
+            ledger=ledger,
+        )
+        await runtime.run(
+            family_need_id="need-stable",
+            path_id="path-stable",
+            run_id="run-stable",
+            family_id="family-stable",
+            knowledge_ref="growth.v1",
+        )
+    assert (
+        first_ledger.read("run-stable").lineage_ref == second_ledger.read("run-stable").lineage_ref
+    )
 
 
 @pytest.mark.asyncio
