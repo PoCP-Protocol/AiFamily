@@ -7,14 +7,18 @@ from backend.intelligence.agi_vertical_runtime import (
     FamilyGrowthContext,
     GuardianDecision,
     PublishedKnowledge,
+    RegistryKnowledgePort,
     VerticalFamilyGrowthRuntime,
     VerticalRuntimeError,
 )
+from backend.intelligence.knowledge.contracts import KnowledgeClaim, KnowledgeSource
+from backend.intelligence.knowledge.registry import KnowledgeRegistry
 from backend.intelligence.model_gateway.attempts import InMemoryAttemptSink
 from backend.intelligence.model_gateway.contracts import AiProvenance, MediaInput, ModelDraft
 from backend.intelligence.model_gateway.gateway import ModelGateway
 from backend.intelligence.model_gateway.provider_registry import ProviderRecord, ProviderRegistry
 from backend.intelligence.model_gateway.providers.fake import FakeProvider
+from backend.packages.contracts.evidence import Provenance
 
 
 class Context:
@@ -77,6 +81,31 @@ def test_guardian_decision_rejects_unbounded_calibration_fields():
 def test_guardian_decision_rejects_oversized_calibration_text():
     with pytest.raises(VerticalRuntimeError, match="GUARDIAN_CALIBRATION_TEXT_INVALID"):
         GuardianDecision("d", "n", "r", "p", "EDIT", {"focus": "x" * 2001})
+
+
+@pytest.mark.asyncio
+async def test_registry_knowledge_port_requires_published_in_scope_claim():
+    registry = KnowledgeRegistry(
+        sources=(KnowledgeSource("src", "Reviewed", "lic", "owner", "family_growth", True),),
+        claims=(
+            KnowledgeClaim(
+                "claim:1",
+                "先拆成可完成的小步。",
+                "src",
+                Provenance(level="E6", source_ref="src"),
+                "family_growth",
+                status="REVIEWED",
+                allowed_purposes=("vertical_family_growth",),
+            ),
+        ),
+    )
+    port = RegistryKnowledgePort(registry, purpose="vertical_family_growth", scope="family_growth")
+    assert await port.published(ref="claim:1") is None
+    registry.transition_claim("claim:1", "PUBLISHED")
+    material = await port.published(ref="claim:1")
+    assert material is not None
+    assert material.content == "先拆成可完成的小步。"
+    assert await port.published(ref="claim:missing") is None
 
 
 def real_gateway(provider: FakeProvider, *, timeout_seconds: float = 1.0) -> ModelGateway:

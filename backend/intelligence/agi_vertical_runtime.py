@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
+from backend.intelligence.knowledge.registry import KnowledgeRegistry
 from backend.intelligence.model_gateway.contracts import (
     KnowledgeExecutionPayload,
     MediaInput,
@@ -79,6 +80,41 @@ class ContextPort(Protocol):
 
 class KnowledgePort(Protocol):
     async def published(self, *, ref: str) -> PublishedKnowledge | None: ...
+
+
+class RegistryKnowledgePort:
+    """Expose only an in-scope published claim to the vertical runtime.
+
+    The vertical pipeline must ground generation in the canonical Knowledge
+    Registry rather than a development fixture.  This adapter deliberately
+    resolves one claim by id and rechecks publication, source verification,
+    purpose, scope and expiry through ``retrieve_reviewed``.
+    """
+
+    def __init__(self, registry: KnowledgeRegistry, *, purpose: str, scope: str) -> None:
+        if not purpose.strip() or not scope.strip():
+            raise ValueError("knowledge adapter purpose and scope are required")
+        self._registry = registry
+        self._purpose = purpose
+        self._scope = scope
+
+    async def published(self, *, ref: str) -> PublishedKnowledge | None:
+        claims = self._registry.retrieve_reviewed(
+            purpose=self._purpose,
+            scope=self._scope,
+        )
+        claim = next((item for item in claims if item.claim_id == ref), None)
+        if claim is None:
+            return None
+        digest = hashlib.sha256(claim.text.encode("utf-8")).hexdigest()
+        return PublishedKnowledge(
+            ref=claim.claim_id,
+            version=str(claim.metadata.get("version", "1")),
+            source=claim.source_id,
+            applicability=claim.scope,
+            digest=digest,
+            content=claim.text,
+        )
 
 
 class FeedbackPort(Protocol):
@@ -296,6 +332,7 @@ __all__ = [
     "FeedbackPort",
     "GuardianDecision",
     "KnowledgePort",
+    "RegistryKnowledgePort",
     "ModelGatewayPort",
     "PublishedKnowledge",
     "VerticalFamilyGrowthRuntime",
