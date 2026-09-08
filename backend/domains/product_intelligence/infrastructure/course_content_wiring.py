@@ -21,9 +21,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ..api.course_routes import (
     configure_course_content_repository,
+    configure_course_release_baseline_repository,
     configure_course_system_repository,
 )
 from .course_content_postgres_repository import SqlAlchemyCourseContentRepository
+from .course_release_baseline_repository import ConnectionScopedCourseReleaseBaselineRepository
 from .course_system_postgres_repository import SqlAlchemyCourseSystemRepository
 
 
@@ -75,6 +77,9 @@ def install_course_content_production_wiring(*, engine: AsyncEngine) -> None:
 
     configure_course_content_repository(_ConnectionScopedCourseContentRepository(engine))
     configure_course_system_repository(_ConnectionScopedCourseSystemRepository(engine))
+    configure_course_release_baseline_repository(
+        ConnectionScopedCourseReleaseBaselineRepository(engine)
+    )
 
 
 __all__ = [

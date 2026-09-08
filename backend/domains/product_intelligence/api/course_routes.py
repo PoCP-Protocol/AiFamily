@@ -60,6 +60,7 @@ _repository: CourseContentRepository | None = None
 _course_system_repository: CourseSystemRepository | None = None
 _gate: InMemoryHumanGate | None = None
 _release_baselines: dict[tuple[str, str], ReleaseBaseline] = {}
+_release_baseline_store = None
 
 
 def configure_course_content_repository(repository: CourseContentRepository | None) -> None:
@@ -82,6 +83,7 @@ def clear_course_content_wiring() -> None:
     configure_course_system_repository(None)
     configure_course_content_gate(None)
     _release_baselines.clear()
+    configure_course_release_baseline_repository(None)
 
 
 def configure_course_release_baseline_store(
@@ -91,6 +93,11 @@ def configure_course_release_baseline_store(
 
     global _release_baselines
     _release_baselines = store if store is not None else {}
+
+
+def configure_course_release_baseline_repository(repository) -> None:  # noqa: ANN001
+    global _release_baseline_store
+    _release_baseline_store = repository
 
 
 async def get_course_content_repository() -> CourseContentRepository:
@@ -284,7 +291,10 @@ async def compile_release_baseline(
     except (ValueError, ProductIntelligenceDomainError) as exc:
         detail = str(exc)
         raise HTTPException(status_code=400, detail=detail) from exc
-    _release_baselines[(context.tenant_scope, baseline.release_id)] = baseline
+    if _release_baseline_store is not None:
+        await _release_baseline_store.save(context.tenant_scope, baseline)
+    else:
+        _release_baselines[(context.tenant_scope, baseline.release_id)] = baseline
     return baseline
 
 
@@ -294,7 +304,11 @@ async def advance_release_baseline(
     body: CourseReleaseLifecycleRequest,
     context: ActorContext = Depends(get_actor_context),
 ):
-    baseline = _release_baselines.get((context.tenant_scope, release_id))
+    baseline = (
+        await _release_baseline_store.get(context.tenant_scope, release_id)
+        if _release_baseline_store is not None
+        else _release_baselines.get((context.tenant_scope, release_id))
+    )
     if baseline is None:
         raise HTTPException(status_code=404, detail="COURSE_RELEASE_BASELINE_NOT_FOUND")
     try:
@@ -316,7 +330,10 @@ async def advance_release_baseline(
         )
     except (ValueError, CourseReleaseLifecycleError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    _release_baselines[(context.tenant_scope, release_id)] = result.baseline
+    if _release_baseline_store is not None:
+        await _release_baseline_store.save(context.tenant_scope, result.baseline)
+    else:
+        _release_baselines[(context.tenant_scope, release_id)] = result.baseline
     return {"baseline": result.baseline, "audit": result.audit}
 
 
@@ -352,6 +369,7 @@ __all__ = [
     "configure_course_content_gate",
     "configure_course_content_repository",
     "configure_course_release_baseline_store",
+    "configure_course_release_baseline_repository",
     "configure_course_system_repository",
     "router",
 ]
