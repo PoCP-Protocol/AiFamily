@@ -22,6 +22,8 @@ def test_commercial_readiness_exposes_blockers_without_side_effects() -> None:
             "refund_recovery_verified": False,
                 "human_gate_accepted": True,
                 "evidence_refs": ["evidence:scope@v1"],
+                "evidence_refs": ["evidence:scope@v1"],
+                "evidence_refs": ["evidence:scope@v1"],
             "evidence_refs": ["evidence:scope@v1"],
             "evidence_refs": ["evidence:payment-sandbox@v1", "evidence:refund-recovery@v1"],
         },
@@ -50,6 +52,7 @@ def test_commercial_readiness_rejects_unsupported_product_scope() -> None:
             "delivery_readback_verified": True,
             "refund_recovery_verified": True,
             "human_gate_accepted": True,
+            "evidence_refs": ["evidence:unsupported-scope@v1"],
         },
     )
 
