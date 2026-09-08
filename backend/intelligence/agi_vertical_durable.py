@@ -68,6 +68,8 @@ class DurableVerticalLedgerAdapter:
             "feedback_refs": entry.feedback_refs,
             "guardian_calibration": entry.guardian_calibration,
             "capability_refs": entry.capability_refs,
+            "knowledge_ref": entry.knowledge_ref,
+            "knowledge_version": entry.knowledge_version,
             "context_snapshot_ref": entry.context_snapshot_ref,
         }
         snapshot = await self._call(

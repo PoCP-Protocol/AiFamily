@@ -185,6 +185,9 @@ async def test_published_capability_versions_are_part_of_request_identity():
     assert gateway.last_request.input_refs[-1] == "practice:focus@1.0.0"
     entry = runtime._ledger.read("run-c")
     assert entry.capability_refs == ("practice:focus@1.0.0",)
+    assert entry.knowledge_ref == "growth.v1"
+    assert entry.knowledge_version == "v1"
+    assert "knowledge:growth.v1@v1" in gateway.last_request.input_refs
     assert (
         gateway.last_request.payload["capability_candidates"][0]["capability_ref"]
         == "practice:focus"

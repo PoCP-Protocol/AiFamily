@@ -184,6 +184,8 @@ class EvaluationLedgerEntry:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     guardian_calibration: dict[str, Any] | None = None
     capability_refs: tuple[str, ...] = ()
+    knowledge_ref: str = ""
+    knowledge_version: str = ""
 
 
 class EvaluationLedger:
@@ -335,7 +337,13 @@ class VerticalFamilyGrowthRuntime:
                 },
             },
             context_snapshot_ref=context.context_snapshot_ref,
-            input_refs=(family_need_id, path_id, *feedback_refs, *capability_refs),
+            input_refs=(
+                family_need_id,
+                path_id,
+                f"knowledge:{material.ref}@{material.version}",
+                *feedback_refs,
+                *capability_refs,
+            ),
             media_inputs=media_inputs,
             request_id=run_id,
             tenant_id=context.tenant_id,
@@ -376,6 +384,8 @@ class VerticalFamilyGrowthRuntime:
             feedback_refs,
             guardian_calibration=calibration,
             capability_refs=capability_refs,
+            knowledge_ref=material.ref,
+            knowledge_version=material.version,
         )
         self._ledger.append(entry)
         return entry
