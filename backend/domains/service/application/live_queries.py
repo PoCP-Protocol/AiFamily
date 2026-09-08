@@ -21,6 +21,28 @@ class LiveSessionUnavailableError(Exception):
     """A row exists but is not currently eligible for adult discovery."""
 
 
+def _eligible_projection(
+    projection: LiveSessionProjection,
+    *,
+    tenant_id: str,
+    family_id: str,
+    current_time: datetime,
+) -> LiveSessionDetailView | None:
+    if projection.tenant_id != tenant_id or projection.family_id != family_id:
+        raise LiveSessionScopeError("live_projection_scope_mismatch")
+    if projection.review_status != "APPROVED":
+        return None
+    if not projection.audience_scope:
+        return None
+    if _utc(projection.ends_at) <= current_time:
+        return None
+    if projection.status in {"WITHDRAWN", "EXPIRED"}:
+        return None
+    if projection.family_visibility != "FAMILY_SCOPED":
+        return None
+    return LiveSessionDetailView.from_projection(projection)
+
+
 def _utc(value: datetime) -> datetime:
     """Normalise provider timestamps before comparing them with current UTC."""
 
@@ -77,3 +99,37 @@ async def get_approved_session_detail(
         raise LiveSessionUnavailableError("live_session_visibility_not_family_scoped")
 
     return LiveSessionDetailView.from_projection(projection)
+
+
+async def list_approved_session_details(
+    provider: LiveSessionProjectionPort,
+    *,
+    tenant_id: str,
+    family_id: str,
+    now: datetime | None = None,
+) -> tuple[LiveSessionDetailView, ...]:
+    """Return visible approved sessions for the authenticated family only."""
+
+    try:
+        projections = await provider.list_session_projections(
+            tenant_id=tenant_id, family_id=family_id
+        )
+    except (LiveProjectionConflictError, LiveProjectionProviderError):
+        raise
+    except Exception as exc:  # pragma: no cover - defensive provider boundary
+        raise LiveProjectionProviderError("live_projection_provider_failed") from exc
+
+    current_time = _utc(now or datetime.now(UTC))
+    details: list[LiveSessionDetailView] = []
+    for projection in projections:
+        if not isinstance(projection, LiveSessionProjection):
+            raise LiveProjectionProviderError("live_projection_shape_invalid")
+        detail = _eligible_projection(
+            projection,
+            tenant_id=tenant_id,
+            family_id=family_id,
+            current_time=current_time,
+        )
+        if detail is not None:
+            details.append(detail)
+    return tuple(sorted(details, key=lambda item: item.starts_at))

@@ -41,12 +41,24 @@ class Projection:
             raise self.error
         return self.value
 
+    async def list_session_projections(
+        self, *, tenant_id: str, family_id: str
+    ) -> tuple[LiveSessionProjection, ...]:
+        if self.error:
+            raise self.error
+        return (self.value,) if self.value is not None else ()
+
 
 class MalformedProjection:
     async def get_session_projection(
         self, *, tenant_id: str, family_id: str, session_ref: str
     ) -> dict[str, str]:
         return {"session_ref": session_ref}
+
+    async def list_session_projections(
+        self, *, tenant_id: str, family_id: str
+    ) -> tuple[dict[str, str], ...]:
+        return ({"session_ref": "live-001"},)
 
 
 def _context(*, family_id: str = FAMILY, tenant_id: str = TENANT) -> ActionContext:
@@ -140,6 +152,36 @@ def test_approved_unexpired_family_scoped_detail_is_readable_and_audited(
     assert events[0].access_purpose == "LIVE_DISCOVERY"
 
 
+def test_discovery_lists_only_approved_current_family_sessions(
+    client: TestClient, wiring: dict[str, object]
+) -> None:
+    response = client.get(f"/families/{FAMILY}/live-sessions")
+
+    assert response.status_code == 200, response.text
+    assert [item["session_ref"] for item in response.json()] == ["live-001"]
+    recorder = wiring["recorder"]
+    assert isinstance(recorder, AuditRecorder)
+    assert len(recorder.all_events()) == 1
+
+
+def test_discovery_returns_empty_without_visible_sessions(
+    client: TestClient, wiring: dict[str, object]
+) -> None:
+    projection = wiring["projection"]
+    assert isinstance(projection, Projection)
+    projection.value = None
+
+    response = client.get(f"/families/{FAMILY}/live-sessions")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_discovery_rejects_cross_family_before_provider(client: TestClient) -> None:
+    response = client.get(f"/families/{OTHER_FAMILY}/live-sessions")
+    assert response.status_code == 403
+
+
 @pytest.mark.parametrize(
     ("override", "detail"),
     [
@@ -217,6 +259,13 @@ def test_provider_conflict_is_409(client: TestClient, wiring: dict[str, object])
 def test_provider_shape_failure_is_503_fail_closed(client: TestClient) -> None:
     client.app.dependency_overrides[service_dependencies.get_live_projection] = MalformedProjection
     response = client.get(f"/families/{FAMILY}/live-sessions/live-001")
+    assert response.status_code == 503
+    assert response.json()["detail"] == "live_projection_shape_invalid"
+
+
+def test_discovery_provider_shape_failure_is_503_fail_closed(client: TestClient) -> None:
+    client.app.dependency_overrides[service_dependencies.get_live_projection] = MalformedProjection
+    response = client.get(f"/families/{FAMILY}/live-sessions")
     assert response.status_code == 503
     assert response.json()["detail"] == "live_projection_shape_invalid"
 

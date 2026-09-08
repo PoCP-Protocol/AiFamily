@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol
 
 from .live_read_models import LiveSessionProjection
@@ -29,3 +30,7 @@ class LiveSessionProjectionPort(Protocol):
     async def get_session_projection(
         self, *, tenant_id: str, family_id: str, session_ref: str
     ) -> LiveSessionProjection | None: ...
+
+    async def list_session_projections(
+        self, *, tenant_id: str, family_id: str
+    ) -> Sequence[LiveSessionProjection]: ...

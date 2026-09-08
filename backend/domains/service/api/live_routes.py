@@ -19,6 +19,7 @@ from ..application.live_queries import (
     LiveSessionScopeError,
     LiveSessionUnavailableError,
     get_approved_session_detail,
+    list_approved_session_details,
 )
 from ..application.live_read_models import LiveSessionDetailView
 from . import dependencies as service_dependencies
@@ -30,6 +31,22 @@ from .dependencies import (
 )
 
 router = APIRouter(tags=["live"])
+
+_LIVE_FIELDS = (
+    "session_ref",
+    "title",
+    "presenter_name",
+    "audience_scope",
+    "starts_at",
+    "ends_at",
+    "review_ref",
+    "review_version",
+    "status",
+    "family_visibility",
+    "as_of",
+    "source",
+    "fixture_only",
+)
 
 
 def _assert_authenticated_family(
@@ -49,6 +66,51 @@ def require_authenticated_family(
     """Reject a cross-family request before resolving the live provider."""
 
     _assert_authenticated_family(family_id, context, actor)
+
+
+@router.get(
+    "/families/{family_id}/live-sessions",
+    response_model=list[LiveSessionDetailView],
+)
+async def list_live_sessions(
+    family_id: str,
+    _scope: None = Depends(require_authenticated_family),
+    projection: LiveSessionProjectionPort = Depends(get_live_projection),
+    context: ActionContext = Depends(service_dependencies.get_action_context),
+    actor: ActorContext = Depends(service_dependencies.get_actor_context),
+    policy: PolicyEngine = Depends(get_live_policy_engine),
+    recorder: AuditRecorder = Depends(service_dependencies.get_audit_recorder),
+) -> tuple[LiveSessionDetailView, ...]:
+    """Discover approved, current Family-scoped sessions without side effects."""
+
+    _assert_authenticated_family(family_id, context, actor)
+    decision = policy.check(actor, READ_LIVE_SESSION_ACTION, LIVE_SESSION_RESOURCE)
+    if not decision.allowed:
+        raise HTTPException(status_code=403, detail=decision.reason)
+    try:
+        details = await list_approved_session_details(
+            projection, tenant_id=context.tenant_id, family_id=context.family_id
+        )
+    except LiveSessionScopeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except LiveProjectionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LiveProjectionProviderError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    recorder.record_read(
+        actor_id=actor.actor_id,
+        tenant_id=context.tenant_id,
+        action=READ_LIVE_SESSION_ACTION,
+        resource_type=LIVE_SESSION_RESOURCE,
+        resource_id=context.family_id,
+        subject_person_id=context.actor_person_id,
+        accessed_fields=_LIVE_FIELDS,
+        access_purpose="LIVE_DISCOVERY",
+        reason="adult_family_scoped_live_discovery",
+        correlation_id=context.correlation_id,
+        subject_is_minor=False,
+    )
+    return details
 
 
 @router.get(
@@ -97,21 +159,7 @@ async def get_live_session_detail(
         resource_type=LIVE_SESSION_RESOURCE,
         resource_id=detail.session_ref,
         subject_person_id=context.actor_person_id,
-        accessed_fields=(
-            "session_ref",
-            "title",
-            "presenter_name",
-            "audience_scope",
-            "starts_at",
-            "ends_at",
-            "review_ref",
-            "review_version",
-            "status",
-            "family_visibility",
-            "as_of",
-            "source",
-            "fixture_only",
-        ),
+        accessed_fields=_LIVE_FIELDS,
         access_purpose="LIVE_DISCOVERY",
         reason="adult_family_scoped_live_discovery",
         correlation_id=context.correlation_id,
