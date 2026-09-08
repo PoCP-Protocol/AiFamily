@@ -326,6 +326,8 @@ async def advance_release_baseline(
     )
     if baseline is None:
         raise HTTPException(status_code=404, detail="COURSE_RELEASE_BASELINE_NOT_FOUND")
+    if context.actor_type != "HUMAN":
+        raise HTTPException(status_code=403, detail="COURSE_RELEASE_HUMAN_ACTOR_REQUIRED")
     try:
         decision = HumanDecision(
             decision_id=body.decision_id,
