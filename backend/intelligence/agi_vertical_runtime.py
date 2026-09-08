@@ -116,6 +116,7 @@ class EvaluationLedgerEntry:
     draft: ModelDraft
     feedback_refs: tuple[str, ...]
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    guardian_calibration: dict[str, Any] | None = None
 
 
 class EvaluationLedger:
@@ -260,7 +261,13 @@ class VerticalFamilyGrowthRuntime:
         if draft.status != "DRAFT" or draft.may_mutate_business_state:
             raise VerticalRuntimeError("DRAFT_ONLY_VIOLATION")
         entry = EvaluationLedgerEntry(
-            family_need_id, path_id, run_id, context.context_snapshot_ref, draft, feedback_refs
+            family_need_id,
+            path_id,
+            run_id,
+            context.context_snapshot_ref,
+            draft,
+            feedback_refs,
+            guardian_calibration=calibration,
         )
         self._ledger.append(entry)
         return entry

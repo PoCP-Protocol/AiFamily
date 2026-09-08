@@ -51,14 +51,11 @@ async def test_vertical_adapter_postgres_restart_decision_delete_and_scope(
         adapter = DurableVerticalLedgerAdapter(SqlAlchemyExperienceRunLedger(reader))
         replay = await adapter.replay(run_id="run-pg-1", scope=scope)
         assert replay.draft_payload["family_need_id"] == "need-pg-1"
+        assert replay.draft_payload["guardian_calibration"] is None
 
-    decision = GuardianDecision(
-        "decision:pg-edit", "need-pg-1", "run-pg-1", "path-pg-1", "EDIT"
-    )
+    decision = GuardianDecision("decision:pg-edit", "need-pg-1", "run-pg-1", "path-pg-1", "EDIT")
     async with postgres_session_factory() as decision_writer:
-        adapter = DurableVerticalLedgerAdapter(
-            SqlAlchemyExperienceRunLedger(decision_writer)
-        )
+        adapter = DurableVerticalLedgerAdapter(SqlAlchemyExperienceRunLedger(decision_writer))
         async with decision_writer.begin():
             await adapter.record_guardian_decision(decision, scope=scope)
 
@@ -68,9 +65,6 @@ async def test_vertical_adapter_postgres_restart_decision_delete_and_scope(
         assert replay.interactions[-1].payload["decision_ref"] == "decision:pg-edit"
         with pytest.raises(RunHttpError):
             await adapter.replay(run_id="run-pg-1", scope=foreign_scope)
-        assert deleted.deletion_state == "deleted"
-        assert deleted.draft_payload is None
-        assert not deleted.artifact_refs
 
     async with postgres_session_factory() as deleter:
         adapter = DurableVerticalLedgerAdapter(SqlAlchemyExperienceRunLedger(deleter))

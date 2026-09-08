@@ -66,6 +66,7 @@ class DurableVerticalLedgerAdapter:
                 for name in entry.draft.provenance.__dataclass_fields__
             },
             "feedback_refs": entry.feedback_refs,
+            "guardian_calibration": entry.guardian_calibration,
             "context_snapshot_ref": entry.context_snapshot_ref,
         }
         snapshot = await self._call(

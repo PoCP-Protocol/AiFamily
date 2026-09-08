@@ -171,6 +171,11 @@ async def test_guardian_decision_is_carried_into_next_round_and_replay_is_read_o
         "state": "EDIT",
         "edits": {"next_step": "visual timer"},
     }
+    assert ledger.read("run-2").guardian_calibration == {
+        "decision_ref": "decision:edit-1",
+        "state": "EDIT",
+        "edits": {"next_step": "visual timer"},
+    }
     calls_after_run = gateway.calls
     replayed = ledger.replay("run-2")
     assert replayed.feedback_refs[-1] == "decision:edit-1"
