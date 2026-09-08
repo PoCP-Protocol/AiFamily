@@ -77,3 +77,17 @@ async def test_cross_family_decision_is_rejected_before_interaction_write():
         await adapter.record_guardian_decision(decision, scope=foreign_scope)
     replay = await adapter.replay(run_id="run-1", scope=owner_scope)
     assert not replay.interactions
+
+
+@pytest.mark.asyncio
+async def test_adapter_projects_growth_path_from_same_durable_run():
+    adapter = DurableVerticalLedgerAdapter(InMemoryExperienceRunLedger())
+    scope = RunScope("tenant-1", "family-1", ("child-1",))
+    await adapter.save_entry(entry(), scope=scope)
+    decision = GuardianDecision("decision:accept", "need-1", "run-1", "path-1", "ACCEPT")
+    await adapter.record_guardian_decision(decision, scope=scope)
+    projection = await adapter.project_growth_path(run_id="run-1", scope=scope)
+    assert projection.family_need_id == "need-1"
+    assert projection.path_id == "path-1"
+    assert projection.decision_ref == "decision:accept"
+    assert projection.decision_state == "ACCEPT"

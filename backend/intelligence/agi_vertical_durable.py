@@ -11,6 +11,10 @@ import inspect
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from backend.intelligence.agi_growth_path_projection import (
+    GrowthPathProjection,
+    project_next_growth_path,
+)
 from backend.intelligence.agi_vertical_runtime import (
     EvaluationLedgerEntry,
     GuardianDecision,
@@ -103,6 +107,12 @@ class DurableVerticalLedgerAdapter:
 
     async def replay(self, *, run_id: str, scope: RunScope) -> RunReplaySnapshot:
         return await self._call(self._ledger.replay, scope=scope, run_id=run_id)
+
+    async def project_growth_path(self, *, run_id: str, scope: RunScope) -> GrowthPathProjection:
+        """Read the durable run and project the next growth direction."""
+
+        snapshot = await self.replay(run_id=run_id, scope=scope)
+        return project_next_growth_path(snapshot)
 
     async def delete(self, *, run_id: str, scope: RunScope) -> RunReplaySnapshot:
         await self._call(
