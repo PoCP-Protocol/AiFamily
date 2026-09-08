@@ -56,6 +56,29 @@ def test_commercial_readiness_deduplicates_evidence_refs() -> None:
     assert response.json()["evidence_refs"] == ["evidence:pilot@v1"]
 
 
+def test_commercial_readiness_rejects_unversioned_evidence_ref() -> None:
+    app = FastAPI()
+    app.include_router(router)
+    response = TestClient(app).post(
+        "/product-intelligence/courses/commercial-readiness",
+        json={
+            "lesson_count": 4,
+            "courseware_approved": True,
+            "product_package_released": True,
+            "evidence_verified": True,
+            "payment_sandbox_verified": True,
+            "entitlement_grant_verified": True,
+            "delivery_readback_verified": True,
+            "refund_recovery_verified": True,
+            "human_gate_accepted": True,
+            "evidence_refs": ["evidence:pilot"],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "READINESS_EVIDENCE_REF_INVALID"
+
+
 def test_commercial_readiness_rejects_unsupported_product_scope() -> None:
     app = FastAPI()
     app.include_router(router)

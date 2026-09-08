@@ -12,6 +12,7 @@ because no SQLAlchemy mapping exists yet for `CourseContent` — see
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Literal, NoReturn
@@ -269,15 +270,18 @@ async def commercial_readiness(body: CommercialReadinessRequest) -> CommercialRe
     publication side effects.
     """
 
-    result = evaluate_commercial_readiness(**body.model_dump())
+    normalized_refs = tuple(dict.fromkeys(ref.strip() for ref in body.evidence_refs))
+    if not normalized_refs or any(not re.search(r"@v[1-9][0-9]*$", ref) for ref in normalized_refs):
+        raise HTTPException(status_code=422, detail="READINESS_EVIDENCE_REF_INVALID")
+    result = evaluate_commercial_readiness(
+        **{**body.model_dump(), "evidence_refs": normalized_refs}
+    )
     return CommercialReadinessResponse(
         scope="PILOT_21D" if body.lesson_count == 4 else "FULL_24",
         ready=result.ready,
         checks=dict(result.checks),
         blockers=result.blockers,
-        evidence_refs=tuple(
-            dict.fromkeys(ref.strip() for ref in body.evidence_refs if ref.strip())
-        ),
+        evidence_refs=normalized_refs,
     )
 
 
