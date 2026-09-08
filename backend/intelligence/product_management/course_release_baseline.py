@@ -6,6 +6,8 @@ from collections.abc import Mapping
 
 from .ipd_contracts import ReleaseBaseline
 
+_APPROVED_STATUS = "APPROVED"
+
 
 def _split_versioned_ref(value: str, code: str) -> tuple[str, str]:
     normalized = value.strip()
@@ -38,19 +40,23 @@ def compile_course_release_baseline(payload: Mapping[str, object]) -> ReleaseBas
     courseware_drafts = payload.get("courseware_drafts", ())
     if not isinstance(courseware_drafts, (list, tuple)):
         raise ValueError("COURSE_RELEASE_COURSEWARE_DRAFTS_INVALID")
+
     def refs(key: str) -> tuple[str, ...]:
         value = payload.get(key, ())
         if not isinstance(value, (list, tuple)):
             return ()
         return tuple(str(item).strip() for item in value if str(item).strip())
+
     required = (
-        "course_content_version_ref", "course_system_version_ref",
-        "product_package_version_ref", "product_definition_version_ref",
-        "safety_policy_version_ref", "prompt_bundle_version_ref",
+        "course_content_version_ref",
+        "course_system_version_ref",
+        "product_package_version_ref",
+        "product_definition_version_ref",
+        "safety_policy_version_ref",
+        "prompt_bundle_version_ref",
     )
     if any(
-        not isinstance(payload.get(key), str) or not str(payload[key]).strip()
-        for key in required
+        not isinstance(payload.get(key), str) or not str(payload[key]).strip() for key in required
     ):
         raise ValueError("COURSE_RELEASE_VERSION_REFS_REQUIRED")
     for key in required:
@@ -64,15 +70,18 @@ def compile_course_release_baseline(payload: Mapping[str, object]) -> ReleaseBas
     )
     lesson_refs = tuple(
         str(item.get("lesson_version_ref", "")).strip()
-        for item in lessons if isinstance(item, dict)
+        for item in lessons
+        if isinstance(item, dict)
     )
     asset_refs = tuple(
         str(item.get("asset_bundle_version_ref", "")).strip()
-        for item in lessons if isinstance(item, dict)
+        for item in lessons
+        if isinstance(item, dict)
     )
     skill_refs = tuple(
         str(skill).strip()
-        for item in lessons if isinstance(item, dict)
+        for item in lessons
+        if isinstance(item, dict)
         for skill in item.get("skill_version_refs", ())
         if str(skill).strip()
     )
@@ -93,8 +102,12 @@ def compile_course_release_baseline(payload: Mapping[str, object]) -> ReleaseBas
         if not isinstance(draft, Mapping):
             raise ValueError("COURSE_RELEASE_COURSEWARE_DRAFT_INVALID")
         required_draft = (
-            "draft_id", "course_system_version_ref", "product_package_version_ref",
-            "asset_bundle_version_ref", "model_provenance_ref", "status",
+            "draft_id",
+            "course_system_version_ref",
+            "product_package_version_ref",
+            "asset_bundle_version_ref",
+            "model_provenance_ref",
+            "status",
         )
         if any(not str(draft.get(key, "")).strip() for key in required_draft):
             raise ValueError("COURSE_RELEASE_COURSEWARE_DRAFT_FIELDS_REQUIRED")
@@ -102,7 +115,7 @@ def compile_course_release_baseline(payload: Mapping[str, object]) -> ReleaseBas
             raise ValueError("COURSE_RELEASE_COURSEWARE_SYSTEM_MISMATCH")
         if draft["product_package_version_ref"] != payload["product_package_version_ref"]:
             raise ValueError("COURSE_RELEASE_COURSEWARE_PACKAGE_MISMATCH")
-        if draft["status"] != "APPROVED":
+        if draft["status"] != _APPROVED_STATUS:
             raise ValueError("COURSE_RELEASE_COURSEWARE_NOT_APPROVED")
     return ReleaseBaseline(
         release_id=f"course-release:{payload['course_content_version_ref']}",

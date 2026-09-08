@@ -15,6 +15,7 @@ from .errors import ProductIntelligenceValidationError
 
 CoursewareDraftKind = Literal["DECK", "WORKSHEET", "IMAGE", "VIDEO", "AUDIO", "DOCUMENT"]
 CoursewareDraftStatus = Literal["DRAFT", "REVIEW_REQUIRED", "APPROVED", "REJECTED"]
+_APPROVED_STATUS = "APPROVED"
 
 
 def _text(value: str, field_name: str) -> str:
@@ -42,9 +43,14 @@ class CoursewareDraft(BaseModel):
     quality_status: Literal["UNKNOWN", "REVIEW_REQUIRED", "PASSED"] = "UNKNOWN"
 
     @field_validator(
-        "draft_id", "tenant_scope", "product_package_version_ref",
-        "course_system_version_ref", "asset_bundle_version_ref", "prompt_ref",
-        "model_provenance_ref", "output_locator",
+        "draft_id",
+        "tenant_scope",
+        "product_package_version_ref",
+        "course_system_version_ref",
+        "asset_bundle_version_ref",
+        "prompt_ref",
+        "model_provenance_ref",
+        "output_locator",
     )
     @classmethod
     def required_text(cls, value: str, info) -> str:
@@ -52,7 +58,7 @@ class CoursewareDraft(BaseModel):
 
     def is_publishable(self) -> bool:
         return (
-            self.status == "APPROVED"
+            self.status == _APPROVED_STATUS
             and self.rights_status == "CLEARED"
             and self.safety_status == "CLEARED"
             and self.quality_status == "PASSED"
