@@ -5,12 +5,20 @@ export type AssessmentDimension = {
   evidence_refs?: string[];
 };
 
+export type AssessmentItem = {
+  item_ref: string;
+  response_type: "SINGLE_CHOICE" | "TEXT" | "BOOLEAN";
+  required: boolean;
+  options?: string[] | null;
+};
+
 export type AssessmentProjection = {
   projection_version: string;
   availability: string;
   tool_ref?: string;
+  tool?: { tool_ref: string; title: string; items: AssessmentItem[] } | null;
   dimensions: AssessmentDimension[];
-  subjects?: Array<{ subject_person_id: string; display_name?: string }>;
+  subjects?: Array<{ person_id: string; display_name?: string }>;
   active_session?: { session_id: string; status: string } | null;
 };
 
@@ -26,8 +34,12 @@ export type GrowthHypothesisProjection = {
   hypothesis?: {
     hypothesis_ref: string;
     title?: string;
+    statement?: string;
     understanding?: string;
     evidence_refs?: string[];
+    need_refs?: string[];
+    action_candidate_refs?: string[];
+    focus_ref?: string;
   } | null;
 };
 
