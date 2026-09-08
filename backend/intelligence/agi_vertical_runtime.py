@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
+from backend.intelligence.capability_registry.contracts import CapabilityOffer
 from backend.intelligence.knowledge.registry import KnowledgeRegistry
 from backend.intelligence.model_gateway.contracts import (
     KnowledgeExecutionPayload,
@@ -80,6 +81,19 @@ class ContextPort(Protocol):
 
 class KnowledgePort(Protocol):
     async def published(self, *, ref: str) -> PublishedKnowledge | None: ...
+
+
+class CapabilityPort(Protocol):
+    """Read-only supply catalogue used to ground path candidates."""
+
+    def retrieve_published(
+        self,
+        *,
+        purpose: str,
+        scope: str,
+        need_type: str | None = None,
+        required_keys: tuple[str, ...] = (),
+    ) -> tuple[CapabilityOffer, ...]: ...
 
 
 class RegistryKnowledgePort:
@@ -215,12 +229,14 @@ class VerticalFamilyGrowthRuntime:
         knowledge: KnowledgePort,
         feedback: FeedbackPort,
         ledger: EvaluationLedger,
+        capabilities: CapabilityPort | None = None,
     ) -> None:
         self._gateway = gateway
         self._context = context
         self._knowledge = knowledge
         self._feedback = feedback
         self._ledger = ledger
+        self._capabilities = capabilities
 
     async def run(
         self,
@@ -243,6 +259,36 @@ class VerticalFamilyGrowthRuntime:
         if material is None:
             raise VerticalRuntimeError("KNOWLEDGE_NOT_PUBLISHED")
         feedback_refs = await self._feedback.latest(family_need_id=family_need_id)
+        capability_candidates: tuple[dict[str, Any], ...] = ()
+        if self._capabilities is not None:
+            values = context.values
+            need_type = values.get("need_type")
+            if not isinstance(need_type, str):
+                need_type = None
+            raw_keys = values.get("required_capability_keys", ())
+            required_keys = (
+                tuple(key for key in raw_keys if isinstance(key, str) and key.strip())
+                if isinstance(raw_keys, (list, tuple))
+                else ()
+            )
+            offers = self._capabilities.retrieve_published(
+                purpose="growth_path_design",
+                scope="family_growth",
+                need_type=need_type,
+                required_keys=required_keys,
+            )
+            # Keep candidates supply-side and bounded; no family identifiers or
+            # activation state are copied into the model payload.
+            capability_candidates = tuple(
+                {
+                    "capability_ref": offer.capability_ref,
+                    "version": offer.version,
+                    "title": offer.title,
+                    "description": offer.description,
+                    "delivery_kind": offer.delivery_kind,
+                }
+                for offer in offers
+            )
         calibration: dict[str, Any] | None = None
         if guardian_decision is not None:
             if guardian_decision.family_need_id != family_need_id:
@@ -270,6 +316,7 @@ class VerticalFamilyGrowthRuntime:
                 "context": context.values,
                 "feedback_refs": feedback_refs,
                 "guardian_calibration": calibration,
+                "capability_candidates": capability_candidates,
             },
             output_schema={
                 "type": "object",
@@ -332,6 +379,7 @@ __all__ = [
     "FeedbackPort",
     "GuardianDecision",
     "KnowledgePort",
+    "CapabilityPort",
     "RegistryKnowledgePort",
     "ModelGatewayPort",
     "PublishedKnowledge",
