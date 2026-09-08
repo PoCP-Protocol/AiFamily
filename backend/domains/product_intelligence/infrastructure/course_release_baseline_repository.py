@@ -70,13 +70,17 @@ class SqlAlchemyCourseReleaseBaselineRepository:
         await self._connection.execute(
             text("""
             insert into course_release_baseline
-              (release_id, tenant_scope, package_id, package_version, status, component_refs, skill_refs,  # noqa: E501
-               blueprint_version_id, model_refs, prompt_refs, schema_refs, knowledge_refs, migration_refs,  # noqa: E501
-               evidence_refs, runbook_ref, rollback_ref, rollback_target_ref, environment, generated_by,  # noqa: E501
+              (release_id, tenant_scope, package_id, package_version, status,
+               component_refs, skill_refs, blueprint_version_id, model_refs,
+               prompt_refs, schema_refs, knowledge_refs, migration_refs,
+               evidence_refs, runbook_ref, rollback_ref, rollback_target_ref,
+               environment, generated_by,
                approved_by, human_gate_ref)
-            values (:release_id, :tenant_scope, :package_id, :package_version, :status, :component_refs, :skill_refs,  # noqa: E501
-                    :blueprint_version_id, :model_refs, :prompt_refs, :schema_refs, :knowledge_refs, :migration_refs,  # noqa: E501
-                    :evidence_refs, :runbook_ref, :rollback_ref, :rollback_target_ref, :environment, :generated_by,  # noqa: E501
+            values (:release_id, :tenant_scope, :package_id, :package_version, :status,
+                    :component_refs, :skill_refs, :blueprint_version_id, :model_refs,
+                    :prompt_refs, :schema_refs, :knowledge_refs, :migration_refs,
+                    :evidence_refs, :runbook_ref, :rollback_ref, :rollback_target_ref,
+                    :environment, :generated_by,
                     :approved_by, :human_gate_ref)
             on conflict (tenant_scope, release_id) do update set status=excluded.status,
               rollback_target_ref=excluded.rollback_target_ref, approved_by=excluded.approved_by,
