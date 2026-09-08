@@ -99,6 +99,7 @@ def test_projection_carries_feedback_refs_for_next_round_learning():
     )
     projection = project_next_growth_path(ledger.replay(scope=scope, run_id="run-feedback"))
     assert projection.feedback_refs
+    assert projection.feedback_signals == ("not_helpful",)
 
 
 def test_edit_decision_overlays_revised_next_step_without_promoting_fact():

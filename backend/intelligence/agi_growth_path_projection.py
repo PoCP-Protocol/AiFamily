@@ -25,6 +25,7 @@ class GrowthPathProjection:
     contradictions: tuple[Any, ...] = ()
     requires_human_confirmation: bool = True
     feedback_refs: tuple[str, ...] = ()
+    feedback_signals: tuple[str, ...] = ()
 
 
 def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjection:
@@ -49,10 +50,14 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
     decision_state: str | None = None
     decision_edit: dict[str, Any] = {}
     feedback_refs: list[str] = []
+    feedback_signals: list[str] = []
     for entry in snapshot.interactions:
         if entry.interaction_type.value == "feedback":
             if entry.event_id:
                 feedback_refs.append(entry.event_id)
+            signal = entry.payload.get("signal")
+            if signal in {"helpful", "not_helpful", "request_human"}:
+                feedback_signals.append(signal)
             continue
         if entry.interaction_type.value != "decision":
             continue
@@ -106,6 +111,7 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
         contradictions=_tuple_field("contradictions"),
         status=status,
         feedback_refs=tuple(feedback_refs),
+        feedback_signals=tuple(feedback_signals),
     )
 
 
