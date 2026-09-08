@@ -10,6 +10,7 @@ import { ProductFactoryComposer } from "./ProductFactoryComposer";
 import { ProductPackageReviewWorkbench } from "./ProductPackageReviewWorkbench";
 import { ProductPortfolioWorkbench } from "./ProductPortfolioWorkbench";
 import { CommercialOfferDraftPanel } from "./CommercialOfferDraftPanel";
+import { CommercialReadinessPanel } from "./CommercialReadinessPanel";
 import { ProductStudio } from "./ProductStudio";
 import { sandboxProductStudioState } from "./sandboxFixture";
 
@@ -115,6 +116,7 @@ export function ProductStudioWorkspace() {
           <CourseContentGovernancePanel contractPreview />
           <CourseReleaseBaselineWorkbench />
           <CommercialOfferDraftPanel />
+          <CommercialReadinessPanel />
         </div>
       </div>
       <div aria-labelledby="workspace-tab-sandbox" hidden={activeTab !== "sandbox"} id="workspace-panel-sandbox" role="tabpanel" tabIndex={0}>
