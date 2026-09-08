@@ -77,6 +77,15 @@ def test_design_time_system_binds_all_24_lesson_positions() -> None:
     ]
     assert [line.lesson_sequence for line in system.bom] == list(range(1, 25))
     assert all(line.artifacts[0].qa_status == "DRAFT" for line in system.bom)
+    assert all(
+        [artifact.kind for artifact in line.artifacts] == ["DECK", "WORKSHEET", "DOCUMENT"]
+        for line in system.bom
+    )
+    assert all(
+        artifact.version_ref.endswith("@v1")
+        for line in system.bom
+        for artifact in line.artifacts
+    )
     assert [
         (item.kind, item.duration_days, len(item.lesson_sequences))
         for item in system.journey_bindings

@@ -53,16 +53,26 @@ def development_course_system_repository() -> InMemoryCourseSystemRepository:
                 start=1,
             )
         ),
+        # The BOM is intentionally a delivery package, not a single opaque
+        # placeholder.  Every lesson has a facilitator deck, a family
+        # worksheet, and a delivery guide.  Binaries are still external
+        # assets; these refs are the governed design-time contract consumed by
+        # CourseContent and the release Human Gate.
         bom=tuple(
             CoursewareBomLine(
                 lesson_sequence=sequence,
-                artifacts=(
+                artifacts=tuple(
                     CoursewareArtifactRef(
-                        artifact_id=f"courseware:family-growth:lesson-{sequence:02d}",
-                        kind="DOCUMENT",
-                        version_ref=f"courseware:family-growth:lesson-{sequence:02d}@v1",
+                        artifact_id=(
+                            f"courseware:family-growth:lesson-{sequence:02d}:{kind.lower()}"
+                        ),
+                        kind=kind,
+                        version_ref=(
+                            f"courseware:family-growth:lesson-{sequence:02d}:{kind.lower()}@v1"
+                        ),
                         provenance_ref="design-time-template:family-growth@v1",
-                    ),
+                    )
+                    for kind in ("DECK", "WORKSHEET", "DOCUMENT")
                 ),
             )
             for sequence in range(1, 25)
