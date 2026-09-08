@@ -72,7 +72,7 @@ describe("FamilyGrowthExperience", () => {
       />,
     );
 
-    await user.click(await screen.findByRole("button", { name: /开始记录一件家庭难题/ }));
+    await user.click(await screen.findByRole("button", { name: /开始整理/ }));
     const expression = screen.getByRole("textbox", { name: "补充说说最近发生了什么" });
     await user.clear(expression);
     await user.type(expression, "每天写作业前，我们都会开始催促，最后谁也不开心。");
