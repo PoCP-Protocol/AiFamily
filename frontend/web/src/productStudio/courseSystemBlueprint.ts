@@ -27,6 +27,16 @@ export type CourseSystemBlueprint = {
   stages: CourseSystemStage[];
   bom_lesson_sequences?: number[];
   bom_lesson_statuses?: Record<number, { qa_status: string; rights_status: string; safety_status: string }>;
+  journey_bindings?: CourseJourneyBinding[];
+};
+
+export type CourseJourneyBinding = {
+  journey_id: string;
+  kind: "MICRO_CAMP" | "SCALE_PLAN";
+  duration_days: 21 | 90;
+  lesson_sequences: number[];
+  service_task_refs: string[];
+  outcome: string;
 };
 
 export type LessonDeliveryRow = {

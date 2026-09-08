@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ..domain.course_system import (
+    CourseJourneyBinding,
     CourseSystem,
     CourseSystemStage,
     CoursewareArtifactRef,
@@ -65,6 +66,28 @@ def development_course_system_repository() -> InMemoryCourseSystemRepository:
                 ),
             )
             for sequence in range(1, 25)
+        ),
+        journey_bindings=(
+            CourseJourneyBinding(
+                journey_id="journey:family-growth-21d@v1",
+                kind="MICRO_CAMP",
+                duration_days=21,
+                lesson_sequences=tuple(range(1, 17)),
+                service_task_refs=("ai-coach:daily-action@v1", "family-review:day-21@v1"),
+                outcome="21 天行动计划与结果复盘",
+            ),
+            CourseJourneyBinding(
+                journey_id="journey:family-growth-90d@v1",
+                kind="SCALE_PLAN",
+                duration_days=90,
+                lesson_sequences=tuple(range(1, 25)),
+                service_task_refs=(
+                    "coach:stage-review@v1",
+                    "expert:escalation@v1",
+                    "family-review:day-90@v1",
+                ),
+                outcome="90 天成长路径与下一周期需求",
+            ),
         ),
     )
     return InMemoryCourseSystemRepository((system,))

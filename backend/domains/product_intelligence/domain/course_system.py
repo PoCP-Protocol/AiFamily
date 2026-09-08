@@ -18,6 +18,7 @@ CoursewareKind = Literal["DECK", "WORKSHEET", "IMAGE", "VIDEO", "AUDIO", "DOCUME
 CoursewareQaStatus = Literal["DRAFT", "REVIEW_REQUIRED", "APPROVED"]
 CoursewareRightsStatus = Literal["UNKNOWN", "CLEARED", "RESTRICTED"]
 CoursewareSafetyStatus = Literal["UNKNOWN", "REVIEW_REQUIRED", "CLEARED"]
+JourneyKind = Literal["MICRO_CAMP", "SCALE_PLAN"]
 
 
 def _required(value: str, field_name: str) -> str:
@@ -80,6 +81,40 @@ class CoursewareBomLine(BaseModel):
         return value
 
 
+class CourseJourneyBinding(BaseModel):
+    """Design-time mapping from curriculum lessons to a service journey."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    journey_id: str
+    kind: JourneyKind
+    duration_days: Literal[21, 90]
+    lesson_sequences: tuple[int, ...]
+    service_task_refs: tuple[str, ...]
+    outcome: str
+
+    @field_validator("journey_id", "outcome")
+    @classmethod
+    def non_empty(cls, value: str, info) -> str:
+        return _required(value, info.field_name)
+
+    @field_validator("lesson_sequences", "service_task_refs")
+    @classmethod
+    def refs_required(cls, value: tuple, info) -> tuple:
+        if not value or any(not item for item in value):
+            raise ProductIntelligenceValidationError(f"course_journey_{info.field_name}_required")
+        return value
+
+    @model_validator(mode="after")
+    def validate_duration_kind(self) -> CourseJourneyBinding:
+        expected = {"MICRO_CAMP": 21, "SCALE_PLAN": 90}[self.kind]
+        if self.duration_days != expected:
+            raise ProductIntelligenceValidationError("course_journey_duration_kind_mismatch")
+        if any(sequence < 1 or sequence > 24 for sequence in self.lesson_sequences):
+            raise ProductIntelligenceValidationError("course_journey_lesson_sequence_invalid")
+        return self
+
+
 class CourseSystem(BaseModel):
     """Product-level curriculum map referenced by a ProductPackage version."""
 
@@ -92,6 +127,7 @@ class CourseSystem(BaseModel):
     stages: tuple[CourseSystemStage, ...]
     bom: tuple[CoursewareBomLine, ...] = ()
     courseware_drafts: tuple[CoursewareDraft, ...] = ()
+    journey_bindings: tuple[CourseJourneyBinding, ...] = ()
 
     @field_validator("system_id", "tenant_scope", "product_package_version_ref")
     @classmethod
@@ -119,7 +155,16 @@ class CourseSystem(BaseModel):
                 raise ProductIntelligenceValidationError("courseware_draft_system_ref_mismatch")
             if draft.product_package_version_ref != self.product_package_version_ref:
                 raise ProductIntelligenceValidationError("courseware_draft_package_ref_mismatch")
+        journey_kinds = {binding.kind for binding in self.journey_bindings}
+        if len(journey_kinds) != len(self.journey_bindings):
+            raise ProductIntelligenceValidationError("course_journey_kind_must_be_unique")
         return self
 
 
-__all__ = ["CourseSystem", "CourseSystemStage", "CoursewareArtifactRef", "CoursewareBomLine"]
+__all__ = [
+    "CourseJourneyBinding",
+    "CourseSystem",
+    "CourseSystemStage",
+    "CoursewareArtifactRef",
+    "CoursewareBomLine",
+]

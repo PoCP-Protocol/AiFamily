@@ -1,5 +1,5 @@
 import { ProductStudioApiError, type ProductStudioFetch } from "./api";
-import type { CourseSystemBlueprint, CourseSystemStage } from "./courseSystemBlueprint";
+import type { CourseJourneyBinding, CourseSystemBlueprint, CourseSystemStage } from "./courseSystemBlueprint";
 
 export interface CourseSystemApiClient { get(systemId: string): Promise<CourseSystemBlueprint>; }
 
@@ -56,7 +56,18 @@ export function validateCourseSystem(value: unknown): CourseSystemBlueprint {
   if (new Set(bom).size !== bom.length || bom.some((sequence) => sequence < 1 || sequence > 24)) {
     throw new ProductStudioApiError("INVALID_RESPONSE", "课程体系BOM课次必须在1-24范围内且不可重复。");
   }
-  const normalized = { system_id: row.system_id, tenant_scope: row.tenant_scope, version: `v${row.version}`, product_package_version_ref: row.product_package_version_ref, stages: stages(row.stages), bom_lesson_sequences: bom, bom_lesson_statuses: bomStatuses };
+  const journeyBindings: CourseJourneyBinding[] = Array.isArray(row.journey_bindings) ? row.journey_bindings.map((item) => {
+    if (!item || typeof item !== "object") throw new ProductStudioApiError("INVALID_RESPONSE", "课程旅程绑定无效。");
+    const binding = item as Record<string, unknown>;
+    const kind = binding.kind;
+    const duration = binding.duration_days;
+    const lessons = binding.lesson_sequences;
+    const tasks = binding.service_task_refs;
+    if (typeof binding.journey_id !== "string" || !binding.journey_id.trim() || (kind !== "MICRO_CAMP" && kind !== "SCALE_PLAN") || (duration !== 21 && duration !== 90) || !Array.isArray(lessons) || !lessons.length || !lessons.every((value) => Number.isInteger(value) && value >= 1 && value <= 24) || !Array.isArray(tasks) || !tasks.length || !tasks.every((value) => typeof value === "string" && value.trim()) || typeof binding.outcome !== "string" || !binding.outcome.trim()) throw new ProductStudioApiError("INVALID_RESPONSE", "课程旅程绑定字段无效。");
+    if ((kind === "MICRO_CAMP" && duration !== 21) || (kind === "SCALE_PLAN" && duration !== 90)) throw new ProductStudioApiError("INVALID_RESPONSE", "课程旅程周期与产品形态不一致。");
+    return { journey_id: binding.journey_id, kind, duration_days: duration, lesson_sequences: lessons as number[], service_task_refs: tasks as string[], outcome: binding.outcome };
+  }) : [];
+  const normalized = { system_id: row.system_id, tenant_scope: row.tenant_scope, version: `v${row.version}`, product_package_version_ref: row.product_package_version_ref, stages: stages(row.stages), bom_lesson_sequences: bom, bom_lesson_statuses: bomStatuses, journey_bindings: journeyBindings };
   return normalized;
 }
 

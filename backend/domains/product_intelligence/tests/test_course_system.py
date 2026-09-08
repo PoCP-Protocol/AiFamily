@@ -1,6 +1,7 @@
 from pytest import raises
 
 from backend.domains.product_intelligence.domain.course_system import (
+    CourseJourneyBinding,
     CourseSystem,
     CourseSystemStage,
     CoursewareArtifactRef,
@@ -76,6 +77,25 @@ def test_design_time_system_binds_all_24_lesson_positions() -> None:
     ]
     assert [line.lesson_sequence for line in system.bom] == list(range(1, 25))
     assert all(line.artifacts[0].qa_status == "DRAFT" for line in system.bom)
+    assert [
+        (item.kind, item.duration_days, len(item.lesson_sequences))
+        for item in system.journey_bindings
+    ] == [
+        ("MICRO_CAMP", 21, 16),
+        ("SCALE_PLAN", 90, 24),
+    ]
+
+
+def test_course_journey_binding_rejects_mismatched_product_shape() -> None:
+    with raises(ProductIntelligenceValidationError, match="duration_kind_mismatch"):
+        CourseJourneyBinding(
+            journey_id="journey:invalid@v1",
+            kind="MICRO_CAMP",
+            duration_days=90,
+            lesson_sequences=(1,),
+            service_task_refs=("task:1",),
+            outcome="结果",
+        )
 
 
 def test_course_system_rejects_stage_gap_and_duplicate_bom_position() -> None:

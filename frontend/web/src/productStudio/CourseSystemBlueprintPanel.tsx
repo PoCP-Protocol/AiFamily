@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { HttpCourseSystemApiClient, type CourseSystemApiClient } from "./courseSystemApi";
-import { buildLessonDeliveryMatrix, COURSE_SYSTEM_STAGES, summarizeLessonDelivery, summarizeStageDelivery } from "./courseSystemBlueprint";
+import { buildLessonDeliveryMatrix, COURSE_SYSTEM_STAGES, summarizeLessonDelivery, summarizeStageDelivery, type CourseJourneyBinding } from "./courseSystemBlueprint";
 import { HttpCourseDeliveryProjectionApiClient, type CourseDeliveryProjectionApiClient } from "./courseDeliveryProjectionApi";
 import { HttpCourseContentReadApiClient, type CourseContentReadApiClient, type PublishedCourseContent } from "./courseContentApi";
 
@@ -14,6 +14,7 @@ export function CourseSystemBlueprintPanel({ client, deliveryClient, courseConte
   const [bomStatuses, setBomStatuses] = useState<Record<number, { qa_status: string; rights_status: string; safety_status: string }>>({});
   const [productPackageRef, setProductPackageRef] = useState<string | null>(null);
   const [courseSystemVersion, setCourseSystemVersion] = useState<string | null>(null);
+  const [journeyBindings, setJourneyBindings] = useState<CourseJourneyBinding[]>([]);
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
   const [state, setState] = useState("尚未读取课程体系主数据；下方蓝图仅为设计模板，不代表已发布课程。");
@@ -21,7 +22,7 @@ export function CourseSystemBlueprintPanel({ client, deliveryClient, courseConte
   const [publishedCourses, setPublishedCourses] = useState<PublishedCourseContent[]>([]);
   const [selectedCourseContentId, setSelectedCourseContentId] = useState(courseContentId ?? "");
   const [courseDirectoryState, setCourseDirectoryState] = useState<"IDLE" | "LOADING" | "READY" | "ERROR">("IDLE");
-  useEffect(() => { if (!enabled) return; let active = true; void resolvedClient.get("course-system:family-growth").then((system) => { if (active) { setStages(system.stages); setProductPackageRef(system.product_package_version_ref); setCourseSystemVersion(system.version); setBomLessonSequences(system.bom_lesson_sequences ?? []); setBomStatuses(system.bom_lesson_statuses ?? {}); setState("已读取课程体系主数据版本：" + system.version); } }).catch(() => { if (active) setState("课程体系主数据暂不可用；蓝图仍为设计模板，不代表已发布课程。"); }); return () => { active = false; }; }, [enabled, resolvedClient]);
+  useEffect(() => { if (!enabled) return; let active = true; void resolvedClient.get("course-system:family-growth").then((system) => { if (active) { setStages(system.stages); setProductPackageRef(system.product_package_version_ref); setCourseSystemVersion(system.version); setBomLessonSequences(system.bom_lesson_sequences ?? []); setBomStatuses(system.bom_lesson_statuses ?? {}); setJourneyBindings(system.journey_bindings ?? []); setState("已读取课程体系主数据版本：" + system.version); } }).catch(() => { if (active) setState("课程体系主数据暂不可用；蓝图仍为设计模板，不代表已发布课程。"); }); return () => { active = false; }; }, [enabled, resolvedClient]);
   const loadPublishedCourses = async () => {
     setCourseDirectoryState("LOADING");
     try {
@@ -50,6 +51,7 @@ export function CourseSystemBlueprintPanel({ client, deliveryClient, courseConte
       <div className="callout" role="status"><strong>主数据状态</strong><p>{state}</p></div>
       <div className="callout" role="status" aria-label="服务交付投影状态"><strong>服务交付投影</strong><label>选择已发布课程<select aria-label="选择已发布课程" value={selectedCourseContentId} onChange={(event) => setSelectedCourseContentId(event.target.value)}><option value="">{courseDirectoryState === "ERROR" ? "课程目录读取失败" : courseDirectoryState === "LOADING" ? "课程目录读取中…" : "暂无已发布课程"}</option>{publishedCourses.map((course) => <option key={course.id} value={course.id}>{course.title} · v{course.version}</option>)}</select></label>{courseDirectoryState === "ERROR" ? <><p role="alert">已发布课程目录暂不可读取，未使用本地或缓存数据替代。</p><button type="button" onClick={() => void loadPublishedCourses()}>重试读取课程目录</button></> : null}<p>{serviceProjection ? `${serviceProjection.ready_lessons}/24 节已具备服务交付条件；${serviceProjection.publishable_to_service ? "允许进入服务发布" : `仍阻断 ${serviceProjection.blocked_lessons} 节`}` : "尚未读取已发布课程交付投影。"}</p></div>
       <div className="callout" role="note" aria-label="产品包版本追溯"><strong>产品包版本追溯</strong><p>{productPackageRef && courseSystemVersion ? <><code>{productPackageRef}</code> → <code>course-system:family-growth@{courseSystemVersion}</code></> : "ProductPackage（待读取）"}</p></div>
+      <div className="callout" role="region" aria-label="课程旅程绑定"><strong>课程→成长产品绑定</strong>{journeyBindings.length ? <ul>{journeyBindings.map((binding) => <li key={binding.journey_id}>{binding.kind === "MICRO_CAMP" ? "21天成长营" : "90天成长计划"} · {binding.lesson_sequences.length}/24 节 · {binding.outcome}</li>)}</ul> : <p>尚未读取课程旅程绑定。</p>}</div>
       <div className="course-system-flow" role="list" aria-label="六阶段课程体系">
         {(stages.length ? stages : COURSE_SYSTEM_STAGES).map((stage) => (
           <article key={stage.id} role="listitem" className="course-system-stage">
