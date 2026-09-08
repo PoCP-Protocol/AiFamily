@@ -12,6 +12,7 @@ import {
   isLessonComplete,
   type CourseLessonDraft,
 } from "./courseContentTemplate";
+import { HttpCoursewareGenerationClient, type CoursewareGenerationClient } from "./coursewareGenerationClient";
 
 const splitRefs = (value: string) => value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
 
@@ -19,10 +20,12 @@ export function CourseContentWorkbench({
   client = new HttpCourseContentAuthoringApiClient(),
   contractPreview = false,
   initialState,
+  generationClient = new HttpCoursewareGenerationClient(),
 }: {
   client?: CourseContentAuthoringApiClient;
   contractPreview?: boolean;
   initialState?: ReturnType<typeof createCourseContentTemplate>;
+  generationClient?: CoursewareGenerationClient;
 }) {
   const [course, setCourse] = useState(() => initialState ?? createCourseContentTemplate());
   const [activeLesson, setActiveLesson] = useState(0);
@@ -33,6 +36,7 @@ export function CourseContentWorkbench({
   const [saved, setSaved] = useState<CourseContentDraftResponse | null>(null);
   const [pendingCreated, setPendingCreated] = useState<CourseContentDraftResponse | null>(null);
   const [busy, setBusy] = useState(false);
+  const [generatedDraft, setGeneratedDraft] = useState<string | null>(null);
   const completedLessons = useMemo(() => course.lessons.filter(isLessonComplete).length, [course.lessons]);
   const lesson = course.lessons[activeLesson];
 
@@ -100,6 +104,21 @@ export function CourseContentWorkbench({
     } finally {
       setBusy(false);
     }
+  };
+
+  const generateDraft = async () => {
+    if (contractPreview || !course.course_system_version_ref) return;
+    setBusy(true); setApiError(null); setGeneratedDraft(null);
+    try {
+      const candidate = await generationClient.generate(course.course_system_version_ref.split("@")[0], {
+        lesson, evidence_refs: splitRefs(course.content_accuracy_claim_refs), context_snapshot_ref: "course-content-workbench", provider_id: "default",
+        product_package_version_ref: course.product_component_id ?? "product-package:family-growth@v1",
+        course_system_version_ref: course.course_system_version_ref, asset_bundle_version_ref: `courseware:family-growth:lesson-${String(lesson.sequence).padStart(2, "0")}:deck@v1`,
+        kind: "DECK",
+      });
+      setGeneratedDraft(`${candidate.draft_id} · ${candidate.model_provenance_ref}`);
+    } catch (cause) { setApiError(cause instanceof ProductStudioApiError ? cause : new ProductStudioApiError("INVALID_RESPONSE", "课件 DRAFT 生成响应异常。")); }
+    finally { setBusy(false); }
   };
 
   return (
@@ -171,10 +190,12 @@ export function CourseContentWorkbench({
         <label className="consent-row"><input checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} type="checkbox" />我确认这只是课程设计 DRAFT，仍需证据准入、课件 QA 和人工发布决策。</label>
         <button className="secondary-button" disabled={!confirmed || busy} onClick={compilePreview} type="button">编译 24 课时合同预览</button>
         <button className="primary-button" disabled={contractPreview || !confirmed || !preview || busy || apiError?.code === "UNKNOWN_OUTCOME"} onClick={() => void saveDraft()} type="button">{busy ? "创建并回读中…" : pendingCreated ? "重试持久化回读" : "保存 CourseContent DRAFT"}</button>
+        <button className="secondary-button" disabled={contractPreview || !confirmed || busy || !course.course_system_version_ref} onClick={() => void generateDraft()} type="button">{busy ? "生成中…" : "生成课件 DRAFT（DECK）"}</button>
       </div>
       {error ? <div className="callout" role="alert"><strong>课程合同未通过</strong><p>{error}</p></div> : null}
       {apiError ? <div className="callout" role="alert"><strong>{apiError.code}</strong><p>{apiError.message}</p>{apiError.code === "UNKNOWN_OUTCOME" ? <p>此处不提供重试按钮，避免重复创建。</p> : null}</div> : null}
       {saved ? <div className="course-draft-receipt" role="status"><strong>CourseContent DRAFT 已创建并完成持久化回读</strong><p>{saved.id} · v{saved.version} · {saved.status}</p><small>这不是评审通过或发布结果。</small></div> : null}
+      {generatedDraft ? <div className="course-draft-receipt" role="status"><strong>课件 DRAFT 已生成</strong><p>{generatedDraft}</p><small>仅候选，不代表 QA、版权、安全或发布通过。</small></div> : null}
       {preview ? <details className="course-contract-preview"><summary>查看浏览器将提交的白名单合同</summary><pre>{preview}</pre></details> : null}
     </section>
   );

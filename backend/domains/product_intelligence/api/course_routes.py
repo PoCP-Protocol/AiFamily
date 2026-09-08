@@ -12,6 +12,7 @@ because no SQLAlchemy mapping exists yet for `CourseContent` — see
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Literal, NoReturn
 
@@ -20,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from backend.intelligence.human_gate.contracts import ActorType, DecisionOutcome, HumanDecision
 from backend.intelligence.human_gate.gate import InMemoryHumanGate
+from backend.intelligence.model_gateway.errors import ModelGatewayError
 from backend.intelligence.product_management.application.course_release_lifecycle import (
     CourseReleaseLifecycleError,
     advance_course_release_lifecycle,
@@ -27,6 +29,7 @@ from backend.intelligence.product_management.application.course_release_lifecycl
 from backend.intelligence.product_management.course_release_baseline import (
     compile_course_release_baseline,
 )
+from backend.intelligence.product_management.courseware_generation import generate_courseware_draft
 from backend.intelligence.product_management.ipd_contracts import GateEvidence, ReleaseBaseline
 
 from ..application.context import ActorContext
@@ -46,6 +49,7 @@ from ..application.course_system_queries import (
 from ..domain.course_content import CourseLesson
 from ..domain.course_system import CourseSystem
 from ..domain.errors import ProductIntelligenceDomainError
+from .courseware_dependencies import get_courseware_gateway
 from .dependencies import get_actor_context
 
 router = APIRouter(prefix="/product-intelligence/courses", tags=["product-intelligence-courses"])
@@ -135,6 +139,22 @@ class CourseLessonRequest(BaseModel):
     tool_refs: list[str] = Field(default_factory=list)
     stage_id: str | None = None
     bom_line_ref: str | None = None
+
+
+class GenerateCoursewareDraftRequest(BaseModel):
+    lesson: CourseLessonRequest
+    evidence_refs: list[str] = Field(min_length=1)
+    context_snapshot_ref: str
+    provider_id: str
+    product_package_version_ref: str
+    course_system_version_ref: str
+    asset_bundle_version_ref: str
+    kind: Literal["DECK", "WORKSHEET", "IMAGE", "VIDEO", "AUDIO", "DOCUMENT"] = "DECK"
+
+
+class GenerateCoursewareDraftResponse(BaseModel):
+    model_draft: dict[str, object]
+    courseware_draft: dict[str, object]
 
 
 class CreateCourseContentDraftRequest(BaseModel):
@@ -262,6 +282,54 @@ async def get_curriculum_projection(
         version=system.version,
         tenant_scope=system.tenant_scope,
         lessons=lessons,
+    )
+
+
+@router.post(
+    "/system/{system_id}/courseware-drafts", response_model=GenerateCoursewareDraftResponse
+)
+async def generate_courseware_draft_endpoint(
+    system_id: str,
+    body: GenerateCoursewareDraftRequest,
+    gateway=Depends(get_courseware_gateway),
+    repository: CourseSystemRepository = Depends(get_course_system_repository),
+    context: ActorContext = Depends(get_actor_context),
+):
+    """Generate a governed DRAFT candidate through Model Gateway only.
+
+    This endpoint deliberately returns candidates and never persists or publishes
+    a business entity. Promotion remains a separate human-gated action.
+    """
+    try:
+        system = await get_course_system(
+            repository, system_id=system_id, tenant_scope=context.tenant_scope
+        )
+        if body.course_system_version_ref != f"{system.system_id}@v{system.version}":
+            raise HTTPException(status_code=400, detail="COURSE_SYSTEM_VERSION_MISMATCH")
+        lesson = CourseLesson(**body.lesson.model_dump())
+        model_draft, candidate = await generate_courseware_draft(
+            gateway,
+            provider_id=body.provider_id,
+            lesson=lesson,
+            evidence_refs=body.evidence_refs,
+            context_snapshot_ref=body.context_snapshot_ref,
+            tenant_scope=context.tenant_scope,
+            product_package_version_ref=body.product_package_version_ref,
+            course_system_version_ref=body.course_system_version_ref,
+            asset_bundle_version_ref=body.asset_bundle_version_ref,
+            kind=body.kind,
+        )
+    except ProductIntelligenceDomainError as exc:
+        _raise_http(exc)
+    except ModelGatewayError as exc:
+        raise HTTPException(status_code=502, detail=f"MODEL_GATEWAY_{exc.kind}") from exc
+    return GenerateCoursewareDraftResponse(
+        model_draft={
+            "output": model_draft.output,
+            "status": model_draft.status,
+            "provenance": asdict(model_draft.provenance),
+        },
+        courseware_draft=candidate.model_dump(),
     )
 
 
