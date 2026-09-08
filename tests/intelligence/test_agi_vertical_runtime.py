@@ -69,6 +69,16 @@ class Gateway:
         )
 
 
+def test_guardian_decision_rejects_unbounded_calibration_fields():
+    with pytest.raises(VerticalRuntimeError, match="GUARDIAN_CALIBRATION_FIELD_INVALID"):
+        GuardianDecision("d", "n", "r", "p", "EDIT", {"raw_prompt": "secret"})
+
+
+def test_guardian_decision_rejects_oversized_calibration_text():
+    with pytest.raises(VerticalRuntimeError, match="GUARDIAN_CALIBRATION_TEXT_INVALID"):
+        GuardianDecision("d", "n", "r", "p", "EDIT", {"focus": "x" * 2001})
+
+
 def real_gateway(provider: FakeProvider, *, timeout_seconds: float = 1.0) -> ModelGateway:
     record = ProviderRecord(
         provider_id=provider.provider_id,

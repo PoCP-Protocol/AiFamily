@@ -52,9 +52,7 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
     decision_edit: dict[str, Any] = {}
     feedback_refs: list[str] = []
     feedback_signals: list[str] = []
-    guardian_calibration = payload.get("guardian_calibration")
-    if not isinstance(guardian_calibration, dict):
-        guardian_calibration = None
+    guardian_calibration = _safe_calibration(payload.get("guardian_calibration"))
     for entry in snapshot.interactions:
         if entry.interaction_type.value == "feedback":
             if entry.event_id:
@@ -121,3 +119,41 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
 
 
 __all__ = ["GrowthPathProjection", "project_next_growth_path"]
+
+
+def _safe_calibration(value: Any) -> dict[str, Any] | None:
+    """Expose only the bounded calibration shape accepted by GuardianDecision."""
+
+    if not isinstance(value, dict):
+        return None
+    decision_ref = value.get("decision_ref")
+    state = value.get("state")
+    edits = value.get("edits", {})
+    if (
+        not isinstance(decision_ref, str)
+        or not decision_ref.strip()
+        or not isinstance(state, str)
+        or state not in {"ACCEPT", "REJECT", "EDIT", "DEFER"}
+        or not isinstance(edits, dict)
+    ):
+        return None
+    allowed = {"next_step", "path", "focus", "questions"}
+    if any(key not in allowed for key in edits):
+        return None
+    clean: dict[str, Any] = {"decision_ref": decision_ref, "state": state, "edits": {}}
+    for key, item in edits.items():
+        if key in {"next_step", "focus"}:
+            if not isinstance(item, str) or not item.strip() or len(item) > 2000:
+                return None
+            clean["edits"][key] = item
+        elif (
+            not isinstance(item, list)
+            or len(item) > 20
+            or any(
+                not isinstance(part, str) or not part.strip() or len(part) > 500 for part in item
+            )
+        ):
+            return None
+        else:
+            clean["edits"][key] = list(item)
+    return clean

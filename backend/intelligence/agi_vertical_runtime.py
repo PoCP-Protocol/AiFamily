@@ -105,6 +105,22 @@ class GuardianDecision:
             raise VerticalRuntimeError("GUARDIAN_DECISION_INVALID")
         if not all((self.decision_ref, self.family_need_id, self.run_id, self.path_id)):
             raise VerticalRuntimeError("GUARDIAN_DECISION_CORRELATION_REQUIRED")
+        allowed = {"next_step", "path", "focus", "questions"}
+        if any(key not in allowed for key in self.edits):
+            raise VerticalRuntimeError("GUARDIAN_CALIBRATION_FIELD_INVALID")
+        for key, value in self.edits.items():
+            if key in {"next_step", "focus"}:
+                if not isinstance(value, str) or not value.strip() or len(value) > 2000:
+                    raise VerticalRuntimeError("GUARDIAN_CALIBRATION_TEXT_INVALID")
+            elif (
+                not isinstance(value, list)
+                or len(value) > 20
+                or any(
+                    not isinstance(item, str) or not item.strip() or len(item) > 500
+                    for item in value
+                )
+            ):
+                raise VerticalRuntimeError("GUARDIAN_CALIBRATION_LIST_INVALID")
 
 
 @dataclass(frozen=True, slots=True)
