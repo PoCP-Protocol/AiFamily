@@ -41,7 +41,7 @@ def evaluate_commercial_readiness(
     """
 
     checks = {
-        "lessons_24": lesson_count == 24,
+        "lesson_scope_valid": lesson_count in {4, 24},
         "courseware_approved": courseware_approved,
         "product_package_released": product_package_released,
         "evidence_verified": evidence_verified,

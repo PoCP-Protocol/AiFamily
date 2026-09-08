@@ -8,7 +8,7 @@ describe("CommercialReadinessPanel", () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       ready: false,
       checks: {
-        lessons_24: true,
+        lesson_scope_valid: true,
         payment_sandbox_verified: false,
       },
       blockers: ["payment_sandbox_verified"],
@@ -26,8 +26,8 @@ describe("CommercialReadinessPanel", () => {
   it("sends the four-lesson pilot scope to the readiness API", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       ready: false,
-      checks: { lessons_24: false },
-      blockers: ["lessons_24"],
+      checks: { lesson_scope_valid: false },
+      blockers: ["lesson_scope_valid"],
     }), { status: 200, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetchImpl);
 

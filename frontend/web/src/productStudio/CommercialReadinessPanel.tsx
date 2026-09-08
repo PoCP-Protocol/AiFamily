@@ -2,7 +2,7 @@ import { useState } from "react";
 import { fetchCommercialReadiness, type CommercialReadiness } from "./commercialReadinessApi";
 
 const labels: Record<string, string> = {
-  lessons_24: "24 节课程完整",
+  lesson_scope_valid: "产品课时范围有效",
   courseware_approved: "课件已审批",
   product_package_released: "产品包已发布",
   evidence_verified: "证据已验证",
