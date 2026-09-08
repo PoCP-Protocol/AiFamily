@@ -25,6 +25,10 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from backend.intelligence.agi_growth_path_projection import (
+    GrowthPathProjection,
+    project_next_growth_path,
+)
 from backend.intelligence.context_engine.contracts import ContextScope
 from backend.intelligence.experience.async_ledger_bridge import (
     AsyncExperienceRunLedgerPort,
@@ -328,6 +332,23 @@ class RunReplayResponse(BaseModel):
     entries: tuple[RunReplayEntryResponse, ...]
 
 
+class GrowthPathResponse(BaseModel):
+    """Read-only next-direction projection for one confirmed experience run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    family_need_id: str
+    path_id: str
+    run_id: str
+    context_snapshot_ref: str
+    decision_ref: str | None
+    decision_state: str | None
+    next_step: str | None
+    path: tuple[Any, ...]
+    status: Literal["DRAFT"]
+    requires_human_confirmation: Literal[True]
+
+
 class MultimodalDraftResponse(BaseModel):
     """A draft-only response; it cannot be treated as a business fact.
 
@@ -595,6 +616,21 @@ def _replay_response(snapshot: RunReplaySnapshot) -> RunReplayResponse:
     )
 
 
+def _growth_path_response(projection: GrowthPathProjection) -> GrowthPathResponse:
+    return GrowthPathResponse(
+        family_need_id=projection.family_need_id,
+        path_id=projection.path_id,
+        run_id=projection.run_id,
+        context_snapshot_ref=projection.context_snapshot_ref,
+        decision_ref=projection.decision_ref,
+        decision_state=projection.decision_state,
+        next_step=projection.next_step,
+        path=projection.path,
+        status="DRAFT",
+        requires_human_confirmation=True,
+    )
+
+
 async def _resolve_request_runtime(
     family_id: str,
     runtime: MultimodalDraftRuntime | None,
@@ -848,14 +884,18 @@ async def create_multimodal_draft(
         ) from error
     if ledger is not None and reservation is not None and create_idempotency_key is not None:
         try:
+            durable_draft_payload = dict(result.output)
+            for key in ("family_need_id", "path_id"):
+                value = body.payload.get(key)
+                if isinstance(value, str) and value.strip():
+                    durable_draft_payload[key] = value
+            durable_draft_payload["context_snapshot_ref"] = result.snapshot.snapshot_ref
             await dispatch_ledger_call(
                 ledger,
                 "finalize_create",
                 reservation=reservation,
-                draft_payload=result.output,
-                artifact_refs=tuple(
-                    f"media:sha256:{item.sha256}" for item in body.media_inputs
-                ),
+                draft_payload=durable_draft_payload,
+                artifact_refs=tuple(f"media:sha256:{item.sha256}" for item in body.media_inputs),
                 response_payload=response.model_dump(mode="json"),
             )
         except RunHttpError as error:
@@ -892,9 +932,7 @@ async def decide_multimodal_run(
 
     resolved = await _runtime_for_run(family_id, runtime, resolver)
     ledger = _require_run_ledger(resolved)
-    decision = {"confirm": "accepted", "rewrite": "rewrite", "reject": "rejected"}[
-        body.decision
-    ]
+    decision = {"confirm": "accepted", "rewrite": "rewrite", "reject": "rejected"}[body.decision]
     payload: dict[str, Any] = {"decision": decision}
     if body.draft_version is not None:
         payload["draft_version"] = body.draft_version
@@ -1068,6 +1106,43 @@ async def replay_multimodal_run(
     return _replay_response(snapshot)
 
 
+@router.get(
+    "/{family_id}/experience/multimodal/runs/{run_id}/growth-path",
+    response_model=GrowthPathResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def project_multimodal_growth_path(
+    family_id: str,
+    run_id: str,
+    runtime: MultimodalDraftRuntime | None = Depends(get_multimodal_draft_runtime),
+    resolver: MultimodalDraftRuntimeResolver | None = Depends(
+        get_multimodal_draft_runtime_resolver
+    ),
+) -> GrowthPathResponse:
+    """Project the next growth direction from the same durable run.
+
+    This is deliberately read-only: it replays the existing ledger and never
+    calls the model or promotes a draft into a canonical family fact.
+    """
+
+    resolved = await _runtime_for_run(family_id, runtime, resolver)
+    ledger = _require_run_ledger(resolved)
+    try:
+        snapshot = await dispatch_ledger_call(
+            ledger, "replay", scope=_run_scope(resolved), run_id=run_id
+        )
+        projection = project_next_growth_path(snapshot)
+    except RunHttpError as error:
+        raise _map_run_error(error) from error
+    except ValueError as error:
+        if str(error) == "DELETED_RUN_NOT_READABLE":
+            raise HTTPException(status_code=status.HTTP_410_GONE, detail=str(error)) from error
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
+        ) from error
+    return _growth_path_response(projection)
+
+
 __all__ = [
     "DraftProvenanceResponse",
     "DraftRouteResponse",
@@ -1085,6 +1160,7 @@ __all__ = [
     "RunInteractionResponse",
     "RunReplayEntryResponse",
     "RunReplayResponse",
+    "GrowthPathResponse",
     "create_multimodal_draft",
     "decide_multimodal_run",
     "get_multimodal_draft_runtime",
@@ -1092,6 +1168,7 @@ __all__ = [
     "delete_multimodal_run",
     "record_multimodal_feedback",
     "replay_multimodal_run",
+    "project_multimodal_growth_path",
     "request_multimodal_human_review",
     "router",
 ]
