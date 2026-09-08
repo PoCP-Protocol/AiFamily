@@ -134,6 +134,17 @@ class EvaluationLedger:
         except KeyError as exc:
             raise VerticalRuntimeError("EVALUATION_ENTRY_NOT_FOUND") from exc
 
+    def replay(self, run_id: str) -> EvaluationLedgerEntry:
+        """Read-only replay; it never calls a gateway or appends an event."""
+        return self.read(run_id)
+
+    def delete(self, run_id: str) -> str:
+        """Delete an experiment entry and return a deletion proof reference."""
+        if run_id not in self._entries:
+            raise VerticalRuntimeError("EVALUATION_ENTRY_NOT_FOUND")
+        del self._entries[run_id]
+        return f"deletion:{run_id}"
+
 
 class VerticalFamilyGrowthRuntime:
     """UNDERSTAND → CLARIFY → DESIGN_PATH → PROPOSE_ACTION draft pipeline."""
@@ -162,6 +173,7 @@ class VerticalFamilyGrowthRuntime:
         family_id: str,
         knowledge_ref: str,
         provider_id: str | None = None,
+        guardian_decision: GuardianDecision | None = None,
     ) -> EvaluationLedgerEntry:
         context = await self._context.read(
             family_id=family_id, context_snapshot_ref=f"context:{run_id}"
@@ -172,6 +184,11 @@ class VerticalFamilyGrowthRuntime:
         if material is None:
             raise VerticalRuntimeError("KNOWLEDGE_NOT_PUBLISHED")
         feedback_refs = await self._feedback.latest(family_need_id=family_need_id)
+        if guardian_decision is not None:
+            if guardian_decision.family_need_id != family_need_id:
+                raise VerticalRuntimeError("GUARDIAN_DECISION_SCOPE_MISMATCH")
+            self._ledger.decision(guardian_decision)
+            feedback_refs = (*feedback_refs, guardian_decision.decision_ref)
         request = StructuredRequest(
             use_case="vertical_family_growth",
             prompt_version="vertical-growth.v1",

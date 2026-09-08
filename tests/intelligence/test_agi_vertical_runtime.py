@@ -5,6 +5,7 @@ import pytest
 from backend.intelligence.agi_vertical_runtime import (
     EvaluationLedger,
     FamilyGrowthContext,
+    GuardianDecision,
     PublishedKnowledge,
     VerticalFamilyGrowthRuntime,
     VerticalRuntimeError,
@@ -107,3 +108,33 @@ async def test_missing_published_knowledge_fails_before_gateway():
             knowledge_ref="missing",
         )
     assert gateway.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_guardian_decision_is_carried_into_next_round_and_replay_is_read_only():
+    gateway = Gateway()
+    ledger = EvaluationLedger()
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=gateway,
+        context=Context({"delay": "high"}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=ledger,
+    )
+    decision = GuardianDecision("decision:edit-1", "need-1", "EDIT", {"next_step": "visual timer"})
+    await runtime.run(
+        family_need_id="need-1",
+        path_id="path-1",
+        run_id="run-2",
+        family_id="family-1",
+        knowledge_ref="growth.v1",
+        guardian_decision=decision,
+    )
+    calls_after_run = gateway.calls
+    replayed = ledger.replay("run-2")
+    assert replayed.feedback_refs[-1] == "decision:edit-1"
+    assert gateway.calls == calls_after_run
+    deletion_ref = ledger.delete("run-2")
+    assert deletion_ref == "deletion:run-2"
+    with pytest.raises(VerticalRuntimeError, match="EVALUATION_ENTRY_NOT_FOUND"):
+        ledger.replay("run-2")
