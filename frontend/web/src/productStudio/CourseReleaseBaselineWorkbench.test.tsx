@@ -9,6 +9,7 @@ describe("CourseReleaseBaselineWorkbench", () => {
     expect(screen.getByRole("heading", { name: "课程发布基线与课件 BOM" })).toBeInTheDocument();
     expect(within(screen.getByLabelText("24课时发布 BOM 导航")).getAllByRole("button")).toHaveLength(24);
     expect(screen.getByText("0/24 已绑定")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "课件资产治理准备度" })).toHaveTextContent("24/24");
     expect(screen.getByRole("button", { name: "提交人工发布门禁" })).toBeDisabled();
   });
 

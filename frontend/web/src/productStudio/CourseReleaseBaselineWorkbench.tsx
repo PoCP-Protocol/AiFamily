@@ -19,6 +19,7 @@ export function CourseReleaseBaselineWorkbench({ client }: { client?: CourseRele
   const [releaseId, setReleaseId] = useState<string | null>(null);
   const [gateState, setGateState] = useState<string | null>(null);
   const completeLessons = useMemo(() => form.lessons.filter(isReleaseLessonComplete).length, [form.lessons]);
+  const governedLessons = useMemo(() => form.lessons.filter((item) => item.courseware_governance_status === "GOVERNED").length, [form.lessons]);
   const lesson = form.lessons[activeLesson];
 
   const updateField = (field: keyof typeof form, value: string) => {
@@ -80,6 +81,7 @@ export function CourseReleaseBaselineWorkbench({ client }: { client?: CourseRele
       <h2>课程发布基线与课件 BOM</h2>
       <p className="muted">冻结课程体系、产品包、产品定义、24课时、内容规格、课件资产包、Skill、Prompt、安全策略与证据回执的精确版本。编译成功仍只是 DRAFT。</p>
       <div className="callout" role="note"><strong>合同预览，尚无生产发布路由</strong><p>浏览器不能创建 RELEASED 状态、回滚目标或人工决定；正式发布必须由服务端 Human Gate 生成。</p><p>当前 CourseContent DRAFT 与本发布基线是两个不同层级的对象；编译结果不会自动提交或升级为课程发布版本。</p></div>
+      <div className="callout" role="status" aria-label="课件资产治理准备度"><strong>课件资产治理</strong><p>{governedLessons}/24 节课件已通过资产治理状态；未达到 GOVERNED 的课时不能编译发布基线。</p></div>
 
       <div className="course-release-lineage-grid">
         <label>课程体系版本引用<input value={form.course_system_version_ref} onChange={(event) => updateField("course_system_version_ref", event.target.value)} placeholder="course-system:learning-growth@v1" /></label>
