@@ -79,7 +79,16 @@ export function createCourseContentTemplate(options: { withCurriculumBaseline?: 
       title: withCurriculumBaseline ? CURRICULUM_BASELINE[index][0] : "",
       knowledge_point: withCurriculumBaseline ? CURRICULUM_BASELINE[index][1] : "",
       action_task: withCurriculumBaseline ? CURRICULUM_BASELINE[index][2] : "",
-      media_asset_ids: [],
+      // Design-time AssetBundle references. These identify the governed BOM
+      // slots; they are not claims that binaries exist or passed QA/rights
+      // review. Release remains blocked until the Human Gate resolves them.
+      media_asset_ids: withCurriculumBaseline
+        ? [
+            `courseware:family-growth:lesson-${String(index + 1).padStart(2, "0")}:deck@v1`,
+            `courseware:family-growth:lesson-${String(index + 1).padStart(2, "0")}:worksheet@v1`,
+            `courseware:family-growth:lesson-${String(index + 1).padStart(2, "0")}:document@v1`,
+          ]
+        : [],
       tool_refs: [],
       stage_id: `S${Math.floor(index / 4) + 1}`,
       bom_line_ref: `courseware:family-growth:lesson-${String(index + 1).padStart(2, "0")}@v1`,
