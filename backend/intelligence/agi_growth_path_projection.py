@@ -20,6 +20,7 @@ class GrowthPathProjection:
     path: tuple[Any, ...]
     status: str
     requires_human_confirmation: bool = True
+    feedback_refs: tuple[str, ...] = ()
 
 
 def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjection:
@@ -40,7 +41,12 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
     decision_ref: str | None = None
     decision_state: str | None = None
     decision_edit: dict[str, Any] = {}
+    feedback_refs: list[str] = []
     for entry in snapshot.interactions:
+        if entry.interaction_type.value == "feedback":
+            if entry.event_id:
+                feedback_refs.append(entry.event_id)
+            continue
         if entry.interaction_type.value != "decision":
             continue
         if entry.payload.get("decision_ref"):
@@ -83,6 +89,7 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
         next_step=str(next_step) if next_step is not None else None,
         path=tuple(path),
         status=status,
+        feedback_refs=tuple(feedback_refs),
     )
 
 
