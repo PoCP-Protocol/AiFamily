@@ -27,7 +27,10 @@ export async function fetchCommercialReadiness(
   });
   if (!response.ok) throw new Error(`commercial_readiness_http_${response.status}`);
   const result = await response.json() as CommercialReadiness;
-  if (typeof result.ready !== "boolean" || !result.checks || !Array.isArray(result.blockers)) {
+  const checksAreValid = result.checks && typeof result.checks === "object"
+    && Object.values(result.checks).every((value) => typeof value === "boolean");
+  if (typeof result.ready !== "boolean" || !checksAreValid || !Array.isArray(result.blockers)
+    || !result.blockers.every((value) => typeof value === "string")) {
     throw new Error("commercial_readiness_invalid_response");
   }
   return result;

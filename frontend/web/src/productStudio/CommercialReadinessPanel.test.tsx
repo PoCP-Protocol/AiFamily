@@ -39,4 +39,17 @@ describe("CommercialReadinessPanel", () => {
     expect(await screen.findByText("21天成长营商业化就绪度")).toBeInTheDocument();
     expect(JSON.parse(fetchImpl.mock.calls[0][1].body as string).lesson_count).toBe(4);
   });
+
+  it("fails closed when the readiness contract contains a non-boolean check", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      ready: true,
+      checks: { lesson_scope_valid: "true" },
+      blockers: [],
+    }), { status: 200, headers: { "content-type": "application/json" } })));
+
+    render(<CommercialReadinessPanel />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "评估当前证据" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("commercial_readiness_invalid_response");
+  });
 });
