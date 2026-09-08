@@ -77,4 +77,16 @@ describe("CommercialReadinessPanel", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("evidence:payment@v1");
   });
+
+  it("rejects an invalid evidence reference before making a request", async () => {
+    const fetchImpl = vi.fn();
+    vi.stubGlobal("fetch", fetchImpl);
+    render(<CommercialReadinessPanel />);
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "证据引用" }), "evidence:pilot");
+    await user.click(screen.getByRole("button", { name: "评估当前证据" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("evidence:payment@v1");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 });

@@ -19,10 +19,13 @@ export function CommercialReadinessPanel() {
   const [evidenceRefs, setEvidenceRefs] = useState("");
   const [error, setError] = useState<string | null>(null);
   const evaluate = async () => {
-    setError(null);
-    try {
-      const refs = [...new Set(evidenceRefs.split("\n").map((ref) => ref.trim()).filter(Boolean))];
-      setResult(await fetchCommercialReadiness({ lesson_count: lessonCount, evidence_refs: refs, courseware_approved: true, product_package_released: true, evidence_verified: true, payment_sandbox_verified: false, entitlement_grant_verified: false, delivery_readback_verified: false, refund_recovery_verified: false, human_gate_accepted: true }));
+      setError(null);
+      try {
+        const refs = [...new Set(evidenceRefs.split("\n").map((ref) => ref.trim()).filter(Boolean))];
+        if (refs.length === 0 || refs.some((ref) => !/@v[1-9][0-9]*$/.test(ref))) {
+          throw new Error("证据引用必须使用带版本的格式，例如 evidence:payment@v1");
+        }
+        setResult(await fetchCommercialReadiness({ lesson_count: lessonCount, evidence_refs: refs, courseware_approved: true, product_package_released: true, evidence_verified: true, payment_sandbox_verified: false, entitlement_grant_verified: false, delivery_readback_verified: false, refund_recovery_verified: false, human_gate_accepted: true }));
     } catch (cause) { setError(cause instanceof Error ? cause.message : "评估失败"); }
   };
   return <section aria-label="Commercial readiness" className="panel commercial-readiness-panel">
