@@ -98,6 +98,18 @@ def test_course_journey_binding_rejects_mismatched_product_shape() -> None:
         )
 
 
+def test_course_journey_binding_requires_canonical_lesson_coverage() -> None:
+    with raises(ProductIntelligenceValidationError, match="lesson_coverage_invalid"):
+        CourseJourneyBinding(
+            journey_id="journey:invalid@v1",
+            kind="MICRO_CAMP",
+            duration_days=21,
+            lesson_sequences=tuple(range(1, 25)),
+            service_task_refs=("task:1",),
+            outcome="结果",
+        )
+
+
 def test_course_system_rejects_stage_gap_and_duplicate_bom_position() -> None:
     stages = list(_stages())
     stages[2] = stages[2].model_copy(update={"lesson_start": 10, "lesson_end": 13})

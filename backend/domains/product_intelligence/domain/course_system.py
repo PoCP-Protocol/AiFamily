@@ -112,6 +112,9 @@ class CourseJourneyBinding(BaseModel):
             raise ProductIntelligenceValidationError("course_journey_duration_kind_mismatch")
         if any(sequence < 1 or sequence > 24 for sequence in self.lesson_sequences):
             raise ProductIntelligenceValidationError("course_journey_lesson_sequence_invalid")
+        expected_lessons = tuple(range(1, 17)) if self.kind == "MICRO_CAMP" else tuple(range(1, 25))
+        if self.lesson_sequences != expected_lessons:
+            raise ProductIntelligenceValidationError("course_journey_lesson_coverage_invalid")
         return self
 
 

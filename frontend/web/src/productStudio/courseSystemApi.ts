@@ -65,6 +65,8 @@ export function validateCourseSystem(value: unknown): CourseSystemBlueprint {
     const tasks = binding.service_task_refs;
     if (typeof binding.journey_id !== "string" || !binding.journey_id.trim() || (kind !== "MICRO_CAMP" && kind !== "SCALE_PLAN") || (duration !== 21 && duration !== 90) || !Array.isArray(lessons) || !lessons.length || !lessons.every((value) => Number.isInteger(value) && value >= 1 && value <= 24) || !Array.isArray(tasks) || !tasks.length || !tasks.every((value) => typeof value === "string" && value.trim()) || typeof binding.outcome !== "string" || !binding.outcome.trim()) throw new ProductStudioApiError("INVALID_RESPONSE", "课程旅程绑定字段无效。");
     if ((kind === "MICRO_CAMP" && duration !== 21) || (kind === "SCALE_PLAN" && duration !== 90)) throw new ProductStudioApiError("INVALID_RESPONSE", "课程旅程周期与产品形态不一致。");
+    const expectedLessons = kind === "MICRO_CAMP" ? Array.from({ length: 16 }, (_, index) => index + 1) : Array.from({ length: 24 }, (_, index) => index + 1);
+    if (lessons.length !== expectedLessons.length || lessons.some((value, index) => value !== expectedLessons[index])) throw new ProductStudioApiError("INVALID_RESPONSE", "课程旅程覆盖范围不符合产品模板。");
     return { journey_id: binding.journey_id, kind, duration_days: duration, lesson_sequences: lessons as number[], service_task_refs: tasks as string[], outcome: binding.outcome };
   }) : [];
   const journeyKinds = journeyBindings.map((binding) => binding.kind);

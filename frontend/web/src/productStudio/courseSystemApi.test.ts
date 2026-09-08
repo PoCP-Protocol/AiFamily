@@ -43,6 +43,12 @@ describe("CourseSystem API client", () => {
     await expect(client.get("course-system:family-growth")).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
+  it("rejects a journey with non-canonical lesson coverage", async () => {
+    const stageRows = Array.from({ length: 6 }, (_, i) => ({ stage_id: `S${i + 1}`, title: `阶段${i + 1}`, lesson_start: i * 4 + 1, lesson_end: i * 4 + 4, outcome: "产出" }));
+    const client = new HttpCourseSystemApiClient({ fetchImpl: async () => response({ system_id: "course-system:family-growth", tenant_scope: "dev", version: 1, product_package_version_ref: "package@v1", stages: stageRows, journey_bindings: [{ journey_id: "journey:21d@v1", kind: "MICRO_CAMP", duration_days: 21, lesson_sequences: [1, 2, 3], service_task_refs: ["task:1"], outcome: "结果" }] }) });
+    await expect(client.get("course-system:family-growth")).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
+
   it("turns missing master data into a typed error", async () => {
     const client = new HttpCourseSystemApiClient({ tenantScope: "dev", fetchImpl: async () => response({}, false, 404) });
     await expect(client.get("missing")).rejects.toMatchObject({ code: "NOT_FOUND" });
