@@ -57,3 +57,20 @@ def test_readiness_requires_all_checks() -> None:
 
     assert result.ready is True
     assert result.blockers == ()
+
+
+def test_unsupported_lesson_scope_fails_closed() -> None:
+    result = evaluate_commercial_readiness(
+        lesson_count=90,
+        courseware_approved=True,
+        product_package_released=True,
+        evidence_verified=True,
+        payment_sandbox_verified=True,
+        entitlement_grant_verified=True,
+        delivery_readback_verified=True,
+        refund_recovery_verified=True,
+        human_gate_accepted=True,
+    )
+
+    assert result.ready is False
+    assert result.blockers == ("lesson_scope_valid",)
