@@ -37,8 +37,10 @@ def test_courseware_validation_rejects_fabricated_evidence() -> None:
             type(
                 "Draft",
                 (),
-                {
-                    "output": {
+                    {
+                        "status": "DRAFT",
+                        "may_mutate_business_state": False,
+                        "output": {
                         "title": "课件",
                         "outline": ["页1"],
                         "family_action": "行动",
