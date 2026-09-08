@@ -5,15 +5,19 @@ import {
   isReleaseLessonComplete,
   type CourseReleaseLessonBinding,
 } from "./courseReleaseBaseline";
+import { HttpCourseReleaseLifecycleApiClient, type CourseReleaseLifecycleApiClient } from "./courseReleaseLifecycleApi";
 
 const splitRefs = (value: string) => value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
 
-export function CourseReleaseBaselineWorkbench() {
+export function CourseReleaseBaselineWorkbench({ client }: { client?: CourseReleaseLifecycleApiClient } = {}) {
+  const api = client ?? new HttpCourseReleaseLifecycleApiClient();
   const [form, setForm] = useState(createCourseReleaseBaselineForm);
   const [activeLesson, setActiveLesson] = useState(0);
   const [confirmed, setConfirmed] = useState(false);
   const [compiled, setCompiled] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [releaseId, setReleaseId] = useState<string | null>(null);
+  const [gateState, setGateState] = useState<string | null>(null);
   const completeLessons = useMemo(() => form.lessons.filter(isReleaseLessonComplete).length, [form.lessons]);
   const lesson = form.lessons[activeLesson];
 
@@ -30,9 +34,13 @@ export function CourseReleaseBaselineWorkbench() {
     setCompiled(null);
     setError(null);
   };
-  const compile = () => {
+  const compile = async () => {
     try {
-      setCompiled(JSON.stringify(compileCourseReleaseBaseline(form), null, 2));
+      const draft = compileCourseReleaseBaseline(form);
+      setCompiled(JSON.stringify(draft, null, 2));
+      const persisted = await api.compile(draft);
+      setReleaseId(persisted.release_id);
+      setGateState("DRAFT 已保存，可提交人工发布门禁。");
       setError(null);
     } catch (cause) {
       const code = cause instanceof Error ? cause.message : "RELEASE_BASELINE_INVALID";
@@ -41,6 +49,17 @@ export function CourseReleaseBaselineWorkbench() {
         ? `第 ${lessonNumber} 节尚未绑定版本化 Lesson、ContentSpec、AssetBundle 和 Skill。`
         : `发布基线未通过：${code}`);
       setCompiled(null);
+    }
+  };
+
+  const submitGate = async () => {
+    if (!releaseId) return;
+    try {
+      const result = await api.approve(releaseId, form.evidence_receipt_refs.split(/[\n,]/).map((item) => item.trim()).filter(Boolean), `course-release:${releaseId}`);
+      setGateState(`人工门禁已记录：${result.audit.to_status}`);
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "人工发布门禁提交失败");
     }
   };
 
@@ -82,11 +101,12 @@ export function CourseReleaseBaselineWorkbench() {
 
       <div className="course-compile-actions">
         <label className="consent-row"><input checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} type="checkbox" />我确认该结果只是发布基线 DRAFT，仍需证据准入、资产 QA 和人工发布决定。</label>
-        <button className="secondary-button" disabled={!confirmed} onClick={compile} type="button">编译发布基线 DRAFT</button>
-        <button className="primary-button" disabled type="button">提交人工发布门禁</button>
+        <button className="secondary-button" disabled={!confirmed} onClick={() => void compile()} type="button">编译发布基线 DRAFT</button>
+        <button className="primary-button" disabled={!releaseId} onClick={() => void submitGate()} type="button">提交人工发布门禁</button>
       </div>
       {error ? <div className="callout" role="alert"><strong>发布基线未通过</strong><p>{error}</p></div> : null}
       {compiled ? <div className="callout" role="status" aria-label="共享PLM草稿状态"><strong>共享 PLM ReleaseBaseline DRAFT 已编译</strong><p>该结果已映射到统一 ReleaseBaseline 合同，状态仍为 DRAFT；尚未审批、发布或写入生产状态。</p><details className="course-contract-preview"><summary>查看不可变发布基线合同</summary><pre>{compiled}</pre></details></div> : null}
+      {gateState ? <div className="callout" role="status" aria-label="课程发布门禁状态"><strong>发布门禁状态</strong><p>{gateState}</p></div> : null}
     </section>
   );
 }
