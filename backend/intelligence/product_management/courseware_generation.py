@@ -32,6 +32,8 @@ def build_courseware_request(
     refs = tuple(ref.strip() for ref in evidence_refs if ref.strip())
     if not refs:
         raise ValueError("COURSEWARE_EVIDENCE_REQUIRED")
+    if len(set(refs)) != len(refs):
+        raise ValueError("COURSEWARE_EVIDENCE_DUPLICATE")
     return StructuredRequest(
         use_case=COURSEWARE_USE_CASE,
         prompt_version="courseware-generator.v1",
@@ -53,6 +55,8 @@ def build_courseware_request(
 
 
 def validate_courseware_draft(draft: ModelDraft, *, evidence_refs: Sequence[str]) -> ModelDraft:
+    if draft.status != "DRAFT" or draft.may_mutate_business_state:
+        raise ValueError("COURSEWARE_MODEL_DRAFT_ONLY")
     output = draft.output
     if not isinstance(output.get("title"), str) or not output["title"].strip():
         raise ValueError("COURSEWARE_TITLE_REQUIRED")

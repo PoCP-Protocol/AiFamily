@@ -48,3 +48,12 @@ def test_courseware_validation_rejects_fabricated_evidence() -> None:
             )(),
             evidence_refs=("claim:1",),
         )
+
+
+def test_courseware_request_rejects_duplicate_evidence() -> None:
+    with pytest.raises(ValueError, match="EVIDENCE_DUPLICATE"):
+        build_courseware_request(
+            lesson=_lesson(),
+            evidence_refs=("claim:1", "claim:1"),
+            context_snapshot_ref="snapshot:1",
+        )
