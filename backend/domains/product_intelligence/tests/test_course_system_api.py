@@ -13,6 +13,7 @@ from backend.domains.product_intelligence.api.dependencies import get_actor_cont
 from backend.domains.product_intelligence.application.context import ActorContext
 from backend.domains.product_intelligence.domain.course_content import CourseContent, CourseLesson
 from backend.domains.product_intelligence.domain.course_system import (
+    CourseJourneyBinding,
     CourseSystem,
     CourseSystemStage,
 )
@@ -40,6 +41,24 @@ def test_course_system_read_route_is_tenant_scoped() -> None:
                 outcome=f"产出 {index}",
             )
             for index in range(1, 7)
+        ),
+        journey_bindings=(
+            CourseJourneyBinding(
+                journey_id="journey:21d@v1",
+                kind="MICRO_CAMP",
+                duration_days=21,
+                lesson_sequences=tuple(range(1, 17)),
+                service_task_refs=("task:daily",),
+                outcome="21天结果",
+            ),
+            CourseJourneyBinding(
+                journey_id="journey:90d@v1",
+                kind="SCALE_PLAN",
+                duration_days=90,
+                lesson_sequences=tuple(range(1, 25)),
+                service_task_refs=("task:review",),
+                outcome="90天结果",
+            ),
         ),
     )
     configure_course_system_repository(InMemoryCourseSystemRepository((system,)))
