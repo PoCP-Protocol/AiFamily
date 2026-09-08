@@ -5,6 +5,7 @@ import pytest
 from backend.intelligence.agi_vertical_durable import DurableVerticalLedgerAdapter
 from backend.intelligence.agi_vertical_runtime import (
     EvaluationLedgerEntry,
+    GuardianDecision,
 )
 from backend.intelligence.experience.run_http import (
     InMemoryExperienceRunLedger,
@@ -40,3 +41,15 @@ async def test_adapter_delete_hides_draft_and_artifacts():
     assert deleted.deletion_state == "deleted"
     assert deleted.draft_payload is None
     assert not deleted.artifact_refs
+
+
+@pytest.mark.asyncio
+async def test_guardian_decision_uses_explicit_run_correlation():
+    adapter = DurableVerticalLedgerAdapter(InMemoryExperienceRunLedger())
+    scope = RunScope("tenant-1", "family-1", ("child-1",))
+    await adapter.save_entry(entry(), scope=scope)
+    decision = GuardianDecision("decision:edit-1", "need-1", "run-1", "path-1", "EDIT")
+    await adapter.record_guardian_decision(decision, scope=scope)
+    replay = await adapter.replay(run_id="run-1", scope=scope)
+    assert replay.interactions[-1].payload["decision_ref"] == "decision:edit-1"
+    assert replay.interactions[-1].payload["run_id"] == "run-1"

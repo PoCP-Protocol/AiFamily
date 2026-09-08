@@ -82,11 +82,19 @@ class DurableVerticalLedgerAdapter:
         await self._call(
             self._ledger.append_interaction,
             scope=scope,
-            run_id=decision.decision_ref.split(":", 1)[-1],
+            run_id=decision.run_id,
             interaction_type=InteractionType.DECISION,
             payload={
+                "decision": {
+                    "ACCEPT": "accepted",
+                    "EDIT": "rewrite",
+                    "REJECT": "rejected",
+                    "DEFER": "pending_human_confirmation",
+                }[decision.state],
                 "decision_ref": decision.decision_ref,
                 "family_need_id": decision.family_need_id,
+                "path_id": decision.path_id,
+                "run_id": decision.run_id,
                 "state": decision.state,
                 "edits": decision.edits,
             },

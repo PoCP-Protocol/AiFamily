@@ -15,6 +15,7 @@ from typing import Any, Protocol
 
 from backend.intelligence.model_gateway.contracts import (
     KnowledgeExecutionPayload,
+    MediaInput,
     ModelDraft,
     PromptExecutionPlan,
     StructuredRequest,
@@ -94,12 +95,16 @@ class ModelGatewayPort(Protocol):
 class GuardianDecision:
     decision_ref: str
     family_need_id: str
+    run_id: str
+    path_id: str
     state: str
     edits: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.state not in {"ACCEPT", "REJECT", "EDIT", "DEFER"}:
             raise VerticalRuntimeError("GUARDIAN_DECISION_INVALID")
+        if not all((self.decision_ref, self.family_need_id, self.run_id, self.path_id)):
+            raise VerticalRuntimeError("GUARDIAN_DECISION_CORRELATION_REQUIRED")
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,6 +179,7 @@ class VerticalFamilyGrowthRuntime:
         knowledge_ref: str,
         provider_id: str | None = None,
         guardian_decision: GuardianDecision | None = None,
+        media_inputs: tuple[MediaInput, ...] = (),
     ) -> EvaluationLedgerEntry:
         context = await self._context.read(
             family_id=family_id, context_snapshot_ref=f"context:{run_id}"
@@ -211,6 +217,7 @@ class VerticalFamilyGrowthRuntime:
             },
             context_snapshot_ref=context.context_snapshot_ref,
             input_refs=(family_need_id, path_id, *feedback_refs),
+            media_inputs=media_inputs,
             request_id=run_id,
             tenant_id=context.tenant_id,
             family_id=context.family_id,

@@ -11,7 +11,7 @@ from backend.intelligence.agi_vertical_runtime import (
     VerticalRuntimeError,
 )
 from backend.intelligence.model_gateway.attempts import InMemoryAttemptSink
-from backend.intelligence.model_gateway.contracts import AiProvenance, ModelDraft
+from backend.intelligence.model_gateway.contracts import AiProvenance, MediaInput, ModelDraft
 from backend.intelligence.model_gateway.gateway import ModelGateway
 from backend.intelligence.model_gateway.provider_registry import ProviderRecord, ProviderRegistry
 from backend.intelligence.model_gateway.providers.fake import FakeProvider
@@ -148,7 +148,14 @@ async def test_guardian_decision_is_carried_into_next_round_and_replay_is_read_o
         feedback=Feedback(),
         ledger=ledger,
     )
-    decision = GuardianDecision("decision:edit-1", "need-1", "EDIT", {"next_step": "visual timer"})
+    decision = GuardianDecision(
+        "decision:edit-1",
+        "need-1",
+        "run-2",
+        "path-1",
+        "EDIT",
+        {"next_step": "visual timer"},
+    )
     await runtime.run(
         family_need_id="need-1",
         path_id="path-1",
@@ -219,3 +226,41 @@ async def test_real_gateway_invalid_schema_fails_closed():
             knowledge_ref="growth.v1",
             provider_id=provider.provider_id,
         )
+
+
+@pytest.mark.asyncio
+async def test_multimodal_media_reference_uses_same_gateway_and_keeps_digest_only():
+    provider = FakeProvider(
+        {
+            "vertical_family_growth": {
+                "understanding": "图片中的作业启动线索",
+                "next_step": "先做第一小步",
+                "path": ["拆解任务"],
+            }
+        }
+    )
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=real_gateway(provider),
+        context=Context({"delay": "high"}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+    )
+    media = MediaInput(
+        media_type="IMAGE",
+        uri="https://media.example/short-lived/object",
+        mime_type="image/jpeg",
+        sha256="a" * 64,
+    )
+    await runtime.run(
+        family_need_id="need-media",
+        path_id="path-media",
+        run_id="run-media",
+        family_id="family-media",
+        knowledge_ref="growth.v1",
+        provider_id=provider.provider_id,
+        media_inputs=(media,),
+    )
+    request = provider.invocations[0]
+    assert request.media_inputs[0].sha256 == "a" * 64
+    assert request.media_inputs[0].uri.startswith("https://")
