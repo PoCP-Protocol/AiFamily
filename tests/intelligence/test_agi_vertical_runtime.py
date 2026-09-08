@@ -10,7 +10,11 @@ from backend.intelligence.agi_vertical_runtime import (
     VerticalFamilyGrowthRuntime,
     VerticalRuntimeError,
 )
+from backend.intelligence.model_gateway.attempts import InMemoryAttemptSink
 from backend.intelligence.model_gateway.contracts import AiProvenance, ModelDraft
+from backend.intelligence.model_gateway.gateway import ModelGateway
+from backend.intelligence.model_gateway.provider_registry import ProviderRecord, ProviderRegistry
+from backend.intelligence.model_gateway.providers.fake import FakeProvider
 
 
 class Context:
@@ -61,6 +65,29 @@ class Gateway:
                 request.use_case,
             ),
         )
+
+
+def real_gateway(provider: FakeProvider, *, timeout_seconds: float = 1.0) -> ModelGateway:
+    record = ProviderRecord(
+        provider_id=provider.provider_id,
+        vendor="aifamily-internal",
+        model="fake-deterministic",
+        model_version="1.0.0",
+        status="INTERNAL_APPROVED",
+        approved_environments=("test",),
+        sub_delegates=False,
+        security_assessment_ref="N/A",
+        processing_agreement_ref="N/A",
+        deletion_on_termination_committed=True,
+        minor_data_allowed=True,
+        timeout_seconds=timeout_seconds,
+    )
+    return ModelGateway(
+        {provider.provider_id: provider},
+        environment="test",
+        registry=ProviderRegistry([record]),
+        attempt_sink=InMemoryAttemptSink(),
+    )
 
 
 @pytest.mark.asyncio
@@ -138,3 +165,57 @@ async def test_guardian_decision_is_carried_into_next_round_and_replay_is_read_o
     assert deletion_ref == "deletion:run-2"
     with pytest.raises(VerticalRuntimeError, match="EVALUATION_ENTRY_NOT_FOUND"):
         ledger.replay("run-2")
+
+
+@pytest.mark.asyncio
+async def test_runtime_uses_real_model_gateway_and_returns_structured_draft():
+    provider = FakeProvider(
+        {
+            "vertical_family_growth": {
+                "understanding": "启动阻力",
+                "next_step": "开始仪式",
+                "path": ["拆解任务"],
+            }
+        }
+    )
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=real_gateway(provider),
+        context=Context({"delay": "high"}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+    )
+    entry = await runtime.run(
+        family_need_id="need-real",
+        path_id="path-real",
+        run_id="run-real",
+        family_id="family-real",
+        knowledge_ref="growth.v1",
+        provider_id=provider.provider_id,
+    )
+    assert entry.draft.output["path"] == ["拆解任务"]
+    assert entry.draft.provenance.provider_id == provider.provider_id
+    assert len(provider.invocations) == 1
+
+
+@pytest.mark.asyncio
+async def test_real_gateway_invalid_schema_fails_closed():
+    provider = FakeProvider({"vertical_family_growth": {"understanding": "only"}})
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=real_gateway(provider),
+        context=Context({}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+    )
+    from backend.intelligence.model_gateway.errors import ModelGatewayError
+
+    with pytest.raises(ModelGatewayError, match="schema"):
+        await runtime.run(
+            family_need_id="need-invalid",
+            path_id="path-invalid",
+            run_id="run-invalid",
+            family_id="family-invalid",
+            knowledge_ref="growth.v1",
+            provider_id=provider.provider_id,
+        )
