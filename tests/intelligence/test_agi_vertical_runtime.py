@@ -108,6 +108,44 @@ async def test_registry_knowledge_port_requires_published_in_scope_claim():
     assert await port.published(ref="claim:missing") is None
 
 
+@pytest.mark.asyncio
+async def test_two_family_contexts_reach_generation_as_distinct_inputs():
+    gateway = Gateway()
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=gateway,
+        context=Context({"focus": "作业启动"}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+    )
+    await runtime.run(
+        family_need_id="need-a",
+        path_id="path-a",
+        run_id="run-a",
+        family_id="family-a",
+        knowledge_ref="growth.v1",
+    )
+    first_payload = dict(gateway.last_request.payload)
+
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=gateway,
+        context=Context({"focus": "亲子沟通"}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+    )
+    await runtime.run(
+        family_need_id="need-b",
+        path_id="path-b",
+        run_id="run-b",
+        family_id="family-b",
+        knowledge_ref="growth.v1",
+    )
+    second_payload = dict(gateway.last_request.payload)
+    assert first_payload["context"] != second_payload["context"]
+    assert first_payload["family_need_id"] != second_payload["family_need_id"]
+
+
 def real_gateway(provider: FakeProvider, *, timeout_seconds: float = 1.0) -> ModelGateway:
     record = ProviderRecord(
         provider_id=provider.provider_id,
