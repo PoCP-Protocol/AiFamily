@@ -21,7 +21,8 @@ export function CommercialReadinessPanel() {
   const evaluate = async () => {
     setError(null);
     try {
-      setResult(await fetchCommercialReadiness({ lesson_count: lessonCount, evidence_refs: evidenceRefs.split("\n").map((ref) => ref.trim()).filter(Boolean), courseware_approved: true, product_package_released: true, evidence_verified: true, payment_sandbox_verified: false, entitlement_grant_verified: false, delivery_readback_verified: false, refund_recovery_verified: false, human_gate_accepted: true }));
+      const refs = [...new Set(evidenceRefs.split("\n").map((ref) => ref.trim()).filter(Boolean))];
+      setResult(await fetchCommercialReadiness({ lesson_count: lessonCount, evidence_refs: refs, courseware_approved: true, product_package_released: true, evidence_verified: true, payment_sandbox_verified: false, entitlement_grant_verified: false, delivery_readback_verified: false, refund_recovery_verified: false, human_gate_accepted: true }));
     } catch (cause) { setError(cause instanceof Error ? cause.message : "评估失败"); }
   };
   return <section aria-label="Commercial readiness" className="panel commercial-readiness-panel">

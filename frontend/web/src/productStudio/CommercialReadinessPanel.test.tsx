@@ -38,7 +38,7 @@ describe("CommercialReadinessPanel", () => {
 
     render(<CommercialReadinessPanel />);
     const user = userEvent.setup();
-    await user.type(screen.getByRole("textbox", { name: "证据引用" }), "evidence:pilot@v1");
+    await user.type(screen.getByRole("textbox", { name: "证据引用" }), " evidence:pilot@v1 \nevidence:pilot@v1");
     await user.selectOptions(screen.getByRole("combobox", { name: "产品范围" }), "4");
     await user.click(screen.getByRole("button", { name: "评估当前证据" }));
 
