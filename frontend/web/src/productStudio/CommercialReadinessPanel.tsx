@@ -32,7 +32,10 @@ export function CommercialReadinessPanel() {
     {error && <p role="alert" className="status status-timeout">{error}</p>}
     {result && <div className="commercial-readiness-result" data-ready={result.ready}>
       <strong>{result.ready ? "可进入商业化 Gate" : "暂不可商业化"}</strong>
+      <p>范围：<code>{result.scope}</code></p>
       <ul>{Object.entries(result.checks).map(([key, passed]) => <li key={key}>{passed ? "✓" : "×"} {labels[key] ?? key}</li>)}</ul>
+      <p>证据引用：</p>
+      {result.evidence_refs.length > 0 ? <ul aria-label="商业化证据引用">{result.evidence_refs.map((ref) => <li key={ref}><code>{ref}</code></li>)}</ul> : <p className="muted">暂无证据引用</p>}
       {!result.ready && <p className="muted">阻塞：{result.blockers.join("、")}</p>}
     </div>}
   </section>;

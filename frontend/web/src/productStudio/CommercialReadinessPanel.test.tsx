@@ -22,6 +22,7 @@ describe("CommercialReadinessPanel", () => {
 
     expect(await screen.findByText("暂不可商业化")).toBeInTheDocument();
     expect(screen.getByText(/支付沙箱已验证/)).toBeInTheDocument();
+    expect(screen.getByText("evidence:payment-sandbox@v1")).toBeInTheDocument();
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
