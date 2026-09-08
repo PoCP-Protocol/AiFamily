@@ -10,6 +10,13 @@ canonical: false
 
 本文件是长期设计产物，不代表能力已实现。生产输出必须经唯一 Model Gateway，且只能产生 Draft。
 
+## 关联键与对象边界
+
+每次运行必须携带 `family_need_id`, `path_id`, `run_id`, `context_snapshot_ref`, `decision_ref`。
+`AIDraft` 只能处于 `DRAFT|PERSPECTIVE|RECOMMENDATION|ACTION_PROPOSAL`；
+`GuardianDecision` 只能处于 `ACCEPT|REJECT|EDIT|DEFER`；`CanonicalFact` 只能由已授权 Named Action
+在 Human Gate 后写入。模型不得创建 CanonicalFact、启动服务或产生商业动作。
+
 ## 能力原语
 
 | 原语 | 输入 | 输出 | 禁止 |
@@ -31,7 +38,7 @@ Tool 输出必须包含 `status`, `payload`, `provenance`, `human_gate_required`
 
 所有 Observation、PerspectiveDraft、Decision、Fact、Outcome、Feedback 必须带：
 
-`entity_id`, `version`, `family_id`, `scope`, `created_at`, `source_ref`, `actor_ref`, `request_id`, `model_ref`, `prompt_ref`, `schema_ref`, `knowledge_refs`, `decision_ref`。
+`entity_id`, `version`, `tenant_id`, `family_id`, `subject_ids`, `purpose`, `consent_version`, `scope`, `created_at`, `source_ref`, `actor_ref`, `request_id`, `correlation_id`, `causation_id`, `family_need_id`, `path_id`, `run_id`, `context_snapshot_ref`, `context_snapshot_hash`, `model_ref`, `provider_id`, `model_version`, `gateway_attempt_ref`, `prompt_ref`, `schema_ref`, `release_set`, `knowledge_refs`, `knowledge_version`, `knowledge_source`, `knowledge_applicability`, `knowledge_digest`, `decision_ref`, `human_gate_ref`, `audit_ref`, `deletion_ref`。
 
 其中 AI 生成对象的初始状态固定为 `DRAFT`；只有 Named Action + Human Gate 才能产生 Decision/Fact 变更。
 
@@ -47,3 +54,4 @@ Tool 输出必须包含 `status`, `payload`, `provenance`, `human_gate_required`
 
 四态决策必须持久化 `decision_ref`，重启后可改变后续问题、候选或路径；跨 scope 请求必须在授权层终止，且不得产生 provider invocation。
 
+Replay 是只读派生，不调用 Gateway、不追加事件。撤回/删除后 Draft、Context、Graph、缓存、索引和 artifact 引用均不可读。
