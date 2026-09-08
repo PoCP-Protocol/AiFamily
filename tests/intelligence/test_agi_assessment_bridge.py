@@ -4,6 +4,7 @@ import pytest
 
 from backend.intelligence.agi_assessment_bridge import build_vertical_draft_input
 from backend.intelligence.agi_vertical_runtime import FamilyGrowthContext
+from backend.intelligence.experience.api import MultimodalDraftRequest
 
 
 def context() -> FamilyGrowthContext:
@@ -34,6 +35,18 @@ def test_maps_assessment_evidence_to_existing_draft_payload_without_fact_promoti
         },
     )
     assert payload["family_need_id"] == "need-1"
+    request = MultimodalDraftRequest(
+        run_id="run-1",
+        prompt_version="vertical-growth.v1",
+        schema_version="vertical-growth-draft.v1",
+        payload=payload,
+        output_schema={"type": "object"},
+        modalities=("TEXT",),
+        estimated_input_tokens=100,
+        input_refs=refs,
+    )
+    assert request.run_id == "run-1"
+    assert "context:need-1:v3" in request.input_refs
     assert payload["assessment_evidence"]["source_refs"] == (
         "session-1",
         "response-1",

@@ -37,7 +37,6 @@ def build_vertical_draft_input(
         "family_need_id": family_need_id,
         "path_id": path_id,
         "run_id": run_id,
-        "context_snapshot_ref": context.context_snapshot_ref,
         "family_context": dict(context.values),
         "output_semantics": "UNDERSTANDING_DRAFT_NOT_DIAGNOSIS",
         "requires_human_confirmation": True,
