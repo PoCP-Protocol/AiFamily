@@ -26,6 +26,9 @@ from backend.intelligence.product_management.application.course_release_lifecycl
     CourseReleaseLifecycleError,
     advance_course_release_lifecycle,
 )
+from backend.intelligence.product_management.commercial_readiness import (
+    evaluate_commercial_readiness,
+)
 from backend.intelligence.product_management.course_release_baseline import (
     compile_course_release_baseline,
 )
@@ -201,6 +204,24 @@ class CourseReleaseLifecycleRequest(BaseModel):
     rollback_target_ref: str | None = None
 
 
+class CommercialReadinessRequest(BaseModel):
+    lesson_count: int = Field(ge=0)
+    courseware_approved: bool
+    product_package_released: bool
+    evidence_verified: bool
+    payment_sandbox_verified: bool
+    entitlement_grant_verified: bool
+    delivery_readback_verified: bool
+    refund_recovery_verified: bool
+    human_gate_accepted: bool
+
+
+class CommercialReadinessResponse(BaseModel):
+    ready: bool
+    checks: dict[str, bool]
+    blockers: tuple[str, ...]
+
+
 class CourseCurriculumLesson(BaseModel):
     """Read-only lesson projection for the Web course workbench.
 
@@ -235,6 +256,22 @@ async def get_system(
         )
     except ProductIntelligenceDomainError as exc:
         _raise_http(exc)
+
+
+@router.post("/commercial-readiness", response_model=CommercialReadinessResponse)
+async def commercial_readiness(body: CommercialReadinessRequest) -> CommercialReadinessResponse:
+    """Return a pure, fail-closed commercial release assessment.
+
+    This is an evaluation surface only: it has no payment, entitlement, or
+    publication side effects.
+    """
+
+    result = evaluate_commercial_readiness(**body.model_dump())
+    return CommercialReadinessResponse(
+        ready=result.ready,
+        checks=dict(result.checks),
+        blockers=result.blockers,
+    )
 
 
 @router.get("/system/{system_id}/curriculum", response_model=CourseCurriculumProjection)
