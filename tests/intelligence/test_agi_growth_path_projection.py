@@ -28,6 +28,7 @@ async def test_projection_reads_decision_and_returns_same_need_path_run_chain():
                 "state": "EDIT",
                 "edits": {"next_step": "先做第一小步"},
             },
+            "lineage_ref": "lineage:abc123",
             "status": "DRAFT",
         },
         idempotency_key="create-1",
@@ -52,6 +53,7 @@ async def test_projection_reads_decision_and_returns_same_need_path_run_chain():
         "state": "EDIT",
         "edits": {"next_step": "先做第一小步"},
     }
+    assert projection.lineage_ref == "lineage:abc123"
 
 
 def test_projection_preserves_evidence_unknowns_and_contradictions():
@@ -175,9 +177,7 @@ def test_edit_decision_projects_a_legal_non_empty_path():
         },
         idempotency_key="decision-edit-path",
     )
-    projection = project_next_growth_path(
-        ledger.replay(scope=scope, run_id="run-edit-path")
-    )
+    projection = project_next_growth_path(ledger.replay(scope=scope, run_id="run-edit-path"))
     assert projection.status == "DRAFT"
     assert projection.path == ("共同约定十分钟",)
 
@@ -205,9 +205,7 @@ def test_human_review_interaction_projects_review_required():
         payload={"status": "human_review", "reason": "需要人工复核"},
         idempotency_key="human-review-required",
     )
-    projection = project_next_growth_path(
-        ledger.replay(scope=scope, run_id="run-review-required")
-    )
+    projection = project_next_growth_path(ledger.replay(scope=scope, run_id="run-review-required"))
     assert projection.status == "REVIEW_REQUIRED"
     assert projection.path == ("合法路径",)
 
@@ -295,8 +293,6 @@ def test_projection_rejects_invalid_path_nodes_without_inventing_a_path():
         },
         idempotency_key="create-invalid-path",
     )
-    projection = project_next_growth_path(
-        ledger.replay(scope=scope, run_id="run-invalid-path")
-    )
+    projection = project_next_growth_path(ledger.replay(scope=scope, run_id="run-invalid-path"))
     assert projection.status == "EMPTY"
     assert projection.path == ()

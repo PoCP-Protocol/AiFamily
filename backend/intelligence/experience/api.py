@@ -348,6 +348,7 @@ class GrowthPathResponse(BaseModel):
     status: Literal["DRAFT", "REVIEW_REQUIRED", "REJECTED", "DEFERRED", "EMPTY"]
     requires_human_confirmation: Literal[True]
     guardian_calibration: dict[str, Any] | None = None
+    lineage_ref: str | None = None
 
 
 class MultimodalDraftResponse(BaseModel):
@@ -630,6 +631,7 @@ def _growth_path_response(projection: GrowthPathProjection) -> GrowthPathRespons
         status=projection.status,
         requires_human_confirmation=True,
         guardian_calibration=projection.guardian_calibration,
+        lineage_ref=projection.lineage_ref,
     )
 
 

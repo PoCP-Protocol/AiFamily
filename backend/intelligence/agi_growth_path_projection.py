@@ -27,6 +27,7 @@ class GrowthPathProjection:
     feedback_refs: tuple[str, ...] = ()
     feedback_signals: tuple[str, ...] = ()
     guardian_calibration: dict[str, Any] | None = None
+    lineage_ref: str | None = None
 
 
 def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjection:
@@ -43,6 +44,8 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
     path_id = str(payload.get("path_id", "")).strip()
     payload_run_id = str(payload.get("run_id", snapshot.run_id)).strip()
     context_ref = str(payload.get("context_snapshot_ref", "")).strip()
+    lineage_ref_value = payload.get("lineage_ref")
+    lineage_ref = lineage_ref_value.strip() if isinstance(lineage_ref_value, str) else None
     if not all((family_need_id, path_id, snapshot.run_id, context_ref)):
         raise ValueError("GROWTH_PATH_CORRELATION_REQUIRED")
     if payload_run_id != snapshot.run_id:
@@ -96,9 +99,7 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
         status = "DEFERRED"
     elif decision_state == "REJECT":
         status = "REJECTED"
-    elif any(
-        entry.interaction_type.value == "human_review" for entry in snapshot.interactions
-    ):
+    elif any(entry.interaction_type.value == "human_review" for entry in snapshot.interactions):
         status = "REVIEW_REQUIRED"
     return GrowthPathProjection(
         family_need_id=family_need_id,
@@ -117,6 +118,7 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
         feedback_refs=tuple(feedback_refs),
         feedback_signals=tuple(feedback_signals),
         guardian_calibration=guardian_calibration,
+        lineage_ref=lineage_ref,
     )
 
 
