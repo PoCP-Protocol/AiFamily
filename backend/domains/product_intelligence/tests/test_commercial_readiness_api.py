@@ -29,6 +29,7 @@ def test_commercial_readiness_exposes_blockers_without_side_effects() -> None:
     body = response.json()
     assert body["scope"] == "FULL_24"
     assert body["execution_mode"] == "EVALUATION_ONLY"
+    assert body["evaluated_at"].endswith("Z")
     assert body["evidence_refs"] == ["evidence:payment-sandbox@v1", "evidence:refund-recovery@v1"]
     assert body["ready"] is False
     assert "payment_sandbox_verified" in body["blockers"]

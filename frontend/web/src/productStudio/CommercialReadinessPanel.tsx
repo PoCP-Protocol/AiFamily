@@ -36,6 +36,7 @@ export function CommercialReadinessPanel() {
     {result && <div className="commercial-readiness-result" data-ready={result.ready}>
       <strong>{result.ready ? "可进入商业化 Gate" : "暂不可商业化"}</strong>
       <p className="muted">执行模式：{result.execution_mode}（不收款、不创建订单）</p>
+      <p className="muted">评估时间：{new Date(result.evaluated_at).toLocaleString()}</p>
       <p>范围：<code>{result.scope}</code></p>
       <ul>{Object.entries(result.checks).map(([key, passed]) => <li key={key}>{passed ? "✓" : "×"} {labels[key] ?? key}</li>)}</ul>
       <p>证据引用：</p>

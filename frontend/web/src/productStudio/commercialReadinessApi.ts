@@ -13,6 +13,7 @@ export type CommercialReadinessInput = {
 
 export type CommercialReadiness = {
   execution_mode: "EVALUATION_ONLY";
+  evaluated_at: string;
   scope: "PILOT_21D" | "FULL_24";
   ready: boolean;
   checks: Record<string, boolean>;
@@ -37,6 +38,7 @@ export async function fetchCommercialReadiness(
   const checksAreValid = result.checks && typeof result.checks === "object"
     && Object.values(result.checks).every((value) => typeof value === "boolean");
   if (result.execution_mode !== "EVALUATION_ONLY"
+    || typeof result.evaluated_at !== "string" || Number.isNaN(Date.parse(result.evaluated_at))
     || !(result.scope === "PILOT_21D" || result.scope === "FULL_24")
     || typeof result.ready !== "boolean" || !checksAreValid || !Array.isArray(result.blockers)
     || !result.blockers.every((value) => typeof value === "string")

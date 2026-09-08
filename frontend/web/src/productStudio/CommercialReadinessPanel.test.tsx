@@ -8,6 +8,7 @@ describe("CommercialReadinessPanel", () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       ready: false,
       execution_mode: "EVALUATION_ONLY",
+      evaluated_at: "2026-09-09T12:00:00Z",
       scope: "FULL_24",
       checks: {
         lesson_scope_valid: true,
@@ -32,6 +33,7 @@ describe("CommercialReadinessPanel", () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       ready: false,
       execution_mode: "EVALUATION_ONLY",
+      evaluated_at: "2026-09-09T12:00:00Z",
       scope: "PILOT_21D",
       checks: { lesson_scope_valid: false },
       blockers: ["lesson_scope_valid"],
@@ -54,6 +56,7 @@ describe("CommercialReadinessPanel", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       ready: true,
       execution_mode: "EVALUATION_ONLY",
+      evaluated_at: "2026-09-09T12:00:00Z",
       scope: "FULL_24",
       checks: { lesson_scope_valid: "true" },
       blockers: [],
