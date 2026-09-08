@@ -214,6 +214,7 @@ class CommercialReadinessRequest(BaseModel):
     delivery_readback_verified: bool
     refund_recovery_verified: bool
     human_gate_accepted: bool
+    evidence_refs: list[str] = Field(default_factory=list)
 
 
 class CommercialReadinessResponse(BaseModel):
@@ -221,6 +222,7 @@ class CommercialReadinessResponse(BaseModel):
     ready: bool
     checks: dict[str, bool]
     blockers: tuple[str, ...]
+    evidence_refs: tuple[str, ...]
 
 
 class CourseCurriculumLesson(BaseModel):
@@ -267,12 +269,15 @@ async def commercial_readiness(body: CommercialReadinessRequest) -> CommercialRe
     publication side effects.
     """
 
-    result = evaluate_commercial_readiness(**body.model_dump())
+    result = evaluate_commercial_readiness(
+        **{key: value for key, value in body.model_dump().items() if key != "evidence_refs"}
+    )
     return CommercialReadinessResponse(
         scope="PILOT_21D" if body.lesson_count == 4 else "FULL_24",
         ready=result.ready,
         checks=dict(result.checks),
         blockers=result.blockers,
+        evidence_refs=tuple(ref.strip() for ref in body.evidence_refs if ref.strip()),
     )
 
 

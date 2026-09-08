@@ -21,12 +21,14 @@ def test_commercial_readiness_exposes_blockers_without_side_effects() -> None:
             "delivery_readback_verified": False,
             "refund_recovery_verified": False,
             "human_gate_accepted": True,
+            "evidence_refs": ["evidence:payment-sandbox@v1", "evidence:refund-recovery@v1"],
         },
     )
 
     assert response.status_code == 200
     body = response.json()
     assert body["scope"] == "FULL_24"
+    assert body["evidence_refs"] == ["evidence:payment-sandbox@v1", "evidence:refund-recovery@v1"]
     assert body["ready"] is False
     assert "payment_sandbox_verified" in body["blockers"]
 

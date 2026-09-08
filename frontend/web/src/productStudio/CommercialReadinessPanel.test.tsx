@@ -13,6 +13,7 @@ describe("CommercialReadinessPanel", () => {
         payment_sandbox_verified: false,
       },
       blockers: ["payment_sandbox_verified"],
+      evidence_refs: ["evidence:payment-sandbox@v1"],
     }), { status: 200, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetchImpl);
 
@@ -30,6 +31,7 @@ describe("CommercialReadinessPanel", () => {
       scope: "PILOT_21D",
       checks: { lesson_scope_valid: false },
       blockers: ["lesson_scope_valid"],
+      evidence_refs: [],
     }), { status: 200, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetchImpl);
 
@@ -48,6 +50,7 @@ describe("CommercialReadinessPanel", () => {
       scope: "FULL_24",
       checks: { lesson_scope_valid: "true" },
       blockers: [],
+      evidence_refs: [],
     }), { status: 200, headers: { "content-type": "application/json" } })));
 
     render(<CommercialReadinessPanel />);
