@@ -70,6 +70,17 @@ export function CourseContentWorkbench({
     }
   };
 
+  const loadCurriculumBaseline = () => {
+    setCourse(createCourseContentTemplate({ withCurriculumBaseline: true }));
+    setActiveLesson(0);
+    setConfirmed(false);
+    setPreview(null);
+    setError(null);
+    setApiError(null);
+    setSaved(null);
+    setPendingCreated(null);
+  };
+
   const saveDraft = async () => {
     if (!preview || contractPreview) return;
     setBusy(true);
@@ -101,6 +112,13 @@ export function CourseContentWorkbench({
       <div className="callout" role="note">
         <strong>{contractPreview ? "合同预览，尚未开放生产保存" : "仅创建 DRAFT"}</strong>
         <p>内容准确性引用不等于证据已准入；课程体系、产品包冻结版本和课件资产版本仍需后端补齐，AI 不能直接发布。</p>
+      </div>
+
+      <div className="course-baseline-actions">
+        <button className="secondary-button" onClick={loadCurriculumBaseline} type="button">
+          载入 24 节课程基线
+        </button>
+        <span className="muted">快速生成家庭成长六阶段骨架，载入后仍需补充课程总纲、课件资产和证据引用。</span>
       </div>
 
       <div className="course-overview-grid">

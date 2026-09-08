@@ -16,6 +16,14 @@ describe("CourseContentWorkbench", () => {
     expect(screen.queryByRole("button", { name: /发布|评审通过/ })).not.toBeInTheDocument();
   });
 
+  it("loads the 24 lesson curriculum baseline for rapid authoring", async () => {
+    const user = userEvent.setup();
+    render(<CourseContentWorkbench contractPreview />);
+    await user.click(screen.getByRole("button", { name: "载入 24 节课程基线" }));
+    expect(screen.getByText("24/24 已完整")).toBeInTheDocument();
+    expect(screen.getByLabelText("课时标题")).toHaveValue("看见家庭现状");
+  });
+
   it("keeps lesson edits while navigating and reports incomplete compilation", async () => {
     const user = userEvent.setup();
     render(<CourseContentWorkbench contractPreview />);
