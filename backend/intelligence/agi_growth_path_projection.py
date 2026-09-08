@@ -19,6 +19,10 @@ class GrowthPathProjection:
     next_step: str | None
     path: tuple[Any, ...]
     status: str
+    observations: tuple[Any, ...] = ()
+    evidence: tuple[Any, ...] = ()
+    unknowns: tuple[Any, ...] = ()
+    contradictions: tuple[Any, ...] = ()
     requires_human_confirmation: bool = True
     feedback_refs: tuple[str, ...] = ()
 
@@ -69,6 +73,11 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
     if not isinstance(path, (list, tuple)):
         path = ()
     next_step = output.get("next_step")
+
+    def _tuple_field(name: str) -> tuple[Any, ...]:
+        value = output.get(name, ())
+        return tuple(value) if isinstance(value, (list, tuple)) else ()
+
     if decision_state == "EDIT":
         if "next_step" in decision_edit:
             next_step = decision_edit["next_step"]
@@ -91,6 +100,10 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
         decision_state=decision_state,
         next_step=str(next_step) if next_step is not None else None,
         path=tuple(path),
+        observations=_tuple_field("observations"),
+        evidence=_tuple_field("evidence"),
+        unknowns=_tuple_field("unknowns"),
+        contradictions=_tuple_field("contradictions"),
         status=status,
         feedback_refs=tuple(feedback_refs),
     )

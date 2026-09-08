@@ -44,6 +44,36 @@ async def test_projection_reads_decision_and_returns_same_need_path_run_chain():
     assert projection.path == ("拆解任务",)
 
 
+def test_projection_preserves_evidence_unknowns_and_contradictions():
+    ledger = InMemoryExperienceRunLedger()
+    scope = RunScope("tenant-1", "family-1", ("child-1",))
+    ledger.create_draft(
+        scope=scope,
+        run_id="run-semantics",
+        request_ref="request-semantics",
+        draft_payload={
+            "family_need_id": "need-1",
+            "path_id": "path-1",
+            "context_snapshot_ref": "ctx-1",
+            "output": {
+                "next_step": "先观察",
+                "path": [],
+                "observations": ["作业启动延迟"],
+                "evidence": ["assessment:e1"],
+                "unknowns": ["孩子直接感受"],
+                "contradictions": ["家长描述与记录不一致"],
+            },
+            "status": "DRAFT",
+        },
+        idempotency_key="create-semantics",
+    )
+    projection = project_next_growth_path(ledger.replay(scope=scope, run_id="run-semantics"))
+    assert projection.observations == ("作业启动延迟",)
+    assert projection.evidence == ("assessment:e1",)
+    assert projection.unknowns == ("孩子直接感受",)
+    assert projection.contradictions == ("家长描述与记录不一致",)
+
+
 def test_projection_carries_feedback_refs_for_next_round_learning():
     ledger = InMemoryExperienceRunLedger()
     scope = RunScope("tenant-1", "family-1", ("child-1",))
