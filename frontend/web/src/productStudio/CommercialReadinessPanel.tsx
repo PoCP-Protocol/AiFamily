@@ -45,6 +45,7 @@ export function CommercialReadinessPanel() {
     <label>产品范围<select aria-label="产品范围" value={lessonCount} onChange={(event) => setLessonCount(Number(event.target.value) as 4 | 24)}><option value={4}>21天成长营（4节）</option><option value={24}>24节完整课程</option></select></label>
     <label>证据引用（每行一条）<textarea aria-label="证据引用" rows={3} value={evidenceRefs} onChange={(event) => setEvidenceRefs(event.target.value)} placeholder="evidence:payment-sandbox@v1" /></label>
     <fieldset><legend>商业化证据状态</legend>{Object.entries(checks).map(([key, value]) => <label key={key}><input type="checkbox" checked={value} onChange={(event) => setChecks((current) => ({ ...current, [key]: event.target.checked }))} /> {labels[key] ?? key}</label>)}</fieldset>
+    <p className="muted" aria-label="当前选中的商业化证据状态">已选：{Object.entries(checks).filter(([, value]) => value).map(([key]) => labels[key] ?? key).join("、") || "无"}</p>
     <button className="secondary-button" onClick={evaluate} type="button">评估当前证据</button>
     {error && <p role="alert" className="status status-timeout">{error}</p>}
     {result && <div className="commercial-readiness-result" data-ready={result.ready}>

@@ -106,4 +106,10 @@ describe("CommercialReadinessPanel", () => {
     const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
     expect(body.payment_sandbox_verified).toBe(true);
   });
+
+  it("summarizes the currently selected evidence states", async () => {
+    render(<CommercialReadinessPanel />);
+    expect(screen.getByLabelText("当前选中的商业化证据状态")).toHaveTextContent("课件已审批");
+    expect(screen.getByLabelText("当前选中的商业化证据状态")).not.toHaveTextContent("支付沙箱已验证");
+  });
 });
