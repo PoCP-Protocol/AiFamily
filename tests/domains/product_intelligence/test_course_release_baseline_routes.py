@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.apps.family_api.main import create_app
@@ -15,21 +16,46 @@ def _payload() -> dict:
         "evidence_receipt_refs": ["receipt:course"],
         "delivery_channel": "WEB",
         "lessons": [
-            {"lesson_version_ref": f"lesson:{i}@v1", "asset_bundle_version_ref": f"asset:{i}@v1", "skill_version_refs": [f"skill:{i}@v1"]}
+            {
+                "lesson_version_ref": f"lesson:{i}@v1",
+                "asset_bundle_version_ref": f"asset:{i}@v1",
+                "skill_version_refs": [f"skill:{i}@v1"],
+            }
             for i in range(1, 25)
         ],
     }
 
 
-def test_release_baseline_route_persists_approves_and_restores() -> None:
+def test_release_baseline_route_persists_approves_and_restores(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AIFAMILY_ENV", "test")
     client = TestClient(create_app())
     headers = {"x-tenant-scope": "tenant-a", "x-actor-id": "operator-a"}
-    created = client.post("/product-intelligence/courses/release-baselines", json={"payload": _payload()}, headers=headers)
+    created = client.post(
+        "/product-intelligence/courses/release-baselines",
+        json={"payload": _payload()},
+        headers=headers,
+    )
     assert created.status_code == 200
     release_id = created.json()["release_id"]
     path = f"/product-intelligence/courses/release-baselines/{release_id}"
     assert client.get(path, headers=headers).json()["status"] == "DRAFT"
-    decided = client.post(path + "/lifecycle", json={"action": "APPROVE", "decision_id": "decision:1", "task_id": "task:1", "evidence": [{"evidence_id": "receipt:course", "kind": "QA", "reference": "qa://course", "summary": "通过"}]}, headers=headers)
+    decided = client.post(
+        path + "/lifecycle",
+        json={
+            "action": "APPROVE",
+            "decision_id": "decision:1",
+            "task_id": "task:1",
+            "evidence": [{
+                "evidence_id": "receipt:course",
+                "kind": "QA",
+                "reference": "qa://course",
+                "summary": "通过",
+            }],
+        },
+        headers=headers,
+    )
     assert decided.status_code == 200
     assert decided.json()["baseline"]["status"] == "REVIEWED"
     assert client.get(path, headers=headers).json()["status"] == "REVIEWED"
