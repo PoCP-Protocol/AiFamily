@@ -215,7 +215,7 @@ class CommercialReadinessRequest(BaseModel):
     delivery_readback_verified: bool
     refund_recovery_verified: bool
     human_gate_accepted: bool
-    evidence_refs: list[str] = Field(default_factory=list)
+    evidence_refs: list[str] = Field(min_length=1)
 
 
 class CommercialReadinessResponse(BaseModel):
