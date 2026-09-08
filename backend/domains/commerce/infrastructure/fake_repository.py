@@ -1,7 +1,7 @@
 """In-memory commerce catalogue repository for DEV/TEST."""
 
 from ..domain.entities import ProductOffering
-from ..domain.facts import Entitlement, OrderIntent
+from ..domain.facts import Entitlement, OrderIntent, RefundRequest
 
 
 class FakeCommerceRepository:
@@ -9,6 +9,7 @@ class FakeCommerceRepository:
         self.products: dict[str, ProductOffering] = {}
         self.order_intents: dict[str, OrderIntent] = {}
         self.entitlements: dict[str, Entitlement] = {}
+        self.refunds: dict[str, RefundRequest] = {}
 
     async def commit(self) -> None:
         return None
@@ -57,3 +58,16 @@ class FakeCommerceRepository:
             for entitlement in self.entitlements.values()
             if entitlement.tenant_id == tenant_id and entitlement.family_id == family_id
         ]
+
+    async def save_refund(self, entity: RefundRequest) -> None:
+        self.refunds[entity.refund_id] = entity
+
+    async def find_refund_by_idempotency(
+        self, *, tenant_id: str, family_id: str, idempotency_key: str
+    ) -> RefundRequest | None:
+        return next(
+            (item for item in self.refunds.values()
+             if item.tenant_id == tenant_id and item.family_id == family_id
+             and item.idempotency_key == idempotency_key),
+            None,
+        )

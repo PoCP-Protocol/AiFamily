@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from ..domain.entities import ProductOffering
-from ..domain.facts import Entitlement, OrderIntent
+from ..domain.facts import Entitlement, OrderIntent, RefundRequest
 
 
 class CommerceRepositoryPort(Protocol):
@@ -26,3 +26,9 @@ class CommerceRepositoryPort(Protocol):
     async def save_entitlement(self, entity: Entitlement) -> None: ...
 
     async def list_entitlements(self, *, tenant_id: str, family_id: str) -> list[Entitlement]: ...
+
+    async def save_refund(self, entity: RefundRequest) -> None: ...
+
+    async def find_refund_by_idempotency(
+        self, *, tenant_id: str, family_id: str, idempotency_key: str
+    ) -> RefundRequest | None: ...

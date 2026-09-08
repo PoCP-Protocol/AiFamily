@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, model_validator
 CommerceEnvironment = Literal["DEV", "TEST"]
 OrderIntentStatus = Literal["DRAFT", "SUBMITTED", "CANCELLED", "EXPIRED"]
 EntitlementStatus = Literal["PENDING", "AVAILABLE", "REVOKED", "EXPIRED"]
+RefundStatus = Literal["REQUESTED", "PROCESSED", "REJECTED"]
 
 
 class OrderIntent(BaseModel):
@@ -67,3 +68,27 @@ class Entitlement(BaseModel):
         if self.status == "AVAILABLE" and self.available_at is None:
             raise ValueError("available_entitlement_requires_available_at")
         return self
+
+
+class RefundRequest(BaseModel):
+    """Append-only refund evidence for the DEV/TEST commerce adapter.
+
+    This is deliberately not a payment-provider record.  It proves the local
+    recovery transition (refund -> entitlement revoked) without pretending
+    that an external payment has occurred.
+    """
+
+    refund_id: str
+    tenant_id: str
+    family_id: str
+    source_order_intent_id: str
+    entitlement_id: str
+    status: RefundStatus = "REQUESTED"
+    reason: str
+    environment: CommerceEnvironment = "DEV"
+    source_system: str = "TEST_NOOP_ADAPTER"
+    external_effect: Literal[False] = False
+    idempotency_key: str
+    created_at: datetime
+    updated_at: datetime
+    attributes: dict[str, object] = Field(default_factory=dict)
