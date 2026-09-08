@@ -345,7 +345,7 @@ class GrowthPathResponse(BaseModel):
     decision_state: str | None
     next_step: str | None
     path: tuple[Any, ...]
-    status: Literal["DRAFT"]
+    status: Literal["DRAFT", "REVIEW_REQUIRED", "REJECTED", "DEFERRED", "EMPTY"]
     requires_human_confirmation: Literal[True]
     guardian_calibration: dict[str, Any] | None = None
 
@@ -627,7 +627,7 @@ def _growth_path_response(projection: GrowthPathProjection) -> GrowthPathRespons
         decision_state=projection.decision_state,
         next_step=projection.next_step,
         path=projection.path,
-        status="DRAFT",
+        status=projection.status,
         requires_human_confirmation=True,
         guardian_calibration=projection.guardian_calibration,
     )

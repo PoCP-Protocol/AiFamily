@@ -76,9 +76,7 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
     output = payload.get("output")
     if not isinstance(output, dict):
         output = payload
-    path = output.get("path", ())
-    if not isinstance(path, (list, tuple)):
-        path = ()
+    path = _legal_path(output.get("path", ()))
     next_step = output.get("next_step")
 
     def _tuple_field(name: str) -> tuple[Any, ...]:
@@ -88,16 +86,20 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
     if decision_state == "EDIT":
         if "next_step" in decision_edit:
             next_step = decision_edit["next_step"]
-        if isinstance(decision_edit.get("path"), (list, tuple)):
-            path = decision_edit["path"]
+        if "path" in decision_edit:
+            path = _legal_path(decision_edit["path"])
     if decision_state == "REJECT":
         next_step = None
         path = ()
-    status = "DRAFT"
+    status = "DRAFT" if path and next_step else "EMPTY"
     if decision_state == "DEFER":
-        status = "REVIEW_REQUIRED"
+        status = "DEFERRED"
     elif decision_state == "REJECT":
         status = "REJECTED"
+    elif any(
+        entry.interaction_type.value == "human_review" for entry in snapshot.interactions
+    ):
+        status = "REVIEW_REQUIRED"
     return GrowthPathProjection(
         family_need_id=family_need_id,
         path_id=path_id,
@@ -119,6 +121,24 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
 
 
 __all__ = ["GrowthPathProjection", "project_next_growth_path"]
+
+
+def _legal_path(value: Any) -> tuple[Any, ...]:
+    """Return only renderable path nodes; never invent a node for bad output."""
+
+    if not isinstance(value, (list, tuple)):
+        return ()
+    nodes: list[Any] = []
+    for node in value:
+        if isinstance(node, str):
+            if node.strip():
+                nodes.append(node)
+            continue
+        if isinstance(node, dict) and node:
+            nodes.append(dict(node))
+            continue
+        return ()
+    return tuple(nodes)
 
 
 def _safe_calibration(value: Any) -> dict[str, Any] | None:

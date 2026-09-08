@@ -167,8 +167,25 @@ def test_growth_path_projects_from_same_run_after_guardian_decision() -> None:
         assert body["path_id"] == "path-001"
         assert body["run_id"] == run_id
         assert body["decision_state"] == "accepted"
-        assert body["status"] == "DRAFT"
+        assert body["status"] == "EMPTY"
         assert body["requires_human_confirmation"] is True
+
+
+def test_growth_path_preserves_empty_status_in_http_contract() -> None:
+    run_id = "run-growth-path-empty-001"
+    with _client() as client:
+        draft = client.post(
+            "/families/family-growth/experience/multimodal/drafts",
+            json=_body(run_id)
+            | {"payload": {"family_need_id": "need-empty", "path_id": "path-empty"}},
+            headers={"Idempotency-Key": "create-growth-path-empty-001"},
+        )
+        assert draft.status_code == 200, draft.text
+        response = client.get(
+            f"/families/family-growth/experience/multimodal/runs/{run_id}/growth-path"
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "EMPTY"
 
 
 def test_growth_path_fails_closed_after_run_deletion() -> None:

@@ -82,6 +82,7 @@ def test_projection_preserves_evidence_unknowns_and_contradictions():
     assert projection.evidence == ("assessment:e1",)
     assert projection.unknowns == ("孩子直接感受",)
     assert projection.contradictions == ("家长描述与记录不一致",)
+    assert projection.status == "EMPTY"
 
 
 def test_projection_carries_feedback_refs_for_next_round_learning():
@@ -146,6 +147,71 @@ def test_edit_decision_overlays_revised_next_step_without_promoting_fact():
     assert projection.status == "DRAFT"
 
 
+def test_edit_decision_projects_a_legal_non_empty_path():
+    ledger = InMemoryExperienceRunLedger()
+    scope = RunScope("tenant-1", "family-1", ("child-1",))
+    ledger.create_draft(
+        scope=scope,
+        run_id="run-edit-path",
+        request_ref="request-edit-path",
+        draft_payload={
+            "family_need_id": "need-1",
+            "path_id": "path-1",
+            "context_snapshot_ref": "ctx-1",
+            "output": {"next_step": "原建议", "path": []},
+            "status": "DRAFT",
+        },
+        idempotency_key="create-edit-path",
+    )
+    ledger.append_interaction(
+        scope=scope,
+        run_id="run-edit-path",
+        interaction_type=InteractionType.DECISION,
+        payload={
+            "decision": "rewrite",
+            "decision_ref": "decision-edit-path",
+            "state": "EDIT",
+            "edits": {"next_step": "家长确认的第一步", "path": ["共同约定十分钟"]},
+        },
+        idempotency_key="decision-edit-path",
+    )
+    projection = project_next_growth_path(
+        ledger.replay(scope=scope, run_id="run-edit-path")
+    )
+    assert projection.status == "DRAFT"
+    assert projection.path == ("共同约定十分钟",)
+
+
+def test_human_review_interaction_projects_review_required():
+    ledger = InMemoryExperienceRunLedger()
+    scope = RunScope("tenant-1", "family-1", ("child-1",))
+    ledger.create_draft(
+        scope=scope,
+        run_id="run-review-required",
+        request_ref="request-review-required",
+        draft_payload={
+            "family_need_id": "need-1",
+            "path_id": "path-1",
+            "context_snapshot_ref": "ctx-1",
+            "output": {"next_step": "下一步", "path": ["合法路径"]},
+            "status": "DRAFT",
+        },
+        idempotency_key="create-review-required",
+    )
+    ledger.append_interaction(
+        scope=scope,
+        run_id="run-review-required",
+        interaction_type=InteractionType.HUMAN_REVIEW,
+        payload={"status": "human_review", "reason": "需要人工复核"},
+        idempotency_key="human-review-required",
+    )
+    projection = project_next_growth_path(
+        ledger.replay(scope=scope, run_id="run-review-required")
+    )
+    assert projection.status == "REVIEW_REQUIRED"
+    assert projection.path == ("合法路径",)
+
+
 def test_deleted_run_projection_fails_closed():
     class Deleted:
         deletion_state = "deleted"
@@ -180,7 +246,7 @@ def test_projection_rejects_payload_from_different_run():
     ("decision", "state", "expected_status", "expected_path"),
     [
         ("rejected", "REJECT", "REJECTED", ()),
-        ("pending_human_confirmation", "DEFER", "REVIEW_REQUIRED", ("原路径",)),
+        ("pending_human_confirmation", "DEFER", "DEFERRED", ("原路径",)),
     ],
 )
 def test_reject_and_defer_do_not_look_like_accepted_actions(
@@ -211,3 +277,26 @@ def test_reject_and_defer_do_not_look_like_accepted_actions(
     projection = project_next_growth_path(ledger.replay(scope=scope, run_id=f"run-{state}"))
     assert projection.status == expected_status
     assert projection.path == expected_path
+
+
+def test_projection_rejects_invalid_path_nodes_without_inventing_a_path():
+    ledger = InMemoryExperienceRunLedger()
+    scope = RunScope("tenant-1", "family-1", ("child-1",))
+    ledger.create_draft(
+        scope=scope,
+        run_id="run-invalid-path",
+        request_ref="request-invalid-path",
+        draft_payload={
+            "family_need_id": "need-1",
+            "path_id": "path-1",
+            "context_snapshot_ref": "ctx-1",
+            "output": {"next_step": "下一步", "path": [None]},
+            "status": "DRAFT",
+        },
+        idempotency_key="create-invalid-path",
+    )
+    projection = project_next_growth_path(
+        ledger.replay(scope=scope, run_id="run-invalid-path")
+    )
+    assert projection.status == "EMPTY"
+    assert projection.path == ()
