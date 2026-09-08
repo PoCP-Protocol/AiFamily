@@ -2,6 +2,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.apps.family_api.main import create_app
+from backend.domains.product_intelligence.api.course_routes import get_actor_context
+from backend.domains.product_intelligence.application.context import ActorContext
 
 
 def _payload() -> dict:
@@ -61,3 +63,35 @@ def test_release_baseline_route_persists_approves_and_restores(
     assert client.get(path, headers=headers).json()["status"] == "REVIEWED"
     assert client.get(path, headers={**headers, "x-tenant-scope": "tenant-b"}).status_code == 404
 
+
+def test_release_baseline_lifecycle_rejects_ai_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AIFAMILY_ENV", "test")
+    app = create_app()
+    app.dependency_overrides[get_actor_context] = lambda: ActorContext(
+        actor_id="agent-1",
+        actor_type="AI",
+        tenant_scope="tenant-ai",
+    )
+    with TestClient(app) as client:
+        created = client.post(
+            "/product-intelligence/courses/release-baselines",
+            json={"payload": _payload()},
+        )
+        release_id = created.json()["release_id"]
+        response = client.post(
+            f"/product-intelligence/courses/release-baselines/{release_id}/lifecycle",
+            json={
+                "action": "APPROVE",
+                "decision_id": "decision:ai",
+                "task_id": "task:ai",
+                "evidence": [{
+                    "evidence_id": "receipt:course",
+                    "kind": "QA",
+                    "reference": "qa://course",
+                    "summary": "通过",
+                }],
+            },
+        )
+    assert response.status_code == 403
