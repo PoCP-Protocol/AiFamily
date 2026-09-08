@@ -26,6 +26,7 @@ def test_commercial_readiness_exposes_blockers_without_side_effects() -> None:
 
     assert response.status_code == 200
     body = response.json()
+    assert body["scope"] == "FULL_24"
     assert body["ready"] is False
     assert "payment_sandbox_verified" in body["blockers"]
 
@@ -49,5 +50,6 @@ def test_commercial_readiness_rejects_unsupported_product_scope() -> None:
     )
 
     assert response.status_code == 200
+    assert response.json()["scope"] == "FULL_24"
     assert response.json()["ready"] is False
     assert response.json()["blockers"] == ["lesson_scope_valid"]

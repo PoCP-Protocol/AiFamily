@@ -11,6 +11,7 @@ export type CommercialReadinessInput = {
 };
 
 export type CommercialReadiness = {
+  scope: "PILOT_21D" | "FULL_24";
   ready: boolean;
   checks: Record<string, boolean>;
   blockers: string[];
@@ -29,7 +30,8 @@ export async function fetchCommercialReadiness(
   const result = await response.json() as CommercialReadiness;
   const checksAreValid = result.checks && typeof result.checks === "object"
     && Object.values(result.checks).every((value) => typeof value === "boolean");
-  if (typeof result.ready !== "boolean" || !checksAreValid || !Array.isArray(result.blockers)
+  if (!(result.scope === "PILOT_21D" || result.scope === "FULL_24")
+    || typeof result.ready !== "boolean" || !checksAreValid || !Array.isArray(result.blockers)
     || !result.blockers.every((value) => typeof value === "string")) {
     throw new Error("commercial_readiness_invalid_response");
   }

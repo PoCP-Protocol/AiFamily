@@ -7,6 +7,7 @@ describe("CommercialReadinessPanel", () => {
   it("shows explicit blockers returned by the readiness API", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       ready: false,
+      scope: "FULL_24",
       checks: {
         lesson_scope_valid: true,
         payment_sandbox_verified: false,
@@ -26,6 +27,7 @@ describe("CommercialReadinessPanel", () => {
   it("sends the four-lesson pilot scope to the readiness API", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       ready: false,
+      scope: "PILOT_21D",
       checks: { lesson_scope_valid: false },
       blockers: ["lesson_scope_valid"],
     }), { status: 200, headers: { "content-type": "application/json" } }));
@@ -43,6 +45,7 @@ describe("CommercialReadinessPanel", () => {
   it("fails closed when the readiness contract contains a non-boolean check", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       ready: true,
+      scope: "FULL_24",
       checks: { lesson_scope_valid: "true" },
       blockers: [],
     }), { status: 200, headers: { "content-type": "application/json" } })));
