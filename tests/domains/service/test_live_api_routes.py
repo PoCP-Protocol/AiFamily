@@ -41,6 +41,14 @@ class Projection:
             raise self.error
         return self.value
 
+    async def list_session_projections(
+        self, *, tenant_id: str, family_id: str
+    ) -> list[LiveSessionProjection]:
+        self.calls.append({"tenant_id": tenant_id, "family_id": family_id, "session_ref": "*"})
+        if self.error:
+            raise self.error
+        return [self.value] if self.value is not None else []
+
 
 class MalformedProjection:
     async def get_session_projection(
@@ -138,6 +146,43 @@ def test_approved_unexpired_family_scoped_detail_is_readable_and_audited(
     assert len(events) == 1
     assert events[0].is_read
     assert events[0].access_purpose == "LIVE_DISCOVERY"
+
+
+def test_approved_unexpired_family_scoped_discovery_is_readable_and_audited(
+    client: TestClient, wiring: dict[str, object]
+) -> None:
+    response = client.get(f"/families/{FAMILY}/live-sessions")
+
+    assert response.status_code == 200, response.text
+    assert [item["session_ref"] for item in response.json()] == ["live-001"]
+    recorder = wiring["recorder"]
+    assert isinstance(recorder, AuditRecorder)
+    assert len(recorder.all_events()) == 1
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"review_status": "WITHDRAWN"},
+        {"ends_at": NOW - timedelta(minutes=1), "starts_at": NOW - timedelta(hours=2)},
+        {"audience_scope": ()},
+    ],
+)
+def test_discovery_filters_ineligible_projection(
+    client: TestClient,
+    wiring: dict[str, object],
+    override: dict[str, object],
+) -> None:
+    projection = wiring["projection"]
+    assert isinstance(projection, Projection)
+    projection.value = LiveSessionProjection.model_validate(
+        {**_projection().model_dump(), **override}
+    )
+
+    response = client.get(f"/families/{FAMILY}/live-sessions")
+
+    assert response.status_code == 200
+    assert response.json() == []
 
 
 @pytest.mark.parametrize(

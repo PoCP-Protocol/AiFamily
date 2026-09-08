@@ -77,3 +77,46 @@ async def get_approved_session_detail(
         raise LiveSessionUnavailableError("live_session_visibility_not_family_scoped")
 
     return LiveSessionDetailView.from_projection(projection)
+
+
+async def list_approved_session_details(
+    provider: LiveSessionProjectionPort,
+    *,
+    tenant_id: str,
+    family_id: str,
+    now: datetime | None = None,
+) -> list[LiveSessionDetailView]:
+    """Return the currently eligible Family-scoped live projections."""
+
+    try:
+        projections = await provider.list_session_projections(
+            tenant_id=tenant_id,
+            family_id=family_id,
+        )
+    except (LiveProjectionConflictError, LiveProjectionProviderError):
+        raise
+    except Exception as exc:  # pragma: no cover - defensive provider boundary
+        raise LiveProjectionProviderError("live_projection_provider_failed") from exc
+
+    if not isinstance(projections, list):
+        raise LiveProjectionProviderError("live_projection_shape_invalid")
+
+    current_time = _utc(now or datetime.now(UTC))
+    details: list[LiveSessionDetailView] = []
+    for projection in projections:
+        if not isinstance(projection, LiveSessionProjection):
+            raise LiveProjectionProviderError("live_projection_shape_invalid")
+        if projection.tenant_id != tenant_id or projection.family_id != family_id:
+            raise LiveSessionScopeError("live_projection_scope_mismatch")
+        if projection.review_status != "APPROVED":
+            continue
+        if not projection.audience_scope:
+            continue
+        if _utc(projection.ends_at) <= current_time:
+            continue
+        if projection.status in {"WITHDRAWN", "EXPIRED"}:
+            continue
+        if projection.family_visibility != "FAMILY_SCOPED":
+            continue
+        details.append(LiveSessionDetailView.from_projection(projection))
+    return details
