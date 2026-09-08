@@ -146,6 +146,49 @@ async def test_two_family_contexts_reach_generation_as_distinct_inputs():
     assert first_payload["family_need_id"] != second_payload["family_need_id"]
 
 
+@pytest.mark.asyncio
+async def test_published_capability_versions_are_part_of_request_identity():
+    from backend.intelligence.capability_registry import CapabilityOffer, CapabilityRegistry
+
+    registry = CapabilityRegistry(
+        (
+            CapabilityOffer(
+                "practice:focus",
+                "1.0.0",
+                "专注练习",
+                "家庭可选择的专注练习",
+                "growth_path_design",
+                "family_growth",
+                need_types=("routine",),
+                owner="growth-team",
+            ),
+        )
+    )
+    registry.transition("practice:focus", "1.0.0", "REVIEWED")
+    registry.transition("practice:focus", "1.0.0", "PUBLISHED")
+    gateway = Gateway()
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=gateway,
+        context=Context({"need_type": "routine"}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+        capabilities=registry,
+    )
+    await runtime.run(
+        family_need_id="need-c",
+        path_id="path-c",
+        run_id="run-c",
+        family_id="family-c",
+        knowledge_ref="growth.v1",
+    )
+    assert gateway.last_request.input_refs[-1] == "practice:focus@1.0.0"
+    assert (
+        gateway.last_request.payload["capability_candidates"][0]["capability_ref"]
+        == "practice:focus"
+    )
+
+
 def real_gateway(provider: FakeProvider, *, timeout_seconds: float = 1.0) -> ModelGateway:
     record = ProviderRecord(
         provider_id=provider.provider_id,

@@ -289,6 +289,10 @@ class VerticalFamilyGrowthRuntime:
                 }
                 for offer in offers
             )
+        capability_refs = tuple(
+            f"{candidate['capability_ref']}@{candidate['version']}"
+            for candidate in capability_candidates
+        )
         calibration: dict[str, Any] | None = None
         if guardian_decision is not None:
             if guardian_decision.family_need_id != family_need_id:
@@ -328,7 +332,7 @@ class VerticalFamilyGrowthRuntime:
                 },
             },
             context_snapshot_ref=context.context_snapshot_ref,
-            input_refs=(family_need_id, path_id, *feedback_refs),
+            input_refs=(family_need_id, path_id, *feedback_refs, *capability_refs),
             media_inputs=media_inputs,
             request_id=run_id,
             tenant_id=context.tenant_id,
