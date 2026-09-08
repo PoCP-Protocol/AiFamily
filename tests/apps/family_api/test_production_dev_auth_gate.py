@@ -35,6 +35,15 @@ def test_production_does_not_mount_or_advertise_dev_auth(monkeypatch) -> None:
     assert response.status_code in {404, 403}
 
 
+def test_production_does_not_advertise_fixture_commerce_router(monkeypatch) -> None:
+    monkeypatch.setenv("AIFAMILY_ENV", "production")
+    main = _fresh_main_module()
+    client = TestClient(main.create_app())
+
+    paths = client.get("/openapi.json").json()["paths"]
+    assert not any("/test-loop/commerce" in path for path in paths)
+
+
 def test_test_environment_keeps_the_same_dev_auth_contract(monkeypatch) -> None:
     monkeypatch.setenv("AIFAMILY_ENV", "test")
     main = _fresh_main_module()

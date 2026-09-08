@@ -14,8 +14,8 @@ from collections.abc import Callable
 
 from fastapi import FastAPI
 
-from backend.apps.family_api.dev_operator_query_wiring import install_dev_operator_query_wiring
 from backend.apps.family_api.ai_coach_wiring import ai_coach_provider_registry
+from backend.apps.family_api.dev_operator_query_wiring import install_dev_operator_query_wiring
 from backend.apps.family_api.dev_wiring import install_dev_wiring, is_dev_environment
 from backend.apps.family_api.evaluation_query_api import router as evaluation_query_router
 from backend.apps.family_api.evaluation_query_wiring import install_evaluation_query_service
@@ -38,7 +38,13 @@ from backend.apps.family_api.growth_onboarding_wiring import (
     install_growth_onboarding_dev_wiring,
     install_growth_onboarding_production_wiring,
 )
+from backend.apps.family_api.production_vertical_family_growth_wiring import (
+    ProductionVerticalFamilyGrowthComposition,
+)
 from backend.apps.family_api.routes import router
+from backend.apps.family_api.vertical_family_growth_api import (
+    router as vertical_family_growth_router,
+)
 from backend.domains.assessment.api import (
     register_exception_handlers as register_assessment_exception_handlers,
 )
@@ -69,14 +75,11 @@ from backend.domains.product_intelligence.api.course_routes import (
     configure_course_content_repository,
     configure_course_system_repository,
 )
-from backend.domains.product_intelligence.api.courseware_dependencies import (
-    configure_courseware_gateway,
-)
-from backend.intelligence.model_gateway.gateway import build_gateway
-from backend.intelligence.model_gateway.providers.fake import FakeProvider
-from backend.intelligence.product_management.courseware_generation import COURSEWARE_USE_CASE
 from backend.domains.product_intelligence.api.course_routes import (
     router as course_content_router,
+)
+from backend.domains.product_intelligence.api.courseware_dependencies import (
+    configure_courseware_gateway,
 )
 from backend.domains.product_intelligence.api.dependencies import (
     configure_actor_resolver as configure_product_intelligence_actor_resolver,
@@ -125,6 +128,9 @@ from backend.domains.service.fgcn.api.routes import router as fgcn_router
 from backend.intelligence.agi_vertical_composition import (
     install_vertical_family_growth_runtime,
 )
+from backend.intelligence.agi_vertical_dev_wiring import (
+    build_dev_vertical_family_growth_runtime,
+)
 from backend.intelligence.agi_vertical_runtime import VerticalFamilyGrowthRuntime
 from backend.intelligence.evaluation.query import AuthorizedEvaluationQueryService
 from backend.intelligence.experience.api import MultimodalDraftRuntimeResolver
@@ -135,6 +141,9 @@ from backend.intelligence.experience.operations_query import (
     HmacExperienceOperationsCursorSigner,
 )
 from backend.intelligence.human_gate.gate import InMemoryHumanGate
+from backend.intelligence.model_gateway.gateway import build_gateway
+from backend.intelligence.model_gateway.providers.fake import FakeProvider
+from backend.intelligence.product_management.courseware_generation import COURSEWARE_USE_CASE
 from backend.platform.persistence.session import (
     DATABASE_URL_ENV_VAR,
     get_engine,
@@ -435,11 +444,26 @@ def create_app(
     experience_operations_query_wiring: Callable[[FastAPI], None] | None = None,
     assessment_production_ai_wiring: Callable[[FastAPI], None] | None = None,
     vertical_family_growth_runtime: VerticalFamilyGrowthRuntime | None = None,
+    production_vertical_family_growth_composition: ProductionVerticalFamilyGrowthComposition
+    | None = None,
 ) -> FastAPI:
     _configure_fgcn_persistence()
     application = FastAPI(title="AiFamily family_api", version="0.1.0")
-    if vertical_family_growth_runtime is not None:
+    application.include_router(vertical_family_growth_router)
+    if production_vertical_family_growth_composition is not None:
+        production_vertical_family_growth_composition.install(application)
+    elif vertical_family_growth_runtime is not None:
         install_vertical_family_growth_runtime(application, vertical_family_growth_runtime)
+    elif is_dev_environment():
+        # Dev/test gets an explicit, production-shaped composition using the
+        # normal gateway admission path. Production remains fail-closed until
+        # durable context/knowledge/consent adapters are available.
+        install_vertical_family_growth_runtime(
+            application,
+            build_dev_vertical_family_growth_runtime(
+                environment=os.environ.get("AIFAMILY_ENV", "test")
+            ),
+        )
     # Operator-only evaluation evidence is mounted in every environment for
     # contract parity; without an explicitly composed identity-bound service,
     # the routes remain fail-closed with 503.
@@ -479,9 +503,12 @@ def create_app(
     # registration and OpenAPI visibility, not availability — see
     # governance/DOMAIN_REGISTRY.yaml → membership.known_gaps.
     application.include_router(membership_router)
-    # Product catalogue read. Development/test use fixture data and sandbox
-    # adapters; the route and business contract remain identical to production.
-    application.include_router(commerce_router)
+    # Product catalogue read is currently a fixture-only DEV/TEST slice. Do
+    # not advertise its test-loop paths from a production OpenAPI document;
+    # production commerce must be mounted only after real persistence and
+    # payment/entitlement adapters are wired.
+    if is_dev_environment():
+        application.include_router(commerce_router)
     # Family Need closes the first platform-level vertical slice: an explicit
     # family expression becomes an N1 need aggregate, is clarified, profiled
     # and matched against a real Product/Service supply reference. The default
