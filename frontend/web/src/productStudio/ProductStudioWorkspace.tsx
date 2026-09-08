@@ -9,6 +9,7 @@ import { ProductDefinitionOperatorReviewWorkbench } from "./ProductDefinitionOpe
 import { ProductFactoryComposer } from "./ProductFactoryComposer";
 import { ProductPackageReviewWorkbench } from "./ProductPackageReviewWorkbench";
 import { ProductPortfolioWorkbench } from "./ProductPortfolioWorkbench";
+import { CommercialOfferDraftPanel } from "./CommercialOfferDraftPanel";
 import { ProductStudio } from "./ProductStudio";
 import { sandboxProductStudioState } from "./sandboxFixture";
 
@@ -113,6 +114,7 @@ export function ProductStudioWorkspace() {
           <CourseSystemBlueprintPanel enabled={activeTab === "course-content"} />
           <CourseContentGovernancePanel contractPreview />
           <CourseReleaseBaselineWorkbench />
+          <CommercialOfferDraftPanel />
         </div>
       </div>
       <div aria-labelledby="workspace-tab-sandbox" hidden={activeTab !== "sandbox"} id="workspace-panel-sandbox" role="tabpanel" tabIndex={0}>
