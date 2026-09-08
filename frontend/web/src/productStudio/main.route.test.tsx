@@ -1,11 +1,14 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebRoot } from "../main";
 
 const originalPath = window.location.pathname;
 
-afterEach(() => window.history.replaceState({}, "", originalPath));
+afterEach(() => {
+  window.history.replaceState({}, "", originalPath);
+  vi.unstubAllGlobals();
+});
 
 describe("Web Product Studio route", () => {
   it("enters the staged Product Studio workspace on Demand", async () => {
@@ -36,10 +39,40 @@ describe("Web Product Studio route", () => {
     expect(screen.getByText(/所有 AI 内容均为 DRAFT/)).toBeInTheDocument();
   }, 15_000);
 
-  it("keeps the root path on Experience Studio", () => {
+  it("keeps the root path on Experience Studio", async () => {
     window.history.replaceState({}, "", "/");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input) => {
+        const path = new URL(String(input), window.location.origin).pathname;
+        if (path === "/auth/account-session") {
+          return new Response(JSON.stringify({ token: "dev-token", family_id: "family-a" }), { status: 200 });
+        }
+        if (path === "/families/family-a/ui/02/assessment") {
+          return new Response(
+            JSON.stringify({
+              projection_version: "test-v1",
+              availability: "READY",
+              tool: {
+                tool_ref: "tool-test",
+                title: "家庭理解",
+                items: [],
+              },
+              dimensions: [],
+              subjects: [{ person_id: "person-a", display_name: "孩子" }],
+              active_session: null,
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ detail: `Unexpected request: ${path}` }), { status: 404 });
+      }),
+    );
     render(<WebRoot />);
-    expect(screen.getByRole("heading", { name: "先被理解，再一起决定。" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: /今天，先处理/ })).toBeInTheDocument();
+      expect(screen.queryByText(/模型|生成通道|provider|DRAFT/i)).not.toBeInTheDocument();
+    });
   });
 
   it("can walk the fixture through Gate to PLM with an explicit human GO", async () => {
