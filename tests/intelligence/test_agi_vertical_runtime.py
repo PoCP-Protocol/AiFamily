@@ -187,6 +187,8 @@ async def test_published_capability_versions_are_part_of_request_identity():
     assert entry.capability_refs == ("practice:focus@1.0.0",)
     assert entry.knowledge_ref == "growth.v1"
     assert entry.knowledge_version == "v1"
+    assert entry.lineage_ref.startswith("lineage:")
+    assert len(entry.lineage_ref) == len("lineage:") + 32
     assert "knowledge:growth.v1@v1" in gateway.last_request.input_refs
     assert (
         gateway.last_request.payload["capability_candidates"][0]["capability_ref"]

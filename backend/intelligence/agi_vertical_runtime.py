@@ -186,6 +186,7 @@ class EvaluationLedgerEntry:
     capability_refs: tuple[str, ...] = ()
     knowledge_ref: str = ""
     knowledge_version: str = ""
+    lineage_ref: str = ""
 
 
 class EvaluationLedger:
@@ -262,6 +263,7 @@ class VerticalFamilyGrowthRuntime:
         if material is None:
             raise VerticalRuntimeError("KNOWLEDGE_NOT_PUBLISHED")
         feedback_refs = await self._feedback.latest(family_need_id=family_need_id)
+        calibration: dict[str, Any] | None = None
         capability_candidates: tuple[dict[str, Any], ...] = ()
         if self._capabilities is not None:
             values = context.values
@@ -298,7 +300,14 @@ class VerticalFamilyGrowthRuntime:
             f"{candidate['capability_ref']}@{candidate['version']}"
             for candidate in capability_candidates
         )
-        calibration: dict[str, Any] | None = None
+        lineage_ref = _lineage_ref(
+            context_snapshot_ref=context.context_snapshot_ref,
+            knowledge_ref=material.ref,
+            knowledge_version=material.version,
+            capability_refs=capability_refs,
+            feedback_refs=feedback_refs,
+            calibration=calibration,
+        )
         if guardian_decision is not None:
             if guardian_decision.family_need_id != family_need_id:
                 raise VerticalRuntimeError("GUARDIAN_DECISION_SCOPE_MISMATCH")
@@ -386,6 +395,7 @@ class VerticalFamilyGrowthRuntime:
             capability_refs=capability_refs,
             knowledge_ref=material.ref,
             knowledge_version=material.version,
+            lineage_ref=lineage_ref,
         )
         self._ledger.append(entry)
         return entry
@@ -410,6 +420,32 @@ def _assert_capability_grounding(output: dict[str, Any], capability_refs: tuple[
                 references.append(f"{ref}@{version}" if isinstance(version, str) else ref)
     if any(not isinstance(ref, str) or ref not in allowed for ref in references):
         raise VerticalRuntimeError("CAPABILITY_GROUNDING_VIOLATION")
+
+
+def _lineage_ref(
+    *,
+    context_snapshot_ref: str,
+    knowledge_ref: str,
+    knowledge_version: str,
+    capability_refs: tuple[str, ...],
+    feedback_refs: tuple[str, ...],
+    calibration: dict[str, Any] | None,
+) -> str:
+    """Return a stable, content-free identity for one generation lineage."""
+
+    material = json.dumps(
+        {
+            "context_snapshot_ref": context_snapshot_ref,
+            "knowledge": f"{knowledge_ref}@{knowledge_version}",
+            "capabilities": capability_refs,
+            "feedback_refs": feedback_refs,
+            "calibration": calibration,
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return "lineage:" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:32]
 
 
 __all__ = [
