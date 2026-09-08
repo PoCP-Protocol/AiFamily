@@ -48,9 +48,11 @@ class Feedback:
 class Gateway:
     def __init__(self):
         self.calls = 0
+        self.last_request = None
 
     async def generate_structured(self, request, *, provider_id=None):
         self.calls += 1
+        self.last_request = request
         return ModelDraft(
             {"understanding": "启动阻力", "next_step": "开始仪式", "path": ["拆解任务"]},
             AiProvenance(
@@ -164,6 +166,11 @@ async def test_guardian_decision_is_carried_into_next_round_and_replay_is_read_o
         knowledge_ref="growth.v1",
         guardian_decision=decision,
     )
+    assert gateway.last_request.payload["guardian_calibration"] == {
+        "decision_ref": "decision:edit-1",
+        "state": "EDIT",
+        "edits": {"next_step": "visual timer"},
+    }
     calls_after_run = gateway.calls
     replayed = ledger.replay("run-2")
     assert replayed.feedback_refs[-1] == "decision:edit-1"

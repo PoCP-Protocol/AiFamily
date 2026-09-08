@@ -190,11 +190,22 @@ class VerticalFamilyGrowthRuntime:
         if material is None:
             raise VerticalRuntimeError("KNOWLEDGE_NOT_PUBLISHED")
         feedback_refs = await self._feedback.latest(family_need_id=family_need_id)
+        calibration: dict[str, Any] | None = None
         if guardian_decision is not None:
             if guardian_decision.family_need_id != family_need_id:
                 raise VerticalRuntimeError("GUARDIAN_DECISION_SCOPE_MISMATCH")
             self._ledger.decision(guardian_decision)
             feedback_refs = (*feedback_refs, guardian_decision.decision_ref)
+            # A reference alone is not a learning signal: the next model run
+            # must receive the guardian's bounded correction.  Keep this as
+            # explicit calibration metadata rather than merging it into the
+            # family context, because AI output and guardian intent are
+            # different semantic layers (R9).
+            calibration = {
+                "decision_ref": guardian_decision.decision_ref,
+                "state": guardian_decision.state,
+                "edits": dict(guardian_decision.edits),
+            }
         request = StructuredRequest(
             use_case="vertical_family_growth",
             prompt_version="vertical-growth.v1",
@@ -205,6 +216,7 @@ class VerticalFamilyGrowthRuntime:
                 "path_id": path_id,
                 "context": context.values,
                 "feedback_refs": feedback_refs,
+                "guardian_calibration": calibration,
             },
             output_schema={
                 "type": "object",
