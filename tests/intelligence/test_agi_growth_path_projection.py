@@ -44,6 +44,40 @@ async def test_projection_reads_decision_and_returns_same_need_path_run_chain():
     assert projection.path == ("拆解任务",)
 
 
+def test_edit_decision_overlays_revised_next_step_without_promoting_fact():
+    ledger = InMemoryExperienceRunLedger()
+    scope = RunScope("tenant-1", "family-1", ("child-1",))
+    ledger.create_draft(
+        scope=scope,
+        run_id="run-edit",
+        request_ref="request-edit",
+        draft_payload={
+            "family_need_id": "need-1",
+            "path_id": "path-1",
+            "context_snapshot_ref": "ctx-1",
+            "output": {"next_step": "原建议", "path": ["原路径"]},
+            "status": "DRAFT",
+        },
+        idempotency_key="create-edit",
+    )
+    ledger.append_interaction(
+        scope=scope,
+        run_id="run-edit",
+        interaction_type=InteractionType.DECISION,
+        payload={
+            "decision": "rewrite",
+            "decision_ref": "decision-edit",
+            "state": "EDIT",
+            "edits": {"next_step": "家长修改后的第一步", "path": ["新路径"]},
+        },
+        idempotency_key="decision-edit",
+    )
+    projection = project_next_growth_path(ledger.replay(scope=scope, run_id="run-edit"))
+    assert projection.next_step == "家长修改后的第一步"
+    assert projection.path == ("新路径",)
+    assert projection.status == "DRAFT"
+
+
 def test_deleted_run_projection_fails_closed():
     class Deleted:
         deletion_state = "deleted"

@@ -39,6 +39,7 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
         raise ValueError("GROWTH_PATH_CORRELATION_REQUIRED")
     decision_ref: str | None = None
     decision_state: str | None = None
+    decision_edit: dict[str, Any] = {}
     for entry in snapshot.interactions:
         if entry.interaction_type.value != "decision":
             continue
@@ -48,6 +49,10 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
             decision_state = str(entry.payload["state"])
         elif entry.payload.get("decision"):
             decision_state = str(entry.payload["decision"])
+        if isinstance(entry.payload.get("edits"), dict):
+            decision_edit = dict(entry.payload["edits"])
+        if entry.payload.get("replacement_text"):
+            decision_edit["next_step"] = entry.payload["replacement_text"]
     output = payload.get("output")
     if not isinstance(output, dict):
         output = payload
@@ -55,6 +60,11 @@ def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjectio
     if not isinstance(path, (list, tuple)):
         path = ()
     next_step = output.get("next_step")
+    if decision_state == "EDIT":
+        if "next_step" in decision_edit:
+            next_step = decision_edit["next_step"]
+        if isinstance(decision_edit.get("path"), (list, tuple)):
+            path = decision_edit["path"]
     return GrowthPathProjection(
         family_need_id=family_need_id,
         path_id=path_id,
