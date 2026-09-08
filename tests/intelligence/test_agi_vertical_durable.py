@@ -80,6 +80,20 @@ async def test_cross_family_decision_is_rejected_before_interaction_write():
 
 
 @pytest.mark.asyncio
+async def test_decision_for_different_need_or_path_is_rejected_before_write():
+    adapter = DurableVerticalLedgerAdapter(InMemoryExperienceRunLedger())
+    scope = RunScope("tenant-1", "family-1", ("child-1",))
+    await adapter.save_entry(entry(), scope=scope)
+    decision = GuardianDecision(
+        "decision:wrong-correlation", "need-other", "run-1", "path-other", "EDIT"
+    )
+    with pytest.raises(ValueError, match="GUARDIAN_DECISION_CORRELATION_MISMATCH"):
+        await adapter.record_guardian_decision(decision, scope=scope)
+    replay = await adapter.replay(run_id="run-1", scope=scope)
+    assert not replay.interactions
+
+
+@pytest.mark.asyncio
 async def test_adapter_projects_growth_path_from_same_durable_run():
     adapter = DurableVerticalLedgerAdapter(InMemoryExperienceRunLedger())
     scope = RunScope("tenant-1", "family-1", ("child-1",))

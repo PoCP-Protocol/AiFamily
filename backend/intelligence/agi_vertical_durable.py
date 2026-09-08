@@ -87,6 +87,19 @@ class DurableVerticalLedgerAdapter:
     async def record_guardian_decision(
         self, decision: GuardianDecision, *, scope: RunScope
     ) -> None:
+        # Scope isolation alone is not enough: a caller may have a valid
+        # family scope but accidentally attach a decision for another need or
+        # path to this run.  Resolve the durable draft before writing so the
+        # correlation is checked against the server-owned payload.  This is a
+        # fail-closed guard at the persistence boundary, not just a runtime
+        # convenience check.
+        snapshot = await self.replay(run_id=decision.run_id, scope=scope)
+        payload = snapshot.draft_payload or {}
+        if (
+            payload.get("family_need_id") != decision.family_need_id
+            or payload.get("path_id") != decision.path_id
+        ):
+            raise ValueError("GUARDIAN_DECISION_CORRELATION_MISMATCH")
         await self._call(
             self._ledger.append_interaction,
             scope=scope,
