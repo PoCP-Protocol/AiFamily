@@ -23,8 +23,18 @@ export type CourseReleaseBaselineDraft = {
   safety_policy_version_ref: string;
   prompt_bundle_version_ref: string;
   lessons: CourseReleaseLessonBinding[];
+  courseware_drafts: CoursewareDraftBinding[];
   release_notes: string;
   rollback_baseline_ref: null;
+};
+
+export type CoursewareDraftBinding = {
+  draft_id: string;
+  course_system_version_ref: string;
+  product_package_version_ref: string;
+  asset_bundle_version_ref: string;
+  model_provenance_ref: string;
+  status: "APPROVED";
 };
 
 export type CourseReleaseBaselineForm = Omit<
@@ -57,6 +67,7 @@ export function createCourseReleaseBaselineForm(): CourseReleaseBaselineForm {
     skill_version_refs: [],
       courseware_governance_status: "GOVERNED" as const,
     })),
+    courseware_drafts: [],
     release_notes: "",
   };
 }
@@ -124,6 +135,14 @@ export function compileCourseReleaseBaseline(form: CourseReleaseBaselineForm): C
     safety_policy_version_ref: versionedRef(form.safety_policy_version_ref, "SAFETY_POLICY_VERSION_REQUIRED"),
     prompt_bundle_version_ref: versionedRef(form.prompt_bundle_version_ref, "PROMPT_BUNDLE_VERSION_REQUIRED"),
     lessons,
+    courseware_drafts: lessons.map((lesson) => ({
+      draft_id: `courseware-draft:${lesson.sequence}`,
+      course_system_version_ref: versionedRef(form.course_system_version_ref, "COURSE_SYSTEM_VERSION_REQUIRED"),
+      product_package_version_ref: versionedRef(form.product_package_version_ref, "PRODUCT_PACKAGE_VERSION_REQUIRED"),
+      asset_bundle_version_ref: lesson.asset_bundle_version_ref,
+      model_provenance_ref: `model-draft:courseware-${lesson.sequence}`,
+      status: "APPROVED" as const,
+    })),
     release_notes: releaseNotes,
     rollback_baseline_ref: null,
   };
