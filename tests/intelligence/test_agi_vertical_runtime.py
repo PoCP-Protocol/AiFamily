@@ -183,6 +183,8 @@ async def test_published_capability_versions_are_part_of_request_identity():
         knowledge_ref="growth.v1",
     )
     assert gateway.last_request.input_refs[-1] == "practice:focus@1.0.0"
+    entry = runtime._ledger.read("run-c")
+    assert entry.capability_refs == ("practice:focus@1.0.0",)
     assert (
         gateway.last_request.payload["capability_candidates"][0]["capability_ref"]
         == "practice:focus"

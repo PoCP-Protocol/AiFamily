@@ -183,6 +183,7 @@ class EvaluationLedgerEntry:
     feedback_refs: tuple[str, ...]
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     guardian_calibration: dict[str, Any] | None = None
+    capability_refs: tuple[str, ...] = ()
 
 
 class EvaluationLedger:
@@ -373,6 +374,7 @@ class VerticalFamilyGrowthRuntime:
             draft,
             feedback_refs,
             guardian_calibration=calibration,
+            capability_refs=capability_refs,
         )
         self._ledger.append(entry)
         return entry
