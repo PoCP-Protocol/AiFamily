@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+
 from backend.apps.family_api.trusted_experience_scope import (
     AuthenticatedPrincipal,
     SqlAlchemyBearerPrincipalResolver,
@@ -16,7 +18,6 @@ from backend.platform.identity.trusted_context import (
     SqlAlchemyTrustedTenantScopeStoreFactory,
     TrustedTenantScopeResolver,
 )
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 
 @dataclass(frozen=True, slots=True)

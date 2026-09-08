@@ -5,6 +5,7 @@ import pytest
 from backend.apps.family_api.production_commerce_context import (
     ProductionCommerceReadContextResolver,
 )
+from backend.platform.identity.context import TenantContext, TenantStatus
 from backend.platform.identity.trusted_context import (
     InMemoryTrustedTenantScopeStore,
     TenantBindingStatus,
@@ -13,7 +14,6 @@ from backend.platform.identity.trusted_context import (
     TrustedTenantScope,
     TrustedTenantScopeResolver,
 )
-from backend.platform.identity.context import TenantContext, TenantStatus
 
 
 @pytest.mark.asyncio
