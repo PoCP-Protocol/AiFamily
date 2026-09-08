@@ -1,0 +1,71 @@
+"""Read-only projection of a vertical AGI run into a next-round growth path."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from backend.intelligence.experience.run_http import RunReplaySnapshot
+
+
+@dataclass(frozen=True, slots=True)
+class GrowthPathProjection:
+    family_need_id: str
+    path_id: str
+    run_id: str
+    context_snapshot_ref: str
+    decision_ref: str | None
+    decision_state: str | None
+    next_step: str | None
+    path: tuple[Any, ...]
+    status: str
+    requires_human_confirmation: bool = True
+
+
+def project_next_growth_path(snapshot: RunReplaySnapshot) -> GrowthPathProjection:
+    """Project a replay snapshot without model calls or state mutation.
+
+    The draft payload is the only source for path content; interactions only
+    provide Guardian decision metadata. Deleted runs intentionally fail closed.
+    """
+
+    if snapshot.deletion_state == "deleted" or snapshot.draft_payload is None:
+        raise ValueError("DELETED_RUN_NOT_READABLE")
+    payload = dict(snapshot.draft_payload)
+    family_need_id = str(payload.get("family_need_id", "")).strip()
+    path_id = str(payload.get("path_id", "")).strip()
+    context_ref = str(payload.get("context_snapshot_ref", "")).strip()
+    if not all((family_need_id, path_id, snapshot.run_id, context_ref)):
+        raise ValueError("GROWTH_PATH_CORRELATION_REQUIRED")
+    decision_ref: str | None = None
+    decision_state: str | None = None
+    for entry in snapshot.interactions:
+        if entry.interaction_type.value != "decision":
+            continue
+        if entry.payload.get("decision_ref"):
+            decision_ref = str(entry.payload["decision_ref"])
+        if entry.payload.get("state"):
+            decision_state = str(entry.payload["state"])
+        elif entry.payload.get("decision"):
+            decision_state = str(entry.payload["decision"])
+    output = payload.get("output")
+    if not isinstance(output, dict):
+        output = payload
+    path = output.get("path", ())
+    if not isinstance(path, (list, tuple)):
+        path = ()
+    next_step = output.get("next_step")
+    return GrowthPathProjection(
+        family_need_id=family_need_id,
+        path_id=path_id,
+        run_id=snapshot.run_id,
+        context_snapshot_ref=context_ref,
+        decision_ref=decision_ref,
+        decision_state=decision_state,
+        next_step=str(next_step) if next_step is not None else None,
+        path=tuple(path),
+        status="DRAFT",
+    )
+
+
+__all__ = ["GrowthPathProjection", "project_next_growth_path"]
