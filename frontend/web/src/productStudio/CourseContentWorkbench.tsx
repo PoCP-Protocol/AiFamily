@@ -107,7 +107,7 @@ export function CourseContentWorkbench({
   };
 
   const generateDraft = async () => {
-    if (contractPreview || !course.course_system_version_ref) return;
+    if (contractPreview || !course.course_system_version_ref || !course.content_accuracy_claim_refs.trim()) return;
     setBusy(true); setApiError(null); setGeneratedDraft(null);
     try {
       const candidate = await generationClient.generate(course.course_system_version_ref.split("@")[0], {
@@ -190,7 +190,7 @@ export function CourseContentWorkbench({
         <label className="consent-row"><input checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} type="checkbox" />我确认这只是课程设计 DRAFT，仍需证据准入、课件 QA 和人工发布决策。</label>
         <button className="secondary-button" disabled={!confirmed || busy} onClick={compilePreview} type="button">编译 24 课时合同预览</button>
         <button className="primary-button" disabled={contractPreview || !confirmed || !preview || busy || apiError?.code === "UNKNOWN_OUTCOME"} onClick={() => void saveDraft()} type="button">{busy ? "创建并回读中…" : pendingCreated ? "重试持久化回读" : "保存 CourseContent DRAFT"}</button>
-        <button className="secondary-button" disabled={contractPreview || !confirmed || busy || !course.course_system_version_ref} onClick={() => void generateDraft()} type="button">{busy ? "生成中…" : "生成课件 DRAFT（DECK）"}</button>
+        <button className="secondary-button" disabled={contractPreview || !confirmed || busy || !course.course_system_version_ref || !course.content_accuracy_claim_refs.trim()} onClick={() => void generateDraft()} type="button">{busy ? "生成中…" : "生成课件 DRAFT（DECK）"}</button>
       </div>
       {error ? <div className="callout" role="alert"><strong>课程合同未通过</strong><p>{error}</p></div> : null}
       {apiError ? <div className="callout" role="alert"><strong>{apiError.code}</strong><p>{apiError.message}</p>{apiError.code === "UNKNOWN_OUTCOME" ? <p>此处不提供重试按钮，避免重复创建。</p> : null}</div> : null}
