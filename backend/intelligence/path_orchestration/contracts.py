@@ -170,7 +170,20 @@ class FamilyPathContextPort(Protocol):
 
 
 class CapabilityCandidatePort(Protocol):
-    """Read-only catalogue of reviewed capability candidates."""
+    """Read-only catalogue of reviewed capability candidates.
+
+    Production implementations must derive the returned candidates from a
+    registered knowledge/capability source and must genuinely use `context`
+    to vary what is returned across families.  An implementation that
+    discards `context` (or `scope`) and returns a fixed pool regardless of
+    the family's real evidence is a development-only placeholder, not a
+    real capability source — it must say so explicitly in its own docstring
+    and must not be described as "context-driven" in any composition-root
+    wiring or ADR evidence entry.  See ADR-0158's "零模型调用" discussion
+    thread for why this distinction matters: a fixed candidate pool with a
+    scoring function on top is still a disguised if/else table, not an
+    AGI-native capability.
+    """
 
     async def list_candidates(
         self, *, scope: ContextScope, context: FamilyPathContext
