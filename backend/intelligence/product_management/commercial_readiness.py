@@ -41,6 +41,9 @@ def evaluate_commercial_readiness(
     be confused with the full 24-lesson catalogue.
     """
 
+    normalized_evidence_refs = tuple(
+        dict.fromkeys(ref.strip() for ref in evidence_refs if isinstance(ref, str) and ref.strip())
+    )
     checks = {
         "lesson_scope_valid": lesson_count in {4, 24},
         "courseware_approved": courseware_approved,
@@ -51,7 +54,7 @@ def evaluate_commercial_readiness(
         "delivery_readback_verified": delivery_readback_verified,
         "refund_recovery_verified": refund_recovery_verified,
         "human_gate_accepted": human_gate_accepted,
-        "evidence_refs_present": bool(tuple(ref.strip() for ref in evidence_refs if ref.strip())),
+        "evidence_refs_present": bool(normalized_evidence_refs),
     }
     blockers = tuple(name for name, passed in checks.items() if not passed)
     return CommercialReadiness(ready=not blockers, checks=checks, blockers=blockers)

@@ -275,7 +275,9 @@ async def commercial_readiness(body: CommercialReadinessRequest) -> CommercialRe
         ready=result.ready,
         checks=dict(result.checks),
         blockers=result.blockers,
-        evidence_refs=tuple(ref.strip() for ref in body.evidence_refs if ref.strip()),
+        evidence_refs=tuple(
+            dict.fromkeys(ref.strip() for ref in body.evidence_refs if ref.strip())
+        ),
     )
 
 
