@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .courseware_draft import CoursewareDraft
 from .errors import ProductIntelligenceValidationError
 
 CoursewareKind = Literal["DECK", "WORKSHEET", "IMAGE", "VIDEO", "AUDIO", "DOCUMENT"]
@@ -90,6 +91,7 @@ class CourseSystem(BaseModel):
     product_package_version_ref: str
     stages: tuple[CourseSystemStage, ...]
     bom: tuple[CoursewareBomLine, ...] = ()
+    courseware_drafts: tuple[CoursewareDraft, ...] = ()
 
     @field_validator("system_id", "tenant_scope", "product_package_version_ref")
     @classmethod
@@ -112,6 +114,11 @@ class CourseSystem(BaseModel):
             raise ProductIntelligenceValidationError(
                 "courseware_bom_lesson_sequence_must_be_unique"
             )
+        for draft in self.courseware_drafts:
+            if draft.course_system_version_ref != f"course-system:{self.system_id}@v{self.version}":
+                raise ProductIntelligenceValidationError("courseware_draft_system_ref_mismatch")
+            if draft.product_package_version_ref != self.product_package_version_ref:
+                raise ProductIntelligenceValidationError("courseware_draft_package_ref_mismatch")
         return self
 
 
