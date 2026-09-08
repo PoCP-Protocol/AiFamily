@@ -197,6 +197,20 @@ disposition = MIGRATE（`project_owner_override` 推翻此前 KEEP_NON_PYTHON）
 
 ---
 
+### 1.7 课程服务产品 IPD/PDM/PLM 纵向切片（2026-09-08 核实）
+
+Web-only Product Studio 与 `product_intelligence` 课程路由已形成可运行纵向切片：
+
+- 6 阶段 × 24 课时 `CourseSystem` 主数据与课件 BOM；
+- `CourseContent` 草稿、人工审核、发布与服务交付投影；
+- `ReleaseBaseline` 编译与 APPROVE/RELEASE/PAUSE/ROLLBACK/RETIRE 生命周期；
+- `course_release_baseline` PostgreSQL 持久化适配与恢复查询；
+- Web 端课件版本绑定、门禁提交与恢复展示。
+
+核实证据：前端全量测试 237 passed，课程后端链路 21 passed，路由测试覆盖租户隔离与 AI
+身份拒绝。真实 PostgreSQL 迁移测试仍由 `AIFAMILY_TEST_DATABASE_URL` 门控；生产 Human
+Gate 身份授权适配器尚未完成，因此该切片不等同于生产已发布能力。
+
 ## 2. In Progress（已开工，未达可用）
 
 ### 2.1 family_api 的业务路由挂载
