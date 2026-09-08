@@ -91,6 +91,28 @@ def test_course_system_read_route_is_tenant_scoped() -> None:
     )
 
 
+def test_curriculum_projection_exposes_all_24_lessons_and_bom() -> None:
+    from backend.domains.product_intelligence.infrastructure.course_system_repository import (
+        development_course_system_repository,
+    )
+
+    configure_course_system_repository(development_course_system_repository())
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_actor_context] = lambda: ActorContext(
+        actor_id="human", actor_type="HUMAN", tenant_scope="dev-tenant"
+    )
+    response = TestClient(app).get(
+        "/product-intelligence/courses/system/course-system:family-growth/curriculum"
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["lessons"]) == 24
+    assert payload["lessons"][0]["stage_id"] == "S1"
+    assert payload["lessons"][-1]["stage_id"] == "S6"
+    assert payload["lessons"][0]["artifact_kinds"] == ["DECK", "WORKSHEET", "DOCUMENT"]
+
+
 def test_course_draft_route_rejects_invalid_lineage_with_400() -> None:
     configure_course_content_repository(InMemoryCourseContentRepository())
     configure_course_content_gate(InMemoryHumanGate())

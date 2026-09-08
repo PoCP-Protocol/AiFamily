@@ -181,6 +181,28 @@ class CourseReleaseLifecycleRequest(BaseModel):
     rollback_target_ref: str | None = None
 
 
+class CourseCurriculumLesson(BaseModel):
+    """Read-only lesson projection for the Web course workbench.
+
+    This is a design-time projection: it exposes governed BOM references and
+    stage boundaries without pretending that AI-generated content is a fact.
+    """
+
+    sequence: int
+    stage_id: str
+    stage_title: str
+    stage_outcome: str
+    artifact_ids: tuple[str, ...]
+    artifact_kinds: tuple[str, ...]
+
+
+class CourseCurriculumProjection(BaseModel):
+    system_id: str
+    version: int
+    tenant_scope: str
+    lessons: tuple[CourseCurriculumLesson, ...]
+
+
 @router.get("/system/{system_id}", response_model=CourseSystem)
 async def get_system(
     system_id: str,
@@ -193,6 +215,54 @@ async def get_system(
         )
     except ProductIntelligenceDomainError as exc:
         _raise_http(exc)
+
+
+@router.get("/system/{system_id}/curriculum", response_model=CourseCurriculumProjection)
+async def get_curriculum_projection(
+    system_id: str,
+    repository: CourseSystemRepository = Depends(get_course_system_repository),
+    context: ActorContext = Depends(get_actor_context),
+):
+    """Return the normalized 24-lesson curriculum used by the Web UI."""
+
+    try:
+        system = await get_course_system(
+            repository, system_id=system_id, tenant_scope=context.tenant_scope
+        )
+    except ProductIntelligenceDomainError as exc:
+        _raise_http(exc)
+
+    stages_by_sequence = {
+        sequence: stage
+        for stage in system.stages
+        for sequence in range(stage.lesson_start, stage.lesson_end + 1)
+    }
+    bom_by_sequence = {line.lesson_sequence: line for line in system.bom}
+    lessons = tuple(
+        CourseCurriculumLesson(
+            sequence=sequence,
+            stage_id=stages_by_sequence[sequence].stage_id,
+            stage_title=stages_by_sequence[sequence].title,
+            stage_outcome=stages_by_sequence[sequence].outcome,
+            artifact_ids=tuple(
+                artifact.artifact_id for artifact in bom_by_sequence.get(sequence, ()).artifacts
+            )
+            if sequence in bom_by_sequence
+            else (),
+            artifact_kinds=tuple(
+                artifact.kind for artifact in bom_by_sequence.get(sequence, ()).artifacts
+            )
+            if sequence in bom_by_sequence
+            else (),
+        )
+        for sequence in range(1, 25)
+    )
+    return CourseCurriculumProjection(
+        system_id=system.system_id,
+        version=system.version,
+        tenant_scope=system.tenant_scope,
+        lessons=lessons,
+    )
 
 
 @router.post("")
