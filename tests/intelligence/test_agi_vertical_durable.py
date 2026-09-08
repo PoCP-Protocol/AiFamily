@@ -9,6 +9,7 @@ from backend.intelligence.agi_vertical_runtime import (
 )
 from backend.intelligence.experience.run_http import (
     InMemoryExperienceRunLedger,
+    RunHttpError,
     RunScope,
 )
 from backend.intelligence.model_gateway.contracts import AiProvenance, ModelDraft
@@ -53,3 +54,26 @@ async def test_guardian_decision_uses_explicit_run_correlation():
     replay = await adapter.replay(run_id="run-1", scope=scope)
     assert replay.interactions[-1].payload["decision_ref"] == "decision:edit-1"
     assert replay.interactions[-1].payload["run_id"] == "run-1"
+
+
+@pytest.mark.asyncio
+async def test_cross_family_replay_is_rejected_without_leaking_draft():
+    adapter = DurableVerticalLedgerAdapter(InMemoryExperienceRunLedger())
+    owner_scope = RunScope("tenant-1", "family-1", ("child-1",))
+    foreign_scope = RunScope("tenant-1", "family-2", ("child-2",))
+    await adapter.save_entry(entry(), scope=owner_scope)
+    with pytest.raises(RunHttpError):
+        await adapter.replay(run_id="run-1", scope=foreign_scope)
+
+
+@pytest.mark.asyncio
+async def test_cross_family_decision_is_rejected_before_interaction_write():
+    adapter = DurableVerticalLedgerAdapter(InMemoryExperienceRunLedger())
+    owner_scope = RunScope("tenant-1", "family-1", ("child-1",))
+    foreign_scope = RunScope("tenant-1", "family-2", ("child-2",))
+    await adapter.save_entry(entry(), scope=owner_scope)
+    decision = GuardianDecision("decision:foreign", "need-1", "run-1", "path-1", "EDIT")
+    with pytest.raises(RunHttpError):
+        await adapter.record_guardian_decision(decision, scope=foreign_scope)
+    replay = await adapter.replay(run_id="run-1", scope=owner_scope)
+    assert not replay.interactions
