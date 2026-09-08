@@ -38,11 +38,13 @@ describe("CommercialReadinessPanel", () => {
 
     render(<CommercialReadinessPanel />);
     const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "证据引用" }), "evidence:pilot@v1");
     await user.selectOptions(screen.getByRole("combobox", { name: "产品范围" }), "4");
     await user.click(screen.getByRole("button", { name: "评估当前证据" }));
 
     expect(await screen.findByText("21天成长营商业化就绪度")).toBeInTheDocument();
     expect(JSON.parse(fetchImpl.mock.calls[0][1].body as string).lesson_count).toBe(4);
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body as string).evidence_refs).toEqual(["evidence:pilot@v1"]);
   });
 
   it("fails closed when the readiness contract contains a non-boolean check", async () => {

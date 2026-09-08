@@ -16,11 +16,12 @@ const labels: Record<string, string> = {
 export function CommercialReadinessPanel() {
   const [result, setResult] = useState<CommercialReadiness | null>(null);
   const [lessonCount, setLessonCount] = useState<4 | 24>(24);
+  const [evidenceRefs, setEvidenceRefs] = useState("");
   const [error, setError] = useState<string | null>(null);
   const evaluate = async () => {
     setError(null);
     try {
-      setResult(await fetchCommercialReadiness({ lesson_count: lessonCount, courseware_approved: true, product_package_released: true, evidence_verified: true, payment_sandbox_verified: false, entitlement_grant_verified: false, delivery_readback_verified: false, refund_recovery_verified: false, human_gate_accepted: true }));
+      setResult(await fetchCommercialReadiness({ lesson_count: lessonCount, evidence_refs: evidenceRefs.split("\n").map((ref) => ref.trim()).filter(Boolean), courseware_approved: true, product_package_released: true, evidence_verified: true, payment_sandbox_verified: false, entitlement_grant_verified: false, delivery_readback_verified: false, refund_recovery_verified: false, human_gate_accepted: true }));
     } catch (cause) { setError(cause instanceof Error ? cause.message : "评估失败"); }
   };
   return <section aria-label="Commercial readiness" className="panel commercial-readiness-panel">
@@ -28,6 +29,7 @@ export function CommercialReadinessPanel() {
     <h2>{lessonCount === 4 ? "21天成长营商业化就绪度" : "24 节课程商业化就绪度"}</h2>
     <p className="muted">评估不会创建订单、收款或发放权益。</p>
     <label>产品范围<select aria-label="产品范围" value={lessonCount} onChange={(event) => setLessonCount(Number(event.target.value) as 4 | 24)}><option value={4}>21天成长营（4节）</option><option value={24}>24节完整课程</option></select></label>
+    <label>证据引用（每行一条）<textarea aria-label="证据引用" rows={3} value={evidenceRefs} onChange={(event) => setEvidenceRefs(event.target.value)} placeholder="evidence:payment-sandbox@v1" /></label>
     <button className="secondary-button" onClick={evaluate} type="button">评估当前证据</button>
     {error && <p role="alert" className="status status-timeout">{error}</p>}
     {result && <div className="commercial-readiness-result" data-ready={result.ready}>
