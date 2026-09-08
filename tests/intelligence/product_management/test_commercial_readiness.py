@@ -37,7 +37,12 @@ def test_four_lesson_pilot_can_pass_scope_gate_when_commerce_evidence_is_ready()
         delivery_readback_verified=True,
         refund_recovery_verified=True,
         human_gate_accepted=True,
-        evidence_refs=["evidence:full@v1"],
+        evidence_refs=[
+            "evidence:payment-sandbox@v1",
+            "evidence:entitlement-grant@v1",
+            "evidence:delivery-readback@v1",
+            "evidence:refund-recovery@v1",
+        ],
     )
 
     assert result.ready is True
@@ -55,7 +60,12 @@ def test_readiness_requires_all_checks() -> None:
         delivery_readback_verified=True,
         refund_recovery_verified=True,
         human_gate_accepted=True,
-        evidence_refs=["evidence:all@v1"],
+        evidence_refs=[
+            "evidence:payment-sandbox@v1",
+            "evidence:entitlement-grant@v1",
+            "evidence:delivery-readback@v1",
+            "evidence:refund-recovery@v1",
+        ],
     )
 
     assert result.ready is True
@@ -90,8 +100,35 @@ def test_unsupported_lesson_scope_fails_closed() -> None:
         delivery_readback_verified=True,
         refund_recovery_verified=True,
         human_gate_accepted=True,
-        evidence_refs=["evidence:scope@v1"],
+        evidence_refs=[
+            "evidence:payment-sandbox@v1",
+            "evidence:entitlement-grant@v1",
+            "evidence:delivery-readback@v1",
+            "evidence:refund-recovery@v1",
+            "evidence:scope@v1",
+        ],
     )
 
     assert result.ready is False
     assert result.blockers == ("lesson_scope_valid",)
+def test_commerce_claims_without_matching_receipts_fail_closed() -> None:
+    result = evaluate_commercial_readiness(
+        lesson_count=4,
+        courseware_approved=True,
+        product_package_released=True,
+        evidence_verified=True,
+        payment_sandbox_verified=True,
+        entitlement_grant_verified=True,
+        delivery_readback_verified=True,
+        refund_recovery_verified=True,
+        human_gate_accepted=True,
+        evidence_refs=("evidence:pilot@v1",),
+    )
+
+    assert result.ready is False
+    assert {
+        "payment_sandbox_verified",
+        "entitlement_grant_verified",
+        "delivery_readback_verified",
+        "refund_recovery_verified",
+    }.issubset(result.blockers)

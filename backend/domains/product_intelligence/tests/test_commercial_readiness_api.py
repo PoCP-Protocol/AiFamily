@@ -118,7 +118,13 @@ def test_commercial_readiness_rejects_unsupported_product_scope() -> None:
             "delivery_readback_verified": True,
             "refund_recovery_verified": True,
             "human_gate_accepted": True,
-            "evidence_refs": ["evidence:unsupported-scope@v1"],
+                "evidence_refs": [
+                    "evidence:unsupported-scope@v1",
+                    "evidence:payment-sandbox@v1",
+                    "evidence:entitlement-grant@v1",
+                    "evidence:delivery-readback@v1",
+                    "evidence:refund-recovery@v1",
+                ],
         },
     )
 

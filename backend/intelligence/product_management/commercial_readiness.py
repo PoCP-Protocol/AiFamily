@@ -44,6 +44,30 @@ def evaluate_commercial_readiness(
     normalized_evidence_refs = tuple(
         dict.fromkeys(ref.strip() for ref in evidence_refs if isinstance(ref, str) and ref.strip())
     )
+    evidence_set = set(normalized_evidence_refs)
+    # Operator-provided booleans are claims, not proof.  The four paid-flow
+    # gates must each carry their own versioned receipt before they can pass.
+    # This prevents a UI checkbox from turning an unverified commerce path
+    # into a commercially-ready product.
+    commerce_receipts = {
+        "payment_sandbox_verified": "evidence:payment-sandbox@v1",
+        "entitlement_grant_verified": "evidence:entitlement-grant@v1",
+        "delivery_readback_verified": "evidence:delivery-readback@v1",
+        "refund_recovery_verified": "evidence:refund-recovery@v1",
+    }
+    if normalized_evidence_refs:
+        payment_sandbox_verified = payment_sandbox_verified and commerce_receipts[
+            "payment_sandbox_verified"
+        ] in evidence_set
+        entitlement_grant_verified = entitlement_grant_verified and commerce_receipts[
+            "entitlement_grant_verified"
+        ] in evidence_set
+        delivery_readback_verified = delivery_readback_verified and commerce_receipts[
+            "delivery_readback_verified"
+        ] in evidence_set
+        refund_recovery_verified = refund_recovery_verified and commerce_receipts[
+            "refund_recovery_verified"
+        ] in evidence_set
     checks = {
         "lesson_scope_valid": lesson_count in {4, 24},
         "courseware_approved": courseware_approved,
