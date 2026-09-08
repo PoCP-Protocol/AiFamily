@@ -219,6 +219,7 @@ class CommercialReadinessRequest(BaseModel):
 
 
 class CommercialReadinessResponse(BaseModel):
+    execution_mode: str
     scope: str
     ready: bool
     checks: dict[str, bool]
@@ -277,6 +278,7 @@ async def commercial_readiness(body: CommercialReadinessRequest) -> CommercialRe
         **{**body.model_dump(), "evidence_refs": normalized_refs}
     )
     return CommercialReadinessResponse(
+        execution_mode="EVALUATION_ONLY",
         scope="PILOT_21D" if body.lesson_count == 4 else "FULL_24",
         ready=result.ready,
         checks=dict(result.checks),
