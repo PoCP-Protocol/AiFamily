@@ -60,3 +60,4 @@ def test_release_baseline_route_persists_approves_and_restores(
     assert decided.json()["baseline"]["status"] == "REVIEWED"
     assert client.get(path, headers=headers).json()["status"] == "REVIEWED"
     assert client.get(path, headers={**headers, "x-tenant-scope": "tenant-b"}).status_code == 404
+
