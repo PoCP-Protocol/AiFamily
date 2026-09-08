@@ -11,6 +11,7 @@ tenant fallback.
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -85,6 +86,10 @@ from backend.intelligence.model_gateway.contracts import (
     PromptExecutionPlan,
 )
 from backend.intelligence.model_gateway.gateway import ModelGateway
+from backend.intelligence.model_gateway.ibm_ica_wiring import (
+    IBM_ICA_PROVIDER_ID,
+    build_livecheck_ibm_ica_gateway,
+)
 from backend.intelligence.model_gateway.provenance import (
     InMemoryModelDraftRegistry,
     ModelDraftRegistryPort,
@@ -105,6 +110,8 @@ _SYNTHETIC_PURPOSE = FAMILY_EXPERIENCE_USE_CASE
 _SYNTHETIC_PROVIDER_ID = "synthetic-deterministic"
 _SYNTHETIC_ROUTING_POLICY_VERSION = "synthetic-routing.v1"
 _SYNTHETIC_ENVIRONMENTS = frozenset({"development", "test"})
+_SYNTHETIC_PROVIDER_ENV_VAR = "AIFAMILY_SYNTHETIC_RUNTIME_PROVIDER"
+_SYNTHETIC_PROVIDER_IBM_ICA = "ibm_ica"
 
 
 @dataclass(frozen=True, slots=True)
@@ -305,29 +312,8 @@ def build_synthetic_runtime(
         effective_at=datetime.now(UTC) - timedelta(days=1),
         change_reason="Synthetic adapter for production-parity contract tests",
     )
-    provider = FakeProvider(
-        {
-            _SYNTHETIC_PURPOSE: {
-                "understanding": "这是由生产同构测试链路生成的合成草案",
-                "next_step": "由家庭成员确认后再继续",
-                "limitations": ["仅使用隔离的合成数据，不代表真实家庭事实"],
-            }
-        },
-        provider_id=_SYNTHETIC_PROVIDER_ID,
-    )
-    provider_record = ProviderRecord(
-        provider_id=_SYNTHETIC_PROVIDER_ID,
-        vendor="aifamily-test",
-        model="fake-deterministic",
-        model_version="1.0.0",
-        status="INTERNAL_APPROVED",
-        approved_environments=(environment,),
-        sub_delegates=False,
-        security_assessment_ref="synthetic-test-only",
-        processing_agreement_ref="synthetic-test-only",
-        deletion_on_termination_committed=True,
-        processing_region="local-test",
-    )
+    provider, provider_record = _build_synthetic_provider(environment=environment)
+    provider_id = provider_record.provider_id
     budget_now = datetime.now(UTC)
     budget_policy = _synthetic_budget_policy()
     if budget_store is None:
@@ -347,8 +333,8 @@ def build_synthetic_runtime(
             version="synthetic-family-rate.v1",
             rates=(
                 ModelRate(
-                    provider_id=_SYNTHETIC_PROVIDER_ID,
-                    model="fake-deterministic",
+                    provider_id=provider_id,
+                    model=provider_record.model,
                     prompt_microusd_per_1k=1,
                     completion_microusd_per_1k=1,
                     media_item_microusd=1,
@@ -363,7 +349,7 @@ def build_synthetic_runtime(
     )
     safety_runtime = SafetyRuntime()
     gateway = ModelGateway(
-        {_SYNTHETIC_PROVIDER_ID: provider},
+        {provider_id: provider},
         environment=environment,
         registry=ProviderRegistry((provider_record,)),
         safety_runtime=safety_runtime,
@@ -371,17 +357,17 @@ def build_synthetic_runtime(
     )
     profile = replace(
         QWEN_MULTIMODAL_CANDIDATE,
-        provider_id=_SYNTHETIC_PROVIDER_ID,
-        vendor="aifamily-test",
-        model="fake-deterministic",
-        model_version="1.0.0",
+        provider_id=provider_id,
+        vendor=provider_record.vendor,
+        model=provider_record.model,
+        model_version=provider_record.model_version,
         status="INTERNAL_APPROVED",
         approved_environments=(environment,),
         approved_data_classes=frozenset({"SYNTHETIC"}),
         sub_delegates=False,
-        security_assessment_ref="synthetic-test-only",
-        processing_agreement_ref="synthetic-test-only",
-        deletion_on_termination_committed=True,
+        security_assessment_ref=provider_record.security_assessment_ref,
+        processing_agreement_ref=provider_record.processing_agreement_ref,
+        deletion_on_termination_committed=provider_record.deletion_on_termination_committed,
     )
     router = MultimodalRouter(
         (profile,),
@@ -410,9 +396,7 @@ def build_synthetic_runtime(
             zip(release_set.provider_ids, release_set.bundle_ids, strict=True)
         ),
     )
-    gateway = gateway.with_invocation_fence(
-        InMemoryModelInvocationFence(synthetic_model_binding)
-    )
+    gateway = gateway.with_invocation_fence(InMemoryModelInvocationFence(synthetic_model_binding))
     routed = RoutedMultimodalExperienceService(
         router=router,
         generation=MultimodalExperienceService(
@@ -473,6 +457,59 @@ def build_synthetic_runtime(
     )
 
 
+def _build_synthetic_provider(*, environment: str) -> tuple[object, ProviderRecord]:
+    """Select the gated provider while keeping FakeProvider the default."""
+
+    selected = os.environ.get(_SYNTHETIC_PROVIDER_ENV_VAR, "fake").strip().lower()
+    if selected == "fake":
+        record = ProviderRecord(
+            provider_id=_SYNTHETIC_PROVIDER_ID,
+            vendor="aifamily-test",
+            model="fake-deterministic",
+            model_version="1.0.0",
+            status="INTERNAL_APPROVED",
+            approved_environments=(environment,),
+            sub_delegates=False,
+            security_assessment_ref="synthetic-test-only",
+            processing_agreement_ref="synthetic-test-only",
+            deletion_on_termination_committed=True,
+            processing_region="local-test",
+        )
+        return (
+            FakeProvider(
+                {
+                    _SYNTHETIC_PURPOSE: {
+                        "understanding": (
+                            "你们正在尝试让晚间学习更顺利，但持续催促和拒绝沟通，"
+                            "让家长和孩子最后都退出了讨论。现在更值得先确认的，"
+                            "可能不是谁需要更努力，而是如何让开始学习的那几分钟少一点拉扯。"
+                        ),
+                        "next_step": (
+                            "先共同约定一个十分钟内、任何一方都可以暂停的开始步骤；"
+                            "不同意时就先停下来。"
+                        ),
+                        "path": ["共同选择一个十分钟内可暂停的家庭小步骤"],
+                        "limitations": ["仅使用隔离的合成数据，不代表真实家庭事实"],
+                    }
+                },
+                provider_id=_SYNTHETIC_PROVIDER_ID,
+            ),
+            record,
+        )
+    if selected != "ibm_ica":
+        raise ValueError(f"{_SYNTHETIC_PROVIDER_ENV_VAR} must be 'fake' or 'ibm_ica'")
+
+    livecheck_gateway = build_livecheck_ibm_ica_gateway()
+    adapter = getattr(livecheck_gateway, "_providers", {}).get(IBM_ICA_PROVIDER_ID)
+    if adapter is None:
+        raise RuntimeError("IBM ICA livecheck gateway did not wire its provider")
+    record = replace(
+        livecheck_gateway.registry.get(IBM_ICA_PROVIDER_ID),
+        approved_environments=(environment,),
+    )
+    return adapter, record
+
+
 def _build_synthetic_release_set(
     *,
     environment: str,
@@ -516,9 +553,7 @@ def _build_synthetic_release_set(
         report_ref="synthetic:benchmark:production-parity",
         decision_id=hashlib.sha256(f"decision:{bundle_seed}".encode()).hexdigest(),
         control_id=hashlib.sha256(f"control:{bundle_seed}".encode()).hexdigest(),
-        approval_signature_ref=hashlib.sha256(
-            f"signature:{bundle_seed}".encode()
-        ).hexdigest(),
+        approval_signature_ref=hashlib.sha256(f"signature:{bundle_seed}".encode()).hexdigest(),
         approval_signature_algorithm="synthetic-test-signature-v1",
         approved_by="operator:synthetic-release",
         approved_at=now,
