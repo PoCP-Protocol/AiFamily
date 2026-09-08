@@ -366,6 +366,7 @@ class VerticalFamilyGrowthRuntime:
         draft = await self._gateway.generate_structured(request, provider_id=provider_id)
         if draft.status != "DRAFT" or draft.may_mutate_business_state:
             raise VerticalRuntimeError("DRAFT_ONLY_VIOLATION")
+        _assert_capability_grounding(draft.output, capability_refs)
         entry = EvaluationLedgerEntry(
             family_need_id,
             path_id,
@@ -378,6 +379,27 @@ class VerticalFamilyGrowthRuntime:
         )
         self._ledger.append(entry)
         return entry
+
+
+def _assert_capability_grounding(output: dict[str, Any], capability_refs: tuple[str, ...]) -> None:
+    """Reject explicit model capability references absent from the reviewed catalogue."""
+
+    if not capability_refs:
+        return
+    allowed = set(capability_refs)
+    references: list[Any] = []
+    declared = output.get("capability_refs")
+    if isinstance(declared, (list, tuple)):
+        references.extend(declared)
+    path = output.get("path")
+    if isinstance(path, (list, tuple)):
+        for node in path:
+            if isinstance(node, dict) and "capability_ref" in node:
+                ref = node["capability_ref"]
+                version = node.get("version")
+                references.append(f"{ref}@{version}" if isinstance(version, str) else ref)
+    if any(not isinstance(ref, str) or ref not in allowed for ref in references):
+        raise VerticalRuntimeError("CAPABILITY_GROUNDING_VIOLATION")
 
 
 __all__ = [

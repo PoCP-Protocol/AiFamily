@@ -231,6 +231,67 @@ async def test_capability_registry_with_no_matching_offer_fails_before_model_cal
     assert gateway.calls == 0
 
 
+@pytest.mark.asyncio
+async def test_model_cannot_invent_capability_outside_published_catalogue():
+    from backend.intelligence.capability_registry import CapabilityOffer, CapabilityRegistry
+
+    registry = CapabilityRegistry(
+        (
+            CapabilityOffer(
+                "practice:focus",
+                "1.0.0",
+                "专注练习",
+                "家庭可选择的专注练习",
+                "growth_path_design",
+                "family_growth",
+                need_types=("routine",),
+                owner="growth-team",
+            ),
+        )
+    )
+    registry.transition("practice:focus", "1.0.0", "REVIEWED")
+    registry.transition("practice:focus", "1.0.0", "PUBLISHED")
+
+    class HallucinatingGateway(Gateway):
+        async def generate_structured(self, request, *, provider_id=None):
+            self.calls += 1
+            return ModelDraft(
+                {
+                    "understanding": "x",
+                    "next_step": "y",
+                    "path": [{"capability_ref": "service:invented", "version": "9.9.9"}],
+                },
+                AiProvenance(
+                    "fake",
+                    "model",
+                    "v1",
+                    request.prompt_version,
+                    request.schema_version,
+                    request.context_snapshot_ref,
+                    1,
+                    request.data_class,
+                    request.use_case,
+                ),
+            )
+
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=HallucinatingGateway(),
+        context=Context({"need_type": "routine"}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+        capabilities=registry,
+    )
+    with pytest.raises(VerticalRuntimeError, match="CAPABILITY_GROUNDING_VIOLATION"):
+        await runtime.run(
+            family_need_id="need-h",
+            path_id="path-h",
+            run_id="run-h",
+            family_id="family-h",
+            knowledge_ref="growth.v1",
+        )
+
+
 def real_gateway(provider: FakeProvider, *, timeout_seconds: float = 1.0) -> ModelGateway:
     record = ProviderRecord(
         provider_id=provider.provider_id,
