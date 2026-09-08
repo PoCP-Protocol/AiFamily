@@ -61,4 +61,13 @@ describe("CommercialReadinessPanel", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("commercial_readiness_invalid_response");
   });
+
+  it("explains how to fix an invalid evidence reference", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{\"detail\":\"READINESS_EVIDENCE_REF_INVALID\"}", { status: 422 })));
+
+    render(<CommercialReadinessPanel />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "评估当前证据" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("evidence:payment@v1");
+  });
 });

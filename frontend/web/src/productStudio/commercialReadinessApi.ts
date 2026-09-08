@@ -28,7 +28,10 @@ export async function fetchCommercialReadiness(
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (!response.ok) throw new Error(`commercial_readiness_http_${response.status}`);
+  if (!response.ok) {
+    if (response.status === 422) throw new Error("证据引用必须使用带版本的格式，例如 evidence:payment@v1");
+    throw new Error(`commercial_readiness_http_${response.status}`);
+  }
   const result = await response.json() as CommercialReadiness;
   const checksAreValid = result.checks && typeof result.checks === "object"
     && Object.values(result.checks).every((value) => typeof value === "boolean");
