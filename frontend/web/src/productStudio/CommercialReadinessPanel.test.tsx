@@ -94,4 +94,16 @@ describe("CommercialReadinessPanel", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("evidence:payment@v1");
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+
+  it("sends operator-selected commerce evidence states", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ready: false, execution_mode: "EVALUATION_ONLY", evaluated_at: "2026-09-09T12:00:00Z", scope: "FULL_24", checks: { lesson_scope_valid: true }, blockers: [], evidence_refs: ["evidence:payment@v1"] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchImpl);
+    render(<CommercialReadinessPanel />);
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "证据引用" }), "evidence:payment@v1");
+    await user.click(screen.getByLabelText("支付沙箱已验证"));
+    await user.click(screen.getByRole("button", { name: "评估当前证据" }));
+    const body = JSON.parse(fetchImpl.mock.calls[0][1].body as string);
+    expect(body.payment_sandbox_verified).toBe(true);
+  });
 });

@@ -17,6 +17,16 @@ export function CommercialReadinessPanel() {
   const [result, setResult] = useState<CommercialReadiness | null>(null);
   const [lessonCount, setLessonCount] = useState<4 | 24>(24);
   const [evidenceRefs, setEvidenceRefs] = useState("");
+  const [checks, setChecks] = useState({
+    courseware_approved: true,
+    product_package_released: true,
+    evidence_verified: true,
+    payment_sandbox_verified: false,
+    entitlement_grant_verified: false,
+    delivery_readback_verified: false,
+    refund_recovery_verified: false,
+    human_gate_accepted: true,
+  });
   const [error, setError] = useState<string | null>(null);
   const evaluate = async () => {
       setError(null);
@@ -25,7 +35,7 @@ export function CommercialReadinessPanel() {
         if (refs.length === 0 || refs.some((ref) => !/@v[1-9][0-9]*$/.test(ref))) {
           throw new Error("证据引用必须使用带版本的格式，例如 evidence:payment@v1");
         }
-        setResult(await fetchCommercialReadiness({ lesson_count: lessonCount, evidence_refs: refs, courseware_approved: true, product_package_released: true, evidence_verified: true, payment_sandbox_verified: false, entitlement_grant_verified: false, delivery_readback_verified: false, refund_recovery_verified: false, human_gate_accepted: true }));
+      setResult(await fetchCommercialReadiness({ lesson_count: lessonCount, evidence_refs: refs, ...checks }));
     } catch (cause) { setError(cause instanceof Error ? cause.message : "评估失败"); }
   };
   return <section aria-label="Commercial readiness" className="panel commercial-readiness-panel">
@@ -34,6 +44,7 @@ export function CommercialReadinessPanel() {
     <p className="muted">评估不会创建订单、收款或发放权益。</p>
     <label>产品范围<select aria-label="产品范围" value={lessonCount} onChange={(event) => setLessonCount(Number(event.target.value) as 4 | 24)}><option value={4}>21天成长营（4节）</option><option value={24}>24节完整课程</option></select></label>
     <label>证据引用（每行一条）<textarea aria-label="证据引用" rows={3} value={evidenceRefs} onChange={(event) => setEvidenceRefs(event.target.value)} placeholder="evidence:payment-sandbox@v1" /></label>
+    <fieldset><legend>商业化证据状态</legend>{Object.entries(checks).map(([key, value]) => <label key={key}><input type="checkbox" checked={value} onChange={(event) => setChecks((current) => ({ ...current, [key]: event.target.checked }))} /> {labels[key] ?? key}</label>)}</fieldset>
     <button className="secondary-button" onClick={evaluate} type="button">评估当前证据</button>
     {error && <p role="alert" className="status status-timeout">{error}</p>}
     {result && <div className="commercial-readiness-result" data-ready={result.ready}>
