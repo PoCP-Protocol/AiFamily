@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from backend.intelligence.agi_assessment_bridge import build_vertical_draft_input
+from backend.intelligence.agi_assessment_bridge import (
+    build_experience_draft_request,
+    build_vertical_draft_input,
+)
 from backend.intelligence.agi_vertical_runtime import FamilyGrowthContext
 from backend.intelligence.experience.api import MultimodalDraftRequest
 
@@ -67,3 +70,24 @@ def test_rejects_assessment_without_source_refs():
             run_id="run-1",
             assessment_evidence={"focus_ref": "LEARNING_HABITS"},
         )
+
+
+def test_builds_existing_experience_route_request_with_correlation_refs():
+    request = build_experience_draft_request(
+        context(),
+        family_need_id="need-1",
+        path_id="path-1",
+        run_id="run-1",
+        prompt_version="vertical-growth.v1",
+        schema_version="vertical-growth-draft.v1",
+        output_schema={"type": "object", "required": ["understanding"]},
+    )
+    assert request.run_id == "run-1"
+    assert request.payload["family_need_id"] == "need-1"
+    assert request.payload["path_id"] == "path-1"
+    assert request.input_refs == (
+        "need-1",
+        "path-1",
+        "run-1",
+        "context:need-1:v3",
+    )

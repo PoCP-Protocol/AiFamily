@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from backend.intelligence.agi_vertical_runtime import FamilyGrowthContext
+from backend.intelligence.experience.api import MultimodalDraftRequest
 
 
 def build_vertical_draft_input(
@@ -65,4 +66,36 @@ def build_vertical_draft_input(
     return payload, tuple(dict.fromkeys(refs))
 
 
-__all__ = ["build_vertical_draft_input"]
+def build_experience_draft_request(
+    context: FamilyGrowthContext,
+    *,
+    family_need_id: str,
+    path_id: str,
+    run_id: str,
+    prompt_version: str,
+    schema_version: str,
+    output_schema: dict[str, Any],
+    assessment_evidence: Mapping[str, Any] | None = None,
+) -> MultimodalDraftRequest:
+    """Build the existing Experience route DTO from real AGI inputs."""
+
+    payload, input_refs = build_vertical_draft_input(
+        context,
+        family_need_id=family_need_id,
+        path_id=path_id,
+        run_id=run_id,
+        assessment_evidence=assessment_evidence,
+    )
+    return MultimodalDraftRequest(
+        run_id=run_id,
+        prompt_version=prompt_version,
+        schema_version=schema_version,
+        payload=payload,
+        output_schema=output_schema,
+        modalities=("TEXT",),
+        estimated_input_tokens=max(1, len(str(payload)) // 4),
+        input_refs=input_refs,
+    )
+
+
+__all__ = ["build_experience_draft_request", "build_vertical_draft_input"]
