@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { CommercialReadinessPanel } from "./CommercialReadinessPanel";
@@ -27,7 +27,7 @@ describe("CommercialReadinessPanel", () => {
     expect(await screen.findByText("暂不可商业化")).toBeInTheDocument();
     expect(screen.getByText(/EVALUATION_ONLY/)).toBeInTheDocument();
     expect(screen.getByText(/支付沙箱已验证/)).toBeInTheDocument();
-    expect(screen.getByText("evidence:payment-sandbox@v1")).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "商业化证据引用" })).getByText("evidence:payment-sandbox@v1")).toBeInTheDocument();
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
