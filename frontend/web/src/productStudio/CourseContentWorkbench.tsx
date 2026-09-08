@@ -111,7 +111,7 @@ export function CourseContentWorkbench({
     setBusy(true); setApiError(null); setGeneratedDraft(null);
     try {
       const candidate = await generationClient.generate(course.course_system_version_ref.split("@")[0], {
-        lesson, evidence_refs: splitRefs(course.content_accuracy_claim_refs), context_snapshot_ref: "course-content-workbench", provider_id: "default",
+        lesson, evidence_refs: splitRefs(course.content_accuracy_claim_refs), context_snapshot_ref: "course-content-workbench", provider_id: "fake-deterministic",
         product_package_version_ref: course.product_component_id ?? "product-package:family-growth@v1",
         course_system_version_ref: course.course_system_version_ref, asset_bundle_version_ref: `courseware:family-growth:lesson-${String(lesson.sequence).padStart(2, "0")}:deck@v1`,
         kind: "DECK",
