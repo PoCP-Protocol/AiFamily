@@ -23,7 +23,8 @@ export class HttpCoursewareGenerationClient implements CoursewareGenerationClien
     let response: Response;
     try {
       const token = this.options.accessTokenProvider?.() ?? this.options.accessToken;
-      response = await (this.options.fetchImpl ?? globalThis.fetch.bind(globalThis))(`${this.options.baseUrl ?? ""}/product-intelligence/courses/system/${encodeURIComponent(systemId)}/courseware-drafts`, { method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(request) });
+      const baseUrl = this.options.baseUrl ?? (import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8010");
+      response = await (this.options.fetchImpl ?? globalThis.fetch.bind(globalThis))(`${baseUrl}/product-intelligence/courses/system/${encodeURIComponent(systemId)}/courseware-drafts`, { method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(request) });
     } catch { throw new ProductStudioApiError("UNAVAILABLE", "课件生成服务暂时不可达。"); }
     if (!response.ok) throw new ProductStudioApiError(response.status >= 500 ? "UNAVAILABLE" : "INVALID_RESPONSE", `课件生成请求失败（HTTP ${response.status}）。`, response.status);
     const body = await response.json() as { courseware_draft?: unknown };
