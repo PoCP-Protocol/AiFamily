@@ -50,6 +50,8 @@ from .dependencies import get_actor_context
 
 router = APIRouter(prefix="/product-intelligence/courses", tags=["product-intelligence-courses"])
 
+COURSE_RELEASE_REVIEW_PERMISSION = "product_intelligence.course_release.review"
+
 _ERROR_STATUS = {
     "ProductIntelligenceValidationError": 400,
     "ProductIntelligenceForbiddenError": 403,
@@ -328,6 +330,8 @@ async def advance_release_baseline(
         raise HTTPException(status_code=404, detail="COURSE_RELEASE_BASELINE_NOT_FOUND")
     if context.actor_type != "HUMAN":
         raise HTTPException(status_code=403, detail="COURSE_RELEASE_HUMAN_ACTOR_REQUIRED")
+    if COURSE_RELEASE_REVIEW_PERMISSION not in context.permissions:
+        raise HTTPException(status_code=403, detail="COURSE_RELEASE_REVIEW_PERMISSION_REQUIRED")
     try:
         decision = HumanDecision(
             decision_id=body.decision_id,
@@ -387,6 +391,7 @@ __all__ = [
     "configure_course_content_repository",
     "configure_course_release_baseline_store",
     "configure_course_release_baseline_repository",
+    "COURSE_RELEASE_REVIEW_PERMISSION",
     "configure_course_system_repository",
     "router",
 ]

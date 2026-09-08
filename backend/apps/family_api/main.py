@@ -321,6 +321,7 @@ def _mount_course_content(application: FastAPI, *, database_url: str | None = No
                 {
                     "product_intelligence.course_content.author",
                     "product_intelligence.course_content.review",
+                    "product_intelligence.course_release.review",
                 }
             ),
         )

@@ -64,6 +64,40 @@ def test_release_baseline_route_persists_approves_and_restores(
     assert client.get(path, headers={**headers, "x-tenant-scope": "tenant-b"}).status_code == 404
 
 
+def test_release_baseline_lifecycle_requires_release_review_permission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AIFAMILY_ENV", "test")
+    app = create_app()
+    from backend.domains.product_intelligence.api.course_routes import get_actor_context
+    app.dependency_overrides[get_actor_context] = lambda: ActorContext(
+        actor_id="human-author",
+        actor_type="HUMAN",
+        tenant_scope="tenant-no-permission",
+        permissions=frozenset(),
+    )
+    with TestClient(app) as client:
+        created = client.post(
+            "/product-intelligence/courses/release-baselines",
+            json={"payload": _payload()},
+        )
+        response = client.post(
+            f"/product-intelligence/courses/release-baselines/{created.json()['release_id']}/lifecycle",
+            json={
+                "action": "APPROVE",
+                "decision_id": "decision:1",
+                "task_id": "task:1",
+                "evidence": [{
+                    "evidence_id": "receipt:course",
+                    "kind": "QA",
+                    "reference": "qa://course",
+                    "summary": "通过",
+                }],
+            },
+        )
+    assert response.status_code == 403
+
+
 def test_release_baseline_lifecycle_rejects_ai_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
