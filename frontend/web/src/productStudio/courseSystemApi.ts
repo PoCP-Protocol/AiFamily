@@ -67,6 +67,8 @@ export function validateCourseSystem(value: unknown): CourseSystemBlueprint {
     if ((kind === "MICRO_CAMP" && duration !== 21) || (kind === "SCALE_PLAN" && duration !== 90)) throw new ProductStudioApiError("INVALID_RESPONSE", "课程旅程周期与产品形态不一致。");
     return { journey_id: binding.journey_id, kind, duration_days: duration, lesson_sequences: lessons as number[], service_task_refs: tasks as string[], outcome: binding.outcome };
   }) : [];
+  const journeyKinds = journeyBindings.map((binding) => binding.kind);
+  if (new Set(journeyKinds).size !== journeyKinds.length) throw new ProductStudioApiError("INVALID_RESPONSE", "课程旅程绑定类型不可重复。");
   const normalized = { system_id: row.system_id, tenant_scope: row.tenant_scope, version: `v${row.version}`, product_package_version_ref: row.product_package_version_ref, stages: stages(row.stages), bom_lesson_sequences: bom, bom_lesson_statuses: bomStatuses, journey_bindings: journeyBindings };
   return normalized;
 }
