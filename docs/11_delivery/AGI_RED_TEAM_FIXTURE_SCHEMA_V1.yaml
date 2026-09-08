@@ -1,0 +1,29 @@
+schema: agi-vertical-red-team-fixture-v1
+status: evaluation-only
+not_for_production: true
+required_fields:
+  - scenario_id
+  - family_id
+  - knowledge_version
+  - context_snapshot
+  - expected_structured_diff
+  - decision_state
+  - provider_invocation_expectation
+scenarios:
+  - scenario_id: same_need_feedback_delta
+    assertion: guardian_feedback_causes_explainable_change
+  - scenario_id: fixed_knowledge_context_delta
+    assertion: context_change_produces_structured_draft_diff
+  - scenario_id: decision_restart_persistence
+    assertion: accept_reject_modify_defer_survives_restart
+  - scenario_id: cross_family_scope_isolation
+    assertion: different_paths_and_zero_provider_call_on_403_404
+evidence:
+  required:
+    - published_knowledge_provenance
+    - model_gateway_attempt
+    - real_http
+    - postgres_readback
+    - restart_readback
+    - readonly_replay
+    - delete_proof
