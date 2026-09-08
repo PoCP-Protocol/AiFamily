@@ -111,5 +111,6 @@ describe("CommercialReadinessPanel", () => {
     render(<CommercialReadinessPanel />);
     expect(screen.getByLabelText("当前选中的商业化证据状态")).toHaveTextContent("课件已审批");
     expect(screen.getByLabelText("当前选中的商业化证据状态")).not.toHaveTextContent("支付沙箱已验证");
+    expect(screen.getByText(/勾选仅代表本次评估输入/)).toBeInTheDocument();
   });
 });
