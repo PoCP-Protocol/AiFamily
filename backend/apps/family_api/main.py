@@ -38,6 +38,10 @@ from backend.apps.family_api.growth_onboarding_wiring import (
     install_growth_onboarding_dev_wiring,
     install_growth_onboarding_production_wiring,
 )
+from backend.apps.family_api.production_commerce_api import build_production_commerce_router
+from backend.apps.family_api.production_commerce_context import (
+    ProductionCommerceReadContextResolver,
+)
 from backend.apps.family_api.production_vertical_family_growth_wiring import (
     ProductionVerticalFamilyGrowthComposition,
 )
@@ -446,9 +450,20 @@ def create_app(
     vertical_family_growth_runtime: VerticalFamilyGrowthRuntime | None = None,
     production_vertical_family_growth_composition: ProductionVerticalFamilyGrowthComposition
     | None = None,
+    production_commerce_context_resolver: ProductionCommerceReadContextResolver | None = None,
+    production_commerce_repository_factory: Callable | None = None,
 ) -> FastAPI:
     _configure_fgcn_persistence()
     application = FastAPI(title="AiFamily family_api", version="0.1.0")
+    if production_commerce_context_resolver is not None:
+        if production_commerce_repository_factory is None:
+            raise TypeError("production commerce repository factory is required")
+        application.include_router(
+            build_production_commerce_router(
+                context_resolver=production_commerce_context_resolver,
+                repository_factory=production_commerce_repository_factory,
+            )
+        )
     application.include_router(vertical_family_growth_router)
     if production_vertical_family_growth_composition is not None:
         production_vertical_family_growth_composition.install(application)
