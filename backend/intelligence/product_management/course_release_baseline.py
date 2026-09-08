@@ -35,6 +35,9 @@ def compile_course_release_baseline(payload: Mapping[str, object]) -> ReleaseBas
     lessons = payload.get("lessons")
     if not isinstance(lessons, list) or len(lessons) != 24:
         raise ValueError("COURSE_RELEASE_REQUIRES_24_LESSONS")
+    courseware_drafts = payload.get("courseware_drafts", ())
+    if not isinstance(courseware_drafts, (list, tuple)):
+        raise ValueError("COURSE_RELEASE_COURSEWARE_DRAFTS_INVALID")
     def refs(key: str) -> tuple[str, ...]:
         value = payload.get(key, ())
         if not isinstance(value, (list, tuple)):
@@ -86,6 +89,21 @@ def compile_course_release_baseline(payload: Mapping[str, object]) -> ReleaseBas
         raise ValueError("COURSE_RELEASE_LESSON_REFS_REQUIRED")
     for ref in lesson_refs + asset_refs + skill_refs:
         _require_versioned_ref(ref, "COURSE_RELEASE_LESSON_REF_INVALID")
+    for draft in courseware_drafts:
+        if not isinstance(draft, Mapping):
+            raise ValueError("COURSE_RELEASE_COURSEWARE_DRAFT_INVALID")
+        required_draft = (
+            "draft_id", "course_system_version_ref", "product_package_version_ref",
+            "asset_bundle_version_ref", "model_provenance_ref", "status",
+        )
+        if any(not str(draft.get(key, "")).strip() for key in required_draft):
+            raise ValueError("COURSE_RELEASE_COURSEWARE_DRAFT_FIELDS_REQUIRED")
+        if draft["course_system_version_ref"] != payload["course_system_version_ref"]:
+            raise ValueError("COURSE_RELEASE_COURSEWARE_SYSTEM_MISMATCH")
+        if draft["product_package_version_ref"] != payload["product_package_version_ref"]:
+            raise ValueError("COURSE_RELEASE_COURSEWARE_PACKAGE_MISMATCH")
+        if draft["status"] != "APPROVED":
+            raise ValueError("COURSE_RELEASE_COURSEWARE_NOT_APPROVED")
     return ReleaseBaseline(
         release_id=f"course-release:{payload['course_content_version_ref']}",
         package_id=package_id,

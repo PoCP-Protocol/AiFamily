@@ -74,6 +74,20 @@ def test_course_release_rejects_unversioned_global_reference():
         compile_course_release_baseline(payload)
 
 
+def test_course_release_rejects_unapproved_courseware_draft():
+    payload = _payload()
+    payload["courseware_drafts"] = [{
+        "draft_id": "courseware-draft:1",
+        "course_system_version_ref": payload["course_system_version_ref"],
+        "product_package_version_ref": payload["product_package_version_ref"],
+        "asset_bundle_version_ref": "asset:1@v1",
+        "model_provenance_ref": "model-draft:1",
+        "status": "DRAFT",
+    }]
+    with pytest.raises(ValueError, match="COURSEWARE_NOT_APPROVED"):
+        compile_course_release_baseline(payload)
+
+
 def test_course_release_draft_enters_shared_human_release_lifecycle():
     baseline = compile_course_release_baseline(_payload())
     evidence = (GateEvidence("evidence-1", "QA", "qa://course-24", "课件治理通过"),)
