@@ -21,6 +21,7 @@ def test_commercial_readiness_exposes_blockers_without_side_effects() -> None:
             "delivery_readback_verified": False,
             "refund_recovery_verified": False,
             "human_gate_accepted": True,
+            "evidence_refs": ["evidence:scope@v1"],
             "evidence_refs": ["evidence:payment-sandbox@v1", "evidence:refund-recovery@v1"],
         },
     )

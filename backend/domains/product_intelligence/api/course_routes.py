@@ -269,9 +269,7 @@ async def commercial_readiness(body: CommercialReadinessRequest) -> CommercialRe
     publication side effects.
     """
 
-    result = evaluate_commercial_readiness(
-        **{key: value for key, value in body.model_dump().items() if key != "evidence_refs"}
-    )
+    result = evaluate_commercial_readiness(**body.model_dump())
     return CommercialReadinessResponse(
         scope="PILOT_21D" if body.lesson_count == 4 else "FULL_24",
         ready=result.ready,

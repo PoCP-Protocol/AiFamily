@@ -7,7 +7,7 @@ described as commercially available merely because its content exists.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 
 
@@ -31,6 +31,7 @@ def evaluate_commercial_readiness(
     delivery_readback_verified: bool,
     refund_recovery_verified: bool,
     human_gate_accepted: bool,
+    evidence_refs: Collection[str] = (),
 ) -> CommercialReadiness:
     """Evaluate the minimum evidence needed for a paid pilot release.
 
@@ -50,6 +51,7 @@ def evaluate_commercial_readiness(
         "delivery_readback_verified": delivery_readback_verified,
         "refund_recovery_verified": refund_recovery_verified,
         "human_gate_accepted": human_gate_accepted,
+        "evidence_refs_present": bool(tuple(ref.strip() for ref in evidence_refs if ref.strip())),
     }
     blockers = tuple(name for name, passed in checks.items() if not passed)
     return CommercialReadiness(ready=not blockers, checks=checks, blockers=blockers)
