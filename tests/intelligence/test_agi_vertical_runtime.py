@@ -189,6 +189,46 @@ async def test_published_capability_versions_are_part_of_request_identity():
     )
 
 
+@pytest.mark.asyncio
+async def test_capability_registry_with_no_matching_offer_fails_before_model_call():
+    from backend.intelligence.capability_registry import CapabilityOffer, CapabilityRegistry
+
+    registry = CapabilityRegistry(
+        (
+            CapabilityOffer(
+                "practice:sleep",
+                "1.0.0",
+                "睡前练习",
+                "家庭可选择的睡前练习",
+                "growth_path_design",
+                "family_growth",
+                need_types=("sleep",),
+                owner="growth-team",
+            ),
+        )
+    )
+    registry.transition("practice:sleep", "1.0.0", "REVIEWED")
+    registry.transition("practice:sleep", "1.0.0", "PUBLISHED")
+    gateway = Gateway()
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=gateway,
+        context=Context({"need_type": "routine"}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+        capabilities=registry,
+    )
+    with pytest.raises(VerticalRuntimeError, match="NO_PUBLISHED_CAPABILITY_CANDIDATES"):
+        await runtime.run(
+            family_need_id="need-empty",
+            path_id="path-empty",
+            run_id="run-empty",
+            family_id="family-empty",
+            knowledge_ref="growth.v1",
+        )
+    assert gateway.calls == 0
+
+
 def real_gateway(provider: FakeProvider, *, timeout_seconds: float = 1.0) -> ModelGateway:
     record = ProviderRecord(
         provider_id=provider.provider_id,

@@ -289,6 +289,8 @@ class VerticalFamilyGrowthRuntime:
                 }
                 for offer in offers
             )
+            if not capability_candidates:
+                raise VerticalRuntimeError("NO_PUBLISHED_CAPABILITY_CANDIDATES")
         capability_refs = tuple(
             f"{candidate['capability_ref']}@{candidate['version']}"
             for candidate in capability_candidates
