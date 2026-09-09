@@ -2093,6 +2093,21 @@ entries:
       - "The progressive poll and bounded final drain (ADR-0019 decision 13) are an architecture seam, not evidence that any engine streams frames"
       - "Final-drain bound of 8 polls is an unmeasured safety limit, not a measured production optimum"
 
+  - capability: feedback_regression_scheduler
+    disposition: REIMPLEMENT
+    source: ["AiFamily vertical family-growth AGI feedback regression design"]
+    target:
+      - backend/intelligence/evaluation/feedback_scheduler.py
+      - database/migrations/versions/0078_ai_feedback_regression_jobs.py
+    status: IMPLEMENTED_EXPERIMENT
+    evidence:
+      - "Lease-based scheduler with SQLAlchemy job store, row-level claim, retry and takeover semantics"
+      - "Migration 0078 persists scheduler metadata separately from Experience facts"
+      - "22 related evaluation/migration/architecture tests passed"
+    known_gaps:
+      - "Real PostgreSQL multi-worker concurrency and deployed worker process are not yet evidenced"
+      - "Scheduler never promotes a release and only invokes the governed feedback regression worker"
+
 # ============ 待人工裁决清单（disposition = REVIEW_REQUIRED 的完整索引） ============
 review_required_index:
   - docs_current_baseline_CONTRADICTION   # 最高优先级——与源仓库既有Python迁移计划的关系

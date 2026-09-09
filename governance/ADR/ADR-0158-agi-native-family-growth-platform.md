@@ -1450,6 +1450,10 @@ bounded report projection 写入 canonical Experience ledger。它不读取家�
 跨 session 测试验证了状态机；相关评测/迁移/架构测试共 22 passed。尚未把该表在
 真实 PostgreSQL 上做多 worker 并发演练，也未部署常驻 worker 进程。
 
+迁移能力已同步登记至 `governance/MIGRATION_MANIFEST.yaml` 的
+`feedback_regression_scheduler` 条目，成熟度明确标为 `IMPLEMENTED_EXPERIMENT`，
+并列出真实 PostgreSQL 并发与 worker 部署缺口。
+
 本轮补上 `ExperienceFeedbackCaseSource`：它从一个服务端选定、已授权的
 Experience run scope 中回放 interaction，只接受反馈事件显式携带的
 `regression_case` 合约，不从 draft、家庭表或原始需求推断期望输出；普通反馈被
