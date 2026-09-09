@@ -1475,6 +1475,10 @@ delay 重新排队。该策略不改变业务事实或发布状态，相关调�
 状态或缺少 operator reference 均 fail-closed。这样既避免永久丢失评测批次，也不绕过
 人工控制边界。
 
+进一步校正人工恢复语义：`requeue_failed()` 会开启新的尝试周期并将
+`attempts` 重置为 0；普通 retry 不重置计数。这样人工恢复后的任务不会因旧的
+失败次数立即再次进入 `FAILED`，同时 `requeued_by/requeued_at` 审计字段保持不变。
+
 本轮将人工恢复证据从错误字符串提升为结构化字段：`requeued_by` 与
 `requeued_at` 已加入 job model 和 migration 0078，SQL/内存 requeue 都会写入；
 相关测试通过。真实 PostgreSQL schema upgrade 与回读仍受

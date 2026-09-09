@@ -150,6 +150,7 @@ async def test_scheduler_marks_permanent_failure_after_max_attempts() -> None:
         now=now,
     )
     assert requeued.status is FeedbackJobStatus.PENDING
+    assert requeued.attempts == 0
     assert requeued.last_error == "REQUEUED_BY:ops-123"
     assert requeued.requeued_by == "ops-123"
     assert requeued.requeued_at == now

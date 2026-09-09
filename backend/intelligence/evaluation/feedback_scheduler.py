@@ -203,6 +203,7 @@ class InMemoryFeedbackRegressionJobStore:
         updated = replace(
             job,
             status=FeedbackJobStatus.PENDING,
+            attempts=0,
             due_at=_aware(due_at),
             last_error=f"REQUEUED_BY:{operator_ref[:128]}",
             requeued_by=operator_ref[:256],
@@ -298,6 +299,7 @@ class SqlAlchemyFeedbackRegressionJobStore:
         async with self._session_factory() as session, session.begin():
             row = await self._leased_row(session, job_id, worker_id)
             row.status = FeedbackJobStatus.PENDING.value
+            row.attempts = 0
             row.due_at = _aware(due_at)
             row.lease_owner = None
             row.lease_until = None
