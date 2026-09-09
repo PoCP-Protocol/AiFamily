@@ -910,6 +910,35 @@ async def test_declared_understanding_dimensions_reject_missing_dimension():
 
 
 @pytest.mark.asyncio
+async def test_declared_understanding_dimensions_reject_legacy_output_without_envelope():
+    provider = FakeProvider(
+        {
+            "vertical_family_growth": {
+                "understanding": "旧格式",
+                "next_step": "继续",
+                "path": [],
+            }
+        }
+    )
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=real_gateway(provider),
+        context=Context({"required_dimensions": ("情境", "关系")}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+    )
+    with pytest.raises(VerticalRuntimeError, match="UNDERSTANDING_ENVELOPE_REQUIRED"):
+        await runtime.run(
+            family_need_id="need-legacy-envelope",
+            path_id="path-legacy-envelope",
+            run_id="run-legacy-envelope",
+            family_id="family-legacy-envelope",
+            knowledge_ref="growth.v1",
+            provider_id=provider.provider_id,
+        )
+
+
+@pytest.mark.asyncio
 async def test_structured_evidence_must_belong_to_context_snapshot():
     provider = FakeProvider(
         {

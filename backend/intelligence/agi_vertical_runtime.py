@@ -572,6 +572,8 @@ def _assert_understanding_evidence_honesty(
 
     envelope_fields = ("dimensions", "evidence_refs", "unknowns", "contradictions")
     if not any(field in output for field in envelope_fields):
+        if required_dimensions:
+            raise VerticalRuntimeError("UNDERSTANDING_ENVELOPE_REQUIRED")
         return
     dimensions = output.get("dimensions", [])
     if not isinstance(dimensions, list):
