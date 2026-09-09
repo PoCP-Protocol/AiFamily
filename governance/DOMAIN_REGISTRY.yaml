@@ -736,10 +736,33 @@ entries:
 
   - capability: test_oracle_excluded_contract_specs
     canonical_path: tests/architecture
-    status: NOT_STARTED
+    status: MIGRATED_TESTED
     disposition: MIGRATE
     source_reference: "50_开发_dev/evals/subject-isolation, 50_开发_dev/evals/authorization-planes"
-    note: "tests/architecture 已存在 6 个 R2/R3/R7/R11/R12/R13 测试文件，但源仓库的 subject-isolation / authorization-planes 契约断言尚未迁入，故本 capability 仍为 NOT_STARTED。"
+    scope: >
+      2026-09-10 迁入：subject-isolation.contract.spec.ts /
+      authorization-planes.contract.spec.ts 的判定逻辑与全部用例逐条译为
+      tests/architecture/test_subject_isolation_contract.py 与
+      test_authorization_planes_contract.py（16 个测试，逐条对应原 TS 用例，
+      非抽样）。判定语义逐字保留：subject isolation 的显式 subject 必填 /
+      禁止 global child super-profile / 跨租户跨家庭拒绝 / recipient scope
+      精确匹配；authorization planes 的 direct-database-access 硬拒绝 /
+      跨租户跨家庭拒绝 / purpose 缺失拒绝 / grant 撤回或过期拒绝 /
+      operations 平面 Human Gate 三态（PENDING→REVIEW_REQUIRED，
+      DENIED→DENY，APPROVED→ALLOW）。
+    known_gaps:
+      - "与源 TS spec 同一性质：这是需求规格 oracle，不是生产代码覆盖证明——
+         两个文件里的 evaluate_subject_isolation / evaluate_authorization_plane
+         是独立的纯函数实现，backend/ 下没有任何模块调用它们。它们与
+         backend/platform/authorization/policy.py 的 PolicyEngine 是不同维度
+         的判定（PolicyEngine 判定单租户内 (actor, action, resource_type)
+         是否放行；本 oracle 判定跨租户/跨家庭的 subject 可见性与
+         plane×purpose×grant 是否放行），不是重复实现，也未合并成一个模块——
+         若未来出现真正的跨家庭访问控制或多平面授权实现，应把断言直接指向
+         该实现，而不是让两份逻辑各自漂移"
+      - "不含 evals/ 目录下的 adversarial / golden / golden_jsonl / safety /
+         specs 子目录内容，那些不在 test_oracle_excluded_contract_specs 的
+         manifest 登记范围内，需要单独裁决是否迁移"
 
   # ---------- 治理文档 (MIGRATE / REIMPLEMENT) ----------
 

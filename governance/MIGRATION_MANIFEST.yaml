@@ -1092,8 +1092,17 @@ entries:
     source:
       - "50_开发_dev/evals/subject-isolation/subject-isolation.contract.spec.ts"
       - "50_开发_dev/evals/authorization-planes/authorization-planes.contract.spec.ts"
-    status: PLANNED
-    evidence: ["未被任何 workspace/vitest config 收集(evals/不在pnpm-workspace.yaml内)；断言逻辑是spec文件内联重实现，非真实生产代码覆盖"]
+    target:
+      - tests/architecture/test_subject_isolation_contract.py
+      - tests/architecture/test_authorization_planes_contract.py
+    status: MIGRATED_TESTED
+    evidence:
+      - "未被任何 workspace/vitest config 收集(evals/不在pnpm-workspace.yaml内)；断言逻辑是spec文件内联重实现，非真实生产代码覆盖"
+      - "2026-09-10：两份 spec 的判定函数与全部用例已逐条译为 Python，16/16 passed
+         (uv run pytest tests/architecture/test_subject_isolation_contract.py
+         tests/architecture/test_authorization_planes_contract.py -v)；
+         同一性质延续——迁入的是需求规格 oracle，不是生产代码覆盖证明，
+         backend/ 下没有模块调用这两个纯函数"
     note: "作为需求规格迁移断言,不作为覆盖率证明"
 
   # ============ 文档/治理 —— 关键发现：源仓库存在三方矛盾的"当前基线" ============
