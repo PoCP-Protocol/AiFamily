@@ -77,6 +77,7 @@ def build_production_ai_platform_wiring(
     prompt_registry_factory: RegistryFactory | None = None,
     schema_registry_factory: RegistryFactory | None = None,
     assessment_repository_factory: Callable[[object], AssessmentRepositoryPort] | None = None,
+    vertical_family_growth_composition: ProductionVerticalFamilyGrowthComposition | None = None,
 ) -> ProductionAiPlatformWiring:
     """Build the one deployment-owned AI composition for both family flows.
 
@@ -167,6 +168,7 @@ def build_production_ai_platform_wiring(
         growth_plan_composition_resolver=growth_plan_composition,
         clock=clock,
         assessment_repository_factory=assessment_repository_factory,
+        vertical_family_growth_composition=vertical_family_growth_composition,
     )
 
 
