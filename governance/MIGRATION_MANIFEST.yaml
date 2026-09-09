@@ -769,9 +769,11 @@ entries:
       - "行动记录写入、current_day 推进与阶段 REVIEW_DUE 到期转换仍待实现"
       - "0077 新增 journey_adopted_growth_plans；Growth Plan Draft/Guardian Adoption 现复用既有 Draft、Idempotency 与 Audit 原语，并可由 PostgreSQL 组合根跨进程读回"
       - "Growth Plan Draft/Plan 读取复用 AuditRecorder READ 事件，subject/purpose/approval/correlation 均显式记录；真实 PostgreSQL HTTP 读取审计回读仍待补齐"
+      - "AIFAMILY_ENV=test 配置 PostgreSQL 时禁止自动安装合成 vertical runtime；无显式 durable composition 保持 503，保证测试与生产依赖形状一致"
     architecture_decisions:
       - governance/ADR/ADR-0163-durable-growth-plan-adoption.md
       - governance/ADR/ADR-0164-growth-plan-read-audit-boundary.md
+      - governance/ADR/ADR-0165-test-postgres-vertical-composition-parity.md
     implementation:
       - backend/domains/journey/infrastructure/growth_plan_adoption_postgres.py
       - database/migrations/versions/0077_journey_adopted_growth_plans.py

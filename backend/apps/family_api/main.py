@@ -525,6 +525,7 @@ def create_app(
     experience_operations_query_wiring: Callable[[FastAPI], None] | None = None,
     assessment_production_ai_wiring: Callable[[FastAPI], None] | None = None,
     growth_plan_ai_wiring: Callable[[FastAPI], None] | None = None,
+    production_ai_growth_surface_wiring: Callable[[FastAPI], None] | None = None,
     vertical_family_growth_runtime: VerticalFamilyGrowthRuntime | None = None,
     production_vertical_family_growth_composition: ProductionVerticalFamilyGrowthComposition
     | None = None,
@@ -548,7 +549,7 @@ def create_app(
         production_vertical_family_growth_composition.install(application)
     elif vertical_family_growth_runtime is not None:
         install_vertical_family_growth_runtime(application, vertical_family_growth_runtime)
-    elif is_dev_environment():
+    elif is_dev_environment() and not is_postgres_url(_runtime_database_url() or ""):
         # Dev/test gets an explicit, production-shaped composition using the
         # normal gateway admission path. Production remains fail-closed until
         # durable context/knowledge/consent adapters are available.
@@ -705,6 +706,10 @@ def create_app(
         if not callable(growth_plan_ai_wiring):
             raise TypeError("growth_plan_ai_wiring must be callable")
         growth_plan_ai_wiring(application)
+    if production_ai_growth_surface_wiring is not None:
+        if not callable(production_ai_growth_surface_wiring):
+            raise TypeError("production_ai_growth_surface_wiring must be callable")
+        production_ai_growth_surface_wiring(application)
     if engagement_runtime_wiring is not None:
         if not callable(engagement_runtime_wiring):
             raise TypeError("engagement_runtime_wiring must be callable")

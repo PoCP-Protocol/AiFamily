@@ -94,3 +94,22 @@ def test_default_test_composition_supports_draft_replay_isolation_and_delete(
     assert (
         client.get("/families/family-default/growth/ai-drafts/run-default-http").status_code == 404
     )
+
+
+def test_postgres_test_environment_does_not_install_synthetic_vertical_runtime(monkeypatch) -> None:
+    monkeypatch.setenv("AIFAMILY_ENV", "test")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://example/aifamily")
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/families/family-default/growth/ai-drafts",
+        json={
+            "family_need_id": "need-postgres-no-composition",
+            "path_id": "path-postgres-no-composition",
+            "run_id": "run-postgres-no-composition",
+            "knowledge_ref": "vertical-growth.v1",
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "vertical_family_growth_runtime_not_configured"
