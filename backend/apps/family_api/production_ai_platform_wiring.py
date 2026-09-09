@@ -35,6 +35,9 @@ from backend.apps.family_api.production_assessment_http_wiring import (
 from backend.apps.family_api.production_growth_plan_http_wiring import (
     CompositionResolver as GrowthPlanCompositionResolver,
 )
+from backend.apps.family_api.production_vertical_family_growth_wiring import (
+    ProductionVerticalFamilyGrowthComposition,
+)
 from backend.domains.assessment.application.ports import AssessmentRepositoryPort
 
 
@@ -49,6 +52,7 @@ class ProductionAiPlatformWiring:
     growth_plan_composition_resolver: GrowthPlanCompositionResolver
     clock: Callable[[], datetime]
     assessment_repository_factory: Callable[[object], AssessmentRepositoryPort] | None = None
+    vertical_family_growth_composition: ProductionVerticalFamilyGrowthComposition | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.engine, AsyncEngine):
@@ -69,6 +73,14 @@ class ProductionAiPlatformWiring:
             self.assessment_repository_factory
         ):
             raise TypeError("assessment_repository_factory must be callable")
+        if self.vertical_family_growth_composition is not None and not isinstance(
+            self.vertical_family_growth_composition,
+            ProductionVerticalFamilyGrowthComposition,
+        ):
+            raise TypeError(
+                "vertical_family_growth_composition must be "
+                "ProductionVerticalFamilyGrowthComposition"
+            )
 
     def install(self, app: FastAPI) -> None:
         """Mount assessment, plan review, daily action and feedback routes once."""
@@ -93,6 +105,8 @@ class ProductionAiPlatformWiring:
             growth_plan_composition_resolver=self.growth_plan_composition_resolver,
             clock=self.clock,
         )
+        if self.vertical_family_growth_composition is not None:
+            self.vertical_family_growth_composition.install(app)
 
 
 __all__ = ["ProductionAiPlatformWiring"]

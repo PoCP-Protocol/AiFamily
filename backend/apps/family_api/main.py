@@ -546,6 +546,13 @@ def create_app(
         raise ValueError(
             "production_ai_platform_wiring cannot be combined with individual AI wiring hooks"
         )
+    if (
+        production_ai_platform_wiring is not None
+        and production_vertical_family_growth_composition is not None
+    ):
+        raise ValueError(
+            "production_ai_platform_wiring owns vertical family-growth composition"
+        )
     _configure_fgcn_persistence()
     application = FastAPI(title="AiFamily family_api", version="0.1.0")
     if production_commerce_context_resolver is not None:

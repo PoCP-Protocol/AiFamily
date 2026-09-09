@@ -55,3 +55,30 @@ def test_create_app_rejects_mixed_ai_composition_hooks() -> None:
         import asyncio
 
         asyncio.run(engine.dispose())
+
+
+def test_platform_wiring_can_own_the_vertical_composition() -> None:
+    engine, wiring = _wiring()
+    try:
+        assert wiring.vertical_family_growth_composition is None
+        app = FastAPI()
+        wiring.install(app)
+        assert not hasattr(app.state, "vertical_family_growth_runtime")
+    finally:
+        import asyncio
+
+        asyncio.run(engine.dispose())
+
+
+def test_create_app_rejects_a_second_vertical_composition_root() -> None:
+    engine, wiring = _wiring()
+    try:
+        with pytest.raises(ValueError, match="owns vertical family-growth"):
+            create_app(
+                production_ai_platform_wiring=wiring,
+                production_vertical_family_growth_composition=object(),  # type: ignore[arg-type]
+            )
+    finally:
+        import asyncio
+
+        asyncio.run(engine.dispose())
