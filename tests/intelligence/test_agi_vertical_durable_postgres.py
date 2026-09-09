@@ -180,8 +180,21 @@ async def test_revision_child_parent_lineage_survives_new_session(postgres_sessi
         adapter = DurableVerticalLedgerAdapter(SqlAlchemyExperienceRunLedger(writer))
         async with writer.begin():
             await adapter.save_entry(parent, scope=scope)
+            await adapter.record_guardian_decision(
+                GuardianDecision(
+                    "decision:pg-parent",
+                    "need-pg-1",
+                    "run-pg-parent",
+                    "path-pg-1",
+                    "EDIT",
+                    {"next_step": "共同观察"},
+                ),
+                scope=scope,
+            )
             await adapter.save_entry(child, scope=scope)
     async with postgres_session_factory() as reader:
         adapter = DurableVerticalLedgerAdapter(SqlAlchemyExperienceRunLedger(reader))
+        parent_replay = await adapter.replay(run_id="run-pg-parent", scope=scope)
         replay = await adapter.replay(run_id="run-pg-child", scope=scope)
+        assert parent_replay.interactions[-1].payload["decision_ref"] == "decision:pg-parent"
         assert replay.draft_payload["parent_run_id"] == "run-pg-parent"
