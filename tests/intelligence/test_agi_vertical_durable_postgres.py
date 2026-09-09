@@ -162,3 +162,26 @@ async def test_structured_understanding_survives_postgres_restart_readback(
         assert payload["output"]["unknowns"][0]["dimension"] == "沟通"
         assert payload["output"]["contradictions"][0]["refs"] == ["obs:1", "obs:2"]
         assert payload["lineage_ref"] == "lineage:structured-evidence"
+
+
+@pytest.mark.asyncio
+async def test_revision_child_parent_lineage_survives_new_session(postgres_session_factory):
+    scope = RunScope("tenant-pg-revision", "family-pg-revision", ("child-pg",))
+    base = _entry()
+    parent = EvaluationLedgerEntry(
+        base.family_need_id, base.path_id, "run-pg-parent", base.context_snapshot_ref,
+        base.draft, base.feedback_refs, lineage_ref="lineage:parent",
+    )
+    child = EvaluationLedgerEntry(
+        base.family_need_id, base.path_id, "run-pg-child", base.context_snapshot_ref,
+        base.draft, base.feedback_refs, lineage_ref="lineage:child", parent_run_id="run-pg-parent",
+    )
+    async with postgres_session_factory() as writer:
+        adapter = DurableVerticalLedgerAdapter(SqlAlchemyExperienceRunLedger(writer))
+        async with writer.begin():
+            await adapter.save_entry(parent, scope=scope)
+            await adapter.save_entry(child, scope=scope)
+    async with postgres_session_factory() as reader:
+        adapter = DurableVerticalLedgerAdapter(SqlAlchemyExperienceRunLedger(reader))
+        replay = await adapter.replay(run_id="run-pg-child", scope=scope)
+        assert replay.draft_payload["parent_run_id"] == "run-pg-parent"

@@ -120,6 +120,7 @@ def _map_runtime_error(
         "INTERACTION_APPEND_CONFLICT",
         "REVISION_RUN_ID_INVALID",
         "REVISION_NO_CHANGE",
+        "REVISION_RUN_ID_CONFLICT",
     }:
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
     if detail in {"CONSENT_NOT_ACTIVE", "CONSENT_REVOKED"}:

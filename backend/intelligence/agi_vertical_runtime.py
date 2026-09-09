@@ -545,9 +545,14 @@ class VerticalFamilyGrowthRuntime:
     ) -> EvaluationLedgerEntry:
         """Generate a new draft from a guardian correction without rewriting history."""
 
-        current = await self.decide(run_id=run_id, family_id=family_id, decision=decision)
         if not next_run_id.strip() or next_run_id == run_id:
             raise VerticalRuntimeError("REVISION_RUN_ID_INVALID")
+        if next_run_id in self._run_families:
+            existing = self.replay(run_id=next_run_id, family_id=family_id)
+            if existing.parent_run_id != run_id:
+                raise VerticalRuntimeError("REVISION_RUN_ID_CONFLICT")
+            return existing
+        current = await self.decide(run_id=run_id, family_id=family_id, decision=decision)
         next_decision = replace(decision, run_id=next_run_id)
         revised = await self.run(
             family_need_id=current.family_need_id,

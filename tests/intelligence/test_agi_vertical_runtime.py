@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from backend.intelligence.agi_vertical_runtime import (
@@ -612,6 +614,41 @@ async def test_guardian_revision_creates_changed_next_draft_without_rewriting_so
     assert revised.draft.output["next_step"] == "采用视觉计时器"
     assert ledger.read("run-original").draft.output["next_step"] == "开始仪式"
     assert revised.lineage_ref != ledger.read("run-original").lineage_ref
+
+
+@pytest.mark.asyncio
+async def test_guardian_revision_retry_is_stable_and_conflicting_parent_fails_closed():
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=RevisionGateway(), context=Context({"delay": "high"}),
+        knowledge=Knowledge(), feedback=Feedback(), ledger=EvaluationLedger(),
+    )
+    await runtime.run(
+        family_need_id="need-revision-retry", path_id="path-revision-retry",
+        run_id="run-parent", family_id="family-revision-retry", knowledge_ref="growth.v1",
+    )
+    decision = GuardianDecision(
+        "decision:retry", "need-revision-retry", "run-parent", "path-revision-retry",
+        "EDIT", {"next_step": "视觉计时器"},
+    )
+    first = await runtime.revise(
+        run_id="run-parent",
+        next_run_id="run-child",
+        family_id="family-revision-retry",
+        decision=decision,
+    )
+    second = await runtime.revise(
+        run_id="run-parent",
+        next_run_id="run-child",
+        family_id="family-revision-retry",
+        decision=decision,
+    )
+    assert second.lineage_ref == first.lineage_ref
+    with pytest.raises(VerticalRuntimeError, match="REVISION_RUN_ID_CONFLICT"):
+        await runtime.revise(
+            run_id="run-other-parent", next_run_id="run-child",
+            family_id="family-revision-retry",
+            decision=replace(decision, run_id="run-other-parent"),
+        )
 
 
 @pytest.mark.asyncio

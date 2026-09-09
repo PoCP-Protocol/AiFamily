@@ -328,6 +328,8 @@ class DurableVerticalGrowthRuntime:
             if str(error) != "EVALUATION_ENTRY_NOT_FOUND":
                 raise
         if existing is not None:
+            if existing.parent_run_id != run_id:
+                raise VerticalRuntimeError("REVISION_RUN_ID_CONFLICT")
             return existing
         scope = await self._scope(family_id)
         await self._ledger.record_guardian_decision(decision, scope=scope)
