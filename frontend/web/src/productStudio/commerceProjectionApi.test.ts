@@ -15,4 +15,11 @@ describe("commerce projection API", () => {
     const client = new HttpCommerceProjectionApiClient({ fetchImpl: async () => response({ ...payload, read_only: false }) });
     await expect(client.get("f-1")).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
+
+  it("fails closed when evidence receipts are missing", async () => {
+    const client = new HttpCommerceProjectionApiClient({
+      fetchImpl: async () => response({ ...payload, evidence_receipt_refs: undefined }),
+    });
+    await expect(client.get("f-1")).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
 });
