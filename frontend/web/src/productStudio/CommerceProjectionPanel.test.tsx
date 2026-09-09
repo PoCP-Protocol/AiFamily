@@ -11,6 +11,7 @@ const projection = {
   order_intents: [{ order_intent_id: "order-1", status: "SUBMITTED", product_ref: "PRODUCT_21D", product_version: 1, created_at: "2026-09-09T00:00:00Z" }],
   entitlements: [{ entitlement_id: "ent-1", status: "REVOKED", source_order_intent_id: "order-1", available_at: null, expires_at: null }],
   text_equivalent: "退款恢复后权益已撤销。",
+  evidence_receipt_refs: ["evidence:delivery-readback@v1", "evidence:refund-recovery@v1"],
 };
 
 describe("CommerceProjectionPanel", () => {
@@ -24,6 +25,7 @@ describe("CommerceProjectionPanel", () => {
     expect(screen.getByText(/SUBMITTED/)).toBeInTheDocument();
     expect(screen.getByText("ent-1")).toBeInTheDocument();
     expect(screen.getByText(/REVOKED/)).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "商业化证据回执" })).toHaveTextContent("evidence:refund-recovery@v1");
     expect(client.get).toHaveBeenCalledWith("family-demo");
   });
 

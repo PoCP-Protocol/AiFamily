@@ -36,6 +36,14 @@ async def get_customer_projection(
 ) -> dict:
     intents = await repo.list_order_intents(tenant_id=tenant_id, family_id=family_id)
     entitlements = await repo.list_entitlements(tenant_id=tenant_id, family_id=family_id)
+    evidence_receipt_refs = sorted(
+        {
+            str(ref).strip()
+            for item in (*intents, *entitlements)
+            for ref in item.attributes.get("evidence_refs", ())
+            if str(ref).strip()
+        }
+    )
     return {
         "family_id": family_id,
         "projection_version": 1,
@@ -60,5 +68,6 @@ async def get_customer_projection(
             }
             for entitlement in entitlements
         ],
+        "evidence_receipt_refs": evidence_receipt_refs,
         "text_equivalent": "购买意向仅保存于本家庭，不会扣款或自动开通权益。",
     }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { HttpCommerceProjectionApiClient } from "./commerceProjectionApi";
 
-const payload = { family_id: "f-1", projection_version: 1, visibility: "FAMILY_PRIVATE", read_only: true, order_intents: [], entitlements: [], text_equivalent: "read only" };
+const payload = { family_id: "f-1", projection_version: 1, visibility: "FAMILY_PRIVATE", read_only: true, order_intents: [], entitlements: [], evidence_receipt_refs: ["evidence:delivery-readback@v1"], text_equivalent: "read only" };
 const response = (body: unknown, ok = true, status = 200) => ({ ok, status, json: async () => body }) as Response;
 
 describe("commerce projection API", () => {

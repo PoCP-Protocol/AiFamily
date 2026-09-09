@@ -13,6 +13,8 @@ export function CommerceProjectionPanel({ client }: { client?: CommerceProjectio
     {projection && <div aria-live="polite"><p>范围：<code>{projection.family_id}</code> · {projection.visibility} · projection v{projection.projection_version}</p>
       <h3>订单意向（{projection.order_intents.length}）</h3><ul>{projection.order_intents.map((item) => <li key={item.order_intent_id}><code>{item.product_ref}</code> · {item.status}</li>)}</ul>
       <h3>权益（{projection.entitlements.length}）</h3><ul>{projection.entitlements.map((item) => <li key={item.entitlement_id}><code>{item.entitlement_id}</code> · {item.status}</li>)}</ul>
+      <h3>商业化证据回执（{projection.evidence_receipt_refs.length}）</h3>
+      {projection.evidence_receipt_refs.length > 0 ? <ul aria-label="商业化证据回执">{projection.evidence_receipt_refs.map((ref) => <li key={ref}><code>{ref}</code></li>)}</ul> : <p className="muted">暂无可追溯的商业化证据回执。</p>}
       <p className="muted">{projection.text_equivalent}</p></div>}
   </section>;
 }
