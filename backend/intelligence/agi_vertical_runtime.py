@@ -210,6 +210,7 @@ class EvaluationLedgerEntry:
     knowledge_ref: str = ""
     knowledge_version: str = ""
     lineage_ref: str = ""
+    parent_run_id: str = ""
 
 
 class EvaluationLedger:
@@ -557,6 +558,9 @@ class VerticalFamilyGrowthRuntime:
             guardian_decision=next_decision,
             context_snapshot_ref=current.context_snapshot_ref,
         )
+        revised = replace(revised, parent_run_id=run_id)
+        self._ledger.delete(next_run_id)
+        self._ledger.append(revised)
         if revised.draft.output == current.draft.output:
             self.delete(run_id=next_run_id, family_id=family_id)
             raise VerticalRuntimeError("REVISION_NO_CHANGE")

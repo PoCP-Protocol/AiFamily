@@ -56,6 +56,7 @@ async def test_vertical_adapter_postgres_restart_decision_delete_and_scope(
         assert replay.draft_payload["provenance"]["provider_id"] == "fake"
         assert replay.draft_payload["provenance"]["prompt_version"] == "p1"
         assert replay.draft_payload["provenance"]["schema_version"] == "s1"
+        assert replay.draft_payload.get("parent_run_id", "") == ""
 
     decision = GuardianDecision("decision:pg-edit", "need-pg-1", "run-pg-1", "path-pg-1", "EDIT")
     async with postgres_session_factory() as decision_writer:

@@ -608,6 +608,7 @@ async def test_guardian_revision_creates_changed_next_draft_without_rewriting_so
         ),
     )
     assert revised.run_id == "run-revised"
+    assert revised.parent_run_id == "run-original"
     assert revised.draft.output["next_step"] == "采用视觉计时器"
     assert ledger.read("run-original").draft.output["next_step"] == "开始仪式"
     assert revised.lineage_ref != ledger.read("run-original").lineage_ref

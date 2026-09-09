@@ -81,6 +81,7 @@ class DurableVerticalLedgerAdapter:
             "knowledge_ref": entry.knowledge_ref,
             "knowledge_version": entry.knowledge_version,
             "lineage_ref": entry.lineage_ref,
+            "parent_run_id": entry.parent_run_id,
             "context_snapshot_ref": entry.context_snapshot_ref,
         }
         snapshot = await self._call(
@@ -278,6 +279,7 @@ class DurableVerticalGrowthRuntime:
             knowledge_ref=payload.get("knowledge_ref", ""),
             knowledge_version=payload.get("knowledge_version", ""),
             lineage_ref=payload.get("lineage_ref", ""),
+            parent_run_id=payload.get("parent_run_id", ""),
         )
 
     async def delete(self, *, run_id: str, family_id: str) -> RunReplaySnapshot:
@@ -338,6 +340,7 @@ class DurableVerticalGrowthRuntime:
             guardian_decision=replace(decision, run_id=next_run_id),
             context_snapshot_ref=source.context_snapshot_ref,
         )
+        revised = replace(revised, parent_run_id=run_id)
         await self._ledger.save_entry(revised, scope=scope)
         replayed = await self.replay(run_id=next_run_id, family_id=family_id)
         if replayed.draft.output == source.draft.output:

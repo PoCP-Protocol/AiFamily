@@ -58,6 +58,7 @@ class VerticalGrowthDraftResponse(BaseModel):
     knowledge_ref: str
     knowledge_version: str
     lineage_ref: str
+    parent_run_id: str
     provenance: dict[str, object]
 
 
@@ -143,6 +144,7 @@ def _entry_response(entry: object) -> VerticalGrowthDraftResponse:
         knowledge_ref=entry.knowledge_ref,
         knowledge_version=entry.knowledge_version,
         lineage_ref=entry.lineage_ref,
+        parent_run_id=getattr(entry, "parent_run_id", ""),
         provenance={
             name: getattr(entry.draft.provenance, name)
             for name in entry.draft.provenance.__dataclass_fields__
