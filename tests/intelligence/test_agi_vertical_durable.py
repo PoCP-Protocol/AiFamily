@@ -98,6 +98,46 @@ async def test_replay_projects_latest_guardian_calibration_into_entry():
 
 
 @pytest.mark.asyncio
+async def test_run_returns_durable_reconstruction_after_write():
+    adapter = DurableVerticalLedgerAdapter(InMemoryExperienceRunLedger())
+
+    class _Generator:
+        async def run(self, **kwargs):
+            return entry()
+
+    scope = RunScope("tenant-1", "family-1", ("child-1",))
+    decision = GuardianDecision(
+        "decision:durable-edit",
+        "need-1",
+        "run-1",
+        "path-1",
+        "EDIT",
+        {"next_step": "视觉计时器"},
+    )
+    runtime = DurableVerticalGrowthRuntime(
+        runtime=_Generator(),
+        ledger=adapter,
+        scope_factory=lambda family_id: scope,
+    )
+
+    result = await runtime.run(
+        family_id="family-1",
+        family_need_id="need-1",
+        path_id="path-1",
+        run_id="run-1",
+        guardian_decision=decision,
+    )
+
+    assert result is not entry()
+    assert result.run_id == "run-1"
+    assert result.guardian_calibration == {
+        "decision_ref": "decision:durable-edit",
+        "state": "EDIT",
+        "edits": {"next_step": "视觉计时器"},
+    }
+
+
+@pytest.mark.asyncio
 async def test_cross_family_replay_is_rejected_without_leaking_draft():
     adapter = DurableVerticalLedgerAdapter(InMemoryExperienceRunLedger())
     owner_scope = RunScope("tenant-1", "family-1", ("child-1",))

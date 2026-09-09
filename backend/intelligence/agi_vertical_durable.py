@@ -186,12 +186,17 @@ class DurableVerticalGrowthRuntime:
 
     async def run(self, **kwargs: Any) -> EvaluationLedgerEntry:
         entry = await self._runtime.run(**kwargs)
-        scope = await self._scope(kwargs["family_id"])
+        family_id = kwargs["family_id"]
+        scope = await self._scope(family_id)
         await self._ledger.save_entry(entry, scope=scope)
         decision = kwargs.get("guardian_decision")
         if decision is not None:
             await self._ledger.record_guardian_decision(decision, scope=scope)
-        return entry
+        # The durable ledger is the source of truth for production responses.
+        # Reconstructing after the write proves that serialization, provenance,
+        # and guardian calibration survive the persistence boundary instead of
+        # returning the process-local generator object.
+        return await self.replay(run_id=entry.run_id, family_id=family_id)
 
     async def replay(self, *, run_id: str, family_id: str) -> EvaluationLedgerEntry:
         snapshot = await self._ledger.replay(run_id=run_id, scope=await self._scope(family_id))
