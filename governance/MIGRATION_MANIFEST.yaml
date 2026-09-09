@@ -771,6 +771,7 @@ entries:
       - "Growth Plan Draft/Plan 读取复用 AuditRecorder READ 事件，subject/purpose/approval/correlation 均显式记录；真实 PostgreSQL HTTP 读取审计回读仍待补齐"
       - "AIFAMILY_ENV=test 配置 PostgreSQL 时禁止自动安装合成 vertical runtime；无显式 durable composition 保持 503，保证测试与生产依赖形状一致"
       - "staging/production vertical composition 在 Context snapshot 边界拒绝 SYNTHETIC data class"
+      - "staging/production vertical composition 构造时要求 live Consent port，缺失即 fail closed"
     architecture_decisions:
       - governance/ADR/ADR-0163-durable-growth-plan-adoption.md
       - governance/ADR/ADR-0164-growth-plan-read-audit-boundary.md

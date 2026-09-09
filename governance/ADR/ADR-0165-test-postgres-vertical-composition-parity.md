@@ -22,6 +22,9 @@ fixture”的混合状态。
 此外，staging/production composition 的 scope factory 返回 `SYNTHETIC` 数据分类
 时，在创建 Context snapshot 前即 fail closed；合成数据不能穿过生产组合根。
 
+staging/production 的显式 composition 还必须携带 live Consent port；缺少实时
+同意检查的 runtime 在组合构造阶段直接拒绝。
+
 ## Consequence
 
 真实 PostgreSQL 测试必须显式构造同一 session factory、durable Context、durable

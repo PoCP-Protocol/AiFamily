@@ -29,6 +29,11 @@ class _DurableBroker(_DurablePort):
         raise AssertionError("not called")
 
 
+class _Consent:
+    async def is_current(self, **kwargs):
+        return True
+
+
 def test_create_app_accepts_explicit_production_composition(monkeypatch) -> None:
     monkeypatch.setenv("AIFAMILY_ENV", "production")
     runtime = VerticalFamilyGrowthRuntime(
@@ -37,6 +42,7 @@ def test_create_app_accepts_explicit_production_composition(monkeypatch) -> None
         knowledge=_DurablePort(),
         feedback=_DurablePort(),
         ledger=EvaluationLedger(),
+        consent=_Consent(),
     )
     composition = ProductionVerticalFamilyGrowthComposition(
         environment="production",

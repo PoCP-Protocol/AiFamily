@@ -448,7 +448,8 @@ entries:
       与 correlation；实现边界见 ADR-0164，真实 PostgreSQL 读取审计回读证据仍待补齐。
       当 test 配置 PostgreSQL 时，main 不再自动安装合成 vertical runtime；必须显式
       提供 durable composition，否则 canonical route 503，见 ADR-0165。staging/
-      production composition 在 snapshot 边界拒绝 SYNTHETIC data class。
+      production composition 在 snapshot 边界拒绝 SYNTHETIC data class，并在构造时
+      要求 live Consent port。
     postgres_test_gate: >
       tests/domains/journey/test_postgres_transaction_integration.py 在设置
       AIFAMILY_TEST_DATABASE_URL 时验证幂等回放与异常回滚；未设置时明确 skip。

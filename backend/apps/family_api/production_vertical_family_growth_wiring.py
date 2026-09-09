@@ -68,6 +68,10 @@ class ProductionVerticalFamilyGrowthComposition:
             raise TypeError("runtime must be a VerticalFamilyGrowthRuntime")
         if self.runtime.context_durability_mode != "DURABLE":
             raise ValueError("vertical family-growth runtime requires durable Context Port")
+        if self.environment in {"staging", "production"} and getattr(
+            self.runtime, "_consent", None
+        ) is None:
+            raise ValueError("vertical family-growth composition requires live consent port")
         if not isinstance(self.context_broker, AsyncContextBrokerPort):
             raise TypeError("context_broker must implement AsyncContextBrokerPort")
         if self.context_broker.durability_mode != "DURABLE":

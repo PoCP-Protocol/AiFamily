@@ -10,6 +10,11 @@ from backend.intelligence.agi_vertical_durable import DurableVerticalLedgerAdapt
 from backend.intelligence.agi_vertical_runtime import EvaluationLedger, VerticalFamilyGrowthRuntime
 
 
+class _Consent:
+    async def is_current(self, **kwargs):
+        return True
+
+
 class _Port:
     durability_mode = "DURABLE"
 
@@ -33,6 +38,7 @@ def _composition() -> ProductionVerticalFamilyGrowthComposition:
         knowledge=_Port(),
         feedback=_Port(),
         ledger=EvaluationLedger(),
+        consent=_Consent(),
     )
     return ProductionVerticalFamilyGrowthComposition(
         environment="production",

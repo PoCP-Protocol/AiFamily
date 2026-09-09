@@ -61,6 +61,11 @@ class _InMemoryContext:
         raise AssertionError("not called")
 
 
+class _Consent:
+    async def is_current(self, **kwargs):
+        return True
+
+
 def _runtime_with_context(context) -> VerticalFamilyGrowthRuntime:
     return VerticalFamilyGrowthRuntime(
         gateway=_Port(),
@@ -78,6 +83,7 @@ def _runtime() -> VerticalFamilyGrowthRuntime:
         knowledge=_Port(),
         feedback=_Port(),
         ledger=EvaluationLedger(),
+        consent=_Consent(),
     )
 
 
@@ -96,6 +102,18 @@ def test_production_composition_requires_durable_context() -> None:
             session_factory=_session_factory(),
             runtime=_runtime(),
             context_broker=_InMemoryContext(),
+            durable_ledger=DurableVerticalLedgerAdapter(_Port()),
+            scope_factory=_scope_factory,
+        )
+
+
+def test_production_composition_requires_live_consent() -> None:
+    with pytest.raises(ValueError, match="live consent"):
+        ProductionVerticalFamilyGrowthComposition(
+            environment="production",
+            session_factory=_session_factory(),
+            runtime=_runtime_with_context(_Port()),
+            context_broker=_Context(),
             durable_ledger=DurableVerticalLedgerAdapter(_Port()),
             scope_factory=_scope_factory,
         )
@@ -164,6 +182,7 @@ def test_sql_production_builder_injects_durable_family_growth_context_port() -> 
         durable_ledger=ledger,
         context_broker=broker,
         scope_factory=scope,
+        consent=_Consent(),
     )
 
     assert composition.runtime.context_durability_mode == "DURABLE"
@@ -201,6 +220,7 @@ async def test_sql_production_builder_injects_durable_feedback_port() -> None:
         durable_ledger=durable_ledger,
         context_broker=broker,
         scope_factory=scope,
+        consent=_Consent(),
     )
 
     assert isinstance(composition.runtime.feedback_port, CombinedFeedbackPort)

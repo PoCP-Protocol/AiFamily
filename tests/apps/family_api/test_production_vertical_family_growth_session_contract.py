@@ -18,6 +18,11 @@ class _Port:
     durability_mode = "DURABLE"
 
 
+class _Consent:
+    async def is_current(self, **kwargs):
+        return True
+
+
 def _runtime() -> VerticalFamilyGrowthRuntime:
     return VerticalFamilyGrowthRuntime(
         gateway=_Port(),
@@ -25,6 +30,7 @@ def _runtime() -> VerticalFamilyGrowthRuntime:
         knowledge=_Port(),
         feedback=_Port(),
         ledger=EvaluationLedger(),
+        consent=_Consent(),
     )
 
 
