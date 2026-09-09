@@ -151,6 +151,8 @@ async def test_scheduler_marks_permanent_failure_after_max_attempts() -> None:
     )
     assert requeued.status is FeedbackJobStatus.PENDING
     assert requeued.last_error == "REQUEUED_BY:ops-123"
+    assert requeued.requeued_by == "ops-123"
+    assert requeued.requeued_at == now
     with pytest.raises(ValueError, match="NOT_FAILED"):
         await jobs.requeue_failed(
             "job-terminal",

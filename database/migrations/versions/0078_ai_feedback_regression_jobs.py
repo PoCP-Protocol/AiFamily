@@ -27,6 +27,8 @@ def upgrade() -> None:
         sa.Column("lease_owner", sa.String(length=256), nullable=True),
         sa.Column("lease_until", sa.DateTime(timezone=True), nullable=True),
         sa.Column("last_error", sa.String(length=256), nullable=True),
+        sa.Column("requeued_by", sa.String(length=256), nullable=True),
+        sa.Column("requeued_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint(

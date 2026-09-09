@@ -56,6 +56,8 @@ class FeedbackRegressionJobRow(FeedbackSchedulerBase):
     lease_owner: Mapped[str | None] = mapped_column(String(256), nullable=True)
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    requeued_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    requeued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -70,6 +72,8 @@ class FeedbackRegressionJob:
     lease_owner: str | None = None
     lease_until: datetime | None = None
     last_error: str | None = None
+    requeued_by: str | None = None
+    requeued_at: datetime | None = None
 
 
 class FeedbackRegressionJobStore(Protocol):
@@ -201,6 +205,8 @@ class InMemoryFeedbackRegressionJobStore:
             status=FeedbackJobStatus.PENDING,
             due_at=_aware(due_at),
             last_error=f"REQUEUED_BY:{operator_ref[:128]}",
+            requeued_by=operator_ref[:256],
+            requeued_at=_aware(now),
         )
         self.jobs[job_id] = updated
         return updated
@@ -329,6 +335,8 @@ class SqlAlchemyFeedbackRegressionJobStore:
             row.status = FeedbackJobStatus.PENDING.value
             row.due_at = _aware(due_at)
             row.last_error = f"REQUEUED_BY:{operator_ref[:128]}"
+            row.requeued_by = operator_ref[:256]
+            row.requeued_at = _aware(now)
             row.updated_at = _aware(now)
             await session.flush()
             return _stored(row)
@@ -469,6 +477,8 @@ def _stored(row: FeedbackRegressionJobRow) -> FeedbackRegressionJob:
         lease_owner=row.lease_owner,
         lease_until=None if row.lease_until is None else _aware(row.lease_until),
         last_error=row.last_error,
+        requeued_by=row.requeued_by,
+        requeued_at=None if row.requeued_at is None else _aware(row.requeued_at),
     )
 
 

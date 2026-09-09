@@ -1475,6 +1475,11 @@ delay 重新排队。该策略不改变业务事实或发布状态，相关调�
 状态或缺少 operator reference 均 fail-closed。这样既避免永久丢失评测批次，也不绕过
 人工控制边界。
 
+本轮将人工恢复证据从错误字符串提升为结构化字段：`requeued_by` 与
+`requeued_at` 已加入 job model 和 migration 0078，SQL/内存 requeue 都会写入；
+相关测试通过。真实 PostgreSQL schema upgrade 与回读仍受
+`AIFAMILY_TEST_DATABASE_URL` 门控，本轮未测得。
+
 迁移能力已同步登记至 `governance/MIGRATION_MANIFEST.yaml` 的
 `feedback_regression_scheduler` 条目，成熟度明确标为 `IMPLEMENTED_EXPERIMENT`，
 并列出真实 PostgreSQL 并发与 worker 部署缺口。
