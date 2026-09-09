@@ -3,8 +3,10 @@ from __future__ import annotations
 import pytest
 
 from backend.intelligence.evaluation.feedback_regression import (
+    FeedbackRegressionBatch,
     FeedbackRegressionCase,
     FeedbackRegressionError,
+    FeedbackRegressionWorker,
     evaluate_feedback_regression,
     persist_feedback_regression_report,
 )
@@ -133,3 +135,59 @@ async def test_report_projection_cannot_be_read_from_another_family() -> None:
     )
     with pytest.raises(Exception, match="SCOPE_MISMATCH"):
         ledger.replay(scope=other, run_id="run-1")
+
+
+@pytest.mark.asyncio
+async def test_worker_loads_deidentified_cases_and_persists_one_bounded_batch() -> None:
+    class Source:
+        async def load(self, *, case_version: str, batch_ref: str):
+            assert case_version == "feedback-v1"
+            assert batch_ref == "batch-1"
+            return (_case(),)
+
+    ledger = InMemoryExperienceRunLedger()
+    scope = RunScope(tenant_id="tenant-1", family_id="family-1", subject_ids=("child-1",))
+    ledger.create_draft(
+        scope=scope,
+        run_id="run-worker-1",
+        request_ref="agi:need-1:path-1",
+        draft_payload={"family_need_id": "need-1", "status": "DRAFT"},
+        idempotency_key="create-worker-1",
+    )
+    worker = FeedbackRegressionWorker(
+        case_source=Source(),
+        ledger=ledger,
+        adapter=lambda case: {"next_step": "记录一次晨间观察"},
+    )
+    result = await worker.run_once(
+        FeedbackRegressionBatch(
+            batch_ref="batch-1",
+            case_version="feedback-v1",
+            run_id="run-worker-1",
+            scope=scope,
+        )
+    )
+
+    assert result.report.release_eligibility == "ELIGIBLE"
+    assert result.ledger_receipt.status == "recorded"
+
+
+@pytest.mark.asyncio
+async def test_worker_rejects_empty_or_mixed_version_batch() -> None:
+    class EmptySource:
+        async def load(self, **kwargs):
+            return ()
+
+    worker = FeedbackRegressionWorker(
+        case_source=EmptySource(),
+        ledger=InMemoryExperienceRunLedger(),
+        adapter=lambda case: {},
+    )
+    batch = FeedbackRegressionBatch(
+        batch_ref="empty",
+        case_version="feedback-v1",
+        run_id="run-empty",
+        scope=object(),
+    )
+    with pytest.raises(FeedbackRegressionError, match="empty"):
+        await worker.run_once(batch)

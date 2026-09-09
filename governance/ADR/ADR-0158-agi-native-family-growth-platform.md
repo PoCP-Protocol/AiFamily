@@ -1431,6 +1431,13 @@ PostgreSQL 重启回读和真人 Release Gate 关联仍是下一道门。
 反馈评测/ledger 测试通过）。测试使用文件型 SQLite，仅证明 SQL adapter 的
 跨 session 语义；`AIFAMILY_TEST_DATABASE_URL` 对应的真实 PostgreSQL 验收仍未完成。
 
+本轮增加 `FeedbackRegressionWorker` 编排契约：worker 只能通过注入的
+de-identified case source 获取批次，校验 case version 后执行本地回归，并把
+bounded report projection 写入 canonical Experience ledger。它不读取家庭表、
+不调用模型供应商、不自动发布；空批次和版本混合均 fail-closed。9 个定向测试
+通过，下一步仍需把该契约接到真实 PostgreSQL worker/调度进程并验证重启后的
+幂等批处理。
+
 **这次交付顺带确认了你(2026-09-10)提到的"多AI通过ADR-0158协同"**：我在
 准备这次实现时发现共享本地`D:/AiFamily`工作树的`main`分支HEAD在短时间内
 从`fd2d90a`变成`0fa84a1`，且这两个commit跟`origin/main`都不在同一条历史

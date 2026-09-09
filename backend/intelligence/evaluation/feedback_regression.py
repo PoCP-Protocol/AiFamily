@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -113,6 +113,83 @@ class FeedbackRegressionReport:
 
 
 FeedbackRegressionAdapter = Callable[[FeedbackRegressionCase], Mapping[str, Any]]
+
+
+class FeedbackRegressionCaseSource:
+    """Port for a pre-authorized, de-identified feedback case batch."""
+
+    async def load(self, *, case_version: str, batch_ref: str) -> Sequence[FeedbackRegressionCase]:
+        raise NotImplementedError
+
+
+@dataclass(frozen=True, slots=True)
+class FeedbackRegressionBatch:
+    """Worker input; scope and run identity are resolved by the caller."""
+
+    batch_ref: str
+    case_version: str
+    run_id: str
+    scope: Any
+
+    def __post_init__(self) -> None:
+        if not all(
+            isinstance(value, str) and value.strip()
+            for value in (self.batch_ref, self.case_version, self.run_id)
+        ):
+            raise FeedbackRegressionError("feedback regression batch identity is required")
+
+
+@dataclass(frozen=True, slots=True)
+class FeedbackRegressionWorkerResult:
+    batch: FeedbackRegressionBatch
+    report: FeedbackRegressionReport
+    ledger_receipt: Any
+
+
+class FeedbackRegressionWorker:
+    """Run one bounded feedback batch and persist only its report projection."""
+
+    def __init__(
+        self,
+        *,
+        case_source: FeedbackRegressionCaseSource
+        | Callable[..., Awaitable[Sequence[FeedbackRegressionCase]]],
+        ledger: Any,
+        adapter: FeedbackRegressionAdapter,
+    ) -> None:
+        if not callable(getattr(case_source, "load", None)) and not callable(case_source):
+            raise TypeError("case_source must expose async load")
+        if not callable(getattr(ledger, "record_evaluation", None)):
+            raise TypeError("ledger must expose record_evaluation")
+        if not callable(adapter):
+            raise TypeError("adapter must be callable")
+        self._case_source = case_source
+        self._ledger = ledger
+        self._adapter = adapter
+
+    async def run_once(self, batch: FeedbackRegressionBatch) -> FeedbackRegressionWorkerResult:
+        loader = getattr(self._case_source, "load", self._case_source)
+        cases = loader(case_version=batch.case_version, batch_ref=batch.batch_ref)
+        if not inspect.isawaitable(cases):
+            raise TypeError("case_source.load must be awaitable")
+        loaded = tuple(await cases)
+        if not loaded:
+            raise FeedbackRegressionError("feedback regression batch is empty")
+        if any(case.case_version != batch.case_version for case in loaded):
+            raise FeedbackRegressionError("feedback regression case version mismatch")
+        report = evaluate_feedback_regression(
+            loaded,
+            self._adapter,
+            case_version=batch.case_version,
+        )
+        receipt = await persist_feedback_regression_report(
+            self._ledger,
+            scope=batch.scope,
+            run_id=batch.run_id,
+            report=report,
+            idempotency_key=f"feedback-regression:{batch.batch_ref}",
+        )
+        return FeedbackRegressionWorkerResult(batch=batch, report=report, ledger_receipt=receipt)
 
 
 def evaluate_feedback_regression(
@@ -241,10 +318,14 @@ def _assert_bounded_json(value: Any, *, depth: int = 0) -> None:
 __all__ = [
     "FeedbackKind",
     "FeedbackRegressionAdapter",
+    "FeedbackRegressionBatch",
     "FeedbackRegressionCase",
+    "FeedbackRegressionCaseSource",
     "FeedbackRegressionError",
     "FeedbackRegressionReport",
     "FeedbackRegressionResult",
+    "FeedbackRegressionWorker",
+    "FeedbackRegressionWorkerResult",
     "evaluate_feedback_regression",
     "persist_feedback_regression_report",
 ]
