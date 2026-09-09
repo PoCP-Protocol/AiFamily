@@ -220,6 +220,12 @@ class ProductionAiPlatformWiring:
 
         if not isinstance(app, FastAPI):
             raise TypeError("app must be a FastAPI instance")
+        marker_name = "_aifamily_production_ai_platform_wiring"
+        installed = getattr(app.state, marker_name, None)
+        if installed is not None:
+            if installed is self:
+                return
+            raise RuntimeError("production AI platform wiring already configured")
         install_production_assessment_http_wiring(
             app,
             engine=self.engine,
@@ -240,6 +246,7 @@ class ProductionAiPlatformWiring:
         )
         if self.vertical_family_growth_composition is not None:
             self.vertical_family_growth_composition.install(app)
+        setattr(app.state, marker_name, self)
 
 
 __all__ = ["ProductionAiPlatformWiring", "build_production_ai_platform_wiring"]

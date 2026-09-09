@@ -189,6 +189,39 @@ def test_platform_wiring_can_own_the_vertical_composition() -> None:
         asyncio.run(engine.dispose())
 
 
+def test_platform_wiring_install_is_idempotent_for_one_app() -> None:
+    engine, wiring = _wiring()
+    try:
+        app = FastAPI()
+        wiring.install(app)
+        first_paths = set(app.openapi()["paths"])
+        first_overrides = dict(app.dependency_overrides)
+
+        wiring.install(app)
+
+        assert set(app.openapi()["paths"]) == first_paths
+        assert app.dependency_overrides == first_overrides
+    finally:
+        import asyncio
+
+        asyncio.run(engine.dispose())
+
+
+def test_platform_wiring_rejects_a_different_instance_on_same_app() -> None:
+    engine, wiring = _wiring()
+    other_engine, other_wiring = _wiring()
+    try:
+        app = FastAPI()
+        wiring.install(app)
+        with pytest.raises(RuntimeError, match="already configured"):
+            other_wiring.install(app)
+    finally:
+        import asyncio
+
+        asyncio.run(engine.dispose())
+        asyncio.run(other_engine.dispose())
+
+
 def test_create_app_does_not_install_dev_vertical_fallback_before_platform_wiring() -> None:
     engine, wiring = _wiring()
     try:
