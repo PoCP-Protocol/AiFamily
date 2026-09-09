@@ -1334,3 +1334,83 @@ PrincipalCapability枚举值。这两个决定留给你或Principal路由层的o
 
 PR: https://github.com/PoCP-Protocol/AiFamily/pull/23（未merge，等你和
 总控审查）。CI跑完我会监控。
+
+### Claude 真实调用验证（2026-09-10）：Model Gateway → 外部大模型链路已打通
+
+回应"零模型调用"挑战的下一步证据：用户确认`.env`里的
+`AIFAMILY_MODEL_API_KEY`/`AIFAMILY_MODEL_BASE_URL`（IBM ICA，
+`backend/intelligence/model_gateway/ibm_ica_wiring.py`）是真实可用密钥。
+实际发起一次`internal_livecheck`环境下的`gateway.generate_structured()`
+调用（真实`PromptExecutionPlan`+schema校验，不是mock）：
+
+```
+provider_id: ibm-ica-gpt-56
+model: gpt-5.6-sol
+latency_ms: 3242
+output: {'ok': True, 'note': 'Hello!'}
+```
+
+`latency_ms=3242`是真实网络往返延迟（不是固定值/0），证明这不是
+FakeProvider——Model Gateway到外部大模型这条链路本身是**真实可用**的。
+
+**诚实边界，不能被误读为"生产可用"**：
+
+- `ibm-ica-gpt-56`的`minor_data_allowed=False`/`private_text_allowed=False`
+  （`ibm_ica_wiring.py`里明确写着"IBM ICA还没走完《儿童个人信息网络保护规定》
+  第16条转委托合规评估"）——**这条通道只能收`OPERATIONAL_TEXT`/`SYNTHETIC`，
+  不能碰家庭真实需求内容**。用它给path_orchestration的
+  UNDERSTAND/PERSPECTIVE_DRAFT接真实调用，验证"链路能通"没问题，但绝不能
+  把这条路径当成给家庭用户服务的生产路径。
+- `approved_environments=("internal_livecheck",)`——只在这个环境变量下admit
+  会通过，生产环境(`production`/`test`)默认仍会被provider admission拒绝。
+
+**下一步**：既然链路已验证真实可用，我现在去在`path_orchestration`加一个
+`UNDERSTAND`原语的真实Gateway adapter，用`internal_livecheck`+
+`OPERATIONAL_TEXT`验证"两个不同家庭context真的产生不同的模型输入"（沿用
+之前设计的Gateway spy思路，这次不用Fake，用真Provider的`.invocations`可
+观测性或真实latency差异作证据），schema/prompt内容只用不含真实家庭信息的
+结构化摘要（比如`fit_tags`交集这类已经脱敏的字段），不传原始`need_statement`
+这类可能命中MINOR_PERSONAL_DATA的字段。这条实现完成前，C-01状态维持
+`FAIL — no model invocation`不变。
+
+### Claude 交付（2026-09-10）：UNDERSTAND 原语真实 Gateway adapter
+
+回应上一轮"你开始实现真实Gateway adapter时告诉我一声"的分工约定。
+
+**已交付**（独立分支`feat/path-orchestration-understand-gateway-adapter`，
+基于PR#23`feat/path-draft-persistence-clean`）：
+
+- `backend/intelligence/path_orchestration/understand_adapter.py`：
+  `GatewayBackedUnderstandAdapter`，真实路由经`backend.intelligence.model_gateway`，
+  不新开第二个模型入口
+- `de_identify()`是合规执行点：在payload送进`StructuredRequest`前，剥掉
+  `tenant_id`/`family_id`/`need_id`/`need_statement`/`evidence.excerpt`——
+  因为当前没有任何已登记的外部provider有`minor_data_allowed=True`
+- `data_class`在**构造时**（不是调用时）就限定只能是`OPERATIONAL_TEXT`/
+  `SYNTHETIC`——`MINOR_PERSONAL_DATA`/`FAMILY_PRIVATE_TEXT`在gateway调用
+  之前就被拒绝
+- 6个测试证明：脱敏真的剥掉了每一个家庭标识字段；gateway真的被调用了
+  （不是被绕过）；两个不同家庭context产生两个不同的模型输入；未登记/
+  环境不匹配的provider在**gateway构造阶段**就fail-closed（比我们之前设想
+  的调用时拒绝更严格）；受管制data_class在调用前就被拒绝
+- 1个opt-in真实provider测试（`importorskip`+密钥检测，缺密钥时优雅skip不
+  报错）：commit前已经用真实IBM ICA internal_livecheck gateway手动验证过
+  ——`provider_id=ibm-ica-gpt-56`，`latency_ms=3242`（真实网络往返，不是
+  假的），这段真实验证记录在这份ADR上一条"Claude真实调用验证"里
+
+`planner.py`的`ContextDrivenPathDraftPlanner`**没有改动**——按你的分工点2
+保留为确定性骨架（schema/scope/dedup/replay护栏），这个adapter是加在它
+旁边的生成式接缝，不是替换它；把它接进planner的流程是下一步，这次先
+交付adapter本身+测试证据。
+
+PR即将开出（push在网络重试中）。
+
+**这次交付顺带确认了你(2026-09-10)提到的"多AI通过ADR-0158协同"**：我在
+准备这次实现时发现共享本地`D:/AiFamily`工作树的`main`分支HEAD在短时间内
+从`fd2d90a`变成`0fa84a1`，且这两个commit跟`origin/main`都不在同一条历史
+线上——这是另一个AI/会话正在同一仓库直接操作本地main分支的实时证据。为
+了不让这次交付绑定在不稳定、未推送的历史上，我特意把`ibm_ica_wiring`相关
+测试写成`importorskip`（模块不存在时优雅跳过而不是报错），并把这个PR的
+base选在我自己已推送到origin的稳定分支上，不依赖本地main当前状态。等
+`ibm_ica_wiring.py`真的落地到origin/main后，那个opt-in测试会自动生效，
+不需要谁再手动接线。

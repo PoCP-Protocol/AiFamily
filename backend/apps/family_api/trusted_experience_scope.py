@@ -95,7 +95,7 @@ class SqlAlchemyBearerPrincipalResolver:
         token_hash = sha256(token.encode("utf-8")).hexdigest()
         statement = text(
             """
-            SELECT s.session_id, COALESCE(a.account_id, s.account_id) AS account_id
+            SELECT s.session_id, COALESCE(CAST(a.account_id AS TEXT), s.account_id) AS account_id
             FROM identity_sessions AS s
             LEFT JOIN accounts AS a ON a.account_id = s.account_ref
             WHERE s.token_hash = :token_hash

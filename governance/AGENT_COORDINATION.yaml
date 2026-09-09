@@ -1,0 +1,192 @@
+schema_version: 1
+authority:
+  adr: governance/ADR/ADR-0158-agi-native-family-growth-platform.md
+  owner: chief-architect
+  status: proposed
+  rule: This file is an observed coordination register, not proof of implementation or production capability.
+  updated_at: '2026-09-10'
+
+protocol:
+  required_report_fields:
+    - agent_id
+    - task_id
+    - owner
+    - base_ref
+    - allowed_paths
+    - current_truth
+    - claim
+    - challenge
+    - evidence
+    - blockers
+    - next_gate
+    - status
+  statuses:
+    - PROPOSED
+    - IN_PROGRESS
+    - CHALLENGED
+    - READY_FOR_REVIEW
+    - ACCEPTED
+    - INTEGRATED
+    - BLOCKED
+    - STALE
+    - REJECTED
+    - UNOWNED
+  integration_requirements:
+    - exact_ref
+    - named_owner
+    - non_overlapping_pathspec
+    - current_truth_and_counterevidence
+    - reproducible_validation
+    - next_gate
+  default_for_unregistered_worktree: UNOWNED
+
+observed_threads:
+  - task_id: '01a05083-a907-7bf2-bdd6-7146a7c15153'
+    title: '总控｜AiFamily项目全局统筹'
+    role: chief-architect
+    model: unknown
+    host: local
+    cwd: 'D:/AiFamily'
+    status: IN_PROGRESS
+    owner: chief-architect
+    capability: program-control
+    last_observed: '2026-09-10'
+    evidence: 'Codex thread inventory, pinned active task'
+  - task_id: '01a051e8-694a-7033-914b-e8bcf1566ea6'
+    title: '顾问红方｜ADR-0158质量挑战'
+    role: red-team
+    model: unknown
+    host: local
+    cwd: 'C:/Users/Lenovo/.codex/worktrees/8e15/AiFamily'
+    status: CHALLENGED
+    owner: unassigned
+    base_ref: 0fa84a1aedaf876eb47890b7b6a55c17ec497fc4
+    allowed_paths: []
+    capability: architecture-red-team
+    last_observed: '2026-09-10'
+    evidence: 'Codex thread inventory, idle task with ADR-0158 challenge summary'
+  - task_id: '01a0520e-8bca-79f3-bc37-77ac1776b0cf'
+    title: '小橘灯｜独立产品队列'
+    role: product-stream
+    model: unknown
+    host: local
+    cwd: 'C:/Users/Lenovo/.codex/worktrees/c658/AiFamily'
+    status: BLOCKED
+    owner: unassigned
+    base_ref: f6a2cbed8208a14ed5aac1d5fc07bf50c1349f3e
+    allowed_paths: []
+    capability: xiaojudeng-product
+    last_observed: '2026-09-10'
+    evidence: 'Worktree clean at f6a2cbe; 99677d8 is not an ancestor; LiveSession persistence owner and clean integration ref are missing'
+  - task_id: '01a0517e-6f22-7362-a76d-e4c21a49bffe'
+    title: '成长服务｜确认后成长方向'
+    role: domain-stream
+    model: unknown
+    host: local
+    cwd: 'C:/Users/Lenovo/.codex/worktrees/df2b/AiFamily'
+    status: BLOCKED
+    owner: unassigned
+    base_ref: UNKNOWN
+    allowed_paths: []
+    capability: growth-service
+    last_observed: '2026-09-10'
+    evidence: 'Reported worktree is not a Git repository; exact HEAD, owner and validation cannot be established'
+  - task_id: '01a05175-a2cf-7fc2-9a76-3231bab14a44'
+    title: 'PMO｜执行协调与Gate管理'
+    role: pmo
+    model: unknown
+    host: local
+    cwd: 'C:/Users/Lenovo/.codex/worktrees/cb26/AiFamily'
+    status: UNOWNED
+    owner: unassigned
+    base_ref: UNKNOWN
+    allowed_paths: []
+    capability: pmo-gates
+    last_observed: '2026-09-10'
+    evidence: 'Thread completed a coordination turn without returning the required heartbeat fields'
+  - task_id: '01a0522e-9928-7193-a2c7-8d23ebcca80c'
+    title: 'Platform Core｜Context·Consent·Persistence'
+    role: platform-core
+    model: unknown
+    host: local
+    cwd: 'C:/Users/Lenovo/.codex/worktrees/96ed/AiFamily'
+    status: UNOWNED
+    owner: unassigned
+    base_ref: UNKNOWN
+    allowed_paths: []
+    capability: platform-core
+    last_observed: '2026-09-10'
+    evidence: 'Thread completed a coordination turn without returning exact ref, owner and pathspec evidence'
+  - task_id: '01a05277-e86e-76d1-ae0d-16b4acbfaba6'
+    title: '家庭测评｜五维理解闭环'
+    role: experience-domain
+    model: unknown
+    host: local
+    cwd: 'C:/Users/Lenovo/.codex/worktrees/a8e5/AiFamily'
+    status: UNOWNED
+    owner: unassigned
+    base_ref: UNKNOWN
+    allowed_paths: []
+    capability: assessment-experience
+    last_observed: '2026-09-10'
+    evidence: 'Thread completed a coordination turn without returning exact ref, owner and pathspec evidence'
+  - task_id: '01a0517e-6f18-7242-ba77-b65c3e9e17e0'
+    title: 'QA/Release｜AGI闭环验收'
+    role: qa-release
+    model: unknown
+    host: local
+    cwd: 'C:/Users/Lenovo/.codex/worktrees/d480/AiFamily'
+    status: BLOCKED
+    owner: unassigned
+    base_ref: UNKNOWN
+    allowed_paths: []
+    capability: release-evidence
+    last_observed: '2026-09-10'
+    evidence: 'QA explicitly requires a single HTTP integration exact ref and real PG/restart/browser evidence; current state remains blocked'
+  - task_id: '01a0522e-998e-7fd2-b0e4-d7dd044a3aab'
+    title: 'Experience｜App闭环与用户场景'
+    role: experience
+    model: unknown
+    host: local
+    cwd: 'C:/Users/Lenovo/.codex/worktrees/d76d/AiFamily'
+    status: BLOCKED
+    owner: unassigned
+    base_ref: ba01e9c
+    allowed_paths: []
+    capability: mobile-experience
+    last_observed: '2026-09-10'
+    evidence: 'Frontend reports it will not expand UI until the unified draft/decision/growth-direction DTO exact ref exists'
+
+observed_worktree_policy:
+  source: git worktree list --porcelain
+  interpretation:
+    active_thread_is_not_inferred_from_branch_name: true
+    detached_worktree_is_not_integration_evidence: true
+    dirty_worktree_requires_owner_registration: true
+    source_repository_read_only: 'D:/family-ai'
+  conflict_rule: overlapping allowed_paths require explicit owner decision before integration
+
+conflicts:
+  - id: COORD-001
+    subject: 'Assessment-to-experience DTO and canonical family_need/path resolver'
+    parties: ['assessment-experience', 'growth-service', 'qa-release']
+    state: BLOCKED
+    reason: 'No single approved exact HTTP integration ref; adapter evidence alone is insufficient'
+    required_decision: 'PMO must name one integration owner and approve the canonical resolver contract'
+  - id: COORD-002
+    subject: 'Route B H01 consumption and LiveSession persistence'
+    parties: ['xiaojudeng-product', 'route-b', 'platform-core']
+    state: BLOCKED
+    reason: 'H01 ref 99677d8 is not consumed by the current clean Route B ref; persistence owner is missing'
+    required_decision: 'Chief architect must name Route B integration owner and LiveSession persistence owner'
+
+decisions:
+  - id: DEC-20260910-001
+    decision: 'No unregistered dirty worktree is an integration candidate'
+    authority: governance/ADR/ADR-0158-agi-native-family-growth-platform.md
+    status: current
+    evidence: 'tools/governance/check_agent_coordination.py reports UNOWNED dirty worktrees'
+  - id: DEC-20260910-002
+    decision: 'QA evidence gate remains Integration BLOCKED / NO-GO until one exact HTTP ref exists'
+    authority: 'QA/Release thread 01a0517e-6f18-7242-ba77-b65c3e9e17e0'
+    status: current
