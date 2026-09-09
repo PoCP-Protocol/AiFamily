@@ -97,7 +97,7 @@ def test_builder_requires_governed_runtime_and_builds_both_resolvers() -> None:
     )
     gateway = ModelGateway(
         {provider.provider_id: provider},
-        environment="staging",
+        environment="test",
         registry=registry,
         safety_runtime=SafetyRuntime(),
     )

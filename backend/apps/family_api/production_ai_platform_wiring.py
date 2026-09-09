@@ -96,8 +96,10 @@ def build_production_ai_platform_wiring(
         raise TypeError("production AI platform requires an AsyncContextBrokerPort")
     if context_broker.durability_mode != "DURABLE":
         raise ValueError("production AI platform requires a durable Context Broker")
-    if environment not in {"staging", "production"}:
-        raise ValueError("production AI platform environment must be staging or production")
+    if environment not in {"test", "staging", "production"}:
+        raise ValueError(
+            "production AI platform environment must be test, staging or production"
+        )
     if prompt_registry_factory is None and not callable(
         getattr(prompt_registry, "resolve", None)
     ):
