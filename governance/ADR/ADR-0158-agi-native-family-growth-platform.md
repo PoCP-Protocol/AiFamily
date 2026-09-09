@@ -1470,6 +1470,11 @@ PostgreSQL worker 运行与多进程证据。
 调用 job store 的 `fail()` 进入 `FAILED`，不再无限重试；未达到上限才按 retry
 delay 重新排队。该策略不改变业务事实或发布状态，相关调度/wiring 测试 6 passed。
 
+本轮补充人工恢复路径：`FAILED` job 只能通过显式 `operator_ref` 调用
+`requeue_failed()` 回到 `PENDING`，自动 scheduler 不会复活失败任务；非 FAILED
+状态或缺少 operator reference 均 fail-closed。这样既避免永久丢失评测批次，也不绕过
+人工控制边界。
+
 迁移能力已同步登记至 `governance/MIGRATION_MANIFEST.yaml` 的
 `feedback_regression_scheduler` 条目，成熟度明确标为 `IMPLEMENTED_EXPERIMENT`，
 并列出真实 PostgreSQL 并发与 worker 部署缺口。

@@ -99,6 +99,15 @@ class FeedbackRegressionJobStore(Protocol):
         self, job_id: str, *, worker_id: str, error: str, now: datetime
     ) -> FeedbackRegressionJob: ...
 
+    async def requeue_failed(
+        self,
+        job_id: str,
+        *,
+        operator_ref: str,
+        due_at: datetime,
+        now: datetime,
+    ) -> FeedbackRegressionJob: ...
+
 
 class InMemoryFeedbackRegressionJobStore:
     def __init__(self) -> None:
@@ -173,6 +182,25 @@ class InMemoryFeedbackRegressionJobStore:
             lease_owner=None,
             lease_until=None,
             last_error=error[:256],
+        )
+        self.jobs[job_id] = updated
+        return updated
+
+    async def requeue_failed(
+        self, job_id: str, *, operator_ref: str, due_at: datetime, now: datetime
+    ):
+        if not operator_ref.strip():
+            raise ValueError("FEEDBACK_REQUEUE_OPERATOR_REQUIRED")
+        job = self.jobs.get(job_id)
+        if job is None:
+            raise ValueError("FEEDBACK_JOB_NOT_FOUND")
+        if job.status is not FeedbackJobStatus.FAILED:
+            raise ValueError("FEEDBACK_JOB_NOT_FAILED")
+        updated = replace(
+            job,
+            status=FeedbackJobStatus.PENDING,
+            due_at=_aware(due_at),
+            last_error=f"REQUEUED_BY:{operator_ref[:128]}",
         )
         self.jobs[job_id] = updated
         return updated
@@ -279,6 +307,28 @@ class SqlAlchemyFeedbackRegressionJobStore:
             row.lease_owner = None
             row.lease_until = None
             row.last_error = error[:256]
+            row.updated_at = _aware(now)
+            await session.flush()
+            return _stored(row)
+
+    async def requeue_failed(
+        self, job_id: str, *, operator_ref: str, due_at: datetime, now: datetime
+    ):
+        if not operator_ref.strip():
+            raise ValueError("FEEDBACK_REQUEUE_OPERATOR_REQUIRED")
+        async with self._session_factory() as session, session.begin():
+            row = await session.scalar(
+                select(FeedbackRegressionJobRow)
+                .where(FeedbackRegressionJobRow.job_id == job_id)
+                .with_for_update()
+            )
+            if row is None:
+                raise ValueError("FEEDBACK_JOB_NOT_FOUND")
+            if row.status != FeedbackJobStatus.FAILED.value:
+                raise ValueError("FEEDBACK_JOB_NOT_FAILED")
+            row.status = FeedbackJobStatus.PENDING.value
+            row.due_at = _aware(due_at)
+            row.last_error = f"REQUEUED_BY:{operator_ref[:128]}"
             row.updated_at = _aware(now)
             await session.flush()
             return _stored(row)

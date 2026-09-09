@@ -143,6 +143,21 @@ async def test_scheduler_marks_permanent_failure_after_max_attempts() -> None:
     result = await scheduler.run_once(now=now)
     assert result[0].status is FeedbackJobStatus.FAILED
     assert (await jobs.get("job-terminal")).status is FeedbackJobStatus.FAILED
+    requeued = await jobs.requeue_failed(
+        "job-terminal",
+        operator_ref="ops-123",
+        due_at=now + timedelta(minutes=1),
+        now=now,
+    )
+    assert requeued.status is FeedbackJobStatus.PENDING
+    assert requeued.last_error == "REQUEUED_BY:ops-123"
+    with pytest.raises(ValueError, match="NOT_FAILED"):
+        await jobs.requeue_failed(
+            "job-terminal",
+            operator_ref="ops-123",
+            due_at=now,
+            now=now,
+        )
 
 
 @pytest.mark.asyncio

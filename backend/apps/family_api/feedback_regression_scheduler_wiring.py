@@ -45,6 +45,13 @@ class FeedbackRegressionSchedulerRuntime:
     async def get(self, job_id: str) -> FeedbackRegressionJob | None:
         return await self.jobs.get(job_id)
 
+    async def requeue_failed(
+        self, job_id: str, *, operator_ref: str, due_at: datetime, now: datetime
+    ) -> FeedbackRegressionJob:
+        return await self.jobs.requeue_failed(
+            job_id, operator_ref=operator_ref, due_at=due_at, now=now
+        )
+
     async def run_scheduled_tick(
         self, *, now: datetime | None = None
     ) -> tuple[FeedbackSchedulerResult, ...]:
