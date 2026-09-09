@@ -1,5 +1,6 @@
 """Named commerce commands for the no-op DEV/TEST intent flow."""
 
+import re
 from datetime import UTC, datetime
 
 from ..domain.errors import CommerceConflictError, CommerceNotFoundError, CommerceValidationError
@@ -97,6 +98,7 @@ async def request_refund(
     source_order_intent_id: str,
     idempotency_key: str | None,
     reason: str,
+    evidence_receipt_ref: str | None = None,
 ) -> tuple[RefundRequest, Entitlement]:
     """Process a local refund recovery transition idempotently.
 
@@ -107,6 +109,10 @@ async def request_refund(
         raise CommerceValidationError("idempotency-key header is required")
     if not reason.strip():
         raise CommerceValidationError("refund_reason_is_required")
+    if evidence_receipt_ref is not None and not re.search(
+        r"@v[1-9][0-9]*$", evidence_receipt_ref.strip()
+    ):
+        raise CommerceValidationError("refund_evidence_receipt_invalid")
     existing = await repo.find_refund_by_idempotency(
         tenant_id=tenant_id, family_id=family_id, idempotency_key=idempotency_key
     )
@@ -139,7 +145,15 @@ async def request_refund(
         reason=reason.strip(), idempotency_key=idempotency_key,
         created_at=now, updated_at=now,
     )
-    revoked = entitlement.model_copy(update={"status": "REVOKED", "updated_at": now})
+    attributes = dict(entitlement.attributes)
+    if evidence_receipt_ref:
+        refs = list(attributes.get("evidence_refs", ()))
+        if evidence_receipt_ref.strip() not in refs:
+            refs.append(evidence_receipt_ref.strip())
+        attributes["evidence_refs"] = refs
+    revoked = entitlement.model_copy(
+        update={"status": "REVOKED", "updated_at": now, "attributes": attributes}
+    )
     await repo.save_refund(refund)
     await repo.save_entitlement(revoked)
     await repo.commit()

@@ -18,6 +18,7 @@ async def test_refund_revokes_entitlement_and_is_idempotent():
     refund, entitlement = await request_refund(
         repo, tenant_id="t1", family_id="f1", source_order_intent_id=intent.order_intent_id,
         idempotency_key="refund-1", reason="family changed plans",
+        evidence_receipt_ref="evidence:refund-recovery@v1",
     )
     again, same = await request_refund(
         repo, tenant_id="t1", family_id="f1", source_order_intent_id=intent.order_intent_id,
@@ -25,6 +26,7 @@ async def test_refund_revokes_entitlement_and_is_idempotent():
     )
     assert refund.status == "PROCESSED"
     assert entitlement.status == "REVOKED"
+    assert entitlement.attributes["evidence_refs"] == ["evidence:refund-recovery@v1"]
     assert again == refund and same == entitlement
 
 
@@ -33,3 +35,13 @@ async def test_refund_requires_reason():
     with pytest.raises(CommerceValidationError, match="refund_reason"):
         await request_refund(FakeCommerceRepository(), tenant_id="t", family_id="f",
                              source_order_intent_id="missing", idempotency_key="r", reason=" ")
+
+
+@pytest.mark.asyncio
+async def test_refund_rejects_invalid_evidence_receipt() -> None:
+    with pytest.raises(CommerceValidationError, match="refund_evidence_receipt_invalid"):
+        await request_refund(
+            FakeCommerceRepository(), tenant_id="t", family_id="f",
+            source_order_intent_id="missing", idempotency_key="r", reason="changed",
+            evidence_receipt_ref="evidence:refund-recovery",
+        )
