@@ -17,6 +17,18 @@ from backend.intelligence.experience.sql_run_ledger import SessionPerCallExperie
 class _Port:
     durability_mode = "DURABLE"
 
+    async def generate_structured(self, *args, **kwargs):
+        raise AssertionError("not called")
+
+    async def read(self, *args, **kwargs):
+        raise AssertionError("not called")
+
+    async def published(self, *args, **kwargs):
+        raise AssertionError("not called")
+
+    async def latest(self, *args, **kwargs):
+        return ()
+
 
 class _Consent:
     async def is_current(self, **kwargs):

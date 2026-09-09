@@ -14,9 +14,17 @@ from backend.intelligence.agi_vertical_runtime import EvaluationLedger, Vertical
 class _DurablePort:
     durability_mode = "DURABLE"
 
-    async def read(self, **kwargs):
+    async def generate_structured(self, *args, **kwargs):
         raise AssertionError("not called")
 
+    async def read(self, *args, **kwargs):
+        raise AssertionError("not called")
+
+    async def published(self, *args, **kwargs):
+        raise AssertionError("not called")
+
+    async def latest(self, *args, **kwargs):
+        return ()
 
 class _DurableBroker(_DurablePort):
     async def append(self, observation):

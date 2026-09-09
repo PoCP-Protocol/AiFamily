@@ -66,6 +66,19 @@ class ProductionVerticalFamilyGrowthComposition:
             raise TypeError("session_factory must be an async_sessionmaker")
         if not isinstance(self.runtime, VerticalFamilyGrowthRuntime):
             raise TypeError("runtime must be a VerticalFamilyGrowthRuntime")
+        if self.environment in {"staging", "production"}:
+            required_ports = {
+                "gateway": ("generate_structured",),
+                "context": ("read",),
+                "knowledge": ("published",),
+                "feedback": ("latest",),
+            }
+            for name, methods in required_ports.items():
+                port = getattr(self.runtime, f"_{name}", None)
+                if port is None or any(
+                    not callable(getattr(port, method, None)) for method in methods
+                ):
+                    raise ValueError(f"vertical family-growth composition requires {name} port")
         if self.runtime.context_durability_mode != "DURABLE":
             raise ValueError("vertical family-growth runtime requires durable Context Port")
         if self.environment in {"staging", "production"} and getattr(

@@ -63,6 +63,7 @@ type RemoteHome = {
 
 type GrowthHelpResponse = {
   signal_id: string;
+  need_id: string;
   proposed_need_type: string | null;
   confirm_prompt: string;
   supported: boolean;
@@ -246,9 +247,16 @@ export default function TodayScreen() {
     setGrowthHelpAdvancing(true);
     setGrowthHelpError(null);
     try {
-      const intent = await familyApi.confirmGrowthIntent<{ intent_id: string }>(session.token, session.selectedFamily.family_id, { signal_id: growthHelpResult.signal_id, goal_text: growthHelpText.trim() }, growthIntentRetry.current.confirmKey);
-      const recommendation = await familyApi.requestGrowthRecommendation<GrowthRecommendation>(session.token, session.selectedFamily.family_id, intent.intent_id, growthIntentRetry.current.recommendationKey);
-      setGrowthRecommendation(recommendation);
+      const intent = await familyApi.confirmGrowthIntent<{ need_id?: string; signal_id?: string }>(session.token, session.selectedFamily.family_id, { signal_id: growthHelpResult.need_id, goal_text: growthHelpText.trim() }, growthIntentRetry.current.confirmKey);
+      const perspective = await familyApi.requestGrowthRecommendation<{ reflection: string; guiding_question: string }>(session.token, session.selectedFamily.family_id, intent.need_id ?? growthHelpResult.need_id, growthIntentRetry.current.recommendationKey);
+      setGrowthRecommendation({
+        recommendation_id: `perspective:${growthHelpResult.need_id}`,
+        intent_id: intent.need_id ?? growthHelpResult.need_id,
+        version: 1,
+        candidates: [{ offer_ref: "resource:v1:perspective", why_this: perspective.reflection, limitations: [perspective.guiding_question], rank: 1 }],
+        recommended_offer_refs: [],
+        why_now: "这是一个可编辑的 Perspective，不会自动创建服务或任务。",
+      });
       setGrowthDecision(null);
     } catch {
       setGrowthHelpError("方向确认暂时没有完成，请稍后重试；重复点击不会重复创建记录。");
@@ -268,14 +276,11 @@ export default function TodayScreen() {
     setGrowthHelpAdvancing(true);
     setGrowthHelpError(null);
     try {
-      const decision = await familyApi.decideGrowthService<GrowthDecision>(session.token, session.selectedFamily.family_id, {
-        intent_id: growthRecommendation.intent_id,
-        recommendation_id: growthRecommendation.recommendation_id,
-        recommendation_version: growthRecommendation.version,
-        decision_type: decisionType,
-        selected_offer_refs: selectedOfferRefs,
-      }, growthDecisionRetry.current.key);
-      setGrowthDecision(decision);
+      if (decisionType === "DISMISS") {
+        setGrowthDecision({ decision_id: growthRecommendation.recommendation_id, outcome: "NO_ACTION", case_id: null, executed_resource_type: null, ai_coach: null });
+      } else {
+        setGrowthHelpError("当前只提供可编辑的家庭 Perspective，服务安排需要人工支持。 ");
+      }
     } catch {
       setGrowthHelpError("这次选择暂时没有保存，请稍后重试；系统不会重复启动服务。");
     } finally {

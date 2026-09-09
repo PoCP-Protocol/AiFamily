@@ -20,9 +20,17 @@ from backend.intelligence.experience.run_http import RunScope
 class _Port:
     durability_mode = "DURABLE"
 
-    async def read(self, **kwargs):
+    async def generate_structured(self, *args, **kwargs):
         raise AssertionError("not called")
 
+    async def read(self, *args, **kwargs):
+        raise AssertionError("not called")
+
+    async def published(self, *args, **kwargs):
+        raise AssertionError("not called")
+
+    async def latest(self, *args, **kwargs):
+        return ()
 
 class _Context:
     durability_mode = "DURABLE"
