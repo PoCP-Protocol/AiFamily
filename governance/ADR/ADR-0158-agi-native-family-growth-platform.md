@@ -1438,6 +1438,12 @@ bounded report projection 写入 canonical Experience ledger。它不读取家�
 通过，下一步仍需把该契约接到真实 PostgreSQL worker/调度进程并验证重启后的
 幂等批处理。
 
+本轮新增 `feedback_scheduler.py`：独立于 canary 发布调度，提供反馈回归批次的
+`PENDING → LEASED → COMPLETED/重试` 状态机，支持 worker lease、失败重试和租约
+到期接管；它只调用已治理的 `FeedbackRegressionWorker`，不读取家庭数据、不调用
+供应商、不自动发布。内存调度与 worker 回归共 13 个测试通过。SQL job store、
+真实 worker 进程和 PostgreSQL 多 worker 并发证据仍是下一道门。
+
 本轮补上 `ExperienceFeedbackCaseSource`：它从一个服务端选定、已授权的
 Experience run scope 中回放 interaction，只接受反馈事件显式携带的
 `regression_case` 合约，不从 draft、家庭表或原始需求推断期望输出；普通反馈被
