@@ -16,6 +16,7 @@ from backend.apps.family_api.production_ai_platform_wiring import (
     build_production_ai_platform_wiring,
 )
 from backend.domains.assessment.api import dependencies as assessment_dependencies
+from backend.domains.assessment.api import router as assessment_router
 from backend.intelligence.context_engine.sql_store import AsyncSqlContextBroker
 from backend.intelligence.model_gateway.attempt_persistence import SqlAlchemyAttemptSink
 from backend.intelligence.model_gateway.gateway import ModelGateway
@@ -197,6 +198,29 @@ def test_create_app_does_not_install_dev_vertical_fallback_before_platform_wirin
             "/families/{family_id}/growth/human-tasks/{task_id}/decisions"
             in app.openapi()["paths"]
         )
+    finally:
+        import asyncio
+
+        asyncio.run(engine.dispose())
+
+
+def test_create_app_with_platform_wiring_keeps_assessment_and_growth_routes() -> None:
+    engine, wiring = _wiring()
+    try:
+        app = create_app(production_ai_platform_wiring=wiring)
+        paths = app.openapi()["paths"]
+        assessment_paths = {
+            route.path.replace("/families", "", 1)
+            for route in assessment_router.routes
+            if getattr(route, "path", "").startswith("/")
+        }
+        assert any(path.endswith("/ui/03/growth-hypothesis") for path in paths)
+        assert any(path.endswith("/growth-hypotheses/decisions") for path in paths)
+        assert any(
+            path.endswith("/growth/onboardings/{onboarding_id}/ai-plan-drafts")
+            for path in paths
+        )
+        assert assessment_paths
     finally:
         import asyncio
 
