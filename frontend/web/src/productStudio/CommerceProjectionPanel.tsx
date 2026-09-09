@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { HttpCommerceProjectionApiClient, type CommerceProjection } from "./commerceProjectionApi";
+import { HttpCommerceProjectionApiClient, type CommerceProjection, type CommerceProjectionApiClient } from "./commerceProjectionApi";
 
-export function CommerceProjectionPanel() {
+export function CommerceProjectionPanel({ client }: { client?: CommerceProjectionApiClient }) {
   const [familyId, setFamilyId] = useState("family-demo"); const [projection, setProjection] = useState<CommerceProjection | null>(null); const [error, setError] = useState<string | null>(null); const [loading, setLoading] = useState(false);
-  const read = async () => { setLoading(true); setError(null); try { setProjection(await new HttpCommerceProjectionApiClient().get(familyId.trim())); } catch (cause) { setError(cause instanceof Error ? cause.message : "读取失败"); } finally { setLoading(false); } };
+  const read = async () => { setLoading(true); setError(null); try { setProjection(await (client ?? new HttpCommerceProjectionApiClient()).get(familyId.trim())); } catch (cause) { setError(cause instanceof Error ? cause.message : "读取失败"); } finally { setLoading(false); } };
   return <section aria-label="Commerce delivery projection" className="panel commerce-projection-panel">
     <p className="section-kicker">Commerce · Web 交付回读</p><h2>家庭权益与退款恢复状态</h2>
     <p className="muted">只读投影：不会收款、创建订单或修改权益；状态来自服务端持久化读模型。</p>
