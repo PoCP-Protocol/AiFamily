@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from backend.intelligence.evaluation.feedback_regression import (
+    ExperienceFeedbackCaseSource,
     FeedbackRegressionBatch,
     FeedbackRegressionCase,
     FeedbackRegressionError,
@@ -191,3 +192,76 @@ async def test_worker_rejects_empty_or_mixed_version_batch() -> None:
     )
     with pytest.raises(FeedbackRegressionError, match="empty"):
         await worker.run_once(batch)
+
+
+@pytest.mark.asyncio
+async def test_experience_source_reads_only_explicit_feedback_contracts() -> None:
+    ledger = InMemoryExperienceRunLedger()
+    scope = RunScope(tenant_id="tenant-1", family_id="family-1", subject_ids=("child-1",))
+    ledger.create_draft(
+        scope=scope,
+        run_id="run-source-1",
+        request_ref="agi:need-1:path-1",
+        draft_payload={"family_need_id": "need-1", "status": "DRAFT"},
+        idempotency_key="create-source-1",
+    )
+    ledger.record_feedback(
+        scope=scope,
+        run_id="run-source-1",
+        signal="not_helpful",
+        idempotency_key="feedback-source-1",
+        payload={
+            "feedback_ref": "feedback-source-1",
+            "regression_case": {
+                "case_ref": "case-source-1",
+                "case_version": "feedback-v1",
+                "feedback_kind": "GUARDIAN_EDIT",
+                "input_contract": {"capability_refs": ["practice:morning"]},
+                "expected_output": {"next_step": "记录一次晨间观察"},
+                "output_schema": {
+                    "type": "object",
+                    "required": ["next_step"],
+                    "properties": {"next_step": {"type": "string"}},
+                },
+                "scope_digest": "sha256:opaque-source-scope",
+            },
+        },
+    )
+    source = ExperienceFeedbackCaseSource(ledger=ledger, scope=scope)
+    cases = await source.load(case_version="feedback-v1", batch_ref="run-source-1")
+    assert len(cases) == 1
+    assert cases[0].feedback_ref == "feedback-source-1"
+
+
+@pytest.mark.asyncio
+async def test_experience_source_rejects_version_drift() -> None:
+    ledger = InMemoryExperienceRunLedger()
+    scope = RunScope(tenant_id="tenant-1", family_id="family-1", subject_ids=("child-1",))
+    ledger.create_draft(
+        scope=scope,
+        run_id="run-source-drift",
+        request_ref="agi:need-1:path-1",
+        draft_payload={"family_need_id": "need-1", "status": "DRAFT"},
+        idempotency_key="create-source-drift",
+    )
+    ledger.record_feedback(
+        scope=scope,
+        run_id="run-source-drift",
+        signal="helpful",
+        idempotency_key="feedback-source-drift",
+        payload={
+            "regression_case": {
+                "case_ref": "case-drift",
+                "case_version": "old-version",
+                "feedback_kind": "GUARDIAN_ACCEPT",
+                "input_contract": {"x": 1},
+                "expected_output": {"next_step": "x"},
+                "output_schema": {"type": "object"},
+                "scope_digest": "sha256:opaque-drift-scope",
+            }
+        },
+    )
+    with pytest.raises(FeedbackRegressionError, match="version mismatch"):
+        await ExperienceFeedbackCaseSource(ledger=ledger, scope=scope).load(
+            case_version="feedback-v1", batch_ref="run-source-drift"
+        )

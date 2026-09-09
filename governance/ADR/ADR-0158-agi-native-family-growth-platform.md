@@ -1438,6 +1438,12 @@ bounded report projection 写入 canonical Experience ledger。它不读取家�
 通过，下一步仍需把该契约接到真实 PostgreSQL worker/调度进程并验证重启后的
 幂等批处理。
 
+本轮补上 `ExperienceFeedbackCaseSource`：它从一个服务端选定、已授权的
+Experience run scope 中回放 interaction，只接受反馈事件显式携带的
+`regression_case` 合约，不从 draft、家庭表或原始需求推断期望输出；普通反馈被
+忽略，case version 漂移 fail-closed。11 个定向测试通过。该 source 仍是应用层
+接缝，真实 PostgreSQL feedback worker 和调度部署证据尚未形成。
+
 **这次交付顺带确认了你(2026-09-10)提到的"多AI通过ADR-0158协同"**：我在
 准备这次实现时发现共享本地`D:/AiFamily`工作树的`main`分支HEAD在短时间内
 从`fd2d90a`变成`0fa84a1`，且这两个commit跟`origin/main`都不在同一条历史

@@ -122,6 +122,56 @@ class FeedbackRegressionCaseSource:
         raise NotImplementedError
 
 
+class ExperienceFeedbackCaseSource(FeedbackRegressionCaseSource):
+    """Read regression contracts from one already-authorized Experience run.
+
+    ``batch_ref`` is a server-selected run id.  The source replays only that
+    exact scope and accepts only feedback interactions carrying an explicit,
+    bounded ``regression_case`` object.  It never infers expected output from
+    family data or from the draft checkpoint.
+    """
+
+    def __init__(self, *, ledger: Any, scope: Any) -> None:
+        if not callable(getattr(ledger, "replay", None)):
+            raise TypeError("ledger must expose replay")
+        self._ledger = ledger
+        self._scope = scope
+
+    async def load(self, *, case_version: str, batch_ref: str) -> Sequence[FeedbackRegressionCase]:
+        replay = self._ledger.replay(scope=self._scope, run_id=batch_ref)
+        snapshot = await replay if inspect.isawaitable(replay) else replay
+        entries = getattr(snapshot, "entries", getattr(snapshot, "interactions", ()))
+        cases: list[FeedbackRegressionCase] = []
+        for entry in entries:
+            interaction_type = getattr(getattr(entry, "interaction_type", None), "value", None)
+            if interaction_type != "feedback":
+                continue
+            payload = getattr(entry, "payload", None)
+            if not isinstance(payload, Mapping):
+                continue
+            contract = payload.get("regression_case")
+            if not isinstance(contract, Mapping):
+                continue
+            feedback_ref = payload.get("feedback_ref") or getattr(entry, "event_id", None)
+            if not isinstance(feedback_ref, str) or not feedback_ref.strip():
+                raise FeedbackRegressionError("feedback reference is required")
+            if contract.get("case_version") != case_version:
+                raise FeedbackRegressionError("feedback regression case version mismatch")
+            cases.append(
+                FeedbackRegressionCase(
+                    case_ref=str(contract.get("case_ref", "")),
+                    case_version=case_version,
+                    feedback_ref=feedback_ref,
+                    feedback_kind=contract.get("feedback_kind", "GUARDIAN_EDIT"),
+                    input_contract=contract.get("input_contract", {}),
+                    expected_output=contract.get("expected_output", {}),
+                    output_schema=contract.get("output_schema", {}),
+                    scope_digest=str(contract.get("scope_digest", "")),
+                )
+            )
+        return tuple(cases)
+
+
 @dataclass(frozen=True, slots=True)
 class FeedbackRegressionBatch:
     """Worker input; scope and run identity are resolved by the caller."""
@@ -326,6 +376,7 @@ __all__ = [
     "FeedbackRegressionResult",
     "FeedbackRegressionWorker",
     "FeedbackRegressionWorkerResult",
+    "ExperienceFeedbackCaseSource",
     "evaluate_feedback_regression",
     "persist_feedback_regression_report",
 ]
