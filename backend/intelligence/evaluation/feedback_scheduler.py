@@ -10,7 +10,13 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Protocol
+from typing import Any, Protocol
+
+from sqlalchemy import JSON, CheckConstraint, DateTime, Integer, String, and_, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from backend.intelligence.experience.run_http import RunScope
 
 from .feedback_regression import (
     FeedbackRegressionBatch,
@@ -24,6 +30,34 @@ class FeedbackJobStatus(StrEnum):
     LEASED = "LEASED"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+
+
+class FeedbackSchedulerBase(DeclarativeBase):
+    """Metadata boundary for restart-safe feedback regression jobs."""
+
+
+class FeedbackRegressionJobRow(FeedbackSchedulerBase):
+    __tablename__ = "ai_feedback_regression_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('PENDING', 'LEASED', 'COMPLETED', 'FAILED')",
+            name="ck_ai_feedback_regression_job_status",
+        ),
+    )
+
+    job_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    batch_ref: Mapped[str] = mapped_column(String(256), nullable=False)
+    case_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    run_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    scope: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False)
+    lease_owner: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +167,96 @@ class InMemoryFeedbackRegressionJobStore:
         return job
 
 
+class SqlAlchemyFeedbackRegressionJobStore:
+    """Session-per-operation durable queue with row-level lease claims."""
+
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        if not isinstance(session_factory, async_sessionmaker):
+            raise TypeError("session_factory must be an async_sessionmaker")
+        self._session_factory = session_factory
+
+    async def enqueue(self, job: FeedbackRegressionJob) -> FeedbackRegressionJob:
+        now = _aware(datetime.now(UTC))
+        async with self._session_factory() as session, session.begin():
+            row = await session.get(FeedbackRegressionJobRow, job.job_id)
+            if row is not None:
+                existing = _stored(row)
+                if existing.batch != job.batch:
+                    raise ValueError("FEEDBACK_JOB_CONFLICT")
+                return existing
+            session.add(_row(job, now))
+        return job
+
+    async def claim_due(
+        self, *, worker_id: str, now: datetime, lease_ttl: timedelta, limit: int
+    ) -> tuple[FeedbackRegressionJob, ...]:
+        if not worker_id.strip() or lease_ttl <= timedelta(0) or limit < 1:
+            raise ValueError("FEEDBACK_JOB_CLAIM_INVALID")
+        now = _aware(now)
+        async with self._session_factory() as session, session.begin():
+            result = await session.execute(
+                select(FeedbackRegressionJobRow)
+                .where(
+                    FeedbackRegressionJobRow.due_at <= now,
+                    or_(
+                        FeedbackRegressionJobRow.status == FeedbackJobStatus.PENDING.value,
+                        and_(
+                            FeedbackRegressionJobRow.status == FeedbackJobStatus.LEASED.value,
+                            FeedbackRegressionJobRow.lease_until <= now,
+                        ),
+                    ),
+                )
+                .order_by(FeedbackRegressionJobRow.due_at, FeedbackRegressionJobRow.job_id)
+                .limit(limit)
+                .with_for_update(skip_locked=True)
+            )
+            rows = tuple(result.scalars())
+            for row in rows:
+                row.status = FeedbackJobStatus.LEASED.value
+                row.attempts += 1
+                row.lease_owner = worker_id
+                row.lease_until = now + lease_ttl
+                row.updated_at = now
+            await session.flush()
+            return tuple(_stored(row) for row in rows)
+
+    async def complete(self, job_id: str, *, worker_id: str, now: datetime):
+        async with self._session_factory() as session, session.begin():
+            row = await self._leased_row(session, job_id, worker_id)
+            row.status = FeedbackJobStatus.COMPLETED.value
+            row.lease_owner = None
+            row.lease_until = None
+            row.updated_at = _aware(now)
+            await session.flush()
+            return _stored(row)
+
+    async def retry(
+        self, job_id: str, *, worker_id: str, due_at: datetime, error: str, now: datetime
+    ):
+        async with self._session_factory() as session, session.begin():
+            row = await self._leased_row(session, job_id, worker_id)
+            row.status = FeedbackJobStatus.PENDING.value
+            row.due_at = _aware(due_at)
+            row.lease_owner = None
+            row.lease_until = None
+            row.last_error = error[:256]
+            row.updated_at = _aware(now)
+            await session.flush()
+            return _stored(row)
+
+    async def _leased_row(self, session: AsyncSession, job_id: str, worker_id: str):
+        row = await session.scalar(
+            select(FeedbackRegressionJobRow)
+            .where(FeedbackRegressionJobRow.job_id == job_id)
+            .with_for_update()
+        )
+        if row is None:
+            raise ValueError("FEEDBACK_JOB_NOT_FOUND")
+        if row.status != FeedbackJobStatus.LEASED.value or row.lease_owner != worker_id:
+            raise ValueError("FEEDBACK_JOB_LEASE_INVALID")
+        return row
+
+
 @dataclass(frozen=True, slots=True)
 class FeedbackSchedulerResult:
     job_id: str
@@ -197,11 +321,60 @@ def _aware(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
+def _row(job: FeedbackRegressionJob, now: datetime) -> FeedbackRegressionJobRow:
+    return FeedbackRegressionJobRow(
+        job_id=job.job_id,
+        batch_ref=job.batch.batch_ref,
+        case_version=job.batch.case_version,
+        run_id=job.batch.run_id,
+        scope={
+            "tenant_id": job.batch.scope.tenant_id,
+            "family_id": job.batch.scope.family_id,
+            "subject_ids": list(job.batch.scope.subject_ids),
+        },
+        status=job.status.value,
+        due_at=_aware(job.due_at),
+        attempts=job.attempts,
+        lease_owner=job.lease_owner,
+        lease_until=None if job.lease_until is None else _aware(job.lease_until),
+        last_error=job.last_error,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _stored(row: FeedbackRegressionJobRow) -> FeedbackRegressionJob:
+    scope = row.scope
+    batch = FeedbackRegressionBatch(
+        batch_ref=row.batch_ref,
+        case_version=row.case_version,
+        run_id=row.run_id,
+        scope=RunScope(
+            tenant_id=scope["tenant_id"],
+            family_id=scope["family_id"],
+            subject_ids=tuple(scope["subject_ids"]),
+        ),
+    )
+    return FeedbackRegressionJob(
+        job_id=row.job_id,
+        batch=batch,
+        due_at=_aware(row.due_at),
+        status=FeedbackJobStatus(row.status),
+        attempts=row.attempts,
+        lease_owner=row.lease_owner,
+        lease_until=None if row.lease_until is None else _aware(row.lease_until),
+        last_error=row.last_error,
+    )
+
+
 __all__ = [
     "FeedbackJobStatus",
     "FeedbackRegressionJob",
     "FeedbackRegressionJobStore",
+    "FeedbackRegressionJobRow",
+    "FeedbackSchedulerBase",
     "FeedbackRegressionScheduler",
     "FeedbackSchedulerResult",
     "InMemoryFeedbackRegressionJobStore",
+    "SqlAlchemyFeedbackRegressionJobStore",
 ]

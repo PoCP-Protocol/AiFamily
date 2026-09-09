@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.intelligence.evaluation.feedback_regression import (
     FeedbackRegressionBatch,
@@ -11,7 +12,9 @@ from backend.intelligence.evaluation.feedback_scheduler import (
     FeedbackJobStatus,
     FeedbackRegressionJob,
     FeedbackRegressionScheduler,
+    FeedbackSchedulerBase,
     InMemoryFeedbackRegressionJobStore,
+    SqlAlchemyFeedbackRegressionJobStore,
 )
 from backend.intelligence.experience.run_http import InMemoryExperienceRunLedger, RunScope
 
@@ -117,3 +120,39 @@ async def test_scheduler_retries_failed_worker_and_lease_expires() -> None:
             limit=1,
         )
     )[0].lease_owner == "worker-b"
+
+
+@pytest.mark.asyncio
+async def test_sql_job_store_claim_and_takeover_survive_new_session() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(FeedbackSchedulerBase.metadata.create_all)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        _, batch = _worker()
+        store = SqlAlchemyFeedbackRegressionJobStore(sessions)
+        now = datetime(2026, 9, 10, tzinfo=UTC)
+        await store.enqueue(FeedbackRegressionJob("sql-job", batch, now))
+        claimed = await store.claim_due(
+            worker_id="worker-a", now=now, lease_ttl=timedelta(minutes=1), limit=1
+        )
+        assert claimed[0].lease_owner == "worker-a"
+        assert (
+            await SqlAlchemyFeedbackRegressionJobStore(sessions).claim_due(
+                worker_id="worker-b", now=now, lease_ttl=timedelta(minutes=1), limit=1
+            )
+            == ()
+        )
+        takeover = await store.claim_due(
+            worker_id="worker-b",
+            now=now + timedelta(minutes=1),
+            lease_ttl=timedelta(minutes=1),
+            limit=1,
+        )
+        assert takeover[0].lease_owner == "worker-b"
+        completed = await store.complete(
+            "sql-job", worker_id="worker-b", now=now + timedelta(minutes=1)
+        )
+        assert completed.status is FeedbackJobStatus.COMPLETED
+    finally:
+        await engine.dispose()

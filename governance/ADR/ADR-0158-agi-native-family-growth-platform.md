@@ -1444,6 +1444,12 @@ bounded report projection 写入 canonical Experience ledger。它不读取家�
 供应商、不自动发布。内存调度与 worker 回归共 13 个测试通过。SQL job store、
 真实 worker 进程和 PostgreSQL 多 worker 并发证据仍是下一道门。
 
+本轮已实现 `SqlAlchemyFeedbackRegressionJobStore` 与迁移
+`0078_ai_feedback_regression_jobs`：反馈回归 job 独立于 Experience 事实表，
+支持 row-level lease、skip-locked claim、租约到期接管、完成和重试。文件型 SQLite
+跨 session 测试验证了状态机；相关评测/迁移/架构测试共 22 passed。尚未把该表在
+真实 PostgreSQL 上做多 worker 并发演练，也未部署常驻 worker 进程。
+
 本轮补上 `ExperienceFeedbackCaseSource`：它从一个服务端选定、已授权的
 Experience run scope 中回放 interaction，只接受反馈事件显式携带的
 `regression_case` 合约，不从 draft、家庭表或原始需求推断期望输出；普通反馈被
