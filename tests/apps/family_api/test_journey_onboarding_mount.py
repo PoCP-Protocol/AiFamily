@@ -198,3 +198,26 @@ def test_production_postgres_uses_production_installer_once(
 
     assert calls == ["postgresql+asyncpg://example/aifamily"]
     assert len(_mounted_routes(app)) == 1
+
+
+def test_dev_postgres_uses_durable_installer_before_dev_fake(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AIFAMILY_ENV", "test")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example/aifamily")
+    calls: list[str | None] = []
+
+    def install_production(app, *, database_url: str | None = None) -> None:
+        calls.append(database_url)
+        app.include_router(growth_onboarding_router)
+
+    def fail_if_fake_installed(*_args, **_kwargs):
+        raise AssertionError("explicit PostgreSQL must not select dev fake onboarding")
+
+    monkeypatch.setattr(main, "install_growth_onboarding_production_wiring", install_production)
+    monkeypatch.setattr(main, "install_growth_onboarding_dev_wiring", fail_if_fake_installed)
+
+    app = main.create_app()
+
+    assert calls == ["postgresql+asyncpg://example/aifamily"]
+    assert len(_mounted_routes(app)) == 1

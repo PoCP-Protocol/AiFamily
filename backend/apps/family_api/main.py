@@ -213,27 +213,26 @@ def _mount_growth_onboarding(
 ) -> None:
     """Mount GrowthOnboarding once, selecting only an explicit environment seam.
 
-    Dev/test gets the production-shaped fake installer so tests can provide a
-    concrete runtime and actor resolver without changing the route. Production
-    gets the PostgreSQL installer only when an explicit PostgreSQL URL exists;
-    otherwise the route is still discoverable but retains its 503 defaults.
-    This keeps an absent production dependency fail-closed without silently
-    installing synthetic adapters.
+    An explicit PostgreSQL URL always selects the PostgreSQL installer, even
+    in dev/test, so authentication, onboarding, and later growth requests
+    share one durable identity and database. Only dev/test without PostgreSQL
+    falls back to the explicit fake installer; production without PostgreSQL
+    keeps the route discoverable but fail-closed.
     """
-
-    if is_dev_environment():
-        install_growth_onboarding_dev_wiring(
-            application,
-            runtime=runtime or build_fake_growth_onboarding_runtime(),
-            actor_resolver=actor_resolver or InMemoryGrowthOnboardingActorResolver(),
-        )
-        return
 
     configured_url = database_url or _runtime_database_url()
     if configured_url is not None and is_postgres_url(configured_url):
         install_growth_onboarding_production_wiring(
             application,
             database_url=configured_url,
+        )
+        return
+
+    if is_dev_environment():
+        install_growth_onboarding_dev_wiring(
+            application,
+            runtime=runtime or build_fake_growth_onboarding_runtime(),
+            actor_resolver=actor_resolver or InMemoryGrowthOnboardingActorResolver(),
         )
         return
 

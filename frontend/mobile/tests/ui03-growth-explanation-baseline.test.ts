@@ -24,11 +24,11 @@ describe("UI-03 family growth explanation baseline contract", () => {
     expect(source).not.toContain("scorecard.dimensions");
     expect(source).not.toContain("overall_score");
     expect(source).not.toContain("peer_reference");
-    expect(source).toContain("AI成长诊断");
-    expect(source).toContain("AI成长诊断报告");
+    expect(source).toContain("家庭支持理解");
+    expect(source).toContain("可审阅支持假设");
     expect(source).toContain("证据覆盖度");
     expect(source).toContain("支持方向");
-    expect(source).toContain('title: "AI成长诊断"');
+    expect(source).toContain('title: "家庭支持理解"');
     expect(source).toContain("不是儿童诊断结论、能力测验或排名");
     expect(source).not.toContain("PREVIEW_SCORECARD");
     expect(source).toContain("这里不会预填家庭分数");
@@ -62,7 +62,7 @@ describe("UI-03 family growth explanation baseline contract", () => {
     expect(source).toContain("remoteState === \"empty\"");
     expect(source).toContain("remoteState === \"denied\"");
     expect(source).toContain("remoteState === \"review_required\"");
-    expect(source).toContain("AI 会基于你提交的免费测评生成成长诊断报告；这不是儿童诊断结论、能力测验或排名。");
+    expect(source).toContain("AI 会基于你提交的家庭自查整理可讨论的视角；这不是儿童诊断、能力测验或排名。");
   });
 
   it("does not continue into UI-04 when onboarding start fails", () => {

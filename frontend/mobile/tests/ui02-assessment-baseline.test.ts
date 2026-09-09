@@ -171,14 +171,14 @@ describe("UI-02 original step-two assessment contract", () => {
     expect(resultSource).toContain("接下来可以继续");
     expect(resultSource).toContain("buildUi02AssessmentResultSummary");
     expect(resultSource).toContain("返回调整免费测评");
-    expect(resultSource).toContain("升级到 AI 成长诊断，看更完整的分析");
+    expect(resultSource).toContain("生成一份可审阅的支持假设");
     expect(resultSource).toContain("不是对孩子的评分、排名或诊断");
     expect(resultSource).not.toContain("FAMILY_ASSESSMENT_AI_CAPABILITY");
     expect(resultSource).not.toContain("模型来源");
     expect(resultSource).not.toContain("UI02_ASSESSMENT_METHOD_SOURCE");
 
     const explanationSource = readFileSync(resolve(process.cwd(), "app/ui/UI-03.tsx"), "utf8");
-    expect(explanationSource).toContain("AI成长诊断");
+    expect(explanationSource).toContain("家庭支持理解");
     expect(explanationSource).toContain("证据与支持方向");
     expect(explanationSource).toContain("生成个性化方案");
     expect(explanationSource).toContain("不是儿童诊断结论、能力测验或排名");

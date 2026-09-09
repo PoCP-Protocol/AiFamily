@@ -135,11 +135,11 @@ export default function GrowthExplanationScreen() {
   if (remoteState === "loading" || remoteState === "generating") {
     return (
       <ScreenContainer edges={["left", "right", "bottom"]}>
-        <Stack.Screen options={{ headerShown: true, title: "AI成长诊断", headerBackTitle: "返回" }} />
+        <Stack.Screen options={{ headerShown: true, title: "家庭支持理解", headerBackTitle: "返回" }} />
         <View style={styles.emptyPage}>
           <ActivityIndicator color={colors.tint} />
-          <Text style={[styles.emptyTitle, { color: colors.text }]}>AI 正在生成成长诊断报告</Text>
-          <Text style={[styles.emptyText, { color: colors.muted }]}>AI 会基于你提交的免费测评生成成长诊断报告；这不是儿童诊断结论、能力测验或排名。</Text>
+          <Text style={[styles.emptyTitle, { color: colors.text }]}>正在整理一份支持假设</Text>
+          <Text style={[styles.emptyText, { color: colors.muted }]}>AI 会基于你提交的家庭自查整理可讨论的视角；这不是儿童诊断、能力测验或排名。</Text>
         </View>
       </ScreenContainer>
     );
@@ -164,7 +164,7 @@ export default function GrowthExplanationScreen() {
       <Stack.Screen
         options={{
           headerShown: true,
-          title: "AI成长诊断",
+          title: "家庭支持理解",
           headerBackTitle: "返回",
           headerRight: () => <IconSymbol name="ellipsis" size={24} color="#111827" />,
         }}
@@ -179,8 +179,8 @@ export default function GrowthExplanationScreen() {
         <View style={styles.assessmentSummary}>
           <View style={styles.summaryAvatar}><IconSymbol name="person.crop.circle.fill" size={58} color="#2563EB" /></View>
           <View style={styles.summaryCopy}>
-            <Text style={styles.summaryBadge}>{isPreview ? "测评后生成" : "AI成长诊断报告"}</Text>
-            <Text style={styles.summaryTitle}>{isPreview ? "家庭成长诊断预览" : hypothesis.subject_display_name ? `${hypothesis.subject_display_name}的成长诊断` : "家庭成长诊断"}</Text>
+            <Text style={styles.summaryBadge}>{isPreview ? "测评后生成" : "可审阅支持假设"}</Text>
+            <Text style={styles.summaryTitle}>{isPreview ? "家庭支持理解预览" : hypothesis.subject_display_name ? `${hypothesis.subject_display_name}的支持理解` : "家庭支持理解"}</Text>
             {summaryRows.map((row) => <Text key={row} style={styles.summaryMeta}>{row}</Text>)}
           </View>
           <IconSymbol name="chevron.right" size={19} color="#536A8B" />
