@@ -20,6 +20,15 @@ from datetime import datetime
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from backend.apps.family_api.assessment_ai_wiring import AssessmentAiAssets
+from backend.apps.family_api.growth_plan_ai_wiring import GrowthPlanAiAssets
+from backend.apps.family_api.production_agent_wiring import (
+    AttemptSinkFactory,
+    ProductionAgentRuntimeResolver,
+    RegistryFactory,
+    SafetySinkFactory,
+    TelemetrySinkFactory,
+)
 from backend.apps.family_api.production_ai_growth_surface_wiring import (
     install_production_ai_growth_surface,
 )
@@ -30,7 +39,12 @@ from backend.apps.family_api.production_assessment_http_wiring import (
     IdentityResolver as AssessmentIdentityResolver,
 )
 from backend.apps.family_api.production_assessment_http_wiring import (
+    ProductionAssessmentAiCompositionResolver,
+    SqlAlchemyAssessmentIdentityResolver,
     install_production_assessment_http_wiring,
+)
+from backend.apps.family_api.production_growth_plan_ai_wiring import (
+    ProductionGrowthPlanAiComposition,
 )
 from backend.apps.family_api.production_growth_plan_http_wiring import (
     CompositionResolver as GrowthPlanCompositionResolver,
@@ -39,6 +53,121 @@ from backend.apps.family_api.production_vertical_family_growth_wiring import (
     ProductionVerticalFamilyGrowthComposition,
 )
 from backend.domains.assessment.application.ports import AssessmentRepositoryPort
+from backend.intelligence.context_engine.async_port import AsyncContextBrokerPort
+from backend.intelligence.model_gateway.gateway import ModelGateway
+
+
+def build_production_ai_platform_wiring(
+    *,
+    engine: AsyncEngine,
+    session_factory: async_sessionmaker[AsyncSession],
+    gateway: ModelGateway,
+    provider_id: str,
+    registry_path: str,
+    context_broker: AsyncContextBrokerPort,
+    assessment_assets: AssessmentAiAssets,
+    growth_plan_assets: GrowthPlanAiAssets,
+    attempt_sink_factory: AttemptSinkFactory,
+    safety_sink_factory: SafetySinkFactory,
+    telemetry_sink_factory: TelemetrySinkFactory,
+    environment: str,
+    clock: Callable[[], datetime],
+    prompt_registry: object | None = None,
+    schema_registry: object | None = None,
+    prompt_registry_factory: RegistryFactory | None = None,
+    schema_registry_factory: RegistryFactory | None = None,
+    assessment_repository_factory: Callable[[object], AssessmentRepositoryPort] | None = None,
+) -> ProductionAiPlatformWiring:
+    """Build the one deployment-owned AI composition for both family flows.
+
+    The function accepts only already-admitted runtime dependencies.  It does
+    not read credentials, select a provider, or install a FakeProvider.  A
+    deployment with no compliant provider must fail before exposing AI routes.
+    """
+
+    if not isinstance(gateway, ModelGateway):
+        raise TypeError("production AI platform requires a ModelGateway")
+    if provider_id not in gateway.available_provider_ids():
+        raise ValueError("provider_id must be available in the ModelGateway")
+    if gateway.safety_runtime is None:
+        raise ValueError("production AI platform requires Gateway SafetyRuntime")
+    if not isinstance(context_broker, AsyncContextBrokerPort):
+        raise TypeError("production AI platform requires an AsyncContextBrokerPort")
+    if context_broker.durability_mode != "DURABLE":
+        raise ValueError("production AI platform requires a durable Context Broker")
+    if environment not in {"staging", "production"}:
+        raise ValueError("production AI platform environment must be staging or production")
+    if prompt_registry_factory is None and not callable(
+        getattr(prompt_registry, "resolve", None)
+    ):
+        raise ValueError("production AI platform requires a Prompt Registry")
+    if schema_registry_factory is None and not callable(
+        getattr(schema_registry, "resolve", None)
+    ):
+        raise ValueError("production AI platform requires a Schema Registry")
+    if not all(
+        callable(value)
+        for value in (attempt_sink_factory, safety_sink_factory, telemetry_sink_factory, clock)
+    ):
+        raise TypeError("production AI platform sinks and clock must be callable")
+
+    assessment_identity = SqlAlchemyAssessmentIdentityResolver(engine, session_factory)
+    assessment_composition = ProductionAssessmentAiCompositionResolver(
+        engine=engine,
+        session_factory=session_factory,
+        gateway=gateway,
+        provider_id=provider_id,
+        registry_path=registry_path,
+        attempt_sink_factory=attempt_sink_factory,
+        safety_sink_factory=safety_sink_factory,
+        telemetry_sink_factory=telemetry_sink_factory,
+        context_broker=context_broker,
+        assets=assessment_assets,
+        environment=environment,
+        clock=clock,
+        prompt_registry=prompt_registry,
+        schema_registry=schema_registry,
+        prompt_registry_factory=prompt_registry_factory,
+        schema_registry_factory=schema_registry_factory,
+    )
+
+    async def growth_plan_composition(identity, scope):
+        runtime_resolver = ProductionAgentRuntimeResolver(
+            scope_resolver=lambda _family_id: scope,
+            session_factory=session_factory,
+            gateway=gateway,
+            provider_id=provider_id,
+            registry_path=registry_path,
+            attempt_sink_factory=attempt_sink_factory,
+            safety_sink_factory=safety_sink_factory,
+            telemetry_sink_factory=telemetry_sink_factory,
+            context_broker=context_broker,
+            environment=environment,
+            prompt_registry=prompt_registry,
+            schema_registry=schema_registry,
+            prompt_registry_factory=prompt_registry_factory,
+            schema_registry_factory=schema_registry_factory,
+            clock=clock,
+        )
+        return ProductionGrowthPlanAiComposition(
+            environment=environment,
+            session_factory=session_factory,
+            runtime_resolver=runtime_resolver,
+            context_broker=context_broker,
+            actor_id_resolver=lambda: identity.actor_id,
+            assets=growth_plan_assets,
+            clock=clock,
+        )
+
+    return ProductionAiPlatformWiring(
+        engine=engine,
+        session_factory=session_factory,
+        assessment_identity_resolver=assessment_identity,
+        assessment_composition_resolver=assessment_composition,
+        growth_plan_composition_resolver=growth_plan_composition,
+        clock=clock,
+        assessment_repository_factory=assessment_repository_factory,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,4 +238,4 @@ class ProductionAiPlatformWiring:
             self.vertical_family_growth_composition.install(app)
 
 
-__all__ = ["ProductionAiPlatformWiring"]
+__all__ = ["ProductionAiPlatformWiring", "build_production_ai_platform_wiring"]
