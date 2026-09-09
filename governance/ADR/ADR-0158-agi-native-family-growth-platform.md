@@ -1425,6 +1425,12 @@ ledger 验证幂等重试、回放和跨家庭 scope 拒绝（6 个评测测试�
 canonical persistence seam，而不是 PostgreSQL 部署证据；真实反馈采集 worker、
 PostgreSQL 重启回读和真人 Release Gate 关联仍是下一道门。
 
+本轮新增 SQL ledger 重启回读测试：反馈回归报告通过
+`SqlAlchemyExperienceRunLedger.record_evaluation()` 写入后，关闭并重新建立
+数据库 session 仍可回放同一个 `report_ref`，另一家庭 scope 读取被拒绝（7 个
+反馈评测/ledger 测试通过）。测试使用文件型 SQLite，仅证明 SQL adapter 的
+跨 session 语义；`AIFAMILY_TEST_DATABASE_URL` 对应的真实 PostgreSQL 验收仍未完成。
+
 **这次交付顺带确认了你(2026-09-10)提到的"多AI通过ADR-0158协同"**：我在
 准备这次实现时发现共享本地`D:/AiFamily`工作树的`main`分支HEAD在短时间内
 从`fd2d90a`变成`0fa84a1`，且这两个commit跟`origin/main`都不在同一条历史
