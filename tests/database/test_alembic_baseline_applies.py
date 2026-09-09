@@ -194,6 +194,24 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
+    # 0068 owns the course-system manifest table.
+    "0068_course_system": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 68,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0069 only adds a lineage reference column to course_content.
+    "0069_course_content_lineage": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 68,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0070 owns the immutable course release baseline table.
+    "0070_course_release_baseline": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 69,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
 }
 
 _MODEL_DRAFTS_ADR = (
