@@ -14,6 +14,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.intelligence.agi_growth_path_projection import GrowthPathProjection
 from backend.intelligence.agi_vertical_runtime import (
     GuardianDecision,
     VerticalFamilyGrowthRuntime,
@@ -72,6 +73,29 @@ class VerticalGrowthDecisionRequest(BaseModel):
     state: str = Field(pattern="^(ACCEPT|REJECT|EDIT|DEFER)$")
     edits: dict[str, object] = Field(default_factory=dict)
     next_run_id: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+class GrowthPathProjectionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    family_need_id: str
+    path_id: str
+    run_id: str
+    context_snapshot_ref: str
+    decision_ref: str | None
+    decision_state: str | None
+    next_step: str | None
+    path: tuple[object, ...]
+    status: str
+    observations: tuple[object, ...]
+    evidence: tuple[object, ...]
+    unknowns: tuple[object, ...]
+    contradictions: tuple[object, ...]
+    requires_human_confirmation: bool
+    feedback_refs: tuple[str, ...]
+    feedback_signals: tuple[str, ...]
+    guardian_calibration: dict[str, object] | None
+    lineage_ref: str | None
 
 
 def get_vertical_family_growth_runtime(
@@ -167,6 +191,29 @@ def _entry_response(entry: object) -> VerticalGrowthDraftResponse:
     )
 
 
+def _growth_path_response(projection: GrowthPathProjection) -> GrowthPathProjectionResponse:
+    return GrowthPathProjectionResponse(
+        family_need_id=projection.family_need_id,
+        path_id=projection.path_id,
+        run_id=projection.run_id,
+        context_snapshot_ref=projection.context_snapshot_ref,
+        decision_ref=projection.decision_ref,
+        decision_state=projection.decision_state,
+        next_step=projection.next_step,
+        path=projection.path,
+        status=projection.status,
+        observations=projection.observations,
+        evidence=projection.evidence,
+        unknowns=projection.unknowns,
+        contradictions=projection.contradictions,
+        requires_human_confirmation=projection.requires_human_confirmation,
+        feedback_refs=projection.feedback_refs,
+        feedback_signals=projection.feedback_signals,
+        guardian_calibration=projection.guardian_calibration,
+        lineage_ref=projection.lineage_ref,
+    )
+
+
 async def _await_if_needed(value: Any) -> Any:
     """Resolve both legacy in-process and async durable runtime methods.
 
@@ -228,6 +275,27 @@ async def replay_vertical_growth_draft(
     return _entry_response(entry)
 
 
+@router.get("/ai-drafts/{run_id}/growth-path", response_model=GrowthPathProjectionResponse)
+async def project_vertical_growth_path(
+    run_id: Annotated[str, Path(min_length=1, max_length=200)],
+    family_id: Annotated[str, Path(min_length=1, max_length=200)],
+    runtime: VerticalFamilyGrowthRuntime = Depends(get_vertical_family_growth_runtime),
+) -> GrowthPathProjectionResponse:
+    """Read the current path projection without model calls or mutations."""
+
+    project = getattr(runtime, "project_growth_path", None)
+    if not callable(project):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="vertical_family_growth_projection_unavailable",
+        )
+    try:
+        projection = await _await_if_needed(project(run_id=run_id, family_id=family_id))
+    except (VerticalRuntimeError, RunHttpError, ContextContractError, ValueError) as error:
+        raise _map_runtime_error(error) from error
+    return _growth_path_response(projection)
+
+
 @router.post("/ai-drafts/{run_id}/decisions", response_model=VerticalGrowthDraftResponse)
 async def decide_vertical_growth_draft(
     payload: VerticalGrowthDecisionRequest,
@@ -285,6 +353,7 @@ __all__ = [
     "VerticalGrowthDraftRequest",
     "VerticalGrowthDraftResponse",
     "VerticalGrowthDecisionRequest",
+    "GrowthPathProjectionResponse",
     "get_vertical_family_growth_runtime",
     "router",
 ]

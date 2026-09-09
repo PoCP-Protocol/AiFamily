@@ -295,6 +295,17 @@ class DurableVerticalGrowthRuntime:
     async def delete(self, *, run_id: str, family_id: str) -> RunReplaySnapshot:
         return await self._ledger.delete(run_id=run_id, scope=await self._scope(family_id))
 
+    async def project_growth_path(self, *, run_id: str, family_id: str) -> GrowthPathProjection:
+        """Return the next-step projection from the durable replay only.
+
+        This is intentionally a read-only seam: it never invokes the model,
+        appends an interaction, or promotes a draft into canonical state.
+        """
+
+        return await self._ledger.project_growth_path(
+            run_id=run_id, scope=await self._scope(family_id)
+        )
+
     async def decide(
         self, *, run_id: str, family_id: str, decision: GuardianDecision
     ) -> EvaluationLedgerEntry:

@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.apps.family_api.vertical_family_growth_api import router
+from backend.intelligence.agi_growth_path_projection import GrowthPathProjection
 from backend.intelligence.agi_vertical_runtime import EvaluationLedgerEntry
 from backend.intelligence.context_engine.contracts import ContextContractError
 from backend.intelligence.experience.run_http import RunHttpError
@@ -132,6 +133,52 @@ def test_vertical_draft_replay_delete_and_cross_family_fail_closed() -> None:
     deleted = client.delete("/families/family-a/growth/ai-drafts/run-1")
     assert deleted.status_code == 204
     assert client.get("/families/family-a/growth/ai-drafts/run-1").status_code == 404
+
+
+def test_growth_path_projection_is_read_only_and_scope_bound() -> None:
+    class ProjectionRuntime(_Runtime):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        async def project_growth_path(self, *, run_id: str, family_id: str):
+            self.calls += 1
+            if family_id != "family-a":
+                from backend.intelligence.agi_vertical_runtime import VerticalRuntimeError
+
+                raise VerticalRuntimeError("CONTEXT_SCOPE_MISMATCH")
+            return GrowthPathProjection(
+                family_need_id="need-1",
+                path_id="path-1",
+                run_id=run_id,
+                context_snapshot_ref="ctx:run-1",
+                decision_ref="decision:1",
+                decision_state="ACCEPT",
+                next_step="十分钟启动",
+                path=("先约定启动仪式",),
+                status="DRAFT",
+                evidence=("obs:1",),
+                unknowns=("睡眠影响未确认",),
+                contradictions=(),
+            )
+
+    app = FastAPI()
+    runtime = ProjectionRuntime()
+    app.state.vertical_family_growth_runtime = runtime
+    app.include_router(router)
+    client = TestClient(app)
+
+    response = client.get("/families/family-a/growth/ai-drafts/run-1/growth-path")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["next_step"] == "十分钟启动"
+    assert body["requires_human_confirmation"] is True
+    assert body["evidence"] == ["obs:1"]
+    assert runtime.calls == 1
+
+    foreign = client.get("/families/family-b/growth/ai-drafts/run-1/growth-path")
+    assert foreign.status_code == 404
+    assert runtime.calls == 2
 
 
 def test_guardian_decision_route_preserves_scope_and_conflict_status() -> None:
