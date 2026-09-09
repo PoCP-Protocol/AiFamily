@@ -6,7 +6,10 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from backend.intelligence.agi_vertical_durable import DurableVerticalLedgerAdapter
+from backend.intelligence.agi_vertical_durable import (
+    DurableVerticalGrowthRuntime,
+    DurableVerticalLedgerAdapter,
+)
 from backend.intelligence.agi_vertical_runtime import (
     EvaluationLedger,
     EvaluationLedgerEntry,
@@ -208,6 +211,46 @@ async def test_vertical_postgres_readback_after_engine_dispose_reconnects(
 
     assert replay.run_id == "run-pg-1"
     assert replay.draft_payload["family_need_id"] == "need-pg-1"
+
+
+@pytest.mark.asyncio
+async def test_vertical_postgres_provider_failure_is_retryable_without_stale_draft(
+    postgres_session_factory,
+):
+    """A failed generation leaves no durable success; retry can commit once."""
+
+    scope = RunScope("tenant-pg-failure", "family-pg-failure", ("child-pg",))
+    calls = 0
+
+    class Generator:
+        async def run(self, **_kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("provider unavailable")
+            return _entry()
+
+    async with postgres_session_factory() as session:
+        runtime = DurableVerticalGrowthRuntime(
+            runtime=Generator(),
+            ledger=DurableVerticalLedgerAdapter(SqlAlchemyExperienceRunLedger(session)),
+            scope_factory=lambda _family_id: scope,
+        )
+        request = {
+            "family_id": "family-pg-failure",
+            "family_need_id": "need-pg-1",
+            "path_id": "path-pg-1",
+            "run_id": "run-pg-failure",
+        }
+        with pytest.raises(RuntimeError, match="provider unavailable"):
+            await runtime.run(**request)
+
+        with pytest.raises(RunHttpError):
+            await runtime.replay(run_id="run-pg-failure", family_id="family-pg-failure")
+
+        result = await runtime.run(**request)
+        assert result.run_id == "run-pg-1"
+        assert calls == 2
 
 
 @pytest.mark.asyncio
