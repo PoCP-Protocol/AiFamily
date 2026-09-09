@@ -201,6 +201,15 @@ describe("six-loop controlled mobile actions", () => {
 });
 
 describe("family assessment and 90-day journey", () => {
+  it("keeps the selected assessment subject available for the next growth screens", () => {
+    const selected = familyMobileReducer(initialFamilyMobileState, {
+      type: "set_assessment_subject",
+      subjectId: "child-1",
+    });
+
+    expect(selected.assessmentSubjectId).toBe("child-1");
+    expect(selected.activeOnboardingId).toBeNull();
+  });
   it("keeps five bounded family focus areas with three scenario questions each", () => {
     expect(GROWTH_FOCUSES).toHaveLength(5);
     expect(GROWTH_FOCUSES.every((focus) => focus.questions.length === 3)).toBe(true);
@@ -229,6 +238,34 @@ describe("family assessment and 90-day journey", () => {
 });
 
 describe("Family API mobile contract", () => {
+  it("starts onboarding through the canonical confirmed-intent route", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      onboarding: { onboarding_id: "onboarding-1" },
+      created: true,
+      replayed: false,
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })) as unknown as typeof fetch;
+    const client = new FamilyApiClient("https://family.example", fetcher);
+
+    await client.startGrowthOnboarding<{ onboarding: { onboarding_id: string } }>(
+      "fam_token",
+      "family-1",
+      { intent_id: "intent-1" },
+      "onboarding-idempotency-1",
+    );
+
+    const [url, request] = vi.mocked(fetcher).mock.calls[0];
+    expect(url).toBe("https://family.example/families/family-1/growth/onboardings");
+    expect(request?.method).toBe("POST");
+    expect(request?.headers).toMatchObject({
+      "idempotency-key": "onboarding-idempotency-1",
+      Authorization: "Bearer fam_token",
+    });
+    expect(JSON.parse(request?.body as string)).toEqual({ intent_id: "intent-1" });
+  });
+
   it("sends an idempotency key when issuing the development account session", async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({
       token: "token-1",

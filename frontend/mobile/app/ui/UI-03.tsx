@@ -68,25 +68,24 @@ export default function GrowthExplanationScreen() {
     return () => { active = false; if (pollTimer) clearTimeout(pollTimer); };
   }, [session.selectedFamily, session.status, session.token]);
 
-  const ensureActiveOnboarding = async (token: string, familyId: string, guardianPersonId: string, childId: string) => {
-    if (activeOnboardingId) return;
-    const fingerprint = `${familyId}:${childId}:START_ONBOARDING`;
+  const ensureActiveOnboarding = async (token: string, familyId: string, intentId: string): Promise<boolean> => {
+    if (activeOnboardingId) return true;
+    const fingerprint = `${familyId}:${intentId}:START_ONBOARDING`;
     onboardingKeys.current[fingerprint] ??= createMobileRequestId("ui03-start-onboarding");
     try {
-      const result = await familyApi.startGrowthOnboarding<{ onboarding: { onboarding_id: string } }>(token, familyId, {
-        childId,
-        guardianPersonId,
-        structuredSafetySignals: ["NONE"],
-      }, onboardingKeys.current[fingerprint]);
+      const result = await familyApi.startGrowthOnboarding<{ onboarding: { onboarding_id: string } }>(
+        token,
+        familyId,
+        { intent_id: intentId },
+        onboardingKeys.current[fingerprint],
+      );
       setActiveOnboardingId(result.onboarding.onboarding_id);
+      return true;
     } catch (error) {
-      if (error instanceof FamilyApiError && error.code.includes("growth_onboarding_already_active")) {
-        const active = await familyApi.getActiveOnboarding(token, familyId);
-        if (active?.onboarding_id) setActiveOnboardingId(active.onboarding_id);
-        return;
-      }
-      // Onboarding-start 失败（如缺少必要同意、生命阶段不支持）不阻塞成长意向确认；
-      // UI-04 会在缺少 activeOnboardingId 时引导用户回到 UI-02 补齐前置条件。
+      // Onboarding-start 失败时禁止进入 UI-04 的旧兼容投影，否则会把
+      // deterministic/dev draft 误呈现为真实的 AI 成长方向。
+      if (error instanceof FamilyApiError && error.code === "growth_onboarding_already_active") return false;
+      return false;
     }
   };
 
@@ -111,7 +110,19 @@ export default function GrowthExplanationScreen() {
         decision_type: "CONFIRM",
       }, decisionKeys.current[fingerprint]);
       if (result.outcome === "INTENT_CREATED") {
-        await ensureActiveOnboarding(session.token, session.selectedFamily.family_id, session.selectedFamily.person_id, hypothesis.subject_person_id);
+        if (!result.intent?.intent_id) {
+          setDecisionState("error");
+          return;
+        }
+        const onboardingStarted = await ensureActiveOnboarding(
+          session.token,
+          session.selectedFamily.family_id,
+          result.intent.intent_id,
+        );
+        if (!onboardingStarted) {
+          setDecisionState("error");
+          return;
+        }
         setDecisionState("success");
         setConfirmed(true);
         router.push("/ui/UI-04" as Href);

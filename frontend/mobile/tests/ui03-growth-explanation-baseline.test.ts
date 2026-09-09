@@ -65,6 +65,14 @@ describe("UI-03 family growth explanation baseline contract", () => {
     expect(source).toContain("AI 会基于你提交的免费测评生成成长诊断报告；这不是儿童诊断结论、能力测验或排名。");
   });
 
+  it("does not continue into UI-04 when onboarding start fails", () => {
+    expect(source).toContain("const onboardingStarted = await ensureActiveOnboarding");
+    expect(source).toContain('if (!onboardingStarted)');
+    expect(source).toContain('setDecisionState("error")');
+    expect(source).toContain('error.code === "growth_onboarding_already_active"')
+    expect(source).toContain("return false")
+  });
+
   it("shows only real collected context and hides missing personal fields", () => {
     expect(source).toContain("source_refs.assessment_session_id");
     expect(source).toContain("assessment_submitted_at");

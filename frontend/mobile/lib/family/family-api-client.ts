@@ -577,6 +577,33 @@ export class FamilyApiClient {
     });
   }
 
+  generateGrowthPlanDraft<T>(token: string, familyId: string, onboardingId: string, subjectId: string) {
+    return this.request<T>(`/families/${familyId}/growth/onboardings/${onboardingId}/ai-plan-drafts`, {
+      method: "POST",
+      token,
+      body: { subject_id: subjectId },
+      headers: { "x-correlation-id": createMobileRequestId("family-mobile-ai-plan-draft") },
+    });
+  }
+
+  submitGrowthPlanReview<T>(token: string, familyId: string, draftId: string, subjectId: string) {
+    return this.request<T>(`/families/${familyId}/growth/ai-plan-drafts/${draftId}/review`, {
+      method: "POST",
+      token,
+      body: { subject_id: subjectId },
+      headers: { "x-correlation-id": createMobileRequestId("family-mobile-ai-plan-review") },
+    });
+  }
+
+  decideGrowthPlanHumanTask<T>(token: string, familyId: string, taskId: string, outcome: "ACCEPT" | "REJECT" | "ESCALATE", reason?: string) {
+    return this.request<T>(`/families/${familyId}/growth/human-tasks/${taskId}/decisions`, {
+      method: "POST",
+      token,
+      body: { outcome, reason },
+      headers: { "x-correlation-id": createMobileRequestId("family-mobile-ai-plan-decision") },
+    });
+  }
+
   startFamilyAssessment(token: string, familyId: string, body: { subject_person_id: string; tool_ref?: string }, idempotencyKey: string) {
     return this.request<AssessmentMutationReceipt>(`/families/${familyId}/assessments/sessions`, {
       method: "POST", token, body,

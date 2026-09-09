@@ -48,6 +48,7 @@ export interface FamilyMobileState {
   selectedGrowthFocus: GrowthFocusId | null;
   assessmentAnswers: Record<string, AssessmentAnswer>;
   assessmentSyncState: "local" | "syncing" | "synced" | "error";
+  assessmentSubjectId: string | null;
   activeOnboardingId: string | null;
   childChoiceDraft: ChildChoiceDraft | null;
   privateGrowthStory: PrivateGrowthStoryDraft | null;
@@ -72,6 +73,7 @@ export type FamilyMobileAction =
   | { type: "select_growth_focus"; focus: GrowthFocusId }
   | { type: "answer_assessment"; questionId: string; answer: AssessmentAnswer }
   | { type: "set_assessment_sync"; state: FamilyMobileState["assessmentSyncState"] }
+  | { type: "set_assessment_subject"; subjectId: string | null }
   | { type: "set_active_onboarding"; onboardingId: string | null }
   | { type: "record_child_choice"; promptId: string; choice: ChildChoice }
   | { type: "save_private_growth_story"; draft: PrivateGrowthStoryDraft }
@@ -117,6 +119,7 @@ export const initialFamilyMobileState: FamilyMobileState = {
   selectedGrowthFocus: null,
   assessmentAnswers: {},
   assessmentSyncState: "local",
+  assessmentSubjectId: null,
   activeOnboardingId: null,
   childChoiceDraft: null,
   privateGrowthStory: null,
@@ -219,6 +222,7 @@ export function familyMobileReducer(state: FamilyMobileState, action: FamilyMobi
   }
   if (action.type === "set_assessment_sync") return { ...state, assessmentSyncState: action.state };
   if (action.type === "set_active_onboarding") return { ...state, activeOnboardingId: action.onboardingId };
+  if (action.type === "set_assessment_subject") return { ...state, assessmentSubjectId: action.subjectId, updatedAt: new Date().toISOString() };
   if (action.type === "record_child_choice") {
     return {
       ...state,

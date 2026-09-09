@@ -40,6 +40,7 @@ from backend.apps.family_api.growth_onboarding_wiring import (
     install_growth_onboarding_dev_wiring,
     install_growth_onboarding_production_wiring,
 )
+from backend.apps.family_api.production_ai_platform_wiring import ProductionAiPlatformWiring
 from backend.apps.family_api.production_commerce_api import build_production_commerce_router
 from backend.apps.family_api.production_commerce_context import (
     ProductionCommerceReadContextResolver,
@@ -526,6 +527,7 @@ def create_app(
     assessment_production_ai_wiring: Callable[[FastAPI], None] | None = None,
     growth_plan_ai_wiring: Callable[[FastAPI], None] | None = None,
     production_ai_growth_surface_wiring: Callable[[FastAPI], None] | None = None,
+    production_ai_platform_wiring: ProductionAiPlatformWiring | None = None,
     vertical_family_growth_runtime: VerticalFamilyGrowthRuntime | None = None,
     production_vertical_family_growth_composition: ProductionVerticalFamilyGrowthComposition
     | None = None,
@@ -533,6 +535,17 @@ def create_app(
     production_commerce_repository_factory: Callable | None = None,
     growth_confirmation_wiring: ProductionGrowthConfirmationWiring | None = None,
 ) -> FastAPI:
+    if production_ai_platform_wiring is not None and any(
+        value is not None
+        for value in (
+            assessment_production_ai_wiring,
+            growth_plan_ai_wiring,
+            production_ai_growth_surface_wiring,
+        )
+    ):
+        raise ValueError(
+            "production_ai_platform_wiring cannot be combined with individual AI wiring hooks"
+        )
     _configure_fgcn_persistence()
     application = FastAPI(title="AiFamily family_api", version="0.1.0")
     if production_commerce_context_resolver is not None:
@@ -710,6 +723,10 @@ def create_app(
         if not callable(production_ai_growth_surface_wiring):
             raise TypeError("production_ai_growth_surface_wiring must be callable")
         production_ai_growth_surface_wiring(application)
+    if production_ai_platform_wiring is not None:
+        if not isinstance(production_ai_platform_wiring, ProductionAiPlatformWiring):
+            raise TypeError("production_ai_platform_wiring must be ProductionAiPlatformWiring")
+        production_ai_platform_wiring.install(application)
     if engagement_runtime_wiring is not None:
         if not callable(engagement_runtime_wiring):
             raise TypeError("engagement_runtime_wiring must be callable")
