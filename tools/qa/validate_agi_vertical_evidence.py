@@ -24,6 +24,7 @@ REQUIRED_SCENARIOS = {
 }
 FORBIDDEN_EVIDENCE = {"fake", "in_memory", "sqlite", "skipped", "fixture_only", "same_process_only"}
 REQUIRED_ARTIFACT_KINDS = {"git_ref", "http", "postgres_sql", "browser", "process_restart"}
+REQUIRED_ARTIFACT_FIELDS = {"kind", "ref", "command"}
 
 
 def validate(manifest: dict) -> list[str]:
@@ -38,6 +39,14 @@ def validate(manifest: dict) -> list[str]:
     kinds = {item.get("kind") for item in artifacts if isinstance(item, dict)}
     errors.extend(f"missing artifact kind: {kind}" for kind in REQUIRED_ARTIFACT_KINDS - kinds)
     for item in artifacts:
+        if not isinstance(item, dict):
+            errors.append("artifact must be an object")
+            continue
+        errors.extend(
+            f"artifact {item.get('kind', '<unknown>')} missing field: {field}"
+            for field in REQUIRED_ARTIFACT_FIELDS
+            if not isinstance(item.get(field), str) or not item[field].strip()
+        )
         text = json.dumps(item, ensure_ascii=False).lower()
         errors.extend(
             f"forbidden substitute in artifact: {flag}"
@@ -55,6 +64,15 @@ def validate(manifest: dict) -> list[str]:
             for scenario_id, scenario in scenarios.items()
             if scenario.get("status") != "PASS"
         )
+        for scenario_id in REQUIRED_SCENARIOS:
+            scenario = scenarios.get(scenario_id)
+            if scenario is None:
+                continue
+            refs = scenario.get("artifact_refs")
+            if not isinstance(refs, list) or not refs or any(
+                not isinstance(ref, str) or not ref.strip() for ref in refs
+            ):
+                errors.append(f"scenario missing artifact_refs: {scenario_id}")
     return sorted(set(errors))
 
 

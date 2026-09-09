@@ -26,3 +26,33 @@ def test_structural_manifest_requires_real_artifact_kinds() -> None:
     assert "missing artifact kind: postgres_sql" in errors
     assert "missing artifact kind: browser" in errors
     assert "missing artifact kind: process_restart" in errors
+
+
+def test_pass_manifest_requires_traceable_artifacts_and_scenario_refs() -> None:
+    manifest = {
+        "status": "PASS",
+        "approved_ref": "abc",
+        "git_ref": "abc",
+        "database_kind": "fresh_postgresql",
+        "artifacts": [
+            {"kind": kind, "ref": f"artifact:{kind}", "command": "pytest"}
+            for kind in {
+                "git_ref",
+                "http",
+                "postgres_sql",
+                "browser",
+                "process_restart",
+            }
+        ],
+        "scenarios": [
+            {"scenario_id": scenario_id, "status": "PASS"}
+            for scenario_id in sorted(
+                {f"V-{index:02d}" for index in range(1, 11)}
+            )
+        ],
+    }
+
+    errors = validate(manifest)
+
+    assert "scenario missing artifact_refs: V-01" in errors
+    assert "scenario missing artifact_refs: V-10" in errors
