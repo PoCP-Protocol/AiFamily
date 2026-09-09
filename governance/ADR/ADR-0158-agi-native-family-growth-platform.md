@@ -1405,6 +1405,19 @@ FakeProvider——Model Gateway到外部大模型这条链路本身是**真实�
 
 PR即将开出（push在网络重试中）。
 
+### Codex 评测闭环增量（2026-09-10）：反馈驱动回归报告，不自动学习
+
+为补齐“越用越准”的可执行地基，新增
+`backend/intelligence/evaluation/feedback_regression.py`。它把 Guardian
+反馈转换为去标识、版本化的回归样本，执行本地 schema/期望结构校验并输出
+稳定的 `benchmark:feedback-regression:*` 报告引用。
+
+边界明确：该组件不读取家庭事实、不调用模型供应商、不修改业务状态、不自动
+批准候选或发布模型；报告只有 `ELIGIBLE`/`BLOCKED` 两态，后续仍必须经过既有
+Release Gate 与真人控制事件。禁止原始媒体、家庭/租户标识、儿童姓名、原始需求
+陈述和证据摘录进入样本或报告。当前证据为 4 个隔离单测，成熟度仍为
+`EXPERIMENT`，不代表生产反馈 worker 或真实家庭回归闭环已经部署。
+
 **这次交付顺带确认了你(2026-09-10)提到的"多AI通过ADR-0158协同"**：我在
 准备这次实现时发现共享本地`D:/AiFamily`工作树的`main`分支HEAD在短时间内
 从`fd2d90a`变成`0fa84a1`，且这两个commit跟`origin/main`都不在同一条历史
