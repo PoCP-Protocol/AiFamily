@@ -2,6 +2,7 @@ import pytest
 
 from backend.domains.commerce.application.commands import request_refund, submit_order_intent
 from backend.domains.commerce.application.master_data import ensure_mobile_product_master_data
+from backend.domains.commerce.application.queries import get_customer_projection
 from backend.domains.commerce.domain.errors import CommerceValidationError
 from backend.domains.commerce.infrastructure.fake_repository import FakeCommerceRepository
 
@@ -27,6 +28,8 @@ async def test_refund_revokes_entitlement_and_is_idempotent():
     assert refund.status == "PROCESSED"
     assert entitlement.status == "REVOKED"
     assert entitlement.attributes["evidence_refs"] == ["evidence:refund-recovery@v1"]
+    projection = await get_customer_projection(repo, tenant_id="t1", family_id="f1")
+    assert projection["evidence_receipt_refs"] == ["evidence:refund-recovery@v1"]
     assert again == refund and same == entitlement
 
 
