@@ -33,6 +33,8 @@ describe("Web Product Studio route", () => {
     await userEvent.setup().click(screen.getByRole("tab", { name: /Course Content/ }));
     expect(screen.getByRole("heading", { name: "24 课时课程与课件编排" })).toBeInTheDocument();
     expect(screen.getByText(/内容准确性引用不等于证据已准入/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "家庭权益与退款恢复状态" })).toBeInTheDocument();
+    expect(screen.getByText(/只读投影：不会收款、创建订单或修改权益/)).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("tab", { name: /Sandbox/ }));
     expect(screen.getByRole("heading", { name: "产品设计工厂" })).toBeInTheDocument();
     expect(screen.getByTestId("product-studio-environment")).toHaveTextContent("Sandbox");
@@ -70,7 +72,7 @@ describe("Web Product Studio route", () => {
     );
     render(<WebRoot />);
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /今天，先处理/ })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: /今天，先处理\s*一件事/ })).toBeInTheDocument();
       expect(screen.queryByText(/模型|生成通道|provider|DRAFT/i)).not.toBeInTheDocument();
     });
   });
