@@ -134,6 +134,53 @@ def test_vertical_draft_replay_delete_and_cross_family_fail_closed() -> None:
     assert client.get("/families/family-a/growth/ai-drafts/run-1").status_code == 404
 
 
+def test_guardian_decision_route_preserves_scope_and_conflict_status() -> None:
+    class DecisionRuntime(_Runtime):
+        async def decide(self, *, run_id: str, family_id: str, decision):
+            if family_id != "family-a" or run_id not in self.entries:
+                raise RunHttpError("RUN_SCOPE_MISMATCH")
+            if decision.family_need_id != "need-1" or decision.path_id != "path-1":
+                raise RunHttpError("GUARDIAN_DECISION_SCOPE_MISMATCH")
+            return self.entries[run_id]
+
+    app = FastAPI()
+    runtime = DecisionRuntime()
+    app.state.vertical_family_growth_runtime = runtime
+    app.include_router(router)
+    client = TestClient(app)
+    payload = {
+        "family_need_id": "need-1",
+        "path_id": "path-1",
+        "run_id": "run-1",
+        "knowledge_ref": "claim:1",
+    }
+    assert client.post("/families/family-a/growth/ai-drafts", json=payload).status_code == 200
+    decision_path = "/families/family-a/growth/ai-drafts/run-1/decisions"
+    accepted = client.post(
+        decision_path,
+        json={
+            "decision_ref": "decision:1",
+            "family_need_id": "need-1",
+            "path_id": "path-1",
+            "state": "EDIT",
+            "edits": {"next_step": "十分钟启动"},
+        },
+    )
+    assert accepted.status_code == 200, accepted.text
+
+    conflict = client.post(
+        decision_path,
+        json={
+            "decision_ref": "decision:1",
+            "family_need_id": "other-need",
+            "path_id": "path-1",
+            "state": "REJECT",
+        },
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"] == "GUARDIAN_DECISION_SCOPE_MISMATCH"
+
+
 def test_vertical_replay_and_delete_accept_async_runtime_methods() -> None:
     """Durable PostgreSQL runtimes expose awaitable replay/delete methods."""
 

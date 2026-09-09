@@ -33,6 +33,8 @@ are registered.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -123,14 +125,20 @@ def test_service_booking_loop_is_callable_end_to_end(
     assert offering.status_code == 200, offering.text
     offering_id = offering.json()["service_offering_id"]
 
+    # Relative to "now" (matching `test_need_fulfillment_e2e.py`'s pattern),
+    # not a hardcoded date: a fixed calendar date eventually falls into the
+    # past and `submit_booking_request`'s `slot_outside_booking_window` check
+    # (S4) would then correctly refuse it as "no longer bookable" — a stale
+    # fixture masquerading as a real regression.
+    starts_at = datetime.now(UTC) + timedelta(days=5, hours=10)
     slot = client.post(
         f"{supply}/availability-slots",
         headers=_headers(token, "slot-1"),
         json={
             "service_offering_id": offering_id,
             "availability_slot_ref": "slot-ref-1",
-            "starts_at": "2026-09-01T10:00:00+00:00",
-            "ends_at": "2026-09-01T11:00:00+00:00",
+            "starts_at": starts_at.isoformat(),
+            "ends_at": (starts_at + timedelta(hours=1)).isoformat(),
             "channel": "VIDEO",
         },
     )

@@ -301,9 +301,11 @@ class VerticalFamilyGrowthRuntime:
         provider_id: str | None = None,
         guardian_decision: GuardianDecision | None = None,
         media_inputs: tuple[MediaInput, ...] = (),
+        context_snapshot_ref: str | None = None,
     ) -> EvaluationLedgerEntry:
         context = await self._context.read(
-            family_id=family_id, context_snapshot_ref=f"context:{run_id}"
+            family_id=family_id,
+            context_snapshot_ref=context_snapshot_ref or f"context:{run_id}",
         )
         if context.family_id != family_id:
             raise VerticalRuntimeError("CONTEXT_SCOPE_MISMATCH")
@@ -382,6 +384,7 @@ class VerticalFamilyGrowthRuntime:
         )
         lineage_ref = _lineage_ref(
             context_snapshot_ref=context.context_snapshot_ref,
+            context_source_refs=_context_source_refs(context.values),
             knowledge_ref=material.ref,
             knowledge_version=material.version,
             capability_refs=capability_refs,
@@ -409,6 +412,13 @@ class VerticalFamilyGrowthRuntime:
                     "understanding": {"type": "string"},
                     "next_step": {"type": "string"},
                     "path": {"type": "array"},
+                    # Optional v2 understanding envelope. Legacy providers
+                    # remain readable, while any provider emitting dimensions
+                    # must carry explicit evidence/unknown semantics below.
+                    "dimensions": {"type": "array"},
+                    "evidence_refs": {"type": "array", "items": {"type": "string"}},
+                    "unknowns": {"type": "array"},
+                    "contradictions": {"type": "array"},
                 },
             },
             context_snapshot_ref=context.context_snapshot_ref,
@@ -449,6 +459,10 @@ class VerticalFamilyGrowthRuntime:
         draft = await self._gateway.generate_structured(request, provider_id=provider_id)
         if draft.status != "DRAFT" or draft.may_mutate_business_state:
             raise VerticalRuntimeError("DRAFT_ONLY_VIOLATION")
+        _assert_understanding_evidence_honesty(
+            draft.output,
+            source_refs=context.values.get("source_refs"),
+        )
         _assert_capability_grounding(draft.output, capability_refs)
         entry = EvaluationLedgerEntry(
             family_need_id,
@@ -526,6 +540,71 @@ def _assert_capability_grounding(output: dict[str, Any], capability_refs: tuple[
         raise VerticalRuntimeError("CAPABILITY_GROUNDING_VIOLATION")
 
 
+def _assert_understanding_evidence_honesty(
+    output: dict[str, Any], *, source_refs: object = None
+) -> None:
+    """Validate the optional v2 understanding envelope without inventing facts.
+
+    Legacy drafts remain valid. When a provider emits structured dimensions,
+    every dimension must cite evidence or explicitly declare ``UNKNOWN``;
+    contradictions must remain visible as structured data rather than being
+    silently collapsed into the prose understanding.
+    """
+
+    envelope_fields = ("dimensions", "evidence_refs", "unknowns", "contradictions")
+    if not any(field in output for field in envelope_fields):
+        return
+    dimensions = output.get("dimensions", [])
+    if not isinstance(dimensions, list):
+        raise VerticalRuntimeError("UNDERSTANDING_DIMENSIONS_INVALID")
+    evidence_refs = output.get("evidence_refs", ())
+    if not isinstance(evidence_refs, list) or any(
+        not isinstance(ref, str) or not ref.strip() for ref in evidence_refs
+    ):
+        raise VerticalRuntimeError("UNDERSTANDING_EVIDENCE_REFS_INVALID")
+    if source_refs is not None:
+        if not isinstance(source_refs, (list, tuple)) or any(
+            not isinstance(ref, str) or not ref.strip() for ref in source_refs
+        ):
+            raise VerticalRuntimeError("UNDERSTANDING_SOURCE_REFS_INVALID")
+        allowed_refs = set(source_refs)
+        if any(ref not in allowed_refs for ref in evidence_refs):
+            raise VerticalRuntimeError("UNDERSTANDING_EVIDENCE_REF_UNGROUNDED")
+    unknowns = output.get("unknowns", ())
+    contradictions = output.get("contradictions", ())
+    if not isinstance(unknowns, list) or not isinstance(contradictions, list):
+        raise VerticalRuntimeError("UNDERSTANDING_DISCLOSURE_FIELDS_INVALID")
+    declared_refs = set(evidence_refs)
+    for dimension in dimensions:
+        if not isinstance(dimension, dict) or not isinstance(dimension.get("name"), str):
+            raise VerticalRuntimeError("UNDERSTANDING_DIMENSION_INVALID")
+        refs = dimension.get("evidence_refs", ())
+        # ``status`` is reserved by the durable run contract for DRAFT;
+        # dimension epistemic state therefore uses the non-ambiguous ``state``
+        # key so UNKNOWN cannot be mistaken for a lifecycle promotion.
+        is_unknown = dimension.get("state") == "UNKNOWN"
+        if not is_unknown and (
+            not isinstance(refs, list)
+            or not refs
+            or any(not isinstance(ref, str) or not ref.strip() for ref in refs)
+        ):
+            raise VerticalRuntimeError("UNDERSTANDING_DIMENSION_EVIDENCE_MISSING")
+        if not is_unknown and any(ref not in set(source_refs or ()) for ref in refs):
+            raise VerticalRuntimeError("UNDERSTANDING_DIMENSION_EVIDENCE_UNGROUNDED")
+        if not is_unknown and any(ref not in declared_refs for ref in refs):
+            raise VerticalRuntimeError("UNDERSTANDING_DIMENSION_EVIDENCE_NOT_DECLARED")
+    for contradiction in contradictions:
+        if not isinstance(contradiction, dict):
+            raise VerticalRuntimeError("UNDERSTANDING_CONTRADICTION_INVALID")
+        refs = contradiction.get("refs", ())
+        if not isinstance(refs, list) or not refs:
+            raise VerticalRuntimeError("UNDERSTANDING_CONTRADICTION_REFS_MISSING")
+        if any(not isinstance(ref, str) or ref not in declared_refs for ref in refs):
+            raise VerticalRuntimeError("UNDERSTANDING_CONTRADICTION_REF_NOT_DECLARED")
+        if source_refs is not None and any(ref not in set(source_refs) for ref in refs):
+            raise VerticalRuntimeError("UNDERSTANDING_CONTRADICTION_REF_UNGROUNDED")
+
+
 async def _feedback_latest(
     feedback: FeedbackPort, *, family_need_id: str, family_id: str
 ) -> tuple[str, ...]:
@@ -550,6 +629,7 @@ async def _feedback_preferences(
 def _lineage_ref(
     *,
     context_snapshot_ref: str,
+    context_source_refs: tuple[str, ...],
     knowledge_ref: str,
     knowledge_version: str,
     capability_refs: tuple[str, ...],
@@ -561,6 +641,7 @@ def _lineage_ref(
     material = json.dumps(
         {
             "context_snapshot_ref": context_snapshot_ref,
+            "context_source_refs": context_source_refs,
             "knowledge": f"{knowledge_ref}@{knowledge_version}",
             "capabilities": capability_refs,
             "feedback_refs": feedback_refs,
@@ -571,6 +652,15 @@ def _lineage_ref(
         separators=(",", ":"),
     )
     return "lineage:" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:32]
+
+
+def _context_source_refs(values: dict[str, Any]) -> tuple[str, ...]:
+    """Return deterministic evidence refs carried by the scoped context."""
+
+    refs = values.get("source_refs", ())
+    if not isinstance(refs, (list, tuple)):
+        return ()
+    return tuple(sorted(ref for ref in refs if isinstance(ref, str) and ref.strip()))
 
 
 __all__ = [

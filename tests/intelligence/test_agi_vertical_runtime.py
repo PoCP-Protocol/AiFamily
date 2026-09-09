@@ -662,6 +662,31 @@ async def test_identical_generation_inputs_have_stable_lineage_across_ledgers():
 
 
 @pytest.mark.asyncio
+async def test_context_evidence_changes_lineage_ref():
+    first_ledger = EvaluationLedger()
+    second_ledger = EvaluationLedger()
+    for ledger, source_ref in ((first_ledger, "obs:a"), (second_ledger, "obs:b")):
+        runtime = VerticalFamilyGrowthRuntime(
+            gateway=Gateway(),
+            context=Context({"focus": "作业启动", "source_refs": [source_ref]}),
+            knowledge=Knowledge(),
+            feedback=Feedback(),
+            ledger=ledger,
+        )
+        await runtime.run(
+            family_need_id="need-evidence-lineage",
+            path_id="path-evidence-lineage",
+            run_id="run-evidence-lineage",
+            family_id="family-evidence-lineage",
+            knowledge_ref="growth.v1",
+        )
+    assert (
+        first_ledger.read("run-evidence-lineage").lineage_ref
+        != second_ledger.read("run-evidence-lineage").lineage_ref
+    )
+
+
+@pytest.mark.asyncio
 async def test_runtime_uses_real_model_gateway_and_returns_structured_draft():
     provider = FakeProvider(
         {
@@ -710,6 +735,195 @@ async def test_real_gateway_invalid_schema_fails_closed():
             path_id="path-invalid",
             run_id="run-invalid",
             family_id="family-invalid",
+            knowledge_ref="growth.v1",
+            provider_id=provider.provider_id,
+        )
+
+
+@pytest.mark.asyncio
+async def test_gateway_failure_does_not_append_evaluation_entry():
+    from backend.intelligence.model_gateway.errors import ModelGatewayError
+
+    provider = FakeProvider(
+        {"vertical_family_growth": {}},
+        fail_with="PROVIDER_5XX",
+    )
+    ledger = EvaluationLedger()
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=real_gateway(provider),
+        context=Context({}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=ledger,
+    )
+    with pytest.raises(ModelGatewayError, match="PROVIDER_5XX"):
+        await runtime.run(
+            family_need_id="need-failure",
+            path_id="path-failure",
+            run_id="run-failure",
+            family_id="family-failure",
+            knowledge_ref="growth.v1",
+            provider_id=provider.provider_id,
+        )
+    with pytest.raises(VerticalRuntimeError, match="EVALUATION_ENTRY_NOT_FOUND"):
+        ledger.replay("run-failure")
+
+
+@pytest.mark.asyncio
+async def test_structured_dimensions_require_evidence_or_explicit_unknown():
+    provider = FakeProvider(
+        {
+            "vertical_family_growth": {
+                "understanding": "启动阻力",
+                "next_step": "开始仪式",
+                "path": [],
+                "dimensions": [{"name": "沟通", "value": "存在阻力"}],
+                "evidence_refs": ["obs:1"],
+                "unknowns": [],
+                "contradictions": [],
+            }
+        }
+    )
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=real_gateway(provider),
+        context=Context({}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+    )
+    with pytest.raises(VerticalRuntimeError, match="DIMENSION_EVIDENCE_MISSING"):
+        await runtime.run(
+            family_need_id="need-evidence",
+            path_id="path-evidence",
+            run_id="run-evidence",
+            family_id="family-evidence",
+            knowledge_ref="growth.v1",
+            provider_id=provider.provider_id,
+        )
+
+
+@pytest.mark.asyncio
+async def test_structured_unknown_and_contradiction_are_preserved():
+    output = {
+        "understanding": "证据存在分歧",
+        "next_step": "先补一次观察",
+        "path": [],
+        "dimensions": [{"name": "沟通", "state": "UNKNOWN"}],
+        "evidence_refs": ["obs:1", "obs:2"],
+        "unknowns": [{"dimension": "沟通", "reason": "证据不足"}],
+        "contradictions": [{"refs": ["obs:1", "obs:2"]}],
+    }
+    provider = FakeProvider({"vertical_family_growth": output})
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=real_gateway(provider),
+        context=Context({}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+    )
+    entry = await runtime.run(
+        family_need_id="need-honesty",
+        path_id="path-honesty",
+        run_id="run-honesty",
+        family_id="family-honesty",
+        knowledge_ref="growth.v1",
+        provider_id=provider.provider_id,
+    )
+    assert entry.draft.output["unknowns"] == output["unknowns"]
+    assert entry.draft.output["contradictions"] == output["contradictions"]
+
+
+@pytest.mark.asyncio
+async def test_structured_evidence_must_belong_to_context_snapshot():
+    provider = FakeProvider(
+        {
+            "vertical_family_growth": {
+                "understanding": "有观察依据",
+                "next_step": "继续观察",
+                "path": [],
+                "dimensions": [{"name": "沟通", "evidence_refs": ["obs:missing"]}],
+                "evidence_refs": ["obs:missing"],
+                "unknowns": [],
+                "contradictions": [],
+            }
+        }
+    )
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=real_gateway(provider),
+        context=Context({"source_refs": ["obs:real"]}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+    )
+    with pytest.raises(VerticalRuntimeError, match="EVIDENCE_REF_UNGROUNDED"):
+        await runtime.run(
+            family_need_id="need-grounding",
+            path_id="path-grounding",
+            run_id="run-grounding",
+            family_id="family-grounding",
+            knowledge_ref="growth.v1",
+            provider_id=provider.provider_id,
+        )
+
+
+@pytest.mark.asyncio
+async def test_dimension_evidence_must_be_declared_at_top_level():
+    provider = FakeProvider(
+        {
+            "vertical_family_growth": {
+                "understanding": "观察",
+                "next_step": "继续",
+                "path": [],
+                "dimensions": [{"name": "沟通", "evidence_refs": ["obs:real"]}],
+                "evidence_refs": [],
+                "unknowns": [],
+                "contradictions": [],
+            }
+        }
+    )
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=real_gateway(provider),
+        context=Context({"source_refs": ["obs:real"]}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+    )
+    with pytest.raises(VerticalRuntimeError, match="EVIDENCE_NOT_DECLARED"):
+        await runtime.run(
+            family_need_id="need-declared",
+            path_id="path-declared",
+            run_id="run-declared",
+            family_id="family-declared",
+            knowledge_ref="growth.v1",
+            provider_id=provider.provider_id,
+        )
+
+
+@pytest.mark.asyncio
+async def test_contradictions_cannot_bypass_structured_evidence_envelope():
+    provider = FakeProvider(
+        {
+            "vertical_family_growth": {
+                "understanding": "证据分歧",
+                "next_step": "补充观察",
+                "path": [],
+                "contradictions": [{"refs": ["obs:1"]}],
+            }
+        }
+    )
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=real_gateway(provider),
+        context=Context({"source_refs": ["obs:1"]}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+    )
+    with pytest.raises(VerticalRuntimeError, match="EVIDENCE_REFS_INVALID"):
+        await runtime.run(
+            family_need_id="need-contradiction",
+            path_id="path-contradiction",
+            run_id="run-contradiction",
+            family_id="family-contradiction",
             knowledge_ref="growth.v1",
             provider_id=provider.provider_id,
         )

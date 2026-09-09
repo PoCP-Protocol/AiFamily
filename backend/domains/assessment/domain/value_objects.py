@@ -71,7 +71,11 @@ MUTATION_RECEIPT_BOUNDARY: Literal["FAMILY_PERSPECTIVE_NOT_SCORE_OR_DIAGNOSIS"] 
     "FAMILY_PERSPECTIVE_NOT_SCORE_OR_DIAGNOSIS"
 )
 
-GrowthHypothesisDecisionType = Literal["CONFIRM", "DISMISS"]
+# ADR-0158 Slice A (FAMILY_DECISION node): a guardian may CONFIRM, EDIT
+# (confirm with a rewritten understanding), PARTIAL-accept, DISMISS, or defer
+# (LATER) a growth hypothesis. See `growth_hypothesis_commands.py` module
+# docstring for what each value writes.
+GrowthHypothesisDecisionType = Literal["CONFIRM", "EDIT", "PARTIAL", "DISMISS", "LATER"]
 HYPOTHESIS_FACT_BOUNDARY: Literal["HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS"] = (
     "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS"
 )

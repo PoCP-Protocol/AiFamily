@@ -198,6 +198,27 @@ def test_model_gateway_output_type_cannot_mutate_business_state(repo_root: Path)
     )
 
 
+def test_model_draft_rejects_runtime_status_promotion(repo_root: Path) -> None:
+    """Typing-only Literal guards are insufficient at the provider boundary."""
+    from backend.intelligence.model_gateway.contracts import AiProvenance, ModelDraft
+
+    provenance = AiProvenance(
+        provider_id="p",
+        model="m",
+        model_version="1",
+        prompt_version="v1",
+        schema_version="s1",
+        context_snapshot_ref="ctx",
+        latency_ms=0,
+        data_class="SYNTHETIC",
+        use_case="u",
+    )
+    import pytest
+
+    with pytest.raises(ValueError, match="status must remain DRAFT"):
+        ModelDraft(output={}, provenance=provenance, status="APPROVED")
+
+
 def test_credentials_are_read_only_inside_the_model_gateway(repo_root: Path) -> None:
     """R7: "凭据只由 Model Gateway 读取".
 

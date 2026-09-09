@@ -52,6 +52,10 @@ async def test_vertical_adapter_postgres_restart_decision_delete_and_scope(
         replay = await adapter.replay(run_id="run-pg-1", scope=scope)
         assert replay.draft_payload["family_need_id"] == "need-pg-1"
         assert replay.draft_payload["guardian_calibration"] is None
+        assert replay.draft_payload["knowledge_ref"] == ""
+        assert replay.draft_payload["provenance"]["provider_id"] == "fake"
+        assert replay.draft_payload["provenance"]["prompt_version"] == "p1"
+        assert replay.draft_payload["provenance"]["schema_version"] == "s1"
 
     decision = GuardianDecision("decision:pg-edit", "need-pg-1", "run-pg-1", "path-pg-1", "EDIT")
     async with postgres_session_factory() as decision_writer:
@@ -108,3 +112,52 @@ async def test_vertical_adapter_postgres_repeated_create_and_decision_are_idempo
             if item.payload.get("decision_ref") == "decision:pg-retry"
         ]
         assert len(decisions) == 1
+
+
+@pytest.mark.asyncio
+async def test_structured_understanding_survives_postgres_restart_readback(
+    postgres_session_factory,
+):
+    scope = RunScope("tenant-pg-structured", "family-pg-structured", ("child-pg",))
+    structured = EvaluationLedgerEntry(
+        "need-structured",
+        "path-structured",
+        "run-structured",
+        "context:structured",
+        ModelDraft(
+            {
+                "understanding": "证据存在分歧",
+                "next_step": "补充一次观察",
+                "path": [],
+                "dimensions": [{"name": "沟通", "state": "UNKNOWN"}],
+                "evidence_refs": ["obs:1", "obs:2"],
+                "unknowns": [{"dimension": "沟通", "reason": "证据不足"}],
+                "contradictions": [{"refs": ["obs:1", "obs:2"]}],
+            },
+            AiProvenance(
+                "fake",
+                "model",
+                "v1",
+                "p1",
+                "s1",
+                "context:structured",
+                1,
+                "SYNTHETIC",
+                "vertical",
+            ),
+        ),
+        (),
+        lineage_ref="lineage:structured-evidence",
+    )
+    async with postgres_session_factory() as writer:
+        adapter = DurableVerticalLedgerAdapter(SqlAlchemyExperienceRunLedger(writer))
+        async with writer.begin():
+            await adapter.save_entry(structured, scope=scope)
+
+    async with postgres_session_factory() as restarted_reader:
+        adapter = DurableVerticalLedgerAdapter(SqlAlchemyExperienceRunLedger(restarted_reader))
+        replay = await adapter.replay(run_id="run-structured", scope=scope)
+        payload = replay.draft_payload
+        assert payload["output"]["unknowns"][0]["dimension"] == "沟通"
+        assert payload["output"]["contradictions"][0]["refs"] == ["obs:1", "obs:2"]
+        assert payload["lineage_ref"] == "lineage:structured-evidence"

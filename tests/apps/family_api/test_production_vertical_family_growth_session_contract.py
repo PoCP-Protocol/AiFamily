@@ -5,11 +5,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.apps.family_api.production_vertical_family_growth_wiring import (
     ProductionVerticalFamilyGrowthComposition,
+    build_production_vertical_family_growth_durable_ledger,
 )
 from backend.intelligence.agi_vertical_durable import DurableVerticalLedgerAdapter
 from backend.intelligence.agi_vertical_runtime import EvaluationLedger, VerticalFamilyGrowthRuntime
 from backend.intelligence.context_engine.sql_store import build_sql_context_broker
 from backend.intelligence.experience.run_http import RunScope
+from backend.intelligence.experience.sql_run_ledger import SessionPerCallExperienceRunLedger
 
 
 class _Port:
@@ -61,3 +63,11 @@ def test_production_composition_accepts_context_broker_from_same_session_factory
     application = SimpleNamespace(state=SimpleNamespace())
     composition.install(application)
     assert application.state.vertical_family_growth_context_broker is broker
+
+
+def test_production_durable_ledger_is_session_per_call() -> None:
+    session_factory = async_sessionmaker()
+    adapter = build_production_vertical_family_growth_durable_ledger(session_factory)
+
+    assert isinstance(adapter._ledger, SessionPerCallExperienceRunLedger)
+    assert adapter._ledger._session_factory is session_factory

@@ -792,9 +792,10 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
                 """
                 insert into family_growth_hypothesis_decisions(tenant_id,family_id,
                 assessment_session_id,hypothesis_ref,decision_type,actor_person_id,intent_id,
-                idempotency_key,request_hash,response_body,correlation_id)
+                idempotency_key,request_hash,response_body,correlation_id,parent_note)
                 values (:tenant_id,:family_id,:session_id,:hypothesis_ref,:decision_type,:actor_id,
-                :intent_id,:idempotency_key,:request_hash,cast(:receipt as jsonb),:correlation_id)
+                :intent_id,:idempotency_key,:request_hash,cast(:receipt as jsonb),:correlation_id,
+                :parent_note)
                 """
             ),
             {
@@ -809,6 +810,9 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
                 "request_hash": request_hash,
                 "receipt": json.dumps(receipt),
                 "correlation_id": correlation_id,
+                # `receipt["parent_note"]` is always present (may be None) —
+                # see `GrowthHypothesisCommandHandler` receipt construction.
+                "parent_note": receipt.get("parent_note"),
             },
         )
 

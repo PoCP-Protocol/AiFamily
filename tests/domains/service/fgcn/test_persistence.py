@@ -84,7 +84,11 @@ ASSIGNMENT = "00000000-0000-4000-8000-000000000008"
 CONTRIBUTION = "00000000-0000-4000-8000-000000000009"
 ALLOCATION_RUN = "00000000-0000-4000-8000-000000000010"
 _ADMITTED_PROVIDER = AsyncProviderAdmissionStub(
-    admitted_snapshot(capability_keys=("family_guidance",))
+    admitted_snapshot(
+        tenant_id=TENANT,
+        family_id=FAMILY,
+        capability_keys=("family_guidance",),
+    )
 )
 
 
@@ -1066,6 +1070,7 @@ def _named_action_request(
     *,
     scope: GateScope | None = None,
     provider_id: str = "expert-1",
+    assignee_kind: str = "EXPERT",
     request_id: str = "named-action-request:assignment-1",
     assignment_id: str | None = ASSIGNMENT,
     actor_id: str = "guardian-1",
@@ -1074,7 +1079,7 @@ def _named_action_request(
     action_arguments = {
         "service_task_id": TASK,
         "provider_id": provider_id,
-        "assignee_kind": "EXPERT",
+        "assignee_kind": assignee_kind,
     }
     if assignment_id is not None:
         action_arguments["assignment_id"] = assignment_id
@@ -1166,6 +1171,38 @@ async def test_named_action_refuses_an_unadmitted_provider_without_writes(sessio
 
 
 @pytest.mark.asyncio
+async def test_named_action_refuses_ai_as_service_provider_without_writes(session_factory):
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        await repo.save_case(_case())
+        await repo.save_task(_task(status=TaskStatus.PENDING))
+        await session.commit()
+
+        with pytest.raises(
+            ServiceForbiddenError,
+            match="fgcn_service_provider_must_be_human",
+        ):
+            await execute_task_assignment_named_action(
+                repo,
+                _named_action_request(
+                    provider_id="ai-provider",
+                    assignee_kind="AI",
+                    request_id="named-action-request:ai-provider",
+                ),
+                recorder=AuditRecorder(),
+                provider_admission=_ADMITTED_PROVIDER,
+                accepted_at=NOW,
+            )
+        await session.rollback()
+
+    async with session_factory() as session:
+        repo = SqlAlchemyFGCNRepository(session)
+        assert (await repo.load_task(TASK)).status is TaskStatus.PENDING
+        assert (await session.execute(sa.select(TaskAssignmentRow))).scalars().all() == []
+        assert await read_all_events(session, tenant_id=TENANT) == []
+
+
+@pytest.mark.asyncio
 async def test_named_action_refuses_provider_resource_gap_without_writes(session_factory):
     async with session_factory() as session:
         repo = SqlAlchemyFGCNRepository(session)
@@ -1179,7 +1216,12 @@ async def test_named_action_refuses_provider_resource_gap_without_writes(session
                 _named_action_request(),
                 recorder=AuditRecorder(),
                 provider_admission=AsyncProviderAdmissionStub(
-                    admitted_snapshot(capability_keys=("family_guidance",), capacity_available=0)
+                    admitted_snapshot(
+                        tenant_id=TENANT,
+                        family_id=FAMILY,
+                        capability_keys=("family_guidance",),
+                        capacity_available=0,
+                    )
                 ),
                 accepted_at=NOW,
             )

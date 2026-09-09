@@ -43,6 +43,55 @@ BookingStatus = Literal["DRAFT", "REQUESTED", "CONFIRMED", "CANCELLED", "EXPIRED
 # `family_booking_record_status` enum.
 ServiceRecordStatus = Literal["PENDING", "SCHEDULED", "CANCELLED", "COMPLETED"]
 
+# Family feedback is a bounded adult response, not a free-text child or family
+# score.  The values describe whether the service helped and deliberately do
+# not become a growth/quality score.
+FamilyFeedbackOutcome = Literal["HELPFUL", "SOMEWHAT_HELPFUL", "NOT_HELPFUL_YET"]
+FeedbackAuthorRole = Literal["GUARDIAN", "ADULT_FAMILY_MEMBER"]
+QualityDecisionStatus = Literal["ACCEPTED", "REWORK_REQUIRED", "REFUND_REQUIRED"]
+ServiceActionType = Literal[
+    "WELCOME",
+    "NEEDS_IDENTIFIED",
+    "FIRST_RESPONSE",
+    "FOLLOW_UP",
+    "REMEDY_REWORK",
+    "REMEDY_REASSIGN",
+    "REFUND_REQUESTED",
+]
+ServiceEventStatus = Literal["PENDING", "PUBLISHED", "DEAD_LETTER"]
+FeedbackIssueCode = Literal[
+    "NO_SHOW",
+    "LATE_START",
+    "NEED_MISSED",
+    "DELIVERY_INCOMPLETE",
+    "SAFETY_CONCERN",
+    "OTHER_SERVICE_ISSUE",
+]
+
+FAMILY_FEEDBACK_OUTCOMES = frozenset({"HELPFUL", "SOMEWHAT_HELPFUL", "NOT_HELPFUL_YET"})
+QUALITY_DECISION_STATUSES = frozenset({"ACCEPTED", "REWORK_REQUIRED", "REFUND_REQUIRED"})
+SERVICE_ACTION_TYPES = frozenset(
+    {
+        "WELCOME",
+        "NEEDS_IDENTIFIED",
+        "FIRST_RESPONSE",
+        "FOLLOW_UP",
+        "REMEDY_REWORK",
+        "REMEDY_REASSIGN",
+        "REFUND_REQUESTED",
+    }
+)
+FEEDBACK_ISSUE_CODES = frozenset(
+    {
+        "NO_SHOW",
+        "LATE_START",
+        "NEED_MISSED",
+        "DELIVERY_INCOMPLETE",
+        "SAFETY_CONCERN",
+        "OTHER_SERVICE_ISSUE",
+    }
+)
+
 ProviderKind = Literal["TEACHER", "SALON_HOST", "SERVICE_TEAM"]
 QualificationStatus = Literal["ACTIVE", "MISSING", "EXPIRED"]
 AdmissionStatus = Literal["ADMITTED", "EXPIRED", "SUSPENDED"]

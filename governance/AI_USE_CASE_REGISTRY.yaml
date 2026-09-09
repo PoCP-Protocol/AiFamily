@@ -455,6 +455,14 @@ use_cases:
       的有界校准改进下一次提案；不得自动写入家庭事实或激活计划。
     output_type: Draft
     output_schema_ref: vertical-growth-draft.v1
+    output_contract:
+      lifecycle_status: DRAFT
+      optional_understanding_envelope:
+        dimensions: "每个维度必须引用当前 ContextSnapshot 的 evidence_refs，或 state=UNKNOWN"
+        evidence_refs: "必须是当前 ContextSnapshot.source_refs 的子集"
+        unknowns: "证据不足时显式保留，不得补写为事实"
+        contradictions: "refs 必须同时出现在 evidence_refs 与 ContextSnapshot.source_refs"
+      lineage: "context source refs 纳入 lineage_ref；证据集合变化必须产生新 lineage"
     prompt_ref: vertical-growth.v1
     knowledge_refs: [family_growth_knowledge_v1]
     allowed_tools: [read_context, read_growth_projection, draft_growth_plan, create_human_task]

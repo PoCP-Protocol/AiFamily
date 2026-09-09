@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultExperienceApiClient, resolveExperienceClientMode } from "./clientFactory";
+import { FakeExperienceApiClient } from "./fakeClient";
 import { HttpExperienceApiClient } from "./httpClient";
 
 describe("experience client factory", () => {
@@ -14,10 +15,22 @@ describe("experience client factory", () => {
       .toBeInstanceOf(HttpExperienceApiClient);
   });
 
-  it("allows an explicit fake client without changing production defaults", () => {
-    expect(resolveExperienceClientMode({ DEV: false, VITE_EXPERIENCE_CLIENT: "fake" })).toBe("fake");
+  it("allows the fake client only in Vite development mode", () => {
+    expect(resolveExperienceClientMode({ DEV: true, VITE_EXPERIENCE_CLIENT: "fake" })).toBe("fake");
+    expect(createDefaultExperienceApiClient({ DEV: true, VITE_EXPERIENCE_CLIENT: "fake" }))
+      .toBeInstanceOf(FakeExperienceApiClient);
+  });
+
+  it("forces the real HTTP client when fake is requested outside development", () => {
+    expect(resolveExperienceClientMode({ DEV: false, VITE_EXPERIENCE_CLIENT: "fake" })).toBe("http");
     expect(createDefaultExperienceApiClient({ DEV: false, VITE_EXPERIENCE_CLIENT: "fake" }))
-      .not.toBeInstanceOf(HttpExperienceApiClient);
+      .toBeInstanceOf(HttpExperienceApiClient);
+    expect(resolveExperienceClientMode({ VITE_EXPERIENCE_CLIENT: "fake" })).toBe("http");
+  });
+
+  it("uses HTTP by default for production builds", () => {
+    expect(resolveExperienceClientMode({ DEV: false })).toBe("http");
+    expect(createDefaultExperienceApiClient({ DEV: false })).toBeInstanceOf(HttpExperienceApiClient);
   });
 
   it("fails closed to HTTP for unknown configuration values in production", () => {

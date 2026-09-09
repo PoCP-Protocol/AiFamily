@@ -35,9 +35,10 @@ from backend.platform.identity.context import ActorContext, ActorType
 
 from ..admission import AsyncProviderAdmissionQuery
 from ..application import FGCNAssignmentRepository
+from ..receipt_bridge import submit_service_delivery_from_record
 from ..workflow_worker import consume_accepted_human_task
 from . import dependencies as deps
-from .requests import AssignmentProposalRequest, HumanDecisionRequest
+from .requests import AssignmentProposalRequest, HumanDecisionRequest, ReceiptDeliveryRequest
 
 router = APIRouter(prefix="/families/{family_id}/fgcn", tags=["fgcn"])
 
@@ -369,6 +370,54 @@ async def consume_human_task(
         "accepted_by_actor_id": assignment.accepted_by_actor_id,
         "source_request_id": assignment.source_request_id,
         "accepted_at": assignment.accepted_at.isoformat(),
+    }
+
+
+@router.post("/tasks/{service_task_id}/receipt-delivery")
+async def submit_receipt_delivery(
+    family_id: str,
+    service_task_id: str,
+    body: ReceiptDeliveryRequest,
+    context: deps.ActionContext = Depends(deps.get_action_context),
+    actor: ActorContext = Depends(deps.get_actor_context),
+    repository: FGCNAssignmentRepository = Depends(deps.get_fgcn_repository),
+    record_reader: deps.SqlAlchemyServiceRepository = Depends(deps.get_service_record_reader),
+    recorder: AuditRecorder = Depends(deps.get_audit_recorder),
+) -> dict[str, Any]:
+    """Bridge one completed canonical ServiceRecord into an FGCN delivery.
+
+    This is the only production entry point for ``receipt_bridge``.  The
+    booking domain's completed ``ServiceRecord`` is read-only here; the
+    admitted task provider is the only actor who may submit it, and the
+    FGCN delivery command retains ownership of the durable idempotency
+    claim, task transition, and Audit/Outbox transaction.
+    """
+
+    _assert_family_path(family_id, context)
+    _require_idempotency_key(context)
+    if actor.actor_type is not ActorType.HUMAN or actor.tenant_id != context.tenant_id:
+        raise HTTPException(status_code=403, detail="fgcn_receipt_requires_human_actor")
+    task, case = await _load_scoped_task(service_task_id, context, repository)
+    delivery = await submit_service_delivery_from_record(
+        record_reader,
+        repository,
+        case=case,
+        task=task,
+        service_record_id=body.service_record_id,
+        scope=case.scope,
+        outcome_observation=body.outcome_observation,
+        actor_id=actor.actor_id,
+        recorder=recorder,
+        idempotency_key=context.idempotency_key,
+    )
+    return {
+        "delivery_id": delivery.delivery_id,
+        "case_id": delivery.case_id,
+        "task_id": delivery.task_id,
+        "assignee_ref": delivery.assignee_ref,
+        "evidence_ref": delivery.evidence_ref,
+        "outcome_observation": delivery.outcome_observation,
+        "delivered_at": delivery.delivered_at.isoformat(),
     }
 
 

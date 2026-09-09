@@ -34,8 +34,10 @@ from backend.intelligence.agi_vertical_runtime import (
     VerticalFamilyGrowthRuntime,
 )
 from backend.intelligence.context_engine.async_port import AsyncContextBrokerPort
+from backend.intelligence.context_engine.contracts import ContextScope
 from backend.intelligence.context_engine.family_growth_port import SqlFamilyGrowthContextPort
 from backend.intelligence.experience.run_http import RunScope
+from backend.intelligence.experience.sql_run_ledger import SessionPerCallExperienceRunLedger
 
 PRODUCTION_VERTICAL_ENVIRONMENTS = frozenset({"test", "staging", "production"})
 
@@ -92,10 +94,35 @@ class ProductionVerticalFamilyGrowthComposition:
         state = getattr(application, "state", None)
         if state is None:
             raise TypeError("application must expose state")
+        existing = getattr(state, "vertical_family_growth_runtime", None)
+        if existing is not None:
+            # Composition is a startup boundary.  Silently replacing a
+            # durable runtime with another instance (or with a dev runtime)
+            # makes readiness and rollback claims impossible to reason about.
+            # Allow an idempotent second install of the exact same composition
+            # only; reject every other replacement before mutating app state.
+            if not isinstance(existing, DurableVerticalGrowthRuntime):
+                raise RuntimeError("vertical family-growth runtime already configured")
+            if (
+                getattr(existing, "_runtime", None) is not self.runtime
+                or getattr(existing, "_ledger", None) is not self.durable_ledger
+            ):
+                raise RuntimeError("vertical family-growth runtime already configured")
+            return
+        async def snapshot_factory(*, family_id: str, run_id: str) -> str:
+            scope = self.scope_factory(family_id)
+            if hasattr(scope, "__await__"):
+                scope = await scope
+            if not isinstance(scope, ContextScope) or scope.family_id != family_id:
+                raise ValueError("vertical family-growth context scope mismatch")
+            snapshot = await self.context_broker.snapshot(scope=scope)
+            return snapshot.snapshot_ref
+
         state.vertical_family_growth_runtime = DurableVerticalGrowthRuntime(
             self.runtime,
             self.durable_ledger,
             self.scope_factory,
+            context_snapshot_factory=snapshot_factory,
         )
         state.vertical_family_growth_context_broker = self.context_broker
         state.vertical_family_growth_durable_ledger = self.durable_ledger
@@ -196,6 +223,22 @@ def build_sql_production_vertical_family_growth_composition(
     )
 
 
+def build_production_vertical_family_growth_durable_ledger(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> DurableVerticalLedgerAdapter:
+    """Build the vertical ledger without retaining a request-bound session.
+
+    The production composition is long-lived, while SQLAlchemy sessions are
+    request/operation scoped.  This helper makes that lifetime boundary
+    explicit by using the existing session-per-call ledger adapter and keeps
+    the vertical runtime on the canonical Experience ledger tables.
+    """
+
+    if not isinstance(session_factory, async_sessionmaker):
+        raise TypeError("session_factory must be an async_sessionmaker")
+    return DurableVerticalLedgerAdapter(SessionPerCallExperienceRunLedger(session_factory))
+
+
 def install_production_vertical_family_growth_wiring(
     application: Any,
     composition: ProductionVerticalFamilyGrowthComposition,
@@ -217,5 +260,6 @@ __all__ = [
     "ProductionVerticalFamilyGrowthComposition",
     "build_production_vertical_family_growth_composition",
     "build_sql_production_vertical_family_growth_composition",
+    "build_production_vertical_family_growth_durable_ledger",
     "install_production_vertical_family_growth_wiring",
 ]

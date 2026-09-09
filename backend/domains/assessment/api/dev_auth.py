@@ -1,41 +1,52 @@
 """Development-only account session endpoints.
 
-## Why this file exists at all
+## Superseded as the production `/auth/*` implementation — kept as a dev/test double
 
-These four endpoints (`/auth/account-session`, `/auth/me`, `/auth/contexts`,
-`/auth/session/revoke`) are the **only** way the migrated mobile app obtains a
-bearer token. All 34 UI screens are unusable without them
-(`contracts/openapi/UI_API_ENDPOINT_INVENTORY.md`, AUTH group).
+Per ADR-0011 (`governance/ADR/ADR-0011-platform-identity-versus-business-identity-boundary.md`)
+§4, the real implementation of these four endpoints now lives in
+`backend/domains/identity` (canonical_path for capability `auth_identity`,
+`governance/DOMAIN_REGISTRY.yaml`), backed by real persistence (see
+`backend/domains/identity/infrastructure/sqlalchemy_repository.py`) instead of
+the process-local dict this module still uses. `backend/apps/family_api/main.py`
+mounts `backend.domains.identity.api.routes.router` for the actual `/auth/*`
+HTTP contract; this module is **not** mounted by `main.py` any more.
 
-## Why it is in the assessment domain, which is wrong
+This file is kept, deliberately, for two reasons:
 
-It is not authentication's home. Authentication belongs to `auth_identity`,
-which `governance/DOMAIN_REGISTRY.yaml` still lists as `NOT_STARTED`. These
-endpoints landed inside the assessment domain only because assessment was the
-first vertical slice that needed an HTTP session, and they stayed there.
+1. **Dev/test compatibility bridge.** `backend/apps/family_api/dev_wiring.py`'s
+   `_identity` helper and several other dev-only dependency overrides across
+   the service/family_need/product_intelligence domains still read
+   `get_state().tokens` directly, not through any HTTP call. Untangling all of
+   those call sites to depend on `backend.domains.identity` instead is a real,
+   separate migration, out of scope for the endpoint migration itself.
+   `backend/domains/identity/infrastructure/dev_auth_bridge.py`'s
+   `DevAuthMirroringIdentityService` mirrors every session the *new* domain
+   issues/revokes into this module's `DevAuthState.tokens`, so those existing
+   dev-only dependants keep resolving tokens correctly without any change to
+   their own code.
+2. **Standalone test double.** `resolve_actor` below is still directly usable
+   by tests that want dev_auth's original, simpler in-memory semantics without
+   spinning up the real domain's persistence layer.
+
+## Why it was in the assessment domain, which was wrong
+
+It was not authentication's home. Authentication belongs to `auth_identity`.
+These endpoints originally landed inside the assessment domain only because
+assessment was the first vertical slice that needed an HTTP session, and they
+stayed there until this migration.
 
 `governance/CAPABILITY_REGISTRY.yaml` → `dev_account_session` records this as a
-deliberate misplacement (`business_capability: PLATFORM_INTERNAL` on code that
-physically sits in `domains/assessment`), not as an oversight. The migration-out
-plan is `governance/ADR/ADR-0010-dev-auth-restored-in-assessment.md`.
+deliberate, now-historical misplacement.
 
-## Why it was rewritten rather than moved verbatim
-
-The four-layer refactor of this domain dropped these endpoints entirely — a real
-functional regression: `grep '"/auth/account-session"'` over `backend/` returned
-nothing, so the mobile app could not authenticate at all. Restoring them from
-`git show HEAD:backend/domains/assessment/api.py` would have brought back a
-dependency on `AssessmentService`, coupling session issuance to assessment
-state for no reason. This module is self-contained instead: its only dependency
-is the audit recorder.
-
-## What this is NOT
+## What this module still is NOT
 
 Not production authentication. There is no OTP, no password, no real identity
 proof: `external_ref` is exchanged for a token directly. Tokens live in a
 process-local dict and vanish on restart. `expires_at` is a hardcoded sentinel,
-not an enforced expiry. Do not build authorization decisions of consequence on
-this — see `known_gaps` on the registry entry.
+not an enforced expiry. These properties are exactly why the real
+implementation moved to `backend/domains/identity` — see that domain's own
+module docstrings for how each one is now actually fixed. Do not build
+authorization decisions of consequence on *this* module specifically.
 """
 
 from __future__ import annotations

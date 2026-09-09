@@ -69,7 +69,7 @@ async def _apply_course_content_migration(engine) -> None:
         "database.migrations.versions.0056_course_content"
     )
     course_lineage_migration = importlib.import_module(
-        "database.migrations.versions.0069_course_content_lineage"
+        "database.migrations.versions.0075_course_content_lineage"
     )
 
     async with engine.begin() as connection:

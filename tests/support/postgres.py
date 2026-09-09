@@ -47,7 +47,10 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from sqlalchemy import MetaData, text
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.dialects.postgresql import ENUM as PGEnum
+from sqlalchemy.dialects.postgresql.asyncpg import PGDialect_asyncpg
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
+from sqlalchemy.types import TypeDecorator
 
 from backend.platform.persistence.session import (
     TEST_DATABASE_URL_ENV_VAR,
@@ -69,6 +72,43 @@ def postgres_test_url() -> str | None:
 def _unique_schema_name() -> str:
     # Postgres identifiers are limited to 63 bytes; this is well inside it.
     return f"t_{uuid.uuid4().hex[:16]}"
+
+
+async def _recreate_enum_types_from_public(
+    conn: AsyncConnection, metadata: MetaData
+) -> None:
+    """`CREATE TYPE ... AS ENUM (...)` inside the connection's current schema
+    for every `postgresql.ENUM(..., create_type=False)` column `metadata`'s
+    tables use.
+
+    `create_type=False` tells SQLAlchemy the type already exists — true on
+    the baselined database, but only inside `public`, and Postgres enum
+    types are schema-local exactly like tables. Without this, `create_all`
+    fails with `UndefinedObjectError: type "..." does not exist` the moment a
+    domain (`identity`'s `account_status`, `service/fgcn`'s
+    `service_case_status`, ...) maps a column onto one of the baseline's
+    native enums. Scans `metadata` rather than hardcoding a list so any
+    domain's `postgres_schema_engine(Base.metadata)` call picks up its own
+    enum columns automatically.
+    """
+
+    dialect = PGDialect_asyncpg()
+    seen: dict[str, list[str]] = {}
+    for table in metadata.tables.values():
+        for column in table.columns:
+            enum_type = column.type
+            # `postgresql.ENUM(..., create_type=False)` columns are usually
+            # wrapped in a `TypeDecorator` (widened to `VARCHAR` on SQLite,
+            # `domains/identity`'s `_existing_enum`) — the dialect-specific
+            # `PGEnum` only appears once `load_dialect_impl` resolves it.
+            if isinstance(enum_type, TypeDecorator):
+                enum_type = enum_type.load_dialect_impl(dialect)
+                enum_type = getattr(enum_type, "impl", enum_type)
+            if isinstance(enum_type, PGEnum) and enum_type.name is not None:
+                seen.setdefault(enum_type.name, list(enum_type.enums))
+    for type_name, values in seen.items():
+        values_sql = ", ".join(f"'{v}'" for v in values)
+        await conn.execute(text(f'CREATE TYPE "{type_name}" AS ENUM ({values_sql})'))
 
 
 @asynccontextmanager
@@ -109,6 +149,21 @@ async def postgres_schema_engine(metadata: MetaData) -> AsyncIterator[AsyncEngin
         )
         try:
             async with engine.begin() as conn:
+                # Postgres enum *types* are schema-local, same as tables.
+                # Columns mapped with `postgresql.ENUM(..., create_type=False)`
+                # (`domains/identity`'s `account_status`, `domains/service/fgcn`'s
+                # `service_case_status` et al.) point at a type the legacy
+                # baseline created once in `public` and never recreated here —
+                # `create_type=False` means SQLAlchemy won't emit `CREATE TYPE`
+                # for it, so this throwaway schema needs its own copy before
+                # `create_all` can bind any column to it. Putting `public` on
+                # `search_path` instead (the simpler-looking fix) is wrong: it
+                # also makes `create_all`'s existence check see the baseline's
+                # own same-named tables (`accounts`, `identity_sessions`, ...)
+                # and skip creating throwaway copies, so tests would silently
+                # run against production-baseline rows instead of a disposable
+                # schema.
+                await _recreate_enum_types_from_public(conn, metadata)
                 await conn.run_sync(metadata.create_all)
             yield engine
         finally:

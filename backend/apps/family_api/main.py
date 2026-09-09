@@ -13,6 +13,8 @@ import os
 from collections.abc import Callable
 
 from fastapi import FastAPI
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
 
 from backend.apps.family_api.ai_coach_wiring import ai_coach_provider_registry
 from backend.apps.family_api.dev_operator_query_wiring import install_dev_operator_query_wiring
@@ -42,6 +44,7 @@ from backend.apps.family_api.production_commerce_api import build_production_com
 from backend.apps.family_api.production_commerce_context import (
     ProductionCommerceReadContextResolver,
 )
+from backend.apps.family_api.production_growth_wiring import ProductionGrowthConfirmationWiring
 from backend.apps.family_api.production_vertical_family_growth_wiring import (
     ProductionVerticalFamilyGrowthComposition,
 )
@@ -53,7 +56,6 @@ from backend.domains.assessment.api import (
     register_exception_handlers as register_assessment_exception_handlers,
 )
 from backend.domains.assessment.api import router as assessment_router
-from backend.domains.assessment.api.dev_auth import router as dev_auth_router
 from backend.domains.commerce.api.routes import router as commerce_router
 from backend.domains.family_need.api.routes import (
     register_exception_handlers as register_family_need_exception_handlers,
@@ -61,6 +63,11 @@ from backend.domains.family_need.api.routes import (
 from backend.domains.family_need.api.routes import router as family_need_router
 from backend.domains.family_need.infrastructure.wiring import (
     install_family_need_production_wiring,
+)
+from backend.domains.identity.api.routes import router as identity_router
+from backend.domains.identity.infrastructure.wiring import (
+    install_identity_dev_wiring,
+    install_identity_wiring,
 )
 from backend.domains.journey.api.growth_onboarding_routes import (
     router as growth_onboarding_router,
@@ -73,6 +80,15 @@ from backend.domains.journey.api.routes import (
     register_exception_handlers as register_journey_exception_handlers,
 )
 from backend.domains.journey.api.routes import router as journey_router
+from backend.domains.journey.application.growth_plan_adoption import (
+    GrowthPlanAdoptionService,
+    GuardianGrowthPlanPolicy,
+)
+from backend.domains.journey.infrastructure.growth_plan_adoption_postgres import (
+    SqlAlchemyAdoptedGrowthPlanRepository,
+    SqlAlchemyGrowthPlanDraftReader,
+    build_postgres_growth_plan_actor_resolver,
+)
 from backend.domains.membership.api.routes import router as membership_router
 from backend.domains.product_intelligence.api.course_routes import (
     configure_course_content_gate,
@@ -263,6 +279,57 @@ def _mount_family_need(application: FastAPI, *, database_url: str | None = None)
             )
 
 
+def _mount_identity(application: FastAPI, *, database_url: str | None = None) -> None:
+    """Mount the 4 `/auth/*` endpoints via `backend.domains.identity`.
+
+    Per ADR-0011 §4, this replaces the previous mount point
+    (`backend.domains.assessment.api.dev_auth.router`), which stays importable
+    for the many other dev-only wiring modules that still read its
+    process-local token dict directly (`dev_wiring._identity`,
+    `growth_plan_adoption_dev_wiring`, FGCN's dev persistence note) — see that
+    module's own updated docstring for why untangling those is out of scope
+    here.
+
+    Mounted only in a dev environment (`is_dev_environment()`), same gate
+    `dev_auth` used: the mobile app's `/auth/*` calls only exist in
+    development/test, never against a production deployment (see
+    `test_production_dev_auth_gate.py`, unchanged by this migration).
+
+    - A real PostgreSQL URL configures the real, disposable-engine-per-request
+      wiring, so a session issued by one request is readable by the next
+      request or process — the property `dev_auth.py` explicitly lacked.
+    - No PostgreSQL URL (e.g. `AIFAMILY_ENV=test` with no `DATABASE_URL`, the
+      fast SQLite path) falls back to a single shared in-memory engine so the
+      route still works end-to-end without requiring Docker.
+    """
+
+    if not is_dev_environment():
+        return
+
+    application.include_router(identity_router)
+    configured_url = database_url or _runtime_database_url()
+    if configured_url is not None and is_postgres_url(configured_url):
+
+        def _fresh_engine():
+            return create_async_engine(
+                configured_url,
+                poolclass=NullPool,
+                connect_args={"statement_cache_size": 0},
+            )
+
+        install_identity_wiring(
+            application, engine_factory=_fresh_engine, mirror_into_dev_auth=True
+        )
+    else:
+        # `get_engine()` with no URL resolves the shared in-memory SQLite
+        # engine (`backend.platform.persistence.session.resolve_database_url`),
+        # which is safe to reuse across requests/loops via its `StaticPool`.
+        # Table creation is deferred to the first request (see
+        # `install_identity_dev_wiring`'s docstring) — this call itself stays
+        # synchronous.
+        install_identity_dev_wiring(application, engine=get_engine())
+
+
 def _mount_growth_plan_adoption(application: FastAPI) -> None:
     """Mount the generative growth-plan adoption slice (UI-04 adopt/read).
 
@@ -277,28 +344,38 @@ def _mount_growth_plan_adoption(application: FastAPI) -> None:
     Action gate as production would use, backed by process-local state that
     must never be reachable outside dev/test).
 
-    No production adapter exists yet for either a durable validated-draft
-    reader or a durable idempotent adoption repository (see
-    `growth_plan_adoption_dev_wiring`'s module docstring), so outside
-    dev/test the route is intentionally left unmounted rather than mounted
-    with adapters that do not exist — the same fail-closed posture as every
-    other domain here, just expressed as "not yet mounted" instead of "503".
+    With a PostgreSQL URL, production uses the durable validated-draft reader,
+    adoption repository, and bearer-session guardian resolver. Without a
+    PostgreSQL URL, the route remains fail-closed outside dev/test; dev/test
+    keeps its explicit process-local adapter.
     """
 
-    if not is_dev_environment():
+    database_url = _runtime_database_url()
+    if not is_dev_environment() and not (
+        database_url is not None and is_postgres_url(database_url)
+    ):
         return
 
-    from backend.apps.family_api import dev_wiring as _dev_wiring
-    from backend.domains.journey.infrastructure.growth_plan_adoption_dev_wiring import (
-        build_dev_actor_resolver,
-        build_dev_growth_plan_adoption_service,
-    )
+    if database_url is not None and is_postgres_url(database_url):
+        session_factory = get_sessionmaker(database_url)
+        service = GrowthPlanAdoptionService(
+            draft_reader=SqlAlchemyGrowthPlanDraftReader(session_factory),
+            repository=SqlAlchemyAdoptedGrowthPlanRepository(session_factory),
+            policy=GuardianGrowthPlanPolicy(),
+        )
+        resolve_actor = build_postgres_growth_plan_actor_resolver(session_factory)
+    else:
+        from backend.apps.family_api import dev_wiring as _dev_wiring
+        from backend.domains.journey.infrastructure.growth_plan_adoption_dev_wiring import (
+            build_dev_actor_resolver,
+            build_dev_growth_plan_adoption_service,
+        )
 
-    service = build_dev_growth_plan_adoption_service(
-        _dev_wiring.growth_plan_draft_store,
-        _dev_wiring.growth_plan_adoption_repository,
-    )
-    resolve_actor = build_dev_actor_resolver(_dev_wiring._identity)
+        service = build_dev_growth_plan_adoption_service(
+            _dev_wiring.growth_plan_draft_store,
+            _dev_wiring.growth_plan_adoption_repository,
+        )
+        resolve_actor = build_dev_actor_resolver(_dev_wiring._identity)
     application.include_router(
         build_growth_plan_adoption_router(
             GrowthPlanAdoptionHttpDependencies(resolve_actor, service)
@@ -447,11 +524,13 @@ def create_app(
     experience_operations_cursor_signer: HmacExperienceOperationsCursorSigner | None = None,
     experience_operations_query_wiring: Callable[[FastAPI], None] | None = None,
     assessment_production_ai_wiring: Callable[[FastAPI], None] | None = None,
+    growth_plan_ai_wiring: Callable[[FastAPI], None] | None = None,
     vertical_family_growth_runtime: VerticalFamilyGrowthRuntime | None = None,
     production_vertical_family_growth_composition: ProductionVerticalFamilyGrowthComposition
     | None = None,
     production_commerce_context_resolver: ProductionCommerceReadContextResolver | None = None,
     production_commerce_repository_factory: Callable | None = None,
+    growth_confirmation_wiring: ProductionGrowthConfirmationWiring | None = None,
 ) -> FastAPI:
     _configure_fgcn_persistence()
     application = FastAPI(title="AiFamily family_api", version="0.1.0")
@@ -498,17 +577,15 @@ def create_app(
     # not-found.
     application.include_router(assessment_router, prefix="/families")
     register_assessment_exception_handlers(application)
-    # Dev/test-only session issuance. Mounted without a prefix because the
-    # synthetic mobile client calls `/auth/*` at the root. These endpoints are
-    # deliberately absent from a production app: `dev_auth` exchanges an
-    # arbitrary external_ref for a process-local bearer token and therefore is
-    # not an authentication capability. Keeping the guard at the composition
-    # root also removes the routes from production OpenAPI, rather than merely
-    # making them fail after they have been advertised. Their placement in the
-    # assessment domain is a recorded architectural debt, not a design choice:
-    # see ADR-0010.
-    if is_dev_environment():
-        application.include_router(dev_auth_router)
+    # Session issuance/introspection/revocation now lives in
+    # `backend.domains.identity` per ADR-0011 §4 (previously
+    # `backend.domains.assessment.api.dev_auth`, which stayed the dev/test
+    # implementation these endpoints used before this domain existed). Still
+    # mounted without a prefix because the mobile client calls `/auth/*` at
+    # the root, and still gated to dev environments only — see
+    # `_mount_identity`'s docstring for why and for the real-Postgres vs.
+    # SQLite split.
+    _mount_identity(application)
     # Mounting membership does NOT make it callable in production: its
     # get_repository / get_action_context / get_actor_context dependencies raise
     # by design (no session factory, and the Account → TenantMembership → Family
@@ -624,6 +701,10 @@ def create_app(
         if not callable(assessment_production_ai_wiring):
             raise TypeError("assessment_production_ai_wiring must be callable")
         assessment_production_ai_wiring(application)
+    if growth_plan_ai_wiring is not None:
+        if not callable(growth_plan_ai_wiring):
+            raise TypeError("growth_plan_ai_wiring must be callable")
+        growth_plan_ai_wiring(application)
     if engagement_runtime_wiring is not None:
         if not callable(engagement_runtime_wiring):
             raise TypeError("engagement_runtime_wiring must be callable")
@@ -659,6 +740,8 @@ def create_app(
             experience_operations_query_service,
             experience_operations_cursor_signer,
         )
+    if growth_confirmation_wiring is not None:
+        growth_confirmation_wiring.install(application)
     return application
 
 

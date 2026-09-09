@@ -35,7 +35,7 @@ flush it into the same transaction as the domain write (see
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from backend.platform.audit.models import AuditEvent
 from backend.platform.audit.recorder import AuditRecorder
@@ -45,7 +45,11 @@ from backend.platform.consent.models import ConsentPurpose
 from ..domain.entities import (
     AvailabilitySlot,
     BookingRequest,
+    FamilyFeedback,
     PrivateCheckinDraft,
+    QualityDecision,
+    ServiceAction,
+    ServiceEvent,
     ServiceOffering,
     ServiceProvider,
     ServiceRecord,
@@ -64,11 +68,18 @@ from ..domain.policies import (
     assert_human_actor,
 )
 from ..domain.value_objects import (
+    FEEDBACK_ISSUE_CODES,
+    SERVICE_ACTION_TYPES,
     AdmissionStatus,
     Channel,
+    FamilyFeedbackOutcome,
+    FeedbackAuthorRole,
+    FeedbackIssueCode,
     ProviderKind,
     QualificationStatus,
+    QualityDecisionStatus,
     ScopeType,
+    ServiceActionType,
     ServiceQualityRating,
 )
 from .context import ActionContext
@@ -87,6 +98,27 @@ SLOT_RESOURCE = "AvailabilitySlot"
 BOOKING_RESOURCE = "BookingRequest"
 RECORD_RESOURCE = "ServiceRecord"
 CHECKIN_RESOURCE = "PrivateCheckinDraft"
+FEEDBACK_RESOURCE = "FamilyFeedback"
+QUALITY_RESOURCE = "QualityDecision"
+ACTION_RESOURCE = "ServiceAction"
+EVENT_RESOURCE = "ServiceEvent"
+FIRST_SCENARIO_REF = "S-01_21_DAY_EVENING_STUDY_START_CONFLICT_REDUCTION"
+FIRST_SCENARIO_OUTCOME_REF = "stable_evening_start_and_reduced_parent_child_conflict"
+CONFIRMED_BOOKING_STATUS = "CONFIRMED"
+
+
+def _assert_service_context(ctx: ActionContext) -> None:
+    """Keep replay paths inside the fixture-only production boundary.
+
+    A replay must not become a loophole: returning an existing DEV/TEST fact
+    still cannot be requested from a production-shaped context.
+    """
+    assert_fixture_boundary(
+        environment=ctx.environment,
+        source_system="TEST_FIXTURE",
+        external_effect=False,
+        allowed_source_system="TEST_FIXTURE",
+    )
 
 
 async def _commit(repo: ServiceRepositoryPort, recorder: AuditRecorder) -> None:
@@ -97,6 +129,31 @@ async def _commit(repo: ServiceRepositoryPort, recorder: AuditRecorder) -> None:
 
 def _new_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4()}"
+
+
+def _as_naive_utc(value: datetime) -> datetime:
+    """Normalize a caller-supplied datetime to naive UTC, matching `utcnow()`.
+
+    HTTP request bodies parse ISO-8601 timestamps with an explicit offset
+    (e.g. ``"...+00:00"``) into timezone-aware `datetime`s, but every other
+    timestamp this domain produces (`utcnow()`, and therefore every
+    `now >= slot.ends_at`-style comparison) is naive — `entities.utcnow`'s
+    docstring explains why (SQLite silently drops tzinfo on round-trip, so an
+    aware value would compare unequal to its own stored copy). Without this
+    normalization at the boundary, a slot opened with an aware `ends_at`
+    crashes the very first booking attempt against it with
+    `TypeError: can't compare offset-naive and offset-aware datetimes`,
+    rather than a domain-level refusal.
+    """
+    if value.tzinfo is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    return value
+
+
+def _event_key(ctx: ActionContext, action: str, aggregate_id: str) -> str:
+    return ctx.child_key(f"event:{action}:{aggregate_id}") or (
+        f"{ctx.correlation_id}:event:{action}:{aggregate_id}"
+    )
 
 
 def _audit(
@@ -126,6 +183,36 @@ def _audit(
             correlation_id=ctx.correlation_id,
             before=before,
             after=after,
+        )
+    )
+
+
+async def _event(
+    repo: ServiceRepositoryPort,
+    ctx: ActionContext,
+    *,
+    event_type: str,
+    aggregate_type: str,
+    aggregate_id: str,
+    idempotency_key: str,
+    payload: dict,
+    occurred_at: datetime | None = None,
+) -> None:
+    """Stage one idempotent service outbox message in the same UoW."""
+    now = occurred_at or utcnow()
+    await repo.append_service_event(
+        ServiceEvent(
+            service_event_id=_new_id("svcevent"),
+            tenant_id=ctx.tenant_id,
+            family_id=ctx.family_id,
+            event_type=event_type,
+            aggregate_type=aggregate_type,
+            aggregate_id=aggregate_id,
+            idempotency_key=idempotency_key,
+            payload=payload,
+            occurred_at=now,
+            environment=ctx.environment,
+            created_at=now,
         )
     )
 
@@ -177,6 +264,15 @@ async def register_service_provider(
         resource_id=provider.provider_id,
         after={"provider_ref": provider_ref, "admission_status": admission_status},
     )
+    await _event(
+        repo,
+        ctx,
+        event_type="service.provider_registered.v1",
+        aggregate_type=PROVIDER_RESOURCE,
+        aggregate_id=provider.provider_id,
+        idempotency_key=_event_key(ctx, "register_service_provider", provider.provider_id),
+        payload={"provider_id": provider.provider_id, "provider_ref": provider.provider_ref},
+    )
     await _commit(repo, recorder)
     return provider
 
@@ -192,6 +288,7 @@ async def publish_service_offering(
     admission_status: AdmissionStatus,
     source_ref: str,
     version_no: int = 1,
+    scenario_ref: str = FIRST_SCENARIO_REF,
 ) -> ServiceOffering:
     """Bind an offering to one already-admitted provider.
 
@@ -220,6 +317,10 @@ async def publish_service_offering(
         title=title,
         admission_status=admission_status,
         source_ref=source_ref,
+        attributes={
+            "scenario_ref": scenario_ref,
+            "outcome_ref": FIRST_SCENARIO_OUTCOME_REF,
+        },
         effective_from=now,
         created_at=now,
         created_by=ctx.actor,
@@ -234,6 +335,15 @@ async def publish_service_offering(
         resource_type=OFFERING_RESOURCE,
         resource_id=offering.service_offering_id,
         after={"service_offering_ref": service_offering_ref, "version_no": version_no},
+    )
+    await _event(
+        repo,
+        ctx,
+        event_type="service.offering_published.v1",
+        aggregate_type=OFFERING_RESOURCE,
+        aggregate_id=offering.service_offering_id,
+        idempotency_key=_event_key(ctx, "publish_service_offering", offering.service_offering_id),
+        payload={"service_offering_id": offering.service_offering_id},
     )
     await _commit(repo, recorder)
     return offering
@@ -271,8 +381,8 @@ async def open_availability_slot(
         provider_id=offering.provider_id,
         service_offering_id=service_offering_id,
         availability_slot_ref=availability_slot_ref,
-        starts_at=starts_at,
-        ends_at=ends_at,
+        starts_at=_as_naive_utc(starts_at),
+        ends_at=_as_naive_utc(ends_at),
         channel=channel,
         capacity=capacity,
         created_at=now,
@@ -286,6 +396,15 @@ async def open_availability_slot(
         resource_type=SLOT_RESOURCE,
         resource_id=slot.availability_slot_id,
         after={"availability_slot_ref": availability_slot_ref, "capacity": capacity},
+    )
+    await _event(
+        repo,
+        ctx,
+        event_type="service.slot_opened.v1",
+        aggregate_type=SLOT_RESOURCE,
+        aggregate_id=slot.availability_slot_id,
+        idempotency_key=_event_key(ctx, "open_availability_slot", slot.availability_slot_id),
+        payload={"availability_slot_id": slot.availability_slot_id},
     )
     await _commit(repo, recorder)
     return slot
@@ -336,6 +455,31 @@ async def submit_booking_request(
         allowed_source_system="TEST_FIXTURE",
     )
 
+    if not consent_ref.strip():
+        raise ServiceValidationError("booking_consent_ref_required")
+
+    grants = await consent.list_grants(
+        tenant_id=ctx.tenant_id,
+        subject_person_id=subject_person_id,
+        purpose=BOOKING_CONSENT_PURPOSE,
+    )
+    # `consent_ref` is an opaque, caller-supplied reference recorded for audit
+    # (see the empty-string check above) — it is not required to equal the
+    # consent store's internal `ConsentGrant.consent_id`. No real caller today
+    # (the HTTP booking route, or `need_fulfillment_flow.fulfil_confirmed_draft`)
+    # constructs a `consent_ref` that matches the grant id a `ConsentQueryPort`
+    # implementation mints, so requiring that equality here would make every
+    # booking unconditionally consent-refused. `ConsentGate.check` already
+    # verifies an in-force grant exists for this exact subject and purpose,
+    # which is the actual authorization question this gate must answer.
+    if not ConsentGate.check(subject_person_id, BOOKING_CONSENT_PURPOSE, grants):
+        raise ServiceForbiddenError(
+            f"consent_required:{BOOKING_CONSENT_PURPOSE.value}:{subject_person_id}"
+        )
+
+    # Consent is deliberately checked before an idempotent replay. A replay is
+    # still a request carrying a minor subject, and returning an old result after
+    # withdrawal would turn the idempotency fast path into a consent bypass.
     if ctx.idempotency_key:
         existing = await repo.find_booking_by_idempotency_key(
             ctx.tenant_id, ctx.family_id, ctx.idempotency_key
@@ -348,45 +492,41 @@ async def submit_booking_request(
             if (
                 existing.availability_slot_id != availability_slot_id
                 or existing.service_offering_id != service_offering_id
+                or existing.booking_ref != booking_ref
+                or existing.consent_ref != consent_ref
+                or existing.service_snapshot.get("subject_person_id") != subject_person_id
             ):
                 raise ServiceConflictError("idempotency_key_reused_with_different_payload")
             return existing
 
-    if not consent_ref.strip():
-        raise ServiceValidationError("booking_consent_ref_required")
-
-    grants = await consent.list_grants(
-        tenant_id=ctx.tenant_id,
-        subject_person_id=subject_person_id,
-        purpose=BOOKING_CONSENT_PURPOSE,
-    )
-    if not ConsentGate.check(subject_person_id, BOOKING_CONSENT_PURPOSE, grants):
-        raise ServiceForbiddenError(
-            f"consent_required:{BOOKING_CONSENT_PURPOSE.value}:{subject_person_id}"
-        )
-
     offering = await repo.load_offering(service_offering_id)
     assert_family_scope(expected_family_id=ctx.tenant_id, actual_family_id=offering.tenant_id)
-    if not offering.is_bookable:
+    now = utcnow()
+    if not offering.is_bookable_at(now):
         raise ServiceConflictError(
             f"offering_not_bookable:{offering.status}/{offering.admission_status}"
         )
     provider = await repo.load_provider(offering.provider_id)
-    if not provider.is_bookable:
+    if provider.scope_type == "TENANT":
+        assert_family_scope(
+            expected_family_id=ctx.tenant_id, actual_family_id=provider.tenant_id or ""
+        )
+    if not provider.is_bookable_at(now):
         raise ServiceConflictError(
             "provider_not_bookable:"
             f"{provider.status}/{provider.qualification_status}/{provider.admission_status}"
         )
 
-    slot = await repo.load_slot(availability_slot_id)
+    slot = await repo.load_slot_for_update(availability_slot_id)
     assert_family_scope(expected_family_id=ctx.tenant_id, actual_family_id=slot.tenant_id)
     if slot.service_offering_id != service_offering_id:
         raise ServiceValidationError("slot_offering_mismatch")
+    if now >= slot.ends_at:
+        raise ServiceConflictError("slot_outside_booking_window")
     # `reserve()` raises ServiceConflictError when the slot is full or blocked —
     # the "时段已占用" refusal path.
     reserved = slot.reserve()
 
-    now = utcnow()
     booking = BookingRequest(
         booking_request_id=_new_id("svcbook"),
         tenant_id=ctx.tenant_id,
@@ -399,7 +539,9 @@ async def submit_booking_request(
         consent_ref=consent_ref,
         status="DRAFT",
         # Snapshot so "what did the family actually book" survives the offering
-        # being re-versioned or retired afterwards. Carries no person data.
+        # being re-versioned or retired afterwards. The subject reference is
+        # retained only to prevent feedback from being rebound to another
+        # consented subject; it is not exposed by the customer projection.
         service_snapshot={
             "service_offering_ref": offering.service_offering_ref,
             "version_no": offering.version_no,
@@ -409,6 +551,9 @@ async def submit_booking_request(
             "starts_at": slot.starts_at.isoformat(),
             "ends_at": slot.ends_at.isoformat(),
             "channel": slot.channel,
+            "scenario_ref": offering.attributes.get("scenario_ref", FIRST_SCENARIO_REF),
+            "outcome_ref": offering.attributes.get("outcome_ref"),
+            "subject_person_id": subject_person_id,
         },
         environment=ctx.environment,
         correlation_id=ctx.correlation_id,
@@ -433,6 +578,8 @@ async def submit_booking_request(
             "booking_ref": booking_ref,
             "availability_slot_id": availability_slot_id,
             "consent_ref": consent_ref,
+            "scenario_ref": booking.service_snapshot.get("scenario_ref"),
+            "outcome_ref": booking.service_snapshot.get("outcome_ref"),
         },
     )
     _audit(
@@ -443,6 +590,22 @@ async def submit_booking_request(
         resource_id=reserved.availability_slot_id,
         before={"reserved_count": slot.reserved_count, "status": slot.status},
         after={"reserved_count": reserved.reserved_count, "status": reserved.status},
+    )
+    await _event(
+        repo,
+        ctx,
+        event_type="service.booking_requested.v1",
+        aggregate_type=BOOKING_RESOURCE,
+        aggregate_id=booking.booking_request_id,
+        idempotency_key=_event_key(ctx, "submit_booking_request", booking.booking_request_id),
+        payload={
+            "booking_request_id": booking.booking_request_id,
+            "service_offering_id": service_offering_id,
+            "availability_slot_id": availability_slot_id,
+            "consent_ref": consent_ref,
+            "scenario_ref": booking.service_snapshot.get("scenario_ref"),
+            "outcome_ref": booking.service_snapshot.get("outcome_ref"),
+        },
     )
     await _commit(repo, recorder)
     return booking
@@ -461,6 +624,10 @@ async def confirm_booking_request(
     booking already has a delivery obligation attached; creating the receipt
     only at completion would leave "confirmed but never delivered" unrepresented.
     """
+    _assert_service_context(ctx)
+    # Must run before the state-idempotency return below: an AI caller may not
+    # learn or replay a human confirmation through a second command path.
+    assert_human_actor(ctx.actor, code="booking_confirm")
     booking = await repo.load_booking(booking_request_id)
     assert_family_scope(expected_family_id=ctx.family_id, actual_family_id=booking.family_id)
 
@@ -473,10 +640,22 @@ async def confirm_booking_request(
         # confirm cannot produce a second record anyway. Returning the existing
         # pair makes the replay a success rather than a 409 a client must
         # special-case.
+        if booking.status != CONFIRMED_BOOKING_STATUS:
+            raise ServiceConflictError("confirmed_booking_record_mismatch")
         return booking, existing_record
 
-    confirmed = booking.confirm(actor=ctx.actor)
     now = utcnow()
+    offering = await repo.load_offering(booking.service_offering_id)
+    assert_family_scope(expected_family_id=ctx.tenant_id, actual_family_id=offering.tenant_id)
+    provider = await repo.load_provider(offering.provider_id)
+    if not offering.is_bookable_at(now) or not provider.is_bookable_at(now):
+        raise ServiceConflictError("supply_not_bookable_at_confirmation")
+    slot = await repo.load_slot_for_update(booking.availability_slot_id)
+    assert_family_scope(expected_family_id=ctx.tenant_id, actual_family_id=slot.tenant_id)
+    if now >= slot.ends_at or slot.status in ("BLOCKED", "EXPIRED") or slot.reserved_count < 1:
+        raise ServiceConflictError("slot_not_available_at_confirmation")
+
+    confirmed = booking.confirm(actor=ctx.actor)
     record = ServiceRecord(
         booking_service_record_id=_new_id("svcrec"),
         tenant_id=ctx.tenant_id,
@@ -508,6 +687,18 @@ async def confirm_booking_request(
         resource_id=record.booking_service_record_id,
         after={"status": record.status, "source_booking_request_id": booking_request_id},
     )
+    await _event(
+        repo,
+        ctx,
+        event_type="service.booking_confirmed.v1",
+        aggregate_type=BOOKING_RESOURCE,
+        aggregate_id=booking_request_id,
+        idempotency_key=_event_key(ctx, "confirm_booking_request", booking_request_id),
+        payload={
+            "booking_request_id": booking_request_id,
+            "delivery_record_id": record.booking_service_record_id,
+        },
+    )
     await _commit(repo, recorder)
     return confirmed, record
 
@@ -525,20 +716,31 @@ async def cancel_booking_request(
     keeps its reservation makes the inventory permanently wrong, and nothing in
     the chain would ever notice.
     """
+    _assert_service_context(ctx)
+    assert_human_actor(ctx.actor, code="booking_cancel")
     booking = await repo.load_booking(booking_request_id)
     assert_family_scope(expected_family_id=ctx.family_id, actual_family_id=booking.family_id)
+    # A completed delivery is a terminal service fact. It can be reviewed,
+    # remedied or sent to the refund Gate, but it cannot be rewritten as a
+    # cancellation (and its slot must not be released after the fact).
+    if booking.status == "CANCELLED":
+        return booking
+    record = await repo.find_service_record_for_booking(
+        ctx.tenant_id, ctx.family_id, booking_request_id
+    )
+    if record is not None and record.status == "COMPLETED":
+        raise ServiceConflictError("completed_delivery_cannot_be_cancelled")
     cancelled = booking.cancel(actor=ctx.actor)
 
-    slot = await repo.load_slot(booking.availability_slot_id)
+    slot = await repo.load_slot_for_update(booking.availability_slot_id)
     released = slot.release()
     await repo.save_slot(released)
     await repo.save_booking(cancelled)
 
-    record = await repo.find_service_record_for_booking(
-        ctx.tenant_id, ctx.family_id, booking_request_id
-    )
+    cancelled_record = None
     if record is not None and record.status in ("PENDING", "SCHEDULED"):
-        await repo.save_service_record(record.cancel(actor=ctx.actor))
+        cancelled_record = record.cancel(actor=ctx.actor)
+        await repo.save_service_record(cancelled_record)
 
     _audit(
         recorder,
@@ -558,6 +760,28 @@ async def cancel_booking_request(
         before={"reserved_count": slot.reserved_count, "status": slot.status},
         after={"reserved_count": released.reserved_count, "status": released.status},
     )
+    if cancelled_record is not None:
+        _audit(
+            recorder,
+            ctx,
+            action="cancel_service_record",
+            resource_type=RECORD_RESOURCE,
+            resource_id=cancelled_record.booking_service_record_id,
+            before={"status": record.status},
+            after={"status": cancelled_record.status},
+        )
+    await _event(
+        repo,
+        ctx,
+        event_type="service.booking_cancelled.v1",
+        aggregate_type=BOOKING_RESOURCE,
+        aggregate_id=booking_request_id,
+        idempotency_key=_event_key(ctx, "cancel_booking_request", booking_request_id),
+        payload={
+            "booking_request_id": booking_request_id,
+            "delivery_record_id": record.booking_service_record_id if record else None,
+        },
+    )
     await _commit(repo, recorder)
     return cancelled
 
@@ -576,8 +800,18 @@ async def fulfil_service_record(
     `ServiceRecord`'s docstring for why that distinction is structural rather
     than a naming convention.
     """
+    _assert_service_context(ctx)
+    assert_human_actor(ctx.actor, code="record_complete")
     record = await repo.load_service_record(booking_service_record_id)
     assert_family_scope(expected_family_id=ctx.family_id, actual_family_id=record.family_id)
+    booking = await repo.load_booking(record.source_booking_request_id)
+    assert_family_scope(expected_family_id=ctx.family_id, actual_family_id=booking.family_id)
+    if booking.status != CONFIRMED_BOOKING_STATUS:
+        raise ServiceConflictError("delivery_requires_confirmed_booking")
+    if record.status == "COMPLETED":
+        if record.service_quality_rating != quality_rating:
+            raise ServiceConflictError("delivery_idempotency_replay_mismatch")
+        return record
     completed = record.complete(actor=ctx.actor, quality_rating=quality_rating)
     await repo.save_service_record(completed)
     _audit(
@@ -588,6 +822,20 @@ async def fulfil_service_record(
         resource_id=booking_service_record_id,
         before={"status": record.status},
         after={"status": completed.status, "service_quality_rating": quality_rating},
+    )
+    await _event(
+        repo,
+        ctx,
+        event_type="service.delivery_completed.v1",
+        aggregate_type=RECORD_RESOURCE,
+        aggregate_id=booking_service_record_id,
+        idempotency_key=_event_key(ctx, "fulfil_service_record", booking_service_record_id),
+        payload={
+            "delivery_record_id": booking_service_record_id,
+            "booking_request_id": record.source_booking_request_id,
+            "scenario_ref": booking.service_snapshot.get("scenario_ref"),
+            "outcome_ref": booking.service_snapshot.get("outcome_ref"),
+        },
     )
     await _commit(repo, recorder)
     return completed
@@ -642,3 +890,322 @@ async def create_private_checkin_draft(
     await _commit(repo, recorder)
     return draft
 
+
+# --------------------------------------------------------------------------
+# Feedback, quality gate and human service playbook
+# --------------------------------------------------------------------------
+
+
+async def record_family_feedback(
+    repo: ServiceRepositoryPort,
+    ctx: ActionContext,
+    recorder: AuditRecorder,
+    consent: ConsentQueryPort,
+    *,
+    booking_request_id: str,
+    delivery_record_id: str,
+    subject_person_id: str,
+    author_role: FeedbackAuthorRole,
+    outcome: FamilyFeedbackOutcome,
+    issue_codes: list[FeedbackIssueCode],
+    consent_ref: str,
+) -> FamilyFeedback:
+    """Record an adult's bounded response after a completed delivery."""
+    _assert_service_context(ctx)
+    assert_human_actor(ctx.actor, code="family_feedback")
+    if any(code not in FEEDBACK_ISSUE_CODES for code in issue_codes):
+        raise ServiceValidationError("family_feedback_issue_code_not_allowed")
+    record = await repo.load_service_record(delivery_record_id)
+    assert_family_scope(expected_family_id=ctx.family_id, actual_family_id=record.family_id)
+    if record.source_booking_request_id != booking_request_id:
+        raise ServiceValidationError("feedback_delivery_booking_mismatch")
+    if record.status != "COMPLETED":
+        raise ServiceConflictError("feedback_requires_completed_delivery")
+    booking = await repo.load_booking(booking_request_id)
+    assert_family_scope(expected_family_id=ctx.family_id, actual_family_id=booking.family_id)
+    if booking.service_snapshot.get("subject_person_id") != subject_person_id:
+        raise ServiceForbiddenError("feedback_subject_mismatch")
+
+    grants = await consent.list_grants(
+        tenant_id=ctx.tenant_id,
+        subject_person_id=subject_person_id,
+        purpose=BOOKING_CONSENT_PURPOSE,
+    )
+    # See `submit_booking_request`'s identical check above for why
+    # `consent_ref` equality against `ConsentGrant.consent_id` is not
+    # required: it is an opaque caller-supplied audit reference, and
+    # `ConsentGate.check` is the actual in-force-grant authorization answer.
+    if not ConsentGate.check(subject_person_id, BOOKING_CONSENT_PURPOSE, grants):
+        raise ServiceForbiddenError(
+            f"consent_required:{BOOKING_CONSENT_PURPOSE.value}:{subject_person_id}"
+        )
+
+    # The live Consent check must precede an idempotent replay; otherwise a
+    # withdrawn grant could be bypassed by repeating the old feedback key.
+    if ctx.idempotency_key:
+        existing = await repo.find_feedback_by_idempotency_key(
+            ctx.tenant_id, ctx.family_id, ctx.idempotency_key
+        )
+        if existing is not None:
+            if (
+                existing.booking_request_id != booking_request_id
+                or existing.delivery_record_id != delivery_record_id
+                or existing.outcome != outcome
+                or existing.author_person_id != ctx.actor_person_id
+                or existing.author_role != author_role
+                or existing.consent_ref != consent_ref
+                or sorted(existing.issue_codes) != sorted(issue_codes)
+            ):
+                raise ServiceConflictError("family_feedback_idempotency_replay_mismatch")
+            return existing
+
+    now = utcnow()
+    feedback = FamilyFeedback(
+        family_feedback_id=_new_id("svcfeedback"),
+        tenant_id=ctx.tenant_id,
+        family_id=ctx.family_id,
+        booking_request_id=booking_request_id,
+        delivery_record_id=delivery_record_id,
+        author_person_id=ctx.actor_person_id,
+        author_role=author_role,
+        outcome=outcome,
+        issue_codes=issue_codes,
+        consent_ref=consent_ref,
+        idempotency_key=ctx.idempotency_key,
+        correlation_id=ctx.correlation_id,
+        occurred_at=now,
+        created_at=now,
+        created_by=ctx.actor,
+        environment=ctx.environment,
+    )
+    await repo.save_family_feedback(feedback)
+    _audit(
+        recorder,
+        ctx,
+        action="record_family_feedback",
+        resource_type=FEEDBACK_RESOURCE,
+        resource_id=feedback.family_feedback_id,
+        after={"outcome": outcome, "issue_codes": issue_codes},
+    )
+    await _event(
+        repo,
+        ctx,
+        event_type="service.family_feedback_recorded.v1",
+        aggregate_type=FEEDBACK_RESOURCE,
+        aggregate_id=feedback.family_feedback_id,
+        idempotency_key=_event_key(ctx, "record_family_feedback", feedback.family_feedback_id),
+        payload={
+            "booking_request_id": booking_request_id,
+            "delivery_record_id": delivery_record_id,
+            "outcome": outcome,
+            "issue_codes": issue_codes,
+            "scenario_ref": booking.service_snapshot.get("scenario_ref"),
+            "outcome_ref": booking.service_snapshot.get("outcome_ref"),
+        },
+        occurred_at=now,
+    )
+    await _commit(repo, recorder)
+    return feedback
+
+
+async def decide_service_quality(
+    repo: ServiceRepositoryPort,
+    ctx: ActionContext,
+    recorder: AuditRecorder,
+    *,
+    booking_request_id: str,
+    delivery_record_id: str,
+    status: QualityDecisionStatus,
+    family_feedback_id: str | None = None,
+) -> QualityDecision:
+    """Apply the human acceptance gate; never release contribution or cash."""
+    _assert_service_context(ctx)
+    assert_human_actor(ctx.actor, code="quality_decision")
+    if ctx.idempotency_key:
+        existing = await repo.find_quality_decision_by_idempotency_key(
+            ctx.tenant_id, ctx.family_id, ctx.idempotency_key
+        )
+        if existing is not None:
+            if (
+                existing.status != status
+                or existing.booking_request_id != booking_request_id
+                or existing.delivery_record_id != delivery_record_id
+                or existing.family_feedback_id != family_feedback_id
+            ):
+                raise ServiceConflictError("quality_decision_idempotency_replay_mismatch")
+            return existing
+
+    record = await repo.load_service_record(delivery_record_id)
+    assert_family_scope(expected_family_id=ctx.family_id, actual_family_id=record.family_id)
+    if record.source_booking_request_id != booking_request_id:
+        raise ServiceValidationError("quality_delivery_booking_mismatch")
+    if record.status != "COMPLETED":
+        raise ServiceConflictError("quality_decision_requires_completed_delivery")
+    booking = await repo.load_booking(booking_request_id)
+    assert_family_scope(expected_family_id=ctx.family_id, actual_family_id=booking.family_id)
+
+    feedback = None
+    if family_feedback_id is not None:
+        feedback = await repo.load_family_feedback(family_feedback_id)
+        assert_family_scope(expected_family_id=ctx.family_id, actual_family_id=feedback.family_id)
+        if feedback.delivery_record_id != delivery_record_id:
+            raise ServiceValidationError("quality_feedback_delivery_mismatch")
+        if feedback.booking_request_id != booking_request_id:
+            raise ServiceValidationError("quality_feedback_booking_mismatch")
+        if feedback.outcome == "NOT_HELPFUL_YET" and status == "ACCEPTED":
+            raise ServiceConflictError("not_helpful_feedback_requires_remedy")
+
+    now = utcnow()
+    decision = QualityDecision(
+        quality_decision_id=_new_id("svcquality"),
+        tenant_id=ctx.tenant_id,
+        family_id=ctx.family_id,
+        booking_request_id=booking_request_id,
+        delivery_record_id=delivery_record_id,
+        family_feedback_id=family_feedback_id,
+        status=status,
+        decided_by=ctx.actor,
+        idempotency_key=ctx.idempotency_key,
+        correlation_id=ctx.correlation_id,
+        decided_at=now,
+        created_at=now,
+        created_by=ctx.actor,
+        environment=ctx.environment,
+    )
+    await repo.save_quality_decision(decision)
+    _audit(
+        recorder,
+        ctx,
+        action="decide_service_quality",
+        resource_type=QUALITY_RESOURCE,
+        resource_id=decision.quality_decision_id,
+        after={"status": status, "contribution_eligible": decision.contribution_eligible},
+    )
+    await _event(
+        repo,
+        ctx,
+        event_type="service.quality_decided.v1",
+        aggregate_type=QUALITY_RESOURCE,
+        aggregate_id=decision.quality_decision_id,
+        idempotency_key=_event_key(ctx, "decide_service_quality", decision.quality_decision_id),
+        payload={
+            "booking_request_id": booking_request_id,
+            "delivery_record_id": delivery_record_id,
+            "status": status,
+            "contribution_eligible": decision.contribution_eligible,
+            "scenario_ref": booking.service_snapshot.get("scenario_ref"),
+            "outcome_ref": booking.service_snapshot.get("outcome_ref"),
+        },
+        occurred_at=now,
+    )
+    await _commit(repo, recorder)
+    return decision
+
+
+async def record_service_action(
+    repo: ServiceRepositoryPort,
+    ctx: ActionContext,
+    recorder: AuditRecorder,
+    *,
+    booking_request_id: str,
+    action_type: ServiceActionType,
+    delivery_record_id: str | None = None,
+    family_feedback_id: str | None = None,
+    sla_due_at: datetime | None = None,
+    occurred_at: datetime | None = None,
+) -> ServiceAction:
+    """Execute one human Named Action from the welcome/SLA/remedy playbook."""
+    _assert_service_context(ctx)
+    assert_human_actor(ctx.actor, code="service_action")
+    if action_type not in SERVICE_ACTION_TYPES:
+        raise ServiceValidationError("service_action_type_not_allowed")
+    if ctx.idempotency_key:
+        existing = await repo.find_service_action_by_idempotency_key(
+            ctx.tenant_id, ctx.family_id, ctx.idempotency_key
+        )
+        if existing is not None:
+            if (
+                existing.action_type != action_type
+                or existing.booking_request_id != booking_request_id
+                or existing.delivery_record_id != delivery_record_id
+                or existing.family_feedback_id != family_feedback_id
+                or existing.sla_due_at != sla_due_at
+            ):
+                raise ServiceConflictError("service_action_idempotency_replay_mismatch")
+            return existing
+
+    booking = await repo.load_booking(booking_request_id)
+    assert_family_scope(expected_family_id=ctx.family_id, actual_family_id=booking.family_id)
+    if booking.status in ("CANCELLED", "EXPIRED"):
+        raise ServiceConflictError("service_action_requires_live_booking")
+    if delivery_record_id is not None:
+        record = await repo.load_service_record(delivery_record_id)
+        assert_family_scope(expected_family_id=ctx.family_id, actual_family_id=record.family_id)
+        if record.source_booking_request_id != booking_request_id:
+            raise ServiceValidationError("service_action_delivery_booking_mismatch")
+        if (
+            action_type
+            in (
+                "FOLLOW_UP",
+                "REMEDY_REWORK",
+                "REMEDY_REASSIGN",
+                "REFUND_REQUESTED",
+            )
+            and record.status != "COMPLETED"
+        ):
+            raise ServiceConflictError("service_action_requires_completed_delivery")
+    if family_feedback_id is not None:
+        feedback = await repo.load_family_feedback(family_feedback_id)
+        assert_family_scope(expected_family_id=ctx.family_id, actual_family_id=feedback.family_id)
+        if feedback.booking_request_id != booking_request_id:
+            raise ServiceValidationError("service_action_feedback_booking_mismatch")
+        if delivery_record_id is not None and feedback.delivery_record_id != delivery_record_id:
+            raise ServiceValidationError("service_action_feedback_delivery_mismatch")
+
+    now = occurred_at or utcnow()
+    action = ServiceAction(
+        service_action_id=_new_id("svcaction"),
+        tenant_id=ctx.tenant_id,
+        family_id=ctx.family_id,
+        booking_request_id=booking_request_id,
+        delivery_record_id=delivery_record_id,
+        family_feedback_id=family_feedback_id,
+        action_type=action_type,
+        sla_due_at=sla_due_at,
+        occurred_at=now,
+        actor_person_id=ctx.actor_person_id,
+        idempotency_key=ctx.idempotency_key,
+        correlation_id=ctx.correlation_id,
+        created_at=now,
+        created_by=ctx.actor,
+        environment=ctx.environment,
+    )
+    await repo.save_service_action(action)
+    _audit(
+        recorder,
+        ctx,
+        action=f"service_action:{action_type.lower()}",
+        resource_type=ACTION_RESOURCE,
+        resource_id=action.service_action_id,
+        after={"action_type": action_type, "sla_met": action.sla_met},
+    )
+    await _event(
+        repo,
+        ctx,
+        event_type=f"service.action_{action_type.lower()}.v1",
+        aggregate_type=ACTION_RESOURCE,
+        aggregate_id=action.service_action_id,
+        idempotency_key=_event_key(ctx, "record_service_action", action.service_action_id),
+        payload={
+            "booking_request_id": booking_request_id,
+            "delivery_record_id": delivery_record_id,
+            "family_feedback_id": family_feedback_id,
+            "action_type": action_type,
+            "sla_met": action.sla_met,
+            "scenario_ref": booking.service_snapshot.get("scenario_ref"),
+            "outcome_ref": booking.service_snapshot.get("outcome_ref"),
+        },
+        occurred_at=now,
+    )
+    await _commit(repo, recorder)
+    return action

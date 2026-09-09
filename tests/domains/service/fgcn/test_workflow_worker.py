@@ -45,7 +45,11 @@ CASE = "00000000-0000-4000-8000-000000000006"
 TASK = "00000000-0000-4000-8000-000000000007"
 ASSIGNMENT = "00000000-0000-4000-8000-000000000008"
 _ADMITTED_PROVIDER = AsyncProviderAdmissionStub(
-    admitted_snapshot(capability_keys=("family_guidance",))
+    admitted_snapshot(
+        tenant_id=TENANT,
+        family_id=FAMILY,
+        capability_keys=("family_guidance",),
+    )
 )
 
 

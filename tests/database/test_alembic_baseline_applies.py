@@ -187,28 +187,92 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
-    # 0067 is data-only (inserts FAMILY_SUPPORT_NEEDS v3/v4 rows into the
-    # existing `family_assessment_tools` table); no new tables.
-    "0067_family_support_needs_v4_item_bank": {
-        "tables": EXPECTED_0008_COUNTS["tables"] + 67,
+    # 0067 adds four service-feedback/quality/action/outbox tables (S4).
+    # Keeping the current head explicit makes a future migration fail until its
+    # object ownership has been reviewed instead of silently accepting schema
+    # drift.
+    #
+    # *** If you just added a new migration and this test failed on
+    # "unknown migration head": add one entry here for your new revision,
+    # following the pattern above (copy the previous entry's table count and
+    # add however many NEW tables your migration's upgrade() creates; 0 if it
+    # only alters existing tables). This map is deliberately hand-maintained —
+    # see the module docstring for why it cannot be derived from a directory
+    # scan. ***
+    "0067_service_feedback_playbook": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 71,
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
-    # 0068 owns the course-system manifest table.
-    "0068_course_system": {
-        "tables": EXPECTED_0008_COUNTS["tables"] + 68,
+    # 0068 owns the Human Gate reviewed-understanding-signal table
+    # (assessment_reviewed_understanding_signals) — one new table.
+    # (Numbered 0068, not 0067, to avoid colliding with 0067's
+    # service-feedback/playbook tables landing via the sibling
+    # integrate/s4-http branch.)
+    "0068_reviewed_understanding_signal": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 72,
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
-    # 0069 only adds a lineage reference column to course_content.
-    "0069_course_content_lineage": {
-        "tables": EXPECTED_0008_COUNTS["tables"] + 68,
+    # 0069 owns the ai_run_ledger table — one new table. Cross-cutting AI-runtime
+    # diagnostic ledger, no domain prefix by design (see migration docstring).
+    "0069_ai_run_ledger": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 73,
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
-    # 0070 owns the immutable course release baseline table.
-    "0070_course_release_baseline": {
-        "tables": EXPECTED_0008_COUNTS["tables"] + 69,
+    # 0070 is alter-only (widens service_cases scope-ref columns from uuid+FK
+    # to String, dropping the FKs); no new tables.
+    "0070_service_cases_scope_refs_string": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 73,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0071 adds one additive column to the legacy baseline's identity_sessions
+    # (family_scope_ref, per ADR-0011 §4 — see the migration's own docstring
+    # for why the existing family_id uuid FK does not fit this domain's
+    # opaque-family-scope-string convention) plus one wholly new table this
+    # domain owns outright, identity_receipts (idempotency-key replay
+    # ledger). One new table.
+    "0071_identity_sessions_family_scope_ref": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 74,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0072 is alter-only (widens family_growth_hypothesis_decisions.decision_type's
+    # CHECK constraint to add PARTIAL/EDIT/LATER and adds a nullable
+    # parent_note column); no new tables.
+    "0072_growth_hypothesis_decision_partial_edit_later": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 74,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0073 is data-only (inserts FAMILY_SUPPORT_NEEDS v3/v4 rows into the
+    # existing `family_assessment_tools` table); no new tables. Renumbered
+    # from this branch's original 0067 to chain after main's 0072 during the
+    # integrate/growth-plan-adoption reconciliation merge.
+    "0073_family_support_needs_v4_item_bank": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 74,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0074 owns the course-system manifest table. Renumbered from 0068.
+    "0074_course_system": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 75,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0075 only adds a lineage reference column to course_content. Renumbered
+    # from 0069.
+    "0075_course_content_lineage": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 75,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0076 owns the immutable course release baseline table. Renumbered from
+    # 0070.
+    "0076_course_release_baseline": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 76,
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
@@ -475,7 +539,9 @@ def _assert_accepted_head(head: str) -> str:
 
     assert head in EXPECTED_HEAD_COUNTS_BY_REVISION, (
         "unknown migration head; update the explicit object-owner map and review the chain: "
-        f"{head!r}"
+        f"{head!r}. If you just added a new migration, look at "
+        "EXPECTED_HEAD_COUNTS_BY_REVISION in this file — add an entry for your new head "
+        "(previous entry's table count + however many new tables your upgrade() creates)."
     )
     if head == "0009_ai_model_drafts":
         assert _model_drafts_head_is_approved(), (

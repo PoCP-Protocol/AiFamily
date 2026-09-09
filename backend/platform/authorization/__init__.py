@@ -10,5 +10,25 @@ its code.
 from __future__ import annotations
 
 from backend.platform.authorization.policy import Decision, PolicyEngine, PolicyRule
+from backend.platform.authorization.review_receipts import (
+    REVIEW_ACTION,
+    REVIEW_RESOURCE_TYPE,
+    ReviewReceipt,
+    ReviewReceiptBinding,
+    ReviewReceiptDenied,
+    ReviewReceiptInvalid,
+    ReviewReceiptIssuer,
+)
 
-__all__ = ["Decision", "PolicyEngine", "PolicyRule"]
+__all__ = [
+    "REVIEW_ACTION",
+    "REVIEW_RESOURCE_TYPE",
+    "Decision",
+    "PolicyEngine",
+    "PolicyRule",
+    "ReviewReceipt",
+    "ReviewReceiptBinding",
+    "ReviewReceiptDenied",
+    "ReviewReceiptInvalid",
+    "ReviewReceiptIssuer",
+]

@@ -21,7 +21,12 @@ from backend.intelligence.agi_vertical_runtime import (
     VerticalFamilyGrowthRuntime,
     VerticalRuntimeError,
 )
-from backend.intelligence.experience.run_http import InteractionType, RunReplaySnapshot, RunScope
+from backend.intelligence.experience.run_http import (
+    InteractionType,
+    RunHttpError,
+    RunReplaySnapshot,
+    RunScope,
+)
 from backend.intelligence.experience.sql_run_ledger import AsyncExperienceRunLedger
 from backend.intelligence.model_gateway.contracts import AiProvenance, ModelDraft
 
@@ -171,10 +176,12 @@ class DurableVerticalGrowthRuntime:
         runtime: VerticalFamilyGrowthRuntime,
         ledger: DurableVerticalLedgerAdapter,
         scope_factory: Any,
+        context_snapshot_factory: Any | None = None,
     ):
         self._runtime = runtime
         self._ledger = ledger
         self._scope_factory = scope_factory
+        self._context_snapshot_factory = context_snapshot_factory
 
     async def _scope(self, family_id: str) -> RunScope:
         scope = self._scope_factory(family_id)
@@ -185,11 +192,44 @@ class DurableVerticalGrowthRuntime:
         return scope
 
     async def run(self, **kwargs: Any) -> EvaluationLedgerEntry:
-        entry = await self._runtime.run(**kwargs)
         family_id = kwargs["family_id"]
+        run_id = kwargs["run_id"]
+        decision = kwargs.get("guardian_decision")
+        # Idempotent HTTP retries must replay the durable run before creating
+        # another ContextSnapshot or invoking the model a second time.
+        try:
+            existing = await self.replay(run_id=run_id, family_id=family_id)
+        except RunHttpError as error:
+            if error.code != "RUN_NOT_FOUND":
+                raise
+            existing = None
+        except VerticalRuntimeError as error:
+            if str(error) != "EVALUATION_ENTRY_NOT_FOUND":
+                raise
+            existing = None
+        if existing is not None:
+            if decision is not None:
+                return await self.decide(
+                    run_id=run_id,
+                    family_id=family_id,
+                    decision=decision,
+                )
+            return existing
+        # A production composition may create a fresh scoped ContextSnapshot
+        # before invoking the generator. Preserve that server-owned reference
+        # instead of deriving one from the client run id.
+        if self._context_snapshot_factory is not None:
+            snapshot_ref = self._context_snapshot_factory(
+                family_id=kwargs["family_id"], run_id=kwargs["run_id"]
+            )
+            if inspect.isawaitable(snapshot_ref):
+                snapshot_ref = await snapshot_ref
+            if not isinstance(snapshot_ref, str) or not snapshot_ref.strip():
+                raise VerticalRuntimeError("CONTEXT_SNAPSHOT_REF_INVALID")
+            kwargs = {**kwargs, "context_snapshot_ref": snapshot_ref}
+        entry = await self._runtime.run(**kwargs)
         scope = await self._scope(family_id)
         await self._ledger.save_entry(entry, scope=scope)
-        decision = kwargs.get("guardian_decision")
         if decision is not None:
             await self._ledger.record_guardian_decision(decision, scope=scope)
         # The durable ledger is the source of truth for production responses.

@@ -32,6 +32,10 @@ from backend.platform.persistence.session import (
     is_postgres_url,
     resolve_database_url,
 )
+from backend.workflow_worker.experience_outbox_activity import (
+    ExperienceOutboxFanoutActivity,
+    ExperienceOutboxFanoutRunner,
+)
 from backend.workflow_worker.family_need_outcome_composition import (
     add_sql_family_need_outcome_reflection_activity,
 )
@@ -124,6 +128,10 @@ def build_runtime(
             ),
             GrowthActionExperienceRelayActivity(
                 GrowthActionExperienceRelay(session_factory),
+                limit=settings.batch_limit,
+            ),
+            ExperienceOutboxFanoutActivity(
+                ExperienceOutboxFanoutRunner(session_factory),
                 limit=settings.batch_limit,
             ),
             *additional_activities,

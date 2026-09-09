@@ -12,6 +12,7 @@ export default defineConfig(({ mode }) => {
     define: {
       "import.meta.env.VITE_API_BASE_URL": JSON.stringify(apiBaseUrl),
     },
+    build: { sourcemap: true },
     server: {
       port: 4173,
       proxy: {

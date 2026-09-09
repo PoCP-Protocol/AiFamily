@@ -8,6 +8,7 @@ command calls AI, calculates family value, or creates a money/settlement row.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -31,6 +32,7 @@ from .contracts import (
     TaskQualityReview,
     TaskQualityState,
     TaskStatus,
+    rework_task_id_for,
 )
 from .idempotency import effective_mutation_key, mutation_request_hash
 
@@ -49,6 +51,8 @@ class FGCNQualityContributionRepository(Protocol):
     async def load_contribution(self, contribution_id: str) -> ServiceContribution: ...
 
     async def save_quality_review(self, review: TaskQualityReview) -> None: ...
+
+    async def save_task(self, task: ServiceTask) -> None: ...
 
     async def save_contribution(self, contribution: ServiceContribution) -> None: ...
 
@@ -120,6 +124,25 @@ def _quality_replay_matches(
     )
 
 
+def _build_rework_task(task: ServiceTask, review: TaskQualityReview) -> ServiceTask:
+    """Create one deterministic, unassigned follow-up task after rework."""
+
+    attempt = task.rework_attempt + 1
+    return replace(
+        task,
+        task_id=rework_task_id_for(task.task_id, review.quality_review_id),
+        task_key=f"{task.task_key}:REWORK:{attempt}",
+        title=f"Rework: {task.title}",
+        status=TaskStatus.PENDING,
+        responsible_ref=None,
+        deliverable_ref=None,
+        verified_at=None,
+        created_at=review.reviewed_at,
+        rework_of_task_id=task.task_id,
+        rework_attempt=attempt,
+    )
+
+
 async def verify_service_delivery(
     repo: FGCNQualityContributionRepository,
     *,
@@ -146,12 +169,15 @@ async def verify_service_delivery(
         raise ServiceForbiddenError("fgcn_quality_reviewer_must_differ_from_delivery_person")
     try:
         quality_state = TaskQualityState(quality_state)
-    except ValueError as exc:
+    except (TypeError, ValueError) as exc:
         raise ServiceValidationError("fgcn_quality_state_invalid") from exc
-    if quality_state is not TaskQualityState.PASSED:
+    if quality_state not in {
+        TaskQualityState.PASSED,
+        TaskQualityState.REWORK_REQUIRED,
+    }:
         raise ServiceConflictError("fgcn_non_pass_quality_requires_rework_flow")
 
-    if task.status is TaskStatus.VERIFIED:
+    if task.status in {TaskStatus.VERIFIED, TaskStatus.REWORK_REQUESTED}:
         try:
             existing = await repo.load_quality_review(quality_review_id)
         except ServiceNotFoundError as exc:
@@ -216,6 +242,10 @@ async def verify_service_delivery(
             raise ServiceConflictError("fgcn_quality_review_idempotency_replay_mismatch")
         return existing
     await repo.save_quality_review(review)
+    rework_task = None
+    if quality_state is TaskQualityState.REWORK_REQUIRED:
+        rework_task = _build_rework_task(task, review)
+        await repo.save_task(rework_task)
     await repo.complete_mutation(
         scope=scope,
         action_name="VERIFY_SERVICE_DELIVERY",
@@ -223,32 +253,68 @@ async def verify_service_delivery(
         request_hash=request_hash,
         resource_id=review.quality_review_id,
     )
-    recorder.record(
-        AuditEvent(
-            actor_id=reviewer,
-            tenant_id=case.scope.tenant_id,
-            action="VERIFY_SERVICE_DELIVERY",
-            resource_type="TaskQualityReview",
-            resource_id=review.quality_review_id,
-            reason="quality reviewer passed delivery against frozen criteria",
-            correlation_id=case.scope.correlation_id,
-            before={"task_status": TaskStatus.DELIVERED.value},
-            after={"task_status": TaskStatus.VERIFIED.value},
+    if quality_state is TaskQualityState.PASSED:
+        recorder.record(
+            AuditEvent(
+                actor_id=reviewer,
+                tenant_id=case.scope.tenant_id,
+                action="VERIFY_SERVICE_DELIVERY",
+                resource_type="TaskQualityReview",
+                resource_id=review.quality_review_id,
+                reason="quality reviewer passed delivery against frozen criteria",
+                correlation_id=case.scope.correlation_id,
+                before={"task_status": TaskStatus.DELIVERED.value},
+                after={"task_status": TaskStatus.VERIFIED.value},
+            )
         )
-    )
-    recorder.record(
-        AuditEvent(
-            actor_id=reviewer,
-            tenant_id=case.scope.tenant_id,
-            action="VERIFY_SERVICE_TASK",
-            resource_type="ServiceTask",
-            resource_id=task.task_id,
-            reason="quality review moved task to verified",
-            correlation_id=case.scope.correlation_id,
-            before={"status": TaskStatus.DELIVERED.value},
-            after={"status": TaskStatus.VERIFIED.value},
+        recorder.record(
+            AuditEvent(
+                actor_id=reviewer,
+                tenant_id=case.scope.tenant_id,
+                action="VERIFY_SERVICE_TASK",
+                resource_type="ServiceTask",
+                resource_id=task.task_id,
+                reason="quality review moved task to verified",
+                correlation_id=case.scope.correlation_id,
+                before={"status": TaskStatus.DELIVERED.value},
+                after={"status": TaskStatus.VERIFIED.value},
+            )
         )
-    )
+    else:
+        assert rework_task is not None
+        recorder.record(
+            AuditEvent(
+                actor_id=reviewer,
+                tenant_id=case.scope.tenant_id,
+                action="REQUEST_SERVICE_REWORK",
+                resource_type="TaskQualityReview",
+                resource_id=review.quality_review_id,
+                reason="human quality review requires a traceable remedy task",
+                correlation_id=case.scope.correlation_id,
+                before={"task_status": TaskStatus.DELIVERED.value},
+                after={
+                    "task_status": TaskStatus.REWORK_REQUESTED.value,
+                    "rework_task_id": rework_task.task_id,
+                },
+            )
+        )
+        recorder.record(
+            AuditEvent(
+                actor_id=reviewer,
+                tenant_id=case.scope.tenant_id,
+                action="CREATE_SERVICE_REWORK_TASK",
+                resource_type="ServiceTask",
+                resource_id=rework_task.task_id,
+                reason="follow-up task remains unassigned until a new human gate",
+                correlation_id=case.scope.correlation_id,
+                before=None,
+                after={
+                    "status": TaskStatus.PENDING.value,
+                    "rework_of_task_id": task.task_id,
+                    "rework_attempt": rework_task.rework_attempt,
+                },
+            )
+        )
     await repo.flush_audit(recorder)
     await repo.commit()
     return review

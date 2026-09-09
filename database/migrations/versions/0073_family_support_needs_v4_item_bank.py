@@ -35,8 +35,8 @@ answers deep questions with `often`/`sometimes`/`rarely`/`not_sure`) failing
 every real submission with `assessment_choice_not_in_tool_version` /
 `assessment_item_contract_mismatch` against the old 3-option v1-shaped stub.
 
-Revision ID: 0067_family_support_needs_v4_item_bank
-Revises: 0066_fgcn_provider_qualification_fields
+Revision ID: 0073_family_support_needs_v4_item_bank
+Revises: 0072_growth_hypothesis_decision_partial_edit_later
 Create Date: 2026-09-07
 """
 
@@ -48,8 +48,8 @@ from collections.abc import Sequence
 from alembic import op
 from sqlalchemy import text
 
-revision: str = "0067_family_support_needs_v4_item_bank"
-down_revision: str | None = "0066_fgcn_provider_qualification_fields"
+revision: str = "0073_family_support_needs_v4_item_bank"
+down_revision: str | None = "0072_growth_hypothesis_decision_partial_edit_later"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -74,6 +74,13 @@ def test_default_test_composition_supports_draft_replay_isolation_and_delete(
     assert created.status_code == 200, created.text
     assert created.json()["status"] == "DRAFT"
     assert created.json()["provenance"]["use_case"] == "vertical_family_growth"
+    body = created.json()
+    assert body["context_snapshot_ref"]
+    assert body["knowledge_ref"] == payload["knowledge_ref"]
+    assert body["lineage_ref"]
+    assert body["provenance"]["context_snapshot_ref"] == body["context_snapshot_ref"]
+    assert body["provenance"]["prompt_version"]
+    assert body["provenance"]["schema_version"]
 
     replay = client.get("/families/family-default/growth/ai-drafts/run-default-http")
     assert replay.status_code == 200, replay.text

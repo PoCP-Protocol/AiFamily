@@ -19,7 +19,7 @@ test_persistence.py`: every test is skipped unless
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -64,10 +64,29 @@ class _AdmittedProviderAdmission(AsyncProviderAdmissionQuery):
         required_capability_keys: tuple[str, ...],
         scope: GateServiceScope,
     ) -> ProviderAdmissionSnapshot | None:
+        # `tenant_id`/`family_id` echo `scope` — `assert_provider_admitted`
+        # checks the snapshot against `scope` anyway, so a stub admission
+        # source has no separate fact to invent here.
+        # `credential_ref`/`credential_valid_from`/`credential_valid_until`/
+        # `slot_ref`/`slot_start_at`/`slot_end_at`: this stub has no backing
+        # provider row to read a real qualification/booking window from, so
+        # it uses a wide-open window — this test is proving the durable
+        # write/read round trip survives, not exercising credential/slot
+        # expiry (see `test_provider_admission_postgres.py`/`test_fgcn_flow.py`
+        # for those cases).
+        now = datetime.now(UTC)
         return ProviderAdmissionSnapshot(
             provider_ref=provider_ref,
             assignee_kind=assignee_kind,
             admission_status="ACTIVE",
+            tenant_id=scope.tenant_id,
+            family_id=scope.family_id,
+            credential_ref=f"credential:{provider_ref}:test",
+            credential_valid_from=now - timedelta(days=1),
+            credential_valid_until=now + timedelta(days=365),
+            slot_ref=f"slot:{provider_ref}:test",
+            slot_start_at=now - timedelta(days=1),
+            slot_end_at=now + timedelta(days=365),
             capability_keys=required_capability_keys,
             allowed_purposes=(scope.purpose,),
             capacity_available=1,

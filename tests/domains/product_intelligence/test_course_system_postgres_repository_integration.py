@@ -30,7 +30,7 @@ def _system(tenant_scope: str = "tenant-a") -> CourseSystem:
 
 async def _apply_migration(engine) -> None:
     migration = importlib.import_module(
-        "database.migrations.versions.0068_course_system"
+        "database.migrations.versions.0074_course_system"
     )
     from alembic.migration import MigrationContext
     from alembic.operations import Operations

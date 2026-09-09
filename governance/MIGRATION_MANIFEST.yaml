@@ -74,6 +74,16 @@ entries:
     evidence:
       - "TS 侧 AuditModule (audit.module.ts 8行 + audit.service.ts 22行) 是最小实现，值得参考但太薄，需按 R6 重新设计"
 
+  - capability: platform_outbox
+    disposition: REIMPLEMENT
+    target: [backend/platform/outbox]
+    status: IN_PROGRESS
+    evidence:
+      - "复用 baseline outbox_events；提供 application-neutral immutable envelope 与 caller-owned AsyncSession append seam，不自行 commit"
+    reason: "为业务事实、canonical Audit 与 integration event 提供同一 UnitOfWork 原子提交边界"
+    known_gaps:
+      - "真实 PostgreSQL、worker、retry/DLQ 与 retention 仍须分别验收；本 append adapter 不拥有发布消费生命周期"
+
   - capability: platform_idempotency
     disposition: REIMPLEMENT
     target: [backend/platform/idempotency]
@@ -757,6 +767,12 @@ entries:
       - "PostgreSQL Application Adapter 与可信 Actor resolver 已接入默认 dependency；非 PostgreSQL 或无可信上下文均 fail closed"
       - "已增加独立 Alembic baseline 数据库上的 UI-04→UI-05 Priority→Preview→Plan→Confirm→ServiceJourney HTTP E2E 门禁"
       - "行动记录写入、current_day 推进与阶段 REVIEW_DUE 到期转换仍待实现"
+      - "0077 新增 journey_adopted_growth_plans；Growth Plan Draft/Guardian Adoption 现复用既有 Draft、Idempotency 与 Audit 原语，并可由 PostgreSQL 组合根跨进程读回"
+    architecture_decisions:
+      - governance/ADR/ADR-0163-durable-growth-plan-adoption.md
+    implementation:
+      - backend/domains/journey/infrastructure/growth_plan_adoption_postgres.py
+      - database/migrations/versions/0077_journey_adopted_growth_plans.py
 
   - capability: design_copilot
     disposition: MIGRATE
@@ -873,9 +889,9 @@ entries:
   - capability: auth_identity
     disposition: MIGRATE
     source: ["50_开发_dev/apps/api/src/modules/auth"]
-    target: [backend/platform/identity]
-    status: PLANNED
-    evidence: ["1546行，真实 Postgres(identity_sessions/otp_challenges/accounts/tenants等)，唯一显式标注为替换点的是 OtpService 的 StubOtpSender", "AI 组合根已新增 provider-neutral IdentitySessionPort 与 mTLS HTTP 签发/轮换/撤销适配器（ADR-0117）；业务域迁移与真实 endpoint 仍未完成"]
+    target: [backend/domains/identity]
+    status: IN_PROGRESS
+    evidence: ["ADR-0011 裁决 canonical_path 由 backend/platform/identity 改为 backend/domains/identity（四层结构，platform/identity 永久限定为纯值对象）；已落地 Account/IdentitySession 真实 SqlAlchemy repository，复用遗留 baseline 的 accounts/identity_sessions 表（0015/0018/0019）+ 附加迁移 0071（family_scope_ref 列 + identity_receipts 幂等表）；4 个 /auth/* 端点已迁出 backend/domains/assessment/api/dev_auth.py，dev_auth.py 保留作 dev/test 替身+向后兼容的 DevAuthMirroringIdentityService 桥接层", "OtpChallenge 仅设计出接口(OtpSender Protocol)+StubOtpSender 占位，未接真实短信/邮箱供应商；未接线到任何端点"]
 
   - capability: assessment
     disposition: REIMPLEMENT
@@ -884,6 +900,14 @@ entries:
     status: MIGRATED_TESTED
     evidence: ["Batch 1 UI-02 -> UI-03 首批可运行闭环；只产 Hypothesis，确认后产 GrowthIntent，不计算 score/ranking/diagnosis"]
     note: "当前为显式非生产、进程内 dev/test 实现；repository port 为后续 SQLAlchemy 替换 seam。"
+
+  - capability: growth_intent_confirmation
+    disposition: REIMPLEMENT
+    source: ["database/baseline/0020_growth_orchestration_v1.sql", "database/baseline/0044_ui03_growth_hypothesis_confirmation.sql"]
+    target: [backend/domains/growth]
+    status: MIGRATED_TESTED
+    evidence: ["Assessment validated binding -> same-session GrowthIntent + Audit + Outbox + idempotency receipt；真实 PostgreSQL 正反测试，不复制 Consent/Human Gate ledger"]
+    known_gaps: ["尚未接入 production composition/main", "worker/retry/DLQ/retention 不在本 capability 范围"]
 
   - capability: model_provider_assessment
     disposition: REVIEW_REQUIRED
@@ -1160,6 +1184,27 @@ entries:
       - "50_开发_dev/backend/domains/assessment/infrastructure/claude_interpretation.py"
     evidence:
       - "该文件的 structured output schema 设计(JSON schema 强制 construct_ref 枚举)、边界重校验(不信任 schema 本身，收到输出后再跑一次 assert_interpretation_boundary)、知识库 grounding 注入(system prompt 动态拼接已核验理论依据)、grounding_source 净化(模型自报的引用 id 经白名单核对，编造的一律清空不透传)等具体手法值得重写时参照，但调用方式必须换成走 model_gateway，不能保留 `anthropic.AsyncAnthropic()` 直连"
+
+  - capability: assessment_ai_run_ledger_persistence
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - database/migrations/versions/0069_ai_run_ledger.py
+      - backend/domains/assessment/infrastructure/ai_run_ledger.py
+      - tests/domains/assessment/test_ai_run_ledger_integration.py
+    status: MIGRATED_TESTED
+    evidence:
+      - "0069_ai_run_ledger 接在 main 唯一 Alembic head 链上，创建 assessment AI 运行元数据表(assessment_ai_run_ledger)"
+      - "表只保存 run/session、执行深度、生成器/模型、token、时间和 outcome，不承载家庭事实、计划或结果"
+      - "真实 PostgreSQL 集成测试覆盖 success 与 boundary_violation 写入和读回"
+    reason: >
+      integrate/growth-plan-adoption 分支曾独立重新发明同一张表
+      (0071_ai_run_ledger.py，与本条目 target 的 0069 版本逐字节相同)，
+      对齐 main 时已删除重复迁移文件，保留 main 的 0069 版本。此前该能力
+      在 MIGRATION_MANIFEST 中没有登记行，本条目补登记，避免"迁移进来了
+      但未登记"的漂移。
+    known_gaps:
+      - "仍需在 family_api 生产组合根接入真实身份、Consent、Model Gateway 和持久 Human Gate 后，才能宣称业务 AI 闭环完成"
 
   - capability: commerce_product_catalog
     disposition: REIMPLEMENT
@@ -1981,6 +2026,66 @@ entries:
     known_gaps:
       - "尚无独立 HTTP surface、PostgreSQL vertical 表和真实部署证据"
       - "真实双家庭隔离、重启读回、Consent 撤回/删除级联仍待验收"
+
+  - capability: media_factory_gate1_benchmark
+    disposition: REIMPLEMENT
+    source: []
+    target: [backend/intelligence/media_factory]
+    status: FOUNDATION_TESTED
+    adr: governance/ADR/ADR-0018-media-avatar-provider-and-gate1-benchmark.md
+    reason: >
+      Greenfield Gate1 Offline Avatar Benchmark Foundation under R10. Not a
+      wholesale import of D:/Family multimodal TS packages. AUTOavantar is
+      code-level reference only (selective reimplementation of run isolation /
+      provenance / provider lifecycle concepts).
+    evidence:
+      - "FAMILY-MEDIA-001 reality audit: REAL_NEURAL_AVATAR_INFERENCE=ABSENT"
+      - "tests/intelligence/media_factory/test_gate1_benchmark_foundation.py"
+      - "tests/intelligence/media_factory/test_ditto_provider.py"
+      - "docs/11_delivery/media_factory/DITTO_GATE1_GPU_RUNBOOK.md"
+    note: >
+      DittoAvatarProvider adapter is in-tree; engine stays external via
+      DITTO_ENGINE_ROOT. Local GPU_GATE=FAIL blocks inference. Does NOT
+      authorize EchoMimic/SadTalker install, cloud auto-purchase, realtime,
+      or Family canonical writes.
+
+  - capability: media_factory_realtime_avatar_foundation
+    disposition: REIMPLEMENT
+    source: []
+    target: [backend/intelligence/media_factory/realtime]
+    status: FOUNDATION_TESTED
+    adr: governance/ADR/ADR-0019-realtime-avatar-provider-and-gpu-node-boundary.md
+    reason: >
+      Greenfield Realtime Avatar Runtime foundation under R10, registered as a
+      SEPARATE capability from media_factory_gate1_benchmark because ADR-0018 §3
+      and ADR-0019 freeze Offline Media Factory != Realtime Avatar Runtime. Not a
+      migration: no Ditto source is vendored, and D:/Family's realtime session /
+      viseme layer is not imported (FAMILY-MEDIA-001 recorded it as never having
+      reached neural avatar output).
+    evidence:
+      - "tests/intelligence/media_factory/test_realtime_contracts.py"
+      - "tests/intelligence/media_factory/test_realtime_session_state.py"
+      - "tests/intelligence/media_factory/test_realtime_providers.py"
+      - "tests/intelligence/media_factory/test_ditto_realtime_provider.py"
+      - "tests/intelligence/media_factory/test_realtime_smoke_harness.py"
+      - "tests/architecture/test_realtime_boundaries.py"
+      - "docs/11_delivery/media_factory/DITTO_REALTIME_ONLINE_SMOKE_RUNBOOK.md"
+    note: >
+      Ditto engine, model weights and any node-side frame bridge stay OUTSIDE this
+      worktree; paths come only from DITTO_ENGINE_ROOT / DITTO_MODEL_ROOT /
+      DITTO_PYTHON / DITTO_DEVICE / DITTO_REALTIME_ENDPOINT. No GPU dependency
+      enters AiFamily's pyproject.toml.
+    known_gaps:
+      - "REAL_NEURAL_REALTIME_FRAMES=NO — no real engine frame has passed through this package"
+      - "REAL_DITTO_ONLINE_SMOKE=NOT_RUN — harness prepared, never executed"
+      - "Ditto online chunk API UNVERIFIED: pinned source is not on the authoring machine (see docs/13_research/technology/FAMILY_REALTIME_001_DITTO_ONLINE_AUDIT.md)"
+      - "DittoRealtimeTransport has no implementation in-tree; remote mode requires a node-side integration"
+      - "LOCAL_SUBPROCESS mode is recognised and refused, not implemented"
+      - "No turn-level barge-in: cancel() ends the session (FAMILY-REALTIME-002)"
+      - "No WebSocket/WebRTC server: transport bindings are declared shapes only"
+      - "No orchestrator, no ASR/TTS/LLM wiring, no concurrency (max_concurrent_sessions=1)"
+      - "The progressive poll and bounded final drain (ADR-0019 decision 13) are an architecture seam, not evidence that any engine streams frames"
+      - "Final-drain bound of 8 polls is an unmeasured safety limit, not a measured production optimum"
 
 # ============ 待人工裁决清单（disposition = REVIEW_REQUIRED 的完整索引） ============
 review_required_index:

@@ -22,6 +22,7 @@ from .admission import (
     require_provider_admitted,
 )
 from .contracts import (
+    HUMAN_SERVICE_PROVIDER_KINDS,
     AllocationBasisType,
     AllocationBucket,
     AllocationLine,
@@ -40,6 +41,7 @@ from .contracts import (
     TaskQualityReview,
     TaskQualityState,
     TaskStatus,
+    rework_task_id_for,
 )
 from .entry import (
     DEFAULT_CASE_ENTRY_DEPENDENCIES,
@@ -58,7 +60,6 @@ FIXED_ALLOCATION_UNITS = {
     AllocationBucket.QUALITY_RESERVE: Decimal("10"),
 }
 DELIVERY_ALLOCATION_UNITS = Decimal("40")
-ALLOWED_ASSIGNEE_KINDS = frozenset({"STEWARD", "AI", "COACH", "EXPERT", "CONTENT"})
 
 
 def _now(value: datetime | None) -> datetime:
@@ -256,7 +257,9 @@ class FGCNEngine:
         task_id = self._argument(args, "service_task_id")
         assignee_ref = self._argument(args, "provider_id")
         assignee_kind = self._argument(args, "assignee_kind", default="EXPERT")
-        if assignee_kind not in ALLOWED_ASSIGNEE_KINDS:
+        if assignee_kind == "AI":
+            raise ServiceForbiddenError("fgcn_service_provider_must_be_human")
+        if assignee_kind not in HUMAN_SERVICE_PROVIDER_KINDS:
             raise ServiceValidationError("fgcn_assignee_kind_invalid")
         task = self._task(task_id)
         case = self._case(task.case_id)
@@ -270,12 +273,14 @@ class FGCNEngine:
             return self.assignments[previous_assignment_id]
         if task.status is not TaskStatus.PENDING:
             raise ServiceConflictError("fgcn_task_already_has_responsible_person")
-        require_provider_admitted(
+        accepted_at = _now(None)
+        admission = require_provider_admitted(
             self.provider_admission,
             provider_ref=assignee_ref,
             assignee_kind=assignee_kind,
             required_capability_keys=task.required_capability_keys,
             scope=case.scope,
+            effective_at=accepted_at,
         )
         if any(
             assignment.task_id == task_id and assignment.status is TaskAssignmentStatus.ACCEPTED
@@ -285,7 +290,6 @@ class FGCNEngine:
         assignment_id = str(args.get("assignment_id") or f"assignment:{task_id}:{assignee_ref}")
         if assignment_id in self.assignments:
             raise ServiceConflictError("fgcn_assignment_id_already_exists")
-        accepted_at = _now(None)
         assignment = TaskAssignment(
             assignment_id=assignment_id,
             case_id=case.case_id,
@@ -314,7 +318,13 @@ class FGCNEngine:
             resource_id=assignment_id,
             reason="human-confirmed assignment request",
             before=None,
-            after={"status": assignment.status.value, "task_id": task.task_id},
+            after={
+                "status": assignment.status.value,
+                "task_id": task.task_id,
+                "provider_credential_ref": admission.credential_ref,
+                "provider_slot_ref": admission.slot_ref,
+                "provider_capacity_available": admission.capacity_available,
+            },
         )
         self._audit(
             actor_id=actor,
@@ -444,7 +454,7 @@ class FGCNEngine:
             existing = self.reviews[quality_review_id]
             try:
                 quality_state = TaskQualityState(quality_state)
-            except ValueError as exc:
+            except (TypeError, ValueError) as exc:
                 raise ServiceValidationError("fgcn_quality_state_invalid") from exc
             if existing.task_id != task_id or existing.reviewer_ref != reviewer:
                 raise ServiceConflictError("fgcn_quality_review_id_reuse_mismatch")
@@ -459,9 +469,12 @@ class FGCNEngine:
             raise ServiceForbiddenError("fgcn_quality_reviewer_must_differ_from_delivery_person")
         try:
             quality_state = TaskQualityState(quality_state)
-        except ValueError as exc:
+        except (TypeError, ValueError) as exc:
             raise ServiceValidationError("fgcn_quality_state_invalid") from exc
-        if quality_state is not TaskQualityState.PASSED:
+        if quality_state not in {
+            TaskQualityState.PASSED,
+            TaskQualityState.REWORK_REQUIRED,
+        }:
             raise ServiceConflictError("fgcn_non_pass_quality_requires_rework_flow")
         delivery_id = self._delivery_by_task.get(task_id)
         if delivery_id is None:
@@ -478,32 +491,83 @@ class FGCNEngine:
             reviewed_at=_now(reviewed_at),
         )
         self.reviews[quality_review_id] = review
-        self.tasks[task_id] = replace(
-            task,
-            status=TaskStatus.VERIFIED,
-            verified_at=review.reviewed_at,
-        )
-        self._audit(
-            actor_id=reviewer,
-            scope=case.scope,
-            action="VERIFY_SERVICE_DELIVERY",
-            resource_type="TaskQualityReview",
-            resource_id=quality_review_id,
-            reason="quality reviewer passed delivery against frozen criteria",
-            before={"task_status": task.status.value},
-            after={"task_status": TaskStatus.VERIFIED.value},
-        )
-        updated_task = self.tasks[task_id]
-        self._audit(
-            actor_id=reviewer,
-            scope=case.scope,
-            action="VERIFY_SERVICE_TASK",
-            resource_type="ServiceTask",
-            resource_id=task_id,
-            reason="quality review moved task to verified",
-            before={"status": task.status.value},
-            after={"status": updated_task.status.value},
-        )
+        if quality_state is TaskQualityState.PASSED:
+            self.tasks[task_id] = replace(
+                task,
+                status=TaskStatus.VERIFIED,
+                verified_at=review.reviewed_at,
+            )
+            self._audit(
+                actor_id=reviewer,
+                scope=case.scope,
+                action="VERIFY_SERVICE_DELIVERY",
+                resource_type="TaskQualityReview",
+                resource_id=quality_review_id,
+                reason="quality reviewer passed delivery against frozen criteria",
+                before={"task_status": task.status.value},
+                after={"task_status": TaskStatus.VERIFIED.value},
+            )
+            updated_task = self.tasks[task_id]
+            self._audit(
+                actor_id=reviewer,
+                scope=case.scope,
+                action="VERIFY_SERVICE_TASK",
+                resource_type="ServiceTask",
+                resource_id=task_id,
+                reason="quality review moved task to verified",
+                before={"status": task.status.value},
+                after={"status": updated_task.status.value},
+            )
+        else:
+            updated_task = replace(
+                task,
+                status=TaskStatus.REWORK_REQUESTED,
+                verified_at=None,
+            )
+            self.tasks[task_id] = updated_task
+            attempt = task.rework_attempt + 1
+            rework_task = replace(
+                task,
+                task_id=rework_task_id_for(task.task_id, review.quality_review_id),
+                task_key=f"{task.task_key}:REWORK:{attempt}",
+                title=f"Rework: {task.title}",
+                status=TaskStatus.PENDING,
+                responsible_ref=None,
+                deliverable_ref=None,
+                verified_at=None,
+                created_at=review.reviewed_at,
+                rework_of_task_id=task.task_id,
+                rework_attempt=attempt,
+            )
+            self.tasks[rework_task.task_id] = rework_task
+            self._task_by_case_key[(case.case_id, rework_task.task_key)] = rework_task.task_id
+            self._audit(
+                actor_id=reviewer,
+                scope=case.scope,
+                action="REQUEST_SERVICE_REWORK",
+                resource_type="TaskQualityReview",
+                resource_id=quality_review_id,
+                reason="human quality review requires a traceable remedy task",
+                before={"task_status": task.status.value},
+                after={
+                    "task_status": TaskStatus.REWORK_REQUESTED.value,
+                    "rework_task_id": rework_task.task_id,
+                },
+            )
+            self._audit(
+                actor_id=reviewer,
+                scope=case.scope,
+                action="CREATE_SERVICE_REWORK_TASK",
+                resource_type="ServiceTask",
+                resource_id=rework_task.task_id,
+                reason="follow-up task remains unassigned until a new human gate",
+                before=None,
+                after={
+                    "status": TaskStatus.PENDING.value,
+                    "rework_of_task_id": task.task_id,
+                    "rework_attempt": rework_task.rework_attempt,
+                },
+            )
         return review
 
     def record_contribution(
@@ -573,11 +637,25 @@ class FGCNEngine:
         tasks = [task for task in self.tasks.values() if task.case_id == case_id]
         if not tasks:
             raise ServiceConflictError("fgcn_case_requires_tasks_before_close")
-        if any(task.status not in {TaskStatus.VERIFIED, TaskStatus.CANCELLED} for task in tasks):
+        rework_source_ids = {
+            task.rework_of_task_id for task in tasks if task.rework_of_task_id is not None
+        }
+        active_tasks = [
+            task
+            for task in tasks
+            if not (
+                task.status is TaskStatus.REWORK_REQUESTED and task.task_id in rework_source_ids
+            )
+        ]
+        if any(
+            task.status not in {TaskStatus.VERIFIED, TaskStatus.CANCELLED} for task in active_tasks
+        ):
             raise ServiceConflictError("fgcn_case_has_unfinished_tasks")
-        if not any(task.status is TaskStatus.VERIFIED for task in tasks):
+        if not any(task.status is TaskStatus.VERIFIED for task in active_tasks):
             raise ServiceConflictError("fgcn_case_requires_verified_service")
-        verified_task_ids = {task.task_id for task in tasks if task.status is TaskStatus.VERIFIED}
+        verified_task_ids = {
+            task.task_id for task in active_tasks if task.status is TaskStatus.VERIFIED
+        }
         contributed_task_ids = {
             contribution.task_id
             for contribution in self.contributions.values()
