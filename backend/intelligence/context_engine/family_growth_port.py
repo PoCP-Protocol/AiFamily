@@ -17,6 +17,18 @@ from backend.intelligence.agi_vertical_runtime import FamilyGrowthContext
 from .async_port import AsyncContextBrokerPort
 from .contracts import ContextContractError, ContextScope, ContextSnapshot
 
+# Stable product-level observation dimensions for the first family-growth
+# understanding surface. These are identifiers, not scores: a dimension may
+# be evidenced or explicitly UNKNOWN, and the runtime never derives a family
+# total or ranking from them.
+FAMILY_GROWTH_UNDERSTANDING_DIMENSIONS = (
+    "situation",
+    "relationship",
+    "rhythm",
+    "capability",
+    "support",
+)
+
 
 class SqlFamilyGrowthContextPort:
     """Read vertical context from a durable Context Broker.
@@ -77,6 +89,7 @@ class SqlFamilyGrowthContextPort:
                 "purpose": snapshot.purpose,
                 "source_refs": snapshot.source_refs,
                 "provenance": snapshot.provenance,
+                "required_dimensions": FAMILY_GROWTH_UNDERSTANDING_DIMENSIONS,
             }
         )
         return FamilyGrowthContext(
@@ -90,4 +103,4 @@ class SqlFamilyGrowthContextPort:
         )
 
 
-__all__ = ["SqlFamilyGrowthContextPort"]
+__all__ = ["FAMILY_GROWTH_UNDERSTANDING_DIMENSIONS", "SqlFamilyGrowthContextPort"]

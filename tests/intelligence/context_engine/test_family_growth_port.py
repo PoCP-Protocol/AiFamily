@@ -8,7 +8,10 @@ from backend.intelligence.context_engine.contracts import (
     DataClass,
     StateObservation,
 )
-from backend.intelligence.context_engine.family_growth_port import SqlFamilyGrowthContextPort
+from backend.intelligence.context_engine.family_growth_port import (
+    FAMILY_GROWTH_UNDERSTANDING_DIMENSIONS,
+    SqlFamilyGrowthContextPort,
+)
 
 NOW = datetime(2026, 9, 9, tzinfo=UTC)
 
@@ -52,6 +55,7 @@ async def test_projects_durable_snapshot_to_family_growth_context() -> None:
     assert result.values["focus"] == "作业启动"
     assert result.values["data_class"] == "OPERATIONAL_TEXT"
     assert result.context_snapshot_ref == "context:run-a"
+    assert result.values["required_dimensions"] == FAMILY_GROWTH_UNDERSTANDING_DIMENSIONS
 
 
 @pytest.mark.asyncio
