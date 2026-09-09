@@ -67,6 +67,21 @@ export type GrowthPathProjection = {
   feedback_signals?: string[];
 };
 
+export type VerticalGrowthDraft = {
+  family_need_id: string;
+  path_id: string;
+  run_id: string;
+  context_snapshot_ref: string;
+  status: "DRAFT";
+  output: { understanding?: string; next_step?: string; path?: Array<string | GrowthPathNode> };
+  feedback_refs: string[];
+  capability_refs: string[];
+  knowledge_ref: string;
+  knowledge_version: string;
+  lineage_ref: string;
+  provenance: Record<string, unknown>;
+};
+
 export type GrowthPathNode = {
   capability_ref: string;
   version: string;
@@ -200,6 +215,31 @@ export class FamilyGrowthApiClient {
   async getGrowthPath(familyId: string, runId: string): Promise<GrowthPathProjection> {
     return this.request<GrowthPathProjection>(
       `/families/${encodeURIComponent(familyId)}/experience/multimodal/runs/${encodeURIComponent(runId)}/growth-path`,
+    );
+  }
+
+  async createVerticalDraft(
+    familyId: string,
+    body: { family_need_id: string; path_id: string; run_id: string; knowledge_ref: string },
+    idempotencyKey: string,
+  ): Promise<VerticalGrowthDraft> {
+    return this.mutate<VerticalGrowthDraft>(
+      `/families/${encodeURIComponent(familyId)}/growth/ai-drafts`,
+      body,
+      idempotencyKey,
+    );
+  }
+
+  async decideVerticalDraft(
+    familyId: string,
+    runId: string,
+    body: { decision_ref: string; family_need_id: string; path_id: string; state: "ACCEPT" | "REJECT" | "EDIT" | "DEFER"; edits?: Record<string, unknown> },
+    idempotencyKey: string,
+  ): Promise<VerticalGrowthDraft> {
+    return this.mutate<VerticalGrowthDraft>(
+      `/families/${encodeURIComponent(familyId)}/growth/ai-drafts/${encodeURIComponent(runId)}/decisions`,
+      body,
+      idempotencyKey,
     );
   }
 

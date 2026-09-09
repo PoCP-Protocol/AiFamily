@@ -483,6 +483,27 @@ class VerticalFamilyGrowthRuntime:
         self._run_families.pop(run_id, None)
         return proof
 
+    async def decide(
+        self, *, run_id: str, family_id: str, decision: GuardianDecision
+    ) -> EvaluationLedgerEntry:
+        """Record a guardian calibration against an in-process draft.
+
+        Development/test composition uses this method directly; production
+        composition overrides the same contract with durable replay semantics.
+        """
+
+        if self._run_families.get(run_id) != family_id:
+            raise VerticalRuntimeError("CONTEXT_SCOPE_MISMATCH")
+        current = self._ledger.replay(run_id)
+        if (
+            current.family_need_id != decision.family_need_id
+            or current.path_id != decision.path_id
+            or current.run_id != decision.run_id
+        ):
+            raise VerticalRuntimeError("GUARDIAN_DECISION_SCOPE_MISMATCH")
+        self._ledger.decision(decision)
+        return self._ledger.replay(run_id)
+
 
 def _assert_capability_grounding(output: dict[str, Any], capability_refs: tuple[str, ...]) -> None:
     """Reject explicit model capability references absent from the reviewed catalogue."""

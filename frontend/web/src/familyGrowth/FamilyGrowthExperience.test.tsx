@@ -7,7 +7,38 @@ import type { FamilyGrowthApiClient } from "./client";
 describe("FamilyGrowthExperience", () => {
   it("carries a parent's own words into the controlled understanding request", async () => {
     const user = userEvent.setup();
-    const createDraft = vi.fn(async (input: { payload: { expression: string } }) => ({
+    const createVerticalDraft = vi.fn(async (..._args: unknown[]) => ({
+      family_need_id: "need-1",
+      path_id: "path-1",
+      run_id: "run-1",
+      context_snapshot_ref: "context-1",
+      status: "DRAFT" as const,
+      output: { understanding: "你们都在努力让晚上顺利一些。", next_step: "先约定一个可以暂停的小步骤。", path: ["path-1"] },
+      feedback_refs: [],
+      capability_refs: [],
+      knowledge_ref: "vertical-growth.v1",
+      knowledge_version: "v1",
+      lineage_ref: "lineage-1",
+      provenance: {
+        provider_id: "fake",
+        model: "model",
+        model_version: "v1",
+      },
+    }));
+    const decideVerticalDraft = vi.fn(async (..._args: unknown[]) => ({
+      family_need_id: "need-1",
+      path_id: "path-1",
+      run_id: "run-1",
+      context_snapshot_ref: "context-1",
+      status: "DRAFT" as const,
+      output: { understanding: "你们都在努力让晚上顺利一些。", next_step: "先约定一个可以暂停的小步骤。", path: ["path-1"] },
+      feedback_refs: [], capability_refs: [], knowledge_ref: "vertical-growth.v1", knowledge_version: "v1", lineage_ref: "lineage-1", provenance: {},
+    }));
+    /*
+     * The rest of this fixture intentionally retains the old response shape
+     * only where it is not consumed by the canonical vertical path.
+     */
+    const legacyDraft = {
       run_id: "run-1",
       draft_version: "experience-draft.v1",
       status: "DRAFT" as const,
@@ -25,7 +56,7 @@ describe("FamilyGrowthExperience", () => {
       requires_human_confirmation: true as const,
       media_inputs: [],
       correlation_id: "correlation-1",
-    }));
+    };
 
     const growthClient = {
       getAssessment: vi.fn(async () => ({
@@ -56,13 +87,15 @@ describe("FamilyGrowthExperience", () => {
       })),
       decideGrowthHypothesis: vi.fn(async () => ({ session_id: "session-1", status: "CONFIRMED" })),
       getGrowthPath: vi.fn(),
+      createVerticalDraft,
+      decideVerticalDraft,
     } as unknown as FamilyGrowthApiClient;
 
     render(
       <FamilyGrowthExperience
         growthClient={growthClient}
         experienceClient={{
-          createDraft,
+          createDraft: vi.fn(async () => legacyDraft),
           decide: vi.fn(),
           submitFeedback: vi.fn(),
           requestHuman: vi.fn(),
@@ -80,8 +113,8 @@ describe("FamilyGrowthExperience", () => {
     await user.click(screen.getByRole("button", { name: /看见家庭理解/ }));
     await user.click(await screen.findByRole("button", { name: /继续决定下一步/ }));
 
-    await waitFor(() => expect(createDraft).toHaveBeenCalledTimes(1));
-    expect(createDraft.mock.calls[0][0].payload.expression).toContain("每天写作业前，我们都会开始催促");
+    await waitFor(() => expect(createVerticalDraft).toHaveBeenCalledTimes(1));
+    expect(createVerticalDraft.mock.calls[0][1]).toMatchObject({ family_need_id: "need-1", path_id: "path-1" });
     expect(screen.queryByText(/模型|生成通道|providerId|modelVersion/i)).not.toBeInTheDocument();
   });
 });

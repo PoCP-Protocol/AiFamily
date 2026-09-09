@@ -243,5 +243,19 @@ class DurableVerticalGrowthRuntime:
     async def delete(self, *, run_id: str, family_id: str) -> RunReplaySnapshot:
         return await self._ledger.delete(run_id=run_id, scope=await self._scope(family_id))
 
+    async def decide(
+        self, *, run_id: str, family_id: str, decision: GuardianDecision
+    ) -> EvaluationLedgerEntry:
+        scope = await self._scope(family_id)
+        snapshot = await self._ledger.replay(run_id=run_id, scope=scope)
+        payload = snapshot.draft_payload or {}
+        if (
+            payload.get("family_need_id") != decision.family_need_id
+            or payload.get("path_id") != decision.path_id
+        ):
+            raise VerticalRuntimeError("GUARDIAN_DECISION_CORRELATION_MISMATCH")
+        await self._ledger.record_guardian_decision(decision, scope=scope)
+        return await self.replay(run_id=run_id, family_id=family_id)
+
 
 __all__ = ["DurableVerticalGrowthRuntime", "DurableVerticalLedgerAdapter", "DurableVerticalRun"]

@@ -62,4 +62,29 @@ describe("FamilyGrowthApiClient", () => {
       expect.objectContaining<Partial<FamilyGrowthApiError>>({ status: 503, detail: "not_ready" }),
     );
   });
+
+  it("uses the canonical durable vertical draft and guardian decision routes", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(response({
+        family_need_id: "need-1", path_id: "path-1", run_id: "run-1",
+        context_snapshot_ref: "context-1", status: "DRAFT", output: { understanding: "u", next_step: "n" },
+        feedback_refs: [], capability_refs: [], knowledge_ref: "vertical-growth.v1", knowledge_version: "v1", lineage_ref: "l", provenance: {},
+      }))
+      .mockResolvedValueOnce(response({
+        family_need_id: "need-1", path_id: "path-1", run_id: "run-1",
+        context_snapshot_ref: "context-1", status: "DRAFT", output: { understanding: "u", next_step: "n", path: [] },
+        feedback_refs: ["guardian-1"], capability_refs: [], knowledge_ref: "vertical-growth.v1", knowledge_version: "v1", lineage_ref: "l", provenance: {},
+      }));
+    const client = new FamilyGrowthApiClient({ fetchImpl });
+
+    await client.createVerticalDraft("family-1", {
+      family_need_id: "need-1", path_id: "path-1", run_id: "run-1", knowledge_ref: "vertical-growth.v1",
+    }, "draft-1");
+    await client.decideVerticalDraft("family-1", "run-1", {
+      decision_ref: "guardian-1", family_need_id: "need-1", path_id: "path-1", state: "ACCEPT",
+    }, "decision-1");
+
+    expect(fetchImpl.mock.calls[0][0]).toBe("/families/family-1/growth/ai-drafts");
+    expect(fetchImpl.mock.calls[1][0]).toBe("/families/family-1/growth/ai-drafts/run-1/decisions");
+  });
 });

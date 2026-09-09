@@ -170,37 +170,10 @@ export function FamilyGrowthExperience({
       );
       const nextRunId = newId("family-understanding");
       setRunId(nextRunId);
-      const result = await resolvedExperienceClient.createDraft(
-        {
-          run_id: nextRunId,
-          use_case: "family_assistant_conversation",
-          prompt_version: "family-companion.v1",
-          schema_version: "family-experience-draft.v1",
-          data_class: "SYNTHETIC",
-          context_snapshot_ref: "server-owned",
-          payload: {
-            expression: [
-              value.statement ?? value.understanding ?? value.title ?? "请理解这个家庭当前的成长需要。",
-              familyNote.trim() ? `家长补充：${familyNote.trim()}` : "",
-            ].filter(Boolean).join("\n"),
-            family_need_id: needId,
-            path_id: pathId,
-            path: [pathId],
-          },
-          input_refs: value.evidence_refs ?? [],
-          media_inputs: [],
-          scope: {
-            tenant_id: "synthetic-dev",
-            region_id: "CN",
-            family_id: familyId,
-            subject_ids: subject ? [subject.person_id] : [],
-            purpose: "family_assistant_conversation",
-            consent_version: "synthetic-consent.v1",
-            consent_granted: true,
-            locale: "zh-CN",
-          },
-        },
-        newId("experience-draft"),
+      const result = await resolvedGrowthClient.createVerticalDraft(
+        familyId,
+        { family_need_id: needId, path_id: pathId, run_id: nextRunId, knowledge_ref: "vertical-growth.v1" },
+        newId("vertical-draft"),
       );
       if (!result.output.understanding?.trim() || !result.output.next_step?.trim()) {
         fail(null, "当前没有足够内容形成可核对的家庭理解，暂不生成下一步。");
@@ -209,10 +182,10 @@ export function FamilyGrowthExperience({
       setDraft({
         understanding: result.output.understanding,
         nextStep: result.output.next_step,
-        limitations: result.limitations,
-        providerId: result.provenance.provider_id,
-        model: result.provenance.model,
-        modelVersion: result.provenance.model_version,
+        limitations: ["这是可修改的 Perspective Draft，不是家庭事实或诊断。"],
+        providerId: typeof result.provenance.provider_id === "string" ? result.provenance.provider_id : undefined,
+        model: typeof result.provenance.model === "string" ? result.provenance.model : undefined,
+        modelVersion: typeof result.provenance.model_version === "string" ? result.provenance.model_version : undefined,
       });
       setDraftEditText(result.output.understanding);
       setDraftEditMode(false);
@@ -226,9 +199,13 @@ export function FamilyGrowthExperience({
   async function acceptDraft() {
     if (!runId) return;
     try {
-      await resolvedExperienceClient.decide({ run_id: runId, decision: "confirm" }, newId("draft-confirm"));
-      const result = await resolvedGrowthClient.getGrowthPath(familyId, runId);
-      setGrowthPath(result);
+      const result = await resolvedGrowthClient.decideVerticalDraft(
+        familyId,
+        runId,
+        { decision_ref: newId("guardian-accept"), family_need_id: hypothesis?.hypothesis?.need_refs?.[0] ?? "", path_id: hypothesis?.hypothesis?.action_candidate_refs?.[0] ?? "", state: "ACCEPT" },
+        newId("vertical-decision"),
+      );
+      setGrowthPath({ next_step: typeof result.output.next_step === "string" ? result.output.next_step : null, path: result.output.path ?? [], status: result.status, feedback_signals: [] });
       setView("path");
       setMessage(
         result.status === "DRAFT"
@@ -243,10 +220,7 @@ export function FamilyGrowthExperience({
   async function rewriteDraft() {
     if (!runId || !draftEditText.trim()) return;
     try {
-      await resolvedExperienceClient.decide(
-        { run_id: runId, decision: "rewrite", replacement_text: draftEditText.trim(), reason: "家长修订 AI 理解" },
-        newId("draft-rewrite"),
-      );
+      await resolvedGrowthClient.decideVerticalDraft(familyId, runId, { decision_ref: newId("guardian-edit"), family_need_id: hypothesis?.hypothesis?.need_refs?.[0] ?? "", path_id: hypothesis?.hypothesis?.action_candidate_refs?.[0] ?? "", state: "EDIT", edits: { understanding: draftEditText.trim() } }, newId("vertical-edit"));
       setDraft((current) => current ? { ...current, understanding: draftEditText.trim() } : current);
       setDraftEditMode(false);
       setMessage("已记录你的修订。接下来看到的成长方向会以这份理解为起点。");

@@ -61,6 +61,16 @@ class VerticalGrowthDraftResponse(BaseModel):
     provenance: dict[str, object]
 
 
+class VerticalGrowthDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision_ref: str = Field(min_length=1, max_length=200)
+    family_need_id: str = Field(min_length=1, max_length=200)
+    path_id: str = Field(min_length=1, max_length=200)
+    state: str = Field(pattern="^(ACCEPT|REJECT|EDIT|DEFER)$")
+    edits: dict[str, object] = Field(default_factory=dict)
+
+
 def get_vertical_family_growth_runtime(
     request: Request,
 ) -> VerticalFamilyGrowthRuntime:
@@ -198,6 +208,33 @@ async def replay_vertical_growth_draft(
     return _entry_response(entry)
 
 
+@router.post("/ai-drafts/{run_id}/decisions", response_model=VerticalGrowthDraftResponse)
+async def decide_vertical_growth_draft(
+    payload: VerticalGrowthDecisionRequest,
+    run_id: Annotated[str, Path(min_length=1, max_length=200)],
+    family_id: Annotated[str, Path(min_length=1, max_length=200)],
+    runtime: VerticalFamilyGrowthRuntime = Depends(get_vertical_family_growth_runtime),
+) -> VerticalGrowthDraftResponse:
+    decision = GuardianDecision(
+        decision_ref=payload.decision_ref,
+        family_need_id=payload.family_need_id,
+        run_id=run_id,
+        path_id=payload.path_id,
+        state=payload.state,
+        edits=dict(payload.edits),
+    )
+    try:
+        decide = getattr(runtime, "decide", None)
+        if not callable(decide):
+            raise VerticalRuntimeError("vertical_family_growth_decision_unavailable")
+        entry = await _await_if_needed(
+            decide(run_id=run_id, family_id=family_id, decision=decision)
+        )
+    except (VerticalRuntimeError, RunHttpError, ContextContractError, ValueError) as error:
+        raise _map_runtime_error(error) from error
+    return _entry_response(entry)
+
+
 @router.delete("/ai-drafts/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_vertical_growth_draft(
     run_id: Annotated[str, Path(min_length=1, max_length=200)],
@@ -214,6 +251,7 @@ __all__ = [
     "GuardianDecisionInput",
     "VerticalGrowthDraftRequest",
     "VerticalGrowthDraftResponse",
+    "VerticalGrowthDecisionRequest",
     "get_vertical_family_growth_runtime",
     "router",
 ]
