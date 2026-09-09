@@ -56,3 +56,36 @@ def test_pass_manifest_requires_traceable_artifacts_and_scenario_refs() -> None:
 
     assert "scenario missing artifact_refs: V-01" in errors
     assert "scenario missing artifact_refs: V-10" in errors
+
+
+def test_pass_manifest_rejects_unknown_artifact_reference() -> None:
+    artifact_kinds = {
+        "git_ref",
+        "http",
+        "postgres_sql",
+        "browser",
+        "process_restart",
+    }
+    manifest = {
+        "status": "PASS",
+        "approved_ref": "abc",
+        "git_ref": "abc",
+        "database_kind": "fresh_postgresql",
+        "artifacts": [
+            {"kind": kind, "ref": f"artifact:{kind}", "command": "pytest"}
+            for kind in artifact_kinds
+        ],
+        "scenarios": [
+            {
+                "scenario_id": f"V-{index:02d}",
+                "status": "PASS",
+                "artifact_refs": ["artifact:http"],
+            }
+            for index in range(1, 11)
+        ],
+    }
+    manifest["scenarios"][0]["artifact_refs"] = ["artifact:not-present"]
+
+    errors = validate(manifest)
+
+    assert "scenario references unknown artifact: V-01:artifact:not-present" in errors

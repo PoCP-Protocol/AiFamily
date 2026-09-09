@@ -37,6 +37,11 @@ def validate(manifest: dict) -> list[str]:
         errors.append("PASS requires fresh_postgresql")
     artifacts = manifest.get("artifacts", [])
     kinds = {item.get("kind") for item in artifacts if isinstance(item, dict)}
+    artifact_refs = {
+        item.get("ref")
+        for item in artifacts
+        if isinstance(item, dict) and isinstance(item.get("ref"), str)
+    }
     errors.extend(f"missing artifact kind: {kind}" for kind in REQUIRED_ARTIFACT_KINDS - kinds)
     for item in artifacts:
         if not isinstance(item, dict):
@@ -73,6 +78,12 @@ def validate(manifest: dict) -> list[str]:
                 not isinstance(ref, str) or not ref.strip() for ref in refs
             ):
                 errors.append(f"scenario missing artifact_refs: {scenario_id}")
+            else:
+                errors.extend(
+                    f"scenario references unknown artifact: {scenario_id}:{ref}"
+                    for ref in refs
+                    if ref not in artifact_refs
+                )
     return sorted(set(errors))
 
 
