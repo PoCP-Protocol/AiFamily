@@ -105,6 +105,22 @@ async def test_vertical_adapter_postgres_restart_decision_delete_and_scope(
         assert deleted.draft_payload is None
         assert not deleted.artifact_refs
 
+    async with postgres_session_factory() as deleted_reader:
+        adapter = DurableVerticalLedgerAdapter(SqlAlchemyExperienceRunLedger(deleted_reader))
+        deleted_replay = await adapter.replay(run_id="run-pg-1", scope=scope)
+        assert deleted_replay.deletion_state == "deleted"
+        assert deleted_replay.draft_payload is None
+        assert not deleted_replay.artifact_refs
+        with pytest.raises(RunHttpError):
+            await adapter.replay(run_id="run-pg-1", scope=foreign_scope)
+
+    async with postgres_session_factory() as repeated_deleter:
+        adapter = DurableVerticalLedgerAdapter(SqlAlchemyExperienceRunLedger(repeated_deleter))
+        async with repeated_deleter.begin():
+            repeated_delete = await adapter.delete(run_id="run-pg-1", scope=scope)
+        assert repeated_delete.deletion_state == "deleted"
+        assert repeated_delete.draft_payload is None
+
 
 @pytest.mark.asyncio
 async def test_vertical_adapter_postgres_repeated_create_and_decision_are_idempotent(
