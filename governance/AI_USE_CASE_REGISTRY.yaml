@@ -208,14 +208,8 @@ tools:
     status: PLANNED
     evidence_refs: [docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s06]
 
-  - id: draft_family_path
-    purpose: 根据已确认 FamilyNeed 的上下文证据编排可解释的路径草案，不创建业务事实
-    mutates_business_state: false
-    data_access: [PERSONAL, MINOR_SENSITIVE]
-    allowed_agents: [growth_planner]
-    human_gate: EXPLICIT_CONFIRMATION
-    status: EXPERIMENT
-    evidence_refs: [governance/ADR/ADR-0158-agi-native-family-growth-platform.md]
+  # `draft_family_path` tool entry removed alongside the `family_path_drafting`
+  # use case (see note below) — same reason, re-add together.
 
   - id: draft_daily_action
     purpose: 生成今日行动、难度和适用成员的候选方案
@@ -450,27 +444,21 @@ use_cases:
     status: EXPERIMENT
     evidence_refs: [docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s06, docs/07_data/MASTER_AND_BUSINESS_DATA_DECOMPOSITION.md#4.2]
 
-  - id: family_path_drafting
-    name: FamilyNeed 驱动的成长路径草案
-    business_process_ids: [S05-N03, S06-N01]
-    application_surface: [UI-03, UI-04]
-    owner: growth-product
-    agent: growth_planner
-    capability_route: family_path_drafting
-    input_evidence: [ConfirmedFamilyNeed, FamilyContextProjection, KnowledgeCandidate, FeedbackProjection]
-    data_class: MINOR_SENSITIVE
-    purpose: 将已确认家庭需要与上下文证据编排为可解释、可编辑、不可直接执行的路径草案
-    output_type: Draft
-    output_schema_ref: family_path_draft_v1
-    prompt_ref: family_path_drafting_v1
-    knowledge_refs: [family_path_knowledge_v1]
-    allowed_tools: [read_context, read_growth_projection, draft_family_path, create_human_task]
-    risk_level: HIGH
-    human_gate: EXPLICIT_CONFIRMATION
-    forbidden_outputs: [canonical_fact, activated_plan, automatic_assignment, family_total_score, family_ranking]
-    named_action_owner: guardian
-    status: EXPERIMENT
-    evidence_refs: [governance/ADR/ADR-0158-agi-native-family-growth-platform.md]
+  # NOTE (2026-09-09, Claude): a `family_path_drafting` entry describing
+  # `agent: growth_planner` / `prompt_ref: family_path_drafting_v1` was
+  # removed from this push. governance/ADR/ADR-0158-agi-native-family-growth-platform.md's
+  # red-team review confirmed the actual Slice C-01 implementation makes
+  # zero Model Gateway calls (deterministic tag-intersection scoring over a
+  # hardcoded candidate pool) — registering it here with an `agent`/
+  # `prompt_ref` would over-claim generative capability that does not exist
+  # yet, and `family_path_drafting` is also not a registered
+  # `PrincipalCapability` enum value (backend/intelligence/principal/contracts.py),
+  # which `tests/architecture/test_principal_integration_architecture.py`
+  # correctly rejects. Re-add this entry once (a) a real Model-Gateway-backed
+  # generative adapter exists for at least one path_orchestration primitive,
+  # and (b) the capability_route has a matching PrincipalCapability enum
+  # value — both decisions belong to whoever owns the Principal routing
+  # layer, not to this cherry-pick.
 
   - id: daily_action_proposal
     name: 今日行动建议
