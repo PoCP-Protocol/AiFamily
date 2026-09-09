@@ -567,9 +567,13 @@ def create_app(
     application.include_router(vertical_family_growth_router)
     if production_vertical_family_growth_composition is not None:
         production_vertical_family_growth_composition.install(application)
-    elif vertical_family_growth_runtime is not None:
+    elif production_ai_platform_wiring is None and vertical_family_growth_runtime is not None:
         install_vertical_family_growth_runtime(application, vertical_family_growth_runtime)
-    elif is_dev_environment() and not is_postgres_url(_runtime_database_url() or ""):
+    elif (
+        production_ai_platform_wiring is None
+        and is_dev_environment()
+        and not is_postgres_url(_runtime_database_url() or "")
+    ):
         # Dev/test gets an explicit, production-shaped composition using the
         # normal gateway admission path. Production remains fail-closed until
         # durable context/knowledge/consent adapters are available.

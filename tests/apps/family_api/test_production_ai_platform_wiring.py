@@ -184,6 +184,21 @@ def test_platform_wiring_can_own_the_vertical_composition() -> None:
         asyncio.run(engine.dispose())
 
 
+def test_create_app_does_not_install_dev_vertical_fallback_before_platform_wiring() -> None:
+    engine, wiring = _wiring()
+    try:
+        app = create_app(production_ai_platform_wiring=wiring)
+        assert not hasattr(app.state, "vertical_family_growth_runtime")
+        assert (
+            "/families/{family_id}/growth/human-tasks/{task_id}/decisions"
+            in app.openapi()["paths"]
+        )
+    finally:
+        import asyncio
+
+        asyncio.run(engine.dispose())
+
+
 def test_create_app_rejects_a_second_vertical_composition_root() -> None:
     engine, wiring = _wiring()
     try:
