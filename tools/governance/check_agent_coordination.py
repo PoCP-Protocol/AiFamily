@@ -111,7 +111,9 @@ def check(repo_root: Path) -> list[str]:
         try:
             _run("git", "rev-parse", "--show-toplevel", cwd=path)
         except (subprocess.CalledProcessError, FileNotFoundError):
-            findings.append(f"{entry.get('task_id', '<unknown>')}: cwd is not a Git worktree: {cwd}")
+            findings.append(
+                f"{entry.get('task_id', '<unknown>')}: cwd is not a Git worktree: {cwd}"
+            )
 
     for index, left in enumerate(entries):
         left_paths = left.get("allowed_paths", [])

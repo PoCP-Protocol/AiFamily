@@ -5,6 +5,9 @@ authority:
   status: proposed
   rule: This file is an observed coordination register, not proof of implementation or production capability.
   updated_at: '2026-09-10'
+  integration_owner: null
+  integration_owner_required: true
+  integration_owner_rule: 'One named owner must own the exact HTTP/PG/browser integration ref; PMO, QA and domain agents may review or supply bounded dependencies but may not collectively substitute for that owner.'
 
 protocol:
   required_report_fields:
@@ -49,7 +52,21 @@ observed_threads:
     cwd: 'D:/AiFamily'
     status: IN_PROGRESS
     owner: chief-architect
+    base_ref: d43d765f9a9eaa2175273e4a5cbaf9b5253044c0
+    allowed_paths:
+      - governance/AGENT_COORDINATION.yaml
+      - docs/10_engineering/AGENT_COORDINATION_PROTOCOL.md
+      - tools/governance/check_agent_coordination.py
+      - tests/architecture/test_agent_coordination.py
     capability: program-control
+    current_truth: 'Coordination control plane is present; business AGI production capability remains unproven.'
+    claim: 'This task coordinates and verifies agent boundaries; it does not implement business capabilities.'
+    challenge: 'Unregistered dirty worktrees and missing exact integration refs remain blocking.'
+    evidence: 'git status, git worktree list, Codex task inventory, and coordination checker output'
+    blockers:
+      - 'Unregistered dirty worktrees'
+      - 'Missing exact HTTP integration ref for the assessment-to-experience chain'
+    next_gate: 'All active tasks return a valid heartbeat and one named integration owner supplies an exact ref.'
     last_observed: '2026-09-10'
     evidence: 'Codex thread inventory, pinned active task'
   - task_id: '01a051e8-694a-7033-914b-e8bcf1566ea6'
@@ -156,6 +173,10 @@ observed_threads:
     capability: mobile-experience
     last_observed: '2026-09-10'
     evidence: 'Frontend reports it will not expand UI until the unified draft/decision/growth-direction DTO exact ref exists'
+    blockers:
+      - 'This task is Web build ownership, not the family-growth integration owner'
+      - 'No unified DTO exact ref is available'
+    next_gate: 'Do not assign this task as integration owner; wait for the named integration owner to provide the DTO ref.'
 
 observed_worktree_policy:
   source: git worktree list --porcelain
@@ -190,3 +211,14 @@ decisions:
     decision: 'QA evidence gate remains Integration BLOCKED / NO-GO until one exact HTTP ref exists'
     authority: 'QA/Release thread 01a0517e-6f18-7242-ba77-b65c3e9e17e0'
     status: current
+  - id: DEC-20260910-003
+    decision: 'The family education/growth/relationship AGI main chain has no integration candidate until a single named owner supplies one exact HTTP/PG/browser ref.'
+    authority: governance/ADR/ADR-0158-agi-native-family-growth-platform.md
+    status: current
+    evidence:
+      - 'PMO thread returned no structured owner/ref decision'
+      - 'Platform Core thread returned no exact clean ref'
+      - 'Assessment thread returned no resolver ref'
+      - 'Experience thread completed without the required AGI integration artifact'
+      - 'QA remains Integration BLOCKED / NO-GO'
+    next_gate: 'PMO names the owner, base ref, exclusive pathspec and acceptance command; then QA receives exactly one candidate ref.'
