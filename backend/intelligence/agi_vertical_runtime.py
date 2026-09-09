@@ -581,6 +581,136 @@ class VerticalFamilyGrowthRuntime:
             raise VerticalRuntimeError("REVISION_NO_CHANGE")
         return revised
 
+    async def reflect(
+        self,
+        *,
+        run_id: str,
+        reflection_run_id: str,
+        family_id: str,
+        knowledge_ref: str | None = None,
+    ) -> EvaluationLedgerEntry:
+        """Generate a draft reflection from a prior growth run.
+
+        Reflection is a new child draft, never an update to the source run.
+        Only the scoped context, the source draft's bounded output, and
+        metadata-only feedback references enter the request.  The result
+        remains ``DRAFT`` and cannot become an outcome or fact here.
+        """
+
+        if not reflection_run_id.strip() or reflection_run_id == run_id:
+            raise VerticalRuntimeError("REFLECTION_RUN_ID_INVALID")
+        if self._run_families.get(run_id) != family_id:
+            raise VerticalRuntimeError("CONTEXT_SCOPE_MISMATCH")
+        if reflection_run_id in self._run_families:
+            existing = self.replay(run_id=reflection_run_id, family_id=family_id)
+            if existing.parent_run_id != run_id:
+                raise VerticalRuntimeError("REFLECTION_RUN_ID_CONFLICT")
+            return existing
+        source = self._ledger.replay(run_id)
+        context = await self._context.read(
+            family_id=family_id, context_snapshot_ref=source.context_snapshot_ref
+        )
+        if self._consent is not None and not await self._consent.is_current(
+            family_id=family_id,
+            subject_ids=context.subject_ids,
+            purpose=context.purpose,
+            consent_version=context.consent_version,
+        ):
+            raise VerticalRuntimeError("CONSENT_NOT_ACTIVE")
+        material = await self._knowledge.published(ref=knowledge_ref or source.knowledge_ref)
+        if material is None:
+            raise VerticalRuntimeError("KNOWLEDGE_NOT_PUBLISHED")
+        feedback_refs = await _feedback_latest(
+            self._feedback, family_need_id=source.family_need_id, family_id=family_id
+        )
+        request = StructuredRequest(
+            use_case="vertical_family_growth_reflection",
+            prompt_version="vertical-growth-reflection.v1",
+            schema_version="vertical-growth-reflection.v1",
+            data_class="MINOR_PERSONAL_DATA",
+            payload={
+                "family_need_id": source.family_need_id,
+                "path_id": source.path_id,
+                "source_run_id": source.run_id,
+                "source_draft": {
+                    "understanding": source.draft.output.get("understanding"),
+                    "next_step": source.draft.output.get("next_step"),
+                    "path": source.draft.output.get("path", ()),
+                },
+                "context": context.values,
+                "feedback_refs": feedback_refs,
+            },
+            output_schema={
+                "type": "object",
+                "required": ["what_changed", "what_helped", "next_question", "unknowns"],
+                "properties": {
+                    "what_changed": {"type": "string"},
+                    "what_helped": {"type": "string"},
+                    "next_question": {"type": "string"},
+                    "unknowns": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+            context_snapshot_ref=context.context_snapshot_ref,
+            input_refs=(source.run_id, source.family_need_id, *feedback_refs),
+            request_id=reflection_run_id,
+            tenant_id=context.tenant_id,
+            family_id=context.family_id,
+            prompt_execution_plan=PromptExecutionPlan(
+                prompt_ref="vertical-family-growth-reflection",
+                prompt_version="vertical-growth-reflection.v1",
+                template="Reflect on the bounded growth draft; never state a fact or diagnosis.",
+                system_policy_ref="family-growth-safety.v1",
+                safety_policy_version="family-growth-safety.v1",
+                knowledge_refs=(material.ref,),
+                asset_digest=context.snapshot_hash,
+                system_policy="Draft only; never write facts or outcomes.",
+                system_policy_digest="policy-digest",
+                knowledge_materials=(
+                    KnowledgeExecutionPayload(
+                        knowledge_ref=material.ref,
+                        content=material.content,
+                        source_ref=material.source,
+                        license_ref="reviewed",
+                        evidence_level="E3",
+                        content_digest=material.digest,
+                    ),
+                ),
+                material_digest=material.digest,
+            ),
+        )
+        draft = await self._gateway.generate_structured(request)
+        if draft.status != "DRAFT" or draft.may_mutate_business_state:
+            raise VerticalRuntimeError("DRAFT_ONLY_VIOLATION")
+        for field_name in ("what_changed", "what_helped", "next_question"):
+            value = draft.output.get(field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise VerticalRuntimeError("REFLECTION_OUTPUT_INVALID")
+        unknowns = draft.output.get("unknowns")
+        if not isinstance(unknowns, list) or any(
+            not isinstance(item, str) or not item.strip() for item in unknowns
+        ):
+            raise VerticalRuntimeError("REFLECTION_OUTPUT_INVALID")
+        entry = EvaluationLedgerEntry(
+            family_need_id=source.family_need_id,
+            path_id=source.path_id,
+            run_id=reflection_run_id,
+            context_snapshot_ref=context.context_snapshot_ref,
+            draft=draft,
+            feedback_refs=feedback_refs,
+            parent_run_id=source.run_id,
+            input_refs=request.input_refs,
+            prompt_ref=request.prompt_execution_plan.prompt_ref,
+            system_policy_ref=request.prompt_execution_plan.system_policy_ref,
+            knowledge_ref=material.ref,
+            knowledge_version=material.version,
+            lineage_ref=source.lineage_ref,
+            knowledge_source=material.source,
+            knowledge_digest=material.digest,
+        )
+        self._ledger.append(entry)
+        self._run_families[reflection_run_id] = family_id
+        return entry
+
 
 def _assert_capability_grounding(output: dict[str, Any], capability_refs: tuple[str, ...]) -> None:
     """Reject explicit model capability references absent from the reviewed catalogue."""

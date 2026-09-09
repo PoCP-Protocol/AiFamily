@@ -102,13 +102,37 @@ class RevisionGateway(Gateway):
         return ModelDraft(
             {"understanding": "启动阻力", "next_step": next_step, "path": []},
             AiProvenance(
+                "fake", "model", "v1", request.prompt_version, request.schema_version,
+                request.context_snapshot_ref, 1, request.data_class, request.use_case,
+            ),
+        )
+
+
+class ReflectionGateway(Gateway):
+    async def generate_structured(self, request, *, provider_id=None):
+        self.calls += 1
+        self.last_request = request
+        if request.use_case == "vertical_family_growth":
+            return ModelDraft(
+                {"understanding": "启动阻力", "next_step": "开始仪式", "path": ["拆解任务"]},
+                AiProvenance(
+                    "fake", "model", "v1", request.prompt_version, request.schema_version,
+                    request.context_snapshot_ref, 1, request.data_class, request.use_case,
+                ),
+            )
+        return ModelDraft(
+            {
+                "what_changed": "启动步骤更容易被看见了",
+                "what_helped": "把行动缩短到十分钟",
+                "next_question": "下次是否能由孩子选择开始时间？",
+                "unknowns": ["连续三天后的稳定性尚未确认"],
+            },
+            AiProvenance(
                 "fake", "model", "v1", request.prompt_version,
                 request.schema_version, request.context_snapshot_ref, 1,
                 request.data_class, request.use_case,
             ),
         )
-
-
 def test_guardian_decision_rejects_unbounded_calibration_fields():
     with pytest.raises(VerticalRuntimeError, match="GUARDIAN_CALIBRATION_FIELD_INVALID"):
         GuardianDecision("d", "n", "r", "p", "EDIT", {"raw_prompt": "secret"})
@@ -229,6 +253,74 @@ async def test_withdrawn_consent_fails_closed_before_gateway_generation():
         )
     assert consent.calls == 1
     assert gateway.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_reflection_creates_child_draft_without_rewriting_source_run():
+    gateway = ReflectionGateway()
+    ledger = EvaluationLedger()
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=gateway,
+        context=Context({"focus": "作业启动"}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=ledger,
+    )
+    source = await runtime.run(
+        family_need_id="need-reflect",
+        path_id="path-reflect",
+        run_id="run-source",
+        family_id="family-reflect",
+        knowledge_ref="growth.v1",
+    )
+    reflection = await runtime.reflect(
+        run_id=source.run_id,
+        reflection_run_id="run-reflection",
+        family_id="family-reflect",
+    )
+    assert reflection.parent_run_id == source.run_id
+    assert reflection.draft.status == "DRAFT"
+    assert reflection.draft.output["what_changed"]
+    assert ledger.replay("run-source") is source
+    assert gateway.last_request.use_case == "vertical_family_growth_reflection"
+    assert gateway.last_request.payload["source_run_id"] == "run-source"
+
+
+@pytest.mark.asyncio
+async def test_reflection_rejects_cross_family_and_replays_idempotently():
+    gateway = ReflectionGateway()
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=gateway,
+        context=Context({"focus": "作业启动"}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+    )
+    await runtime.run(
+        family_need_id="need-reflect-2",
+        path_id="path-reflect-2",
+        run_id="run-source-2",
+        family_id="family-reflect-2",
+        knowledge_ref="growth.v1",
+    )
+    with pytest.raises(VerticalRuntimeError, match="CONTEXT_SCOPE_MISMATCH"):
+        await runtime.reflect(
+            run_id="run-source-2",
+            reflection_run_id="run-reflection-2",
+            family_id="other-family",
+        )
+    first = await runtime.reflect(
+        run_id="run-source-2",
+        reflection_run_id="run-reflection-2",
+        family_id="family-reflect-2",
+    )
+    second = await runtime.reflect(
+        run_id="run-source-2",
+        reflection_run_id="run-reflection-2",
+        family_id="family-reflect-2",
+    )
+    assert first is second
+    assert gateway.calls == 2
 
 
 @pytest.mark.asyncio
