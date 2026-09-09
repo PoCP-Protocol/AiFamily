@@ -694,6 +694,13 @@ class SqlAlchemyFamilyNeedRepository:
         row = result.mappings().first()
         return _outcome_from_row(row) if row is not None else None
 
+    async def get_outcome(
+        self, *, tenant_id: str, family_id: str, outcome_id: str
+    ) -> FamilyConfirmedOutcome | None:
+        return await self._get_outcome(
+            tenant_id=tenant_id, family_id=family_id, outcome_id=outcome_id
+        )
+
     async def get_outcomes_for_need(
         self, *, tenant_id: str, family_id: str, need_id: str
     ) -> tuple[FamilyConfirmedOutcome, ...]:
@@ -754,6 +761,28 @@ class SqlAlchemyFamilyNeedRepository:
         except IntegrityError as exc:
             raise FamilyNeedConflictError("need_event_version_duplicate") from exc
 
+    async def list_events(
+        self, *, tenant_id: str, family_id: str, event_name: str, limit: int = 100
+    ) -> tuple[NeedEvent, ...]:
+        if limit <= 0 or limit > 1000:
+            raise ValueError("event limit must be between 1 and 1000")
+        result = await self._connection.execute(
+            text(
+                """
+                select * from family_need_events
+                where tenant_id=:tenant_id and family_id=:family_id and event_name=:event_name
+                order by created_at asc, event_id asc limit :limit
+                """
+            ),
+            {
+                "tenant_id": tenant_id,
+                "family_id": family_id,
+                "event_name": event_name,
+                "limit": limit,
+            },
+        )
+        return tuple(_event_from_mapping(row) for row in result.mappings().all())
+
     async def find_by_idempotency_key(
         self, *, tenant_id: str, family_id: str, idempotency_key: str
     ) -> NeedEvent | None:
@@ -782,20 +811,7 @@ class SqlAlchemyFamilyNeedRepository:
         row = result.mappings().first()
         if row is None:
             return None
-        return NeedEvent(
-            event_name=row["event_name"],
-            aggregate_id=row["aggregate_id"],
-            tenant_id=row["tenant_id"],
-            family_id=row["family_id"],
-            version=row["version"],
-            correlation_id=row["correlation_id"],
-            occurred_at=row["occurred_at"],
-            purpose=row["purpose"],
-            consent_version=row["consent_version"],
-            data_class=DataClass(row["data_class"]) if row["data_class"] else None,
-            subject_person_ids=tuple(row["subject_person_ids"] or ()),
-            idempotency_key=row["idempotency_key"],
-        )
+        return _event_from_mapping(row)
 
 
 def _idempotency_key_from_evidence(evidence_refs: tuple[EvidenceRef, ...]) -> None:
@@ -805,6 +821,18 @@ def _idempotency_key_from_evidence(evidence_refs: tuple[EvidenceRef, ...]) -> No
     # so a future signal-level idempotency key has one place to land.
     del evidence_refs
     return None
+
+
+def _event_from_mapping(row) -> NeedEvent:
+    return NeedEvent(
+        event_name=row["event_name"], aggregate_id=row["aggregate_id"],
+        tenant_id=row["tenant_id"], family_id=row["family_id"], version=row["version"],
+        correlation_id=row["correlation_id"], occurred_at=row["occurred_at"],
+        purpose=row["purpose"], consent_version=row["consent_version"],
+        data_class=DataClass(row["data_class"]) if row["data_class"] else None,
+        subject_person_ids=tuple(row["subject_person_ids"] or ()),
+        idempotency_key=row["idempotency_key"],
+    )
 
 
 def _signal_from_row(row) -> NeedSignal:

@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from backend.platform.persistence.session import clear_engine_cache
 from backend.workflow_worker.main import WorkflowWorkerSettings, build_runtime
-from backend.workflow_worker.runtime import WorkerState
+from backend.workflow_worker.runtime import ActivityExecution, WorkerState
 from tests.support.postgres import SKIP_REASON, postgres_test_url
 
 
@@ -99,3 +99,24 @@ async def test_worker_composition_runs_and_restarts_on_fresh_postgres(
         "accepted_named_actions",
         "growth_action_experience_relay",
     }
+
+
+@pytest.mark.asyncio
+async def test_worker_composition_accepts_explicit_additional_activity(
+    migrated_worker_database: str,
+) -> None:
+    class ReflectionActivity:
+        name = "family_need.outcome_reflection"
+
+        async def run_once(self) -> ActivityExecution:
+            return ActivityExecution(succeeded=True, result_type="OutcomeReflectionPollResult")
+
+    runtime = build_runtime(
+        _settings(migrated_worker_database, "workflow-worker:reflection"),
+        additional_activities=(ReflectionActivity(),),
+    )
+
+    outcomes = await runtime.run_cycle()
+
+    assert all(outcome.succeeded for outcome in outcomes)
+    assert [outcome.activity for outcome in outcomes][-1] == "family_need.outcome_reflection"

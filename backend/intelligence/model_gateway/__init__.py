@@ -74,6 +74,14 @@ from backend.intelligence.model_gateway.gateway import (
     ModelGateway,
     build_gateway,
 )
+from backend.intelligence.model_gateway.ibm_ica_wiring import (
+    IBM_ICA_DEFAULT_MODEL,
+    IBM_ICA_LIVECHECK_ENVIRONMENT,
+    IBM_ICA_PROVIDER_ID,
+    build_livecheck_ibm_ica_gateway,
+    ibm_ica_credentials_available,
+    ibm_ica_provider_registry,
+)
 from backend.intelligence.model_gateway.provenance import (
     InMemoryModelDraftRegistry,
     ModelDraftIdentity,
@@ -150,6 +158,12 @@ __all__ = [
     "build_secret_manager_openai_compatible_gateway_from_registry",
     "build_openai_compatible_provider",
     "build_openai_compatible_provider_from_lease",
+    "IBM_ICA_DEFAULT_MODEL",
+    "IBM_ICA_LIVECHECK_ENVIRONMENT",
+    "IBM_ICA_PROVIDER_ID",
+    "build_livecheck_ibm_ica_gateway",
+    "ibm_ica_credentials_available",
+    "ibm_ica_provider_registry",
     "CredentialLease",
     "CredentialLeaseMetadata",
     "CredentialRevocationChecker",

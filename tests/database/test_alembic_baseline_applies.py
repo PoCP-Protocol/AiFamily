@@ -133,6 +133,67 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
+    # 0058 owns two family_need assignment/outcome tables.
+    "0058_family_need_assignment_and_outcome": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 60,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0059 is alter-only (plan-resolution columns); no new tables.
+    "0059_family_need_assignment_plan_resolution": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 60,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0060 owns the product_improvement_candidates table.
+    "0060_product_improvement_candidates": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 61,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0061 is alter-only (growth-action AI provenance columns); no new tables.
+    "0061_growth_action_ai_provenance": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 61,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0062 owns the domain outbox consumer deliveries table.
+    "0062_domain_outbox_consumer_deliveries": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 62,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0063 owns the achievement feedback Human Gate table.
+    "0063_achievement_feedback_human_gate": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 63,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0064 owns the family experience signals table.
+    "0064_family_experience_signals": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 64,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0065 owns three experience feedback resolution tables.
+    "0065_experience_feedback_resolution": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 67,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0066 is alter-only (FGCN provider qualification columns); no new tables.
+    "0066_fgcn_provider_qualification_fields": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 67,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0067 is data-only (inserts FAMILY_SUPPORT_NEEDS v3/v4 rows into the
+    # existing `family_assessment_tools` table); no new tables.
+    "0067_family_support_needs_v4_item_bank": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 67,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
 }
 
 _MODEL_DRAFTS_ADR = (

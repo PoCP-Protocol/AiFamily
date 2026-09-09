@@ -18,9 +18,12 @@ from backend.intelligence.agi_growth_path_projection import (
 from backend.intelligence.agi_vertical_runtime import (
     EvaluationLedgerEntry,
     GuardianDecision,
+    VerticalFamilyGrowthRuntime,
+    VerticalRuntimeError,
 )
 from backend.intelligence.experience.run_http import InteractionType, RunReplaySnapshot, RunScope
 from backend.intelligence.experience.sql_run_ledger import AsyncExperienceRunLedger
+from backend.intelligence.model_gateway.contracts import AiProvenance, ModelDraft
 
 
 class DurableVerticalLedgerPort(Protocol):
@@ -29,6 +32,8 @@ class DurableVerticalLedgerPort(Protocol):
     async def append_interaction(self, **kwargs: Any) -> Any: ...
 
     async def replay(self, **kwargs: Any) -> RunReplaySnapshot: ...
+
+    async def feedback_refs(self, **kwargs: Any) -> tuple[str, ...]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +131,15 @@ class DurableVerticalLedgerAdapter:
     async def replay(self, *, run_id: str, scope: RunScope) -> RunReplaySnapshot:
         return await self._call(self._ledger.replay, scope=scope, run_id=run_id)
 
+    async def feedback_refs(self, *, scope: RunScope, family_need_id: str) -> tuple[str, ...]:
+        return tuple(
+            await self._call(
+                self._ledger.feedback_refs,
+                scope=scope,
+                family_need_id=family_need_id,
+            )
+        )
+
     async def project_growth_path(self, *, run_id: str, scope: RunScope) -> GrowthPathProjection:
         """Read the durable run and project the next growth direction."""
 
@@ -144,4 +158,85 @@ class DurableVerticalLedgerAdapter:
         return await self.replay(run_id=run_id, scope=scope)
 
 
-__all__ = ["DurableVerticalLedgerAdapter", "DurableVerticalRun"]
+class DurableVerticalGrowthRuntime:
+    """Production facade that makes durable replay the HTTP source of truth.
+
+    The generation pipeline remains the existing runtime, while every created
+    draft is immediately copied to the shared experience ledger.  Reads and
+    deletes never consult that process-local pipeline ledger.
+    """
+
+    def __init__(
+        self,
+        runtime: VerticalFamilyGrowthRuntime,
+        ledger: DurableVerticalLedgerAdapter,
+        scope_factory: Any,
+    ):
+        self._runtime = runtime
+        self._ledger = ledger
+        self._scope_factory = scope_factory
+
+    async def _scope(self, family_id: str) -> RunScope:
+        scope = self._scope_factory(family_id)
+        if inspect.isawaitable(scope):
+            scope = await scope
+        if not isinstance(scope, RunScope) or scope.family_id != family_id:
+            raise ValueError("durable vertical scope mismatch")
+        return scope
+
+    async def run(self, **kwargs: Any) -> EvaluationLedgerEntry:
+        entry = await self._runtime.run(**kwargs)
+        scope = await self._scope(kwargs["family_id"])
+        await self._ledger.save_entry(entry, scope=scope)
+        decision = kwargs.get("guardian_decision")
+        if decision is not None:
+            await self._ledger.record_guardian_decision(decision, scope=scope)
+        return entry
+
+    async def replay(self, *, run_id: str, family_id: str) -> EvaluationLedgerEntry:
+        snapshot = await self._ledger.replay(run_id=run_id, scope=await self._scope(family_id))
+        payload = snapshot.draft_payload
+        if not payload:
+            raise VerticalRuntimeError("EVALUATION_ENTRY_NOT_FOUND")
+        feedback_refs = list(payload.get("feedback_refs", ()))
+        guardian_calibration = payload.get("guardian_calibration")
+        for interaction in reversed(snapshot.interactions):
+            if interaction.interaction_type is not InteractionType.DECISION:
+                continue
+            decision_payload = dict(interaction.payload)
+            decision_ref = decision_payload.get("decision_ref")
+            if isinstance(decision_ref, str) and decision_ref not in feedback_refs:
+                feedback_refs.append(decision_ref)
+            guardian_calibration = {
+                "decision_ref": decision_ref,
+                "state": decision_payload.get("state"),
+                "edits": dict(decision_payload.get("edits", {})),
+            }
+            break
+        provenance_payload = dict(payload["provenance"])
+        provenance = AiProvenance(
+            **{
+                name: provenance_payload[name]
+                for name, field in AiProvenance.__dataclass_fields__.items()
+                if field.init and name in provenance_payload and name != "REQUIRED_IDENTITY_FIELDS"
+            }
+        )
+        return EvaluationLedgerEntry(
+            family_need_id=payload["family_need_id"],
+            path_id=payload["path_id"],
+            run_id=snapshot.run_id,
+            context_snapshot_ref=payload["context_snapshot_ref"],
+            draft=ModelDraft(output=dict(payload["output"]), provenance=provenance),
+            feedback_refs=tuple(feedback_refs),
+            guardian_calibration=guardian_calibration,
+            capability_refs=tuple(payload.get("capability_refs", ())),
+            knowledge_ref=payload.get("knowledge_ref", ""),
+            knowledge_version=payload.get("knowledge_version", ""),
+            lineage_ref=payload.get("lineage_ref", ""),
+        )
+
+    async def delete(self, *, run_id: str, family_id: str) -> RunReplaySnapshot:
+        return await self._ledger.delete(run_id=run_id, scope=await self._scope(family_id))
+
+
+__all__ = ["DurableVerticalGrowthRuntime", "DurableVerticalLedgerAdapter", "DurableVerticalRun"]

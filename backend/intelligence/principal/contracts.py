@@ -21,6 +21,7 @@ class PrincipalCapability(StrEnum):
     ASSESSMENT_INTERPRETATION = "assessment_interpretation"
     GROWTH_HYPOTHESIS_PRIORITIZATION = "growth_hypothesis_prioritization"
     GROWTH_PLAN_DRAFT = "growth_plan_draft"
+    VERTICAL_FAMILY_GROWTH = "vertical_family_growth"
     DAILY_ACTION_PROPOSAL = "daily_action_proposal"
     REFLECTION_PROCESS_PERSPECTIVE = "reflection_process_perspective"
     FAMILY_ASSISTANT_CONVERSATION = "family_assistant_conversation"

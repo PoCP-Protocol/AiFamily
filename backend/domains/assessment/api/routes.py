@@ -41,6 +41,7 @@ from ..application.growth_hypothesis_commands import (
 )
 from ..application.queries import (
     AssessmentQueryHandler,
+    GetUi01ProjectionQuery,
     GetUi02ProjectionQuery,
     GetUi03ProjectionQuery,
 )
@@ -110,6 +111,21 @@ def _assert_path_family(context: FamilyContext, family_id: str) -> None:
     """
     if context.family_id != family_id:
         raise HTTPException(status_code=403, detail="family_access_denied")
+
+
+@router.get("/{family_id}/ui/01/home")
+async def get_ui01_projection(
+    family_id: str,
+    context: FamilyContext = Depends(get_family_context),
+    handler: AssessmentQueryHandler = Depends(get_query_handler),
+    x_correlation_id: str | None = Header(default=None),
+) -> dict:
+    _assert_path_family(context, family_id)
+    return await handler.get_ui01_projection(
+        GetUi01ProjectionQuery(
+            family_id, context.tenant_id, context.person_id, x_correlation_id or ""
+        )
+    )
 
 
 @router.get(

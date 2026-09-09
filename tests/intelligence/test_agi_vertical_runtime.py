@@ -49,6 +49,21 @@ class Feedback:
         return ("feedback:guardian-edit",)
 
 
+class FeedbackWithPreferences(Feedback):
+    async def preferences(self, *, family_id, family_need_id):
+        return {"signal_counts": {"helpful": 1, "not_helpful": 2}, "sample_size": 3}
+
+
+class Consent:
+    def __init__(self, active: bool = True):
+        self.active = active
+        self.calls = 0
+
+    async def is_current(self, *, family_id, subject_ids, purpose, consent_version):
+        self.calls += 1
+        return self.active
+
+
 class Gateway:
     def __init__(self):
         self.calls = 0
@@ -144,6 +159,55 @@ async def test_two_family_contexts_reach_generation_as_distinct_inputs():
     second_payload = dict(gateway.last_request.payload)
     assert first_payload["context"] != second_payload["context"]
     assert first_payload["family_need_id"] != second_payload["family_need_id"]
+
+
+@pytest.mark.asyncio
+async def test_feedback_preferences_are_scoped_and_reach_next_generation_payload():
+    gateway = Gateway()
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=gateway,
+        context=Context({"focus": "作业启动"}),
+        knowledge=Knowledge(),
+        feedback=FeedbackWithPreferences(),
+        ledger=EvaluationLedger(),
+    )
+    await runtime.run(
+        family_need_id="need-preferences",
+        path_id="path-preferences",
+        run_id="run-preferences",
+        family_id="family-preferences",
+        knowledge_ref="growth.v1",
+    )
+
+    assert gateway.last_request.payload["feedback_preferences"] == {
+        "signal_counts": {"helpful": 1, "not_helpful": 2},
+        "sample_size": 3,
+    }
+
+
+@pytest.mark.asyncio
+async def test_withdrawn_consent_fails_closed_before_gateway_generation():
+    gateway = Gateway()
+    consent = Consent(active=False)
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=gateway,
+        context=Context({"focus": "作业启动"}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+        consent=consent,
+    )
+
+    with pytest.raises(VerticalRuntimeError, match="CONSENT_NOT_ACTIVE"):
+        await runtime.run(
+            family_need_id="need-consent",
+            path_id="path-consent",
+            run_id="run-consent",
+            family_id="family-consent",
+            knowledge_ref="growth.v1",
+        )
+    assert consent.calls == 1
+    assert gateway.calls == 0
 
 
 @pytest.mark.asyncio
@@ -491,6 +555,35 @@ async def test_guardian_decision_is_carried_into_next_round_and_replay_is_read_o
     assert deletion_ref == "deletion:run-2"
     with pytest.raises(VerticalRuntimeError, match="EVALUATION_ENTRY_NOT_FOUND"):
         ledger.replay("run-2")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["run_id", "path_id"])
+async def test_guardian_decision_correlation_must_match_requested_run(field: str):
+    decision_values = {
+        "decision_ref": "decision:mismatch",
+        "family_need_id": "need-1",
+        "run_id": "run-1",
+        "path_id": "path-1",
+        "state": "EDIT",
+    }
+    decision_values[field] = "other"
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=Gateway(),
+        context=Context({}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+    )
+    with pytest.raises(VerticalRuntimeError, match="GUARDIAN_DECISION_SCOPE_MISMATCH"):
+        await runtime.run(
+            family_need_id="need-1",
+            path_id="path-1",
+            run_id="run-1",
+            family_id="family-1",
+            knowledge_ref="growth.v1",
+            guardian_decision=GuardianDecision(**decision_values),
+        )
 
 
 @pytest.mark.asyncio

@@ -2,7 +2,6 @@ import pytest
 
 from backend.domains.product_intelligence.api.courseware_dependencies import (
     clear_courseware_gateway,
-    configure_courseware_gateway,
     get_courseware_gateway,
 )
 

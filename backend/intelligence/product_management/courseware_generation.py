@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from backend.domains.product_intelligence.application.courseware_draft_factory import (
-    build_courseware_draft_candidate,
-)
 from backend.domains.product_intelligence.domain.course_content import CourseLesson
 from backend.domains.product_intelligence.domain.courseware_draft import CoursewareDraft
 from backend.intelligence.model_gateway.contracts import ModelDraft, StructuredRequest
@@ -91,11 +88,12 @@ async def generate_courseware_draft(
         await gateway.generate_structured(request, provider_id=provider_id),
         evidence_refs=evidence_refs,
     )
-    candidate = build_courseware_draft_candidate(
-        lesson=lesson,
+    candidate = CoursewareDraft(
+        draft_id=f"courseware-draft:{lesson.lesson_id}:{kind.lower()}",
         tenant_scope=tenant_scope,
         product_package_version_ref=product_package_version_ref,
         course_system_version_ref=course_system_version_ref,
+        lesson_sequence=lesson.sequence,
         asset_bundle_version_ref=asset_bundle_version_ref,
         kind=kind,
         prompt_ref="prompt:courseware-generator@v1",

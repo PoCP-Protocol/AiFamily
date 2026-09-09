@@ -28,12 +28,12 @@ const CHALLENGE_CAMP_TARGET = productRoute("PRODUCT_PARENT_CHILD_CAMP");
 type HomeIcon = "heart.fill" | "gift.fill" | "calendar.fill" | "photo.fill" | "video.fill" | "headphones.fill" | "checkmark.circle.fill" | "book.fill";
 
 const QUICK_ENTRIES: readonly { featureId: string; label: string; icon: HomeIcon; color: string; target: Href }[] = [
-  { featureId: "ai_diagnostic", label: "AI诊断", icon: "heart.fill", color: "#35B9D7", target: routeForUi(UI01_HOME_TARGETS.aiInterpretation) },
-  { featureId: "challenge_camp", label: "21天挑战营", icon: "gift.fill", color: "#F06863", target: CHALLENGE_CAMP_TARGET },
-  { featureId: "plan_90", label: "90天成长计划", icon: "calendar.fill", color: "#36A866", target: routeForUi(UI01_HOME_TARGETS.plan90) },
-  { featureId: "growth_cases", label: "成长案例", icon: "photo.fill", color: "#F0A337", target: routeForUi(UI01_HOME_TARGETS.growthStories) },
-  { featureId: "expert_live", label: "专家直播", icon: "video.fill", color: "#55A6E9", target: routeForUi(UI01_HOME_TARGETS.expertLive) },
-  { featureId: "family_advisor", label: "家庭顾问", icon: "headphones.fill", color: "#EC725D", target: routeForUi(UI01_HOME_TARGETS.familyAdvisor) },
+  { featureId: "ai_diagnostic", label: "理解家庭", icon: "heart.fill", color: "#2C8E80", target: routeForUi(UI01_HOME_TARGETS.aiInterpretation) },
+  { featureId: "challenge_camp", label: "一起练习", icon: "gift.fill", color: "#D77B52", target: CHALLENGE_CAMP_TARGET },
+  { featureId: "plan_90", label: "成长方向", icon: "calendar.fill", color: "#4B8B68", target: routeForUi(UI01_HOME_TARGETS.plan90) },
+  { featureId: "growth_cases", label: "看看别家", icon: "photo.fill", color: "#B1844A", target: routeForUi(UI01_HOME_TARGETS.growthStories) },
+  { featureId: "expert_live", label: "听听专家", icon: "video.fill", color: "#557A9D", target: routeForUi(UI01_HOME_TARGETS.expertLive) },
+  { featureId: "family_advisor", label: "找人聊聊", icon: "headphones.fill", color: "#A66C60", target: routeForUi(UI01_HOME_TARGETS.familyAdvisor) },
 ];
 
 const RECOMMENDATIONS: readonly { title: string; target: Href }[] = [
@@ -108,6 +108,7 @@ export default function TodayScreen() {
   const [growthRecommendation, setGrowthRecommendation] = useState<GrowthRecommendation | null>(null);
   const [growthDecision, setGrowthDecision] = useState<GrowthDecision | null>(null);
   const [growthHelpAdvancing, setGrowthHelpAdvancing] = useState(false);
+  const [moreToolsOpen, setMoreToolsOpen] = useState(false);
   const growthHelpRetry = useRef<{ fingerprint: string; key: string } | null>(null);
   const growthIntentRetry = useRef<{ fingerprint: string; confirmKey: string; recommendationKey: string } | null>(null);
   const growthDecisionRetry = useRef<{ fingerprint: string; key: string } | null>(null);
@@ -186,6 +187,7 @@ export default function TodayScreen() {
   const recommendationItems = home ? home.recommendations : RECOMMENDATIONS.map((item, index) => ({ recommendation_id: `local-${index}`, title: item.title, source_type: "PRODUCT_OFFERING" as const, target_ui: "UI-13" }));
 
   const open = (target: Href) => router.push(target);
+  const openAssessment = () => open(routeForUi(UI01_HOME_TARGETS.freeAssessment));
 
   const openAchievements = (achievementId?: string) => {
     if (session.status === "connected" && session.token && session.selectedFamily && achievementNotifications.length > 0) {
@@ -291,7 +293,10 @@ export default function TodayScreen() {
         ListHeaderComponent={
           <View style={styles.page}>
             <View style={styles.topBar}>
-              <Text style={[styles.platformTitle, { color: colors.text }]}>家庭成长平台</Text>
+              <View style={styles.brandLockup}>
+                <View style={[styles.brandMark, { backgroundColor: colors.tint }]}><IconSymbol name="heart.fill" size={16} color="#FFFFFF" /></View>
+                <View><Text style={[styles.platformTitle, { color: colors.text }]}>AiFamily</Text><Text style={[styles.brandCaption, { color: colors.muted }]}>陪你把事情想清楚</Text></View>
+              </View>
               <View style={styles.topActions}>
                 <Pressable accessibilityRole="button" accessibilityLabel="更多与家庭档案" onPress={() => open(routeForUi("UI-34"))}><IconSymbol name="ellipsis" size={25} color={colors.text} /></Pressable>
                 <Pressable accessibilityRole="button" accessibilityLabel="查看家庭上下文" onPress={() => open(routeForUi("UI-34"))}><IconSymbol name="eye.fill" size={22} color={colors.text} /></Pressable>
@@ -299,7 +304,7 @@ export default function TodayScreen() {
             </View>
 
             <View style={styles.welcomeRow}>
-              <Text style={[styles.welcome, { color: colors.text }]}>{greeting}{home?.family.display_name ? `，${home.family.display_name}` : ""}{"\n"}今天也一起陪孩子成长 ☀</Text>
+              <Text style={[styles.welcome, { color: colors.text }]}>{greeting}{home?.family.display_name ? `，${home.family.display_name}` : ""}{"\n"}<Text style={styles.welcomeAccent}>今天，先照顾好一件事</Text></Text>
               <Pressable disabled={home?.notification?.state === "NOT_CONFIGURED"} accessibilityRole="button" accessibilityLabel={home?.notification?.state === "NOT_CONFIGURED" ? "提醒功能尚未配置" : "提醒"} onPress={() => open(routeForUi("UI-34"))} style={home?.notification?.state === "NOT_CONFIGURED" ? styles.disabled : undefined}><IconSymbol name="bell.fill" size={25} color={colors.text} /></Pressable>
             </View>
 
@@ -308,15 +313,26 @@ export default function TodayScreen() {
 
             {achievementLoading ? <View style={styles.statusPanel}><ActivityIndicator color={colors.tint} /><Text style={[styles.statusText, { color: colors.muted }]}>正在同步家庭成就</Text></View> : null}
             {achievementError ? <Pressable accessibilityRole="button" accessibilityLabel="重试同步家庭成就" onPress={() => void loadAchievements()} style={[styles.statusPanel, { borderColor: colors.border }]}><Text style={[styles.statusText, { color: colors.error }]}>{achievementError}</Text><Text style={[styles.retryText, { color: colors.tint }]}>点击重试</Text></Pressable> : null}
-            {achievementNotifications.length > 0 ? <Pressable accessibilityRole="button" accessibilityLabel={`查看 ${achievementNotifications.length} 条新成就提醒`} onPress={() => openAchievements()} style={[styles.achievementNotice, { backgroundColor: `${colors.primary}10`, borderColor: `${colors.primary}30` }]}><IconSymbol name="bell.fill" size={18} color={colors.primary} /><Text style={[styles.achievementNoticeText, { color: colors.text }]}>你有 {achievementNotifications.length} 条新的家庭成就提醒</Text><IconSymbol name="chevron.right" size={16} color={colors.muted} /></Pressable> : null}
-            {achievementProjection ? <AchievementRail projection={achievementProjection} onOpenAchievement={(achievementId) => openAchievements(achievementId)} onContinue={() => open(routeForUi(UI01_HOME_TARGETS.dailyTasks))} /> : null}
 
-            <Pressable disabled={home?.assessment_campaign.state === "POLICY_BLOCKED"} accessibilityRole="button" accessibilityLabel="免费家庭测评" onPress={() => open(routeForUi(UI01_HOME_TARGETS.freeAssessment))} style={({ pressed }) => [home?.assessment_campaign.state === "POLICY_BLOCKED" && styles.disabled, pressed && styles.pressed]}>
-              <AssessmentBannerArt />
+            <Pressable disabled={home?.assessment_campaign.state === "POLICY_BLOCKED"} accessibilityRole="button" accessibilityLabel="今晚先做一件事" onPress={openAssessment} style={({ pressed }) => [styles.focusCard, { backgroundColor: colors.text }, home?.assessment_campaign.state === "POLICY_BLOCKED" && styles.disabled, pressed && styles.pressed]}>
+              <View style={styles.focusGlow} />
+              <View style={styles.focusCopy}>
+                <Text style={styles.focusKicker}>{home?.primary_action ? "今天的家庭方向" : "从了解开始"}</Text>
+                <Text style={styles.focusTitle}>{home?.primary_action?.assignment_text ?? "先完成一次家庭测评"}</Text>
+                <Text style={styles.focusHint}>{home?.primary_action ? "不用一次解决全部问题，先选一个双方都能接受的下一步。" : "用几分钟描述最近的真实情况，再由你决定要不要继续。"}</Text>
+                <View style={styles.focusButton}><Text style={styles.focusButtonText}>{home?.primary_action ? "查看今晚行动" : "开始家庭测评"}</Text><IconSymbol name="chevron.right" size={16} color={colors.text} /></View>
+              </View>
+              <View style={styles.focusOrb}><IconSymbol name="star.fill" size={34} color="#F8C76A" /></View>
             </Pressable>
 
-            <View style={[styles.quickGrid, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              {QUICK_ENTRIES.map((entry) => {
+            <View style={styles.sectionTopline}>
+              <View><Text style={[styles.sectionTitle, { color: colors.text }]}>从这里继续</Text><Text style={[styles.sectionMeta, { color: colors.muted }]}>选一个现在最有帮助的方向</Text></View>
+              <Pressable accessibilityRole="button" accessibilityLabel={moreToolsOpen ? "收起更多家庭工具" : "查看更多家庭工具"} onPress={() => setMoreToolsOpen((value) => !value)} style={styles.moreToolsToggle}>
+                <Text style={[styles.moreText, { color: colors.tint }]}>{moreToolsOpen ? "收起" : "更多"}</Text><IconSymbol name="chevron.down" size={16} color={colors.tint} style={moreToolsOpen ? styles.chevronOpen : undefined} />
+              </Pressable>
+            </View>
+            <View style={[styles.quickGrid, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+              {QUICK_ENTRIES.slice(0, 3).map((entry) => {
                 const remoteEntry = home?.quick_entries.find((candidate) => candidate.feature_id === entry.featureId);
                 const availability = remoteEntry?.availability ?? "AVAILABLE";
                 return (
@@ -327,9 +343,10 @@ export default function TodayScreen() {
               )})}
             </View>
 
-            <Pressable accessibilityRole="button" accessibilityLabel="试试AI教练" onPress={() => router.push("/ai-coach-mvp")} style={({ pressed }) => [styles.quickEntry, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }, pressed && styles.pressed]}>
-              <IconSymbol name="heart.fill" size={22} color={colors.tint} />
-              <Text style={[styles.quickLabel, { color: colors.text }]}>试试 AI 教练</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="试试AI教练" onPress={() => router.push("/ai-coach-mvp")} style={({ pressed }) => [styles.coachRow, { backgroundColor: colors.surface, borderColor: colors.border }, pressed && styles.pressed]}>
+              <View style={[styles.coachIcon, { backgroundColor: `${colors.tint}14` }]}><IconSymbol name="star.fill" size={19} color={colors.tint} /></View>
+              <View style={styles.coachCopy}><Text style={[styles.coachTitle, { color: colors.text }]}>想把最近的事理一理？</Text><Text style={[styles.coachSubtitle, { color: colors.muted }]}>先整理出一个你愿意尝试的方向</Text></View>
+              <IconSymbol name="chevron.right" size={17} color={colors.muted} />
             </Pressable>
 
             {SHOW_UI01_GROWTH_HELP_PANEL ? <View style={[styles.growthHelpCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -350,8 +367,17 @@ export default function TodayScreen() {
                       const available = subject.availability === "AVAILABLE";
                       const selected = growthHelpSubjectId === subject.person_id;
                       return <Pressable key={subject.person_id} disabled={!available} accessibilityRole="button" accessibilityState={{ selected, disabled: !available }} accessibilityLabel={`${subject.display_name}${available ? "" : subject.availability === "CONSENT_REQUIRED" ? "，需要服务同意" : "，不在服务年龄范围"}`} onPress={() => { setGrowthHelpSubjectId(subject.person_id); setGrowthHelpResult(null); setGrowthRecommendation(null); setGrowthDecision(null); setGrowthHelpError(null); }} style={[styles.subjectChip, { borderColor: selected ? colors.tint : colors.border, backgroundColor: selected ? `${colors.tint}12` : colors.background }, !available && styles.disabled]}><Text style={[styles.subjectChipText, { color: selected ? colors.tint : colors.text }]}>{subject.display_name}</Text></Pressable>;
-                    })}
-                  </View>
+              })}
+            </View>
+            {moreToolsOpen ? <View style={[styles.moreToolsPanel, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+              {QUICK_ENTRIES.slice(3).map((entry) => {
+                const remoteEntry = home?.quick_entries.find((candidate) => candidate.feature_id === entry.featureId);
+                const availability = remoteEntry?.availability ?? "AVAILABLE";
+                return <Pressable disabled={availability !== "AVAILABLE"} key={entry.label} accessibilityRole="button" accessibilityLabel={entry.label} onPress={() => open(entry.target)} style={({ pressed }) => [styles.moreToolRow, availability !== "AVAILABLE" && styles.disabled, pressed && styles.pressed]}><View style={[styles.moreToolIcon, { backgroundColor: `${entry.color}18` }]}><IconSymbol name={entry.icon} size={19} color={entry.color} /></View><Text style={[styles.moreToolLabel, { color: colors.text }]}>{remoteEntry?.title ?? entry.label}</Text><IconSymbol name="chevron.right" size={16} color={colors.muted} /></Pressable>;
+            })}
+            </View> : null}
+            {moreToolsOpen && achievementNotifications.length > 0 ? <Pressable accessibilityRole="button" accessibilityLabel={`查看 ${achievementNotifications.length} 条新成就提醒`} onPress={() => openAchievements()} style={[styles.achievementNotice, { backgroundColor: `${colors.primary}10`, borderColor: `${colors.primary}30` }]}><IconSymbol name="bell.fill" size={18} color={colors.primary} /><Text style={[styles.achievementNoticeText, { color: colors.text }]}>你有 {achievementNotifications.length} 条新的家庭成就提醒</Text><IconSymbol name="chevron.right" size={16} color={colors.muted} /></Pressable> : null}
+            {moreToolsOpen && achievementProjection ? <AchievementRail projection={achievementProjection} onOpenAchievement={(achievementId) => openAchievements(achievementId)} onContinue={() => open(routeForUi(UI01_HOME_TARGETS.dailyTasks))} /> : null}
                   <Text style={[styles.growthHelpLabel, { color: colors.text }]}>现在发生了什么？</Text>
                   <TextInput accessibilityLabel="描述需要帮助的事情" multiline maxLength={500} textAlignVertical="top" value={growthHelpText} onChangeText={(value) => { setGrowthHelpText(value); setGrowthHelpResult(null); setGrowthRecommendation(null); setGrowthDecision(null); setGrowthHelpError(null); }} placeholder="例如：孩子刚摔门，我今晚不知道怎么重新开口……" placeholderTextColor={colors.muted} style={[styles.growthHelpInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.background }]} />
                   <Text style={[styles.growthHelpBoundary, { color: colors.muted }]}>只有点击“提交并获取下一步”后才会发送；首页不会自动分析家庭文字。</Text>
@@ -374,9 +400,7 @@ export default function TodayScreen() {
             </View> : null}
 
             {home?.journey ? <Pressable accessibilityRole="button" accessibilityLabel="查看当前90天成长旅程" onPress={() => open(routeForUi(UI01_HOME_TARGETS.plan90))} style={[styles.journeyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}><Text style={[styles.journeyTitle, { color: colors.text }]}>{home.journey.title}</Text><Text style={[styles.journeyMeta, { color: colors.muted }]}>第 {home.journey.current_day}/{home.journey.total_days} 天 · {home.journey.current_phase}</Text></Pressable> : null}
-            {home?.primary_action ? <Pressable accessibilityRole="button" accessibilityLabel="今晚一件事" onPress={() => open(routeForUi(UI01_HOME_TARGETS.dailyTasks))} style={[styles.primaryAction, { backgroundColor: `${colors.tint}10`, borderColor: `${colors.tint}40` }]}><Text style={[styles.primaryEyebrow, { color: colors.tint }]}>今晚一件事</Text><Text style={[styles.primaryText, { color: colors.text }]}>{home.primary_action.assignment_text}</Text></Pressable> : null}
-
-            <SectionTitle title="今日成长任务" action="查看全部" onPress={() => open(routeForUi(UI01_HOME_TARGETS.dailyTasks))} colors={colors} />
+            <SectionTitle title="今天的安排" action="查看全部" onPress={() => open(routeForUi(UI01_HOME_TARGETS.dailyTasks))} colors={colors} />
             <View style={[styles.taskList, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               {home && tasks.length === 0 ? <View style={styles.emptyRow}><Text style={[styles.statusText, { color: colors.muted }]}>今天还没有安排成长行动，可以从测评或成长计划开始。</Text></View> : null}
               {tasks.map((task, index) => (
@@ -388,7 +412,7 @@ export default function TodayScreen() {
               ))}
             </View>
 
-            <SectionTitle title="推荐内容/服务" action="更多" onPress={() => open(routeForUi(UI01_HOME_TARGETS.recommendations))} colors={colors} />
+            <SectionTitle title="给你的参考" action="更多" onPress={() => open(routeForUi(UI01_HOME_TARGETS.recommendations))} colors={colors} />
             <View style={styles.recommendationRow}>
               {home && recommendationItems.length === 0 ? <View style={[styles.emptyRecommendation, { backgroundColor: colors.surface, borderColor: colors.border }]}><Text style={[styles.statusText, { color: colors.muted }]}>当前没有已审核上架的内容或服务。</Text></View> : null}
               {recommendationItems.map((item, index) => (
@@ -427,15 +451,41 @@ function SectionTitle({ title, action, onPress, colors }: { title: string; actio
 const styles = StyleSheet.create({
   content: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 92 },
   page: { gap: 15 },
-  topBar: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  platformTitle: { fontSize: 21, lineHeight: 29, fontWeight: "900" },
+  topBar: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  brandLockup: { flexDirection: "row", alignItems: "center", gap: 9 },
+  brandMark: { width: 30, height: 30, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  platformTitle: { fontSize: 18, lineHeight: 22, fontWeight: "900" },
+  brandCaption: { fontSize: 10, lineHeight: 14, fontWeight: "600", marginTop: 1 },
   topActions: { flexDirection: "row", alignItems: "center", gap: 18, paddingHorizontal: 4 },
   welcomeRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", paddingTop: 2 },
   welcome: { flex: 1, paddingRight: 16, fontSize: 22, lineHeight: 31, fontWeight: "900" },
+  welcomeAccent: { color: "#276EF1" },
 
-  quickGrid: { borderWidth: 1, borderRadius: 19, overflow: "hidden", flexDirection: "row", flexWrap: "wrap" },
-  quickEntry: { width: "33.333%", minHeight: 98, alignItems: "center", justifyContent: "center", gap: 8, borderRightWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: "#EDF1F5", paddingHorizontal: 6 },
+  focusCard: { minHeight: 214, borderRadius: 25, padding: 20, overflow: "hidden", flexDirection: "row" },
+  focusGlow: { position: "absolute", right: -52, top: -48, width: 190, height: 190, borderRadius: 95, backgroundColor: "#183B72" },
+  focusCopy: { flex: 1, zIndex: 2, gap: 7 },
+  focusKicker: { color: "#9FB9DF", fontSize: 12, lineHeight: 17, fontWeight: "800" },
+  focusTitle: { color: "#FFFFFF", fontSize: 24, lineHeight: 31, fontWeight: "900", maxWidth: 220 },
+  focusHint: { color: "#C8D7ED", fontSize: 13, lineHeight: 20, fontWeight: "600", maxWidth: 260 },
+  focusButton: { alignSelf: "flex-start", minHeight: 40, marginTop: 8, borderRadius: 20, paddingHorizontal: 15, backgroundColor: "#FFFFFF", flexDirection: "row", alignItems: "center", gap: 4 },
+  focusButtonText: { color: "#10213B", fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  focusOrb: { position: "absolute", right: 22, bottom: 22, width: 70, height: 70, borderRadius: 35, backgroundColor: "#254E8B", alignItems: "center", justifyContent: "center" },
+
+  sectionMeta: { fontSize: 12, lineHeight: 17, fontWeight: "700" },
+  quickGrid: { borderWidth: 1, borderRadius: 19, overflow: "hidden", flexDirection: "row" },
+  quickEntry: { flex: 1, minHeight: 96, alignItems: "center", justifyContent: "center", gap: 8, borderRightWidth: StyleSheet.hairlineWidth, borderColor: "#EDF1F5", paddingHorizontal: 6 },
   quickLabel: { fontSize: 13, lineHeight: 18, fontWeight: "700", textAlign: "center" },
+  moreToolsToggle: { minHeight: 34, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 2 },
+  chevronOpen: { transform: [{ rotate: "180deg" }] },
+  moreToolsPanel: { borderWidth: 1, borderRadius: 16, overflow: "hidden", paddingHorizontal: 12 },
+  moreToolRow: { minHeight: 54, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#EDF1F5" },
+  moreToolIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  moreToolLabel: { flex: 1, fontSize: 14, lineHeight: 20, fontWeight: "700" },
+  coachRow: { minHeight: 68, borderWidth: 1, borderRadius: 17, paddingHorizontal: 13, flexDirection: "row", alignItems: "center", gap: 11 },
+  coachIcon: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  coachCopy: { flex: 1, gap: 2 },
+  coachTitle: { fontSize: 15, lineHeight: 21, fontWeight: "900" },
+  coachSubtitle: { fontSize: 12, lineHeight: 18, fontWeight: "600" },
   growthHelpCard: { borderWidth: 1, borderRadius: 17, overflow: "hidden" },
   growthHelpHeader: { minHeight: 78, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 11 },
   growthHelpIcon: { width: 42, height: 42, borderRadius: 13, alignItems: "center", justifyContent: "center" },

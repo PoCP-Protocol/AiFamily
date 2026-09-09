@@ -73,3 +73,38 @@ async def test_vertical_adapter_postgres_restart_decision_delete_and_scope(
         assert deleted.deletion_state == "deleted"
         assert deleted.draft_payload is None
         assert not deleted.artifact_refs
+
+
+@pytest.mark.asyncio
+async def test_vertical_adapter_postgres_repeated_create_and_decision_are_idempotent(
+    postgres_session_factory,
+):
+    """A retry after a client timeout must replay, not append another event."""
+
+    scope = RunScope("tenant-pg-retry", "family-pg-retry", ("child-pg-retry",))
+    async with postgres_session_factory() as writer:
+        adapter = DurableVerticalLedgerAdapter(SqlAlchemyExperienceRunLedger(writer))
+        async with writer.begin():
+            saved_entry = _entry()
+            first = await adapter.save_entry(saved_entry, scope=scope)
+            replay = await adapter.save_entry(saved_entry, scope=scope)
+        assert replay.snapshot.event_sequence == first.snapshot.event_sequence
+
+    decision = GuardianDecision(
+        "decision:pg-retry", "need-pg-1", "run-pg-1", "path-pg-1", "EDIT"
+    )
+    async with postgres_session_factory() as writer:
+        adapter = DurableVerticalLedgerAdapter(SqlAlchemyExperienceRunLedger(writer))
+        async with writer.begin():
+            await adapter.record_guardian_decision(decision, scope=scope)
+            await adapter.record_guardian_decision(decision, scope=scope)
+
+    async with postgres_session_factory() as reader:
+        adapter = DurableVerticalLedgerAdapter(SqlAlchemyExperienceRunLedger(reader))
+        replay = await adapter.replay(run_id="run-pg-1", scope=scope)
+        decisions = [
+            item
+            for item in replay.interactions
+            if item.payload.get("decision_ref") == "decision:pg-retry"
+        ]
+        assert len(decisions) == 1

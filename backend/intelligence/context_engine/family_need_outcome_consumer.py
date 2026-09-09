@@ -19,6 +19,10 @@ class ConfirmedOutcomeReader(Protocol):
         self, *, tenant_id: str, family_id: str, outcome_id: str
     ) -> object | None: ...
 
+    async def list_events(
+        self, *, tenant_id: str, family_id: str, event_name: str, limit: int = 100
+    ) -> tuple[OutcomeConfirmedEvent, ...]: ...
+
 
 class OutcomeConfirmedEvent(Protocol):
     """Structural event contract owned by the AI runtime boundary.
@@ -85,6 +89,23 @@ class FamilyNeedOutcomeReflectionConsumer:
         await self._writer.record_family_need_outcome(outcome, scope=scope)
         self._processed.add(event_key)
         return True
+
+    async def consume_pending(self, *, scope: ContextScope, limit: int = 100) -> int:
+        """Consume a bounded batch from the durable FamilyNeed event stream."""
+
+        if limit <= 0 or limit > 1000:
+            raise ValueError("event limit must be between 1 and 1000")
+        events = await self._reader.list_events(
+            tenant_id=scope.tenant_id,
+            family_id=scope.family_id,
+            event_name="family_need.outcome_confirmed",
+            limit=limit,
+        )
+        processed = 0
+        for event in events:
+            if await self.consume(event, scope=scope):
+                processed += 1
+        return processed
 
 
 __all__ = [

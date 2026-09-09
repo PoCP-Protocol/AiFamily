@@ -1945,6 +1945,43 @@ entries:
     known_gaps:
       - "当前仅为进程内契约，无持久化 ProductCharter、运营审批工作流、版本发布与 family_api 运行时接线"
 
+  - capability: capability_registry_runtime
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence
+      - backend/intelligence/capability_registry
+      - tests/intelligence/capability_registry
+    status: MIGRATED_TESTED
+    evidence:
+      - "CapabilityOffer 与 fail-closed registry 已实现，支持能力版本登记、状态转换和按版本读取"
+      - "tests/intelligence/capability_registry 覆盖必填字段、重复登记、状态转换与未知能力拒绝"
+    reason: "为 AI Runtime 提供统一能力目录边界；当前仅内存实现，不拥有业务事实"
+    known_gaps:
+      - "尚未接入 durable catalog、family_api 查询接口与发布审计流水"
+
+  - capability: vertical_family_growth_ai_runtime
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/agi_vertical_runtime.py
+      - backend/intelligence/agi_vertical_durable.py
+      - backend/intelligence/agi_vertical_composition.py
+      - backend/intelligence/agi_growth_path_projection.py
+      - tests/intelligence/test_agi_vertical_runtime.py
+      - tests/intelligence/test_agi_vertical_durable.py
+      - tests/intelligence/test_agi_vertical_composition.py
+    status: MIGRATED_TESTED
+    evidence:
+      - "运行时通过 ModelGatewayPort 生成结构化 ModelDraft，并拒绝非 DRAFT 或可变更业务状态的输出"
+      - "Context/Knowledge/Feedback/Capability ports 明确隔离家庭作用域、发布知识与能力供给"
+      - "DurableVerticalLedgerAdapter 复用 Experience run ledger，支持幂等创建、Guardian 决策、回放和删除"
+      - "tests/intelligence/test_agi_vertical_runtime.py、test_agi_vertical_durable.py、test_agi_vertical_composition.py 已覆盖核心契约"
+    reason: "垂直家庭成长 AGI 是 AiFamily intelligence 层的重新实现能力，不从旧仓库迁入领域事实或供应商调用"
+    known_gaps:
+      - "尚无独立 HTTP surface、PostgreSQL vertical 表和真实部署证据"
+      - "真实双家庭隔离、重启读回、Consent 撤回/删除级联仍待验收"
+
 # ============ 待人工裁决清单（disposition = REVIEW_REQUIRED 的完整索引） ============
 review_required_index:
   - docs_current_baseline_CONTRADICTION   # 最高优先级——与源仓库既有Python迁移计划的关系

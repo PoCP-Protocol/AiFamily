@@ -118,6 +118,16 @@ Python 依赖只用 **uv** + `pyproject.toml`。禁止 pip/poetry/pipenv/require
 
 > **伤疤（治理漂移）**：`50_开发_dev/governance/FPAI_PROVIDER_REGISTRY.yaml` 声明 3 个供应商，而由它生成的运行时快照 `packages/principal-runtime/src/provider-registry.generated.ts` 只有 2 个（缺 `deepseek-chat`）。生成器 `tools/build_provider_policy_snapshot.py --check` 在基线 commit 上就是 exit 1 —— **一个正在失败的不变量被提交进了主线**，因为 CI 没有跑它。源仓库全域只有一个真正生效的 CI workflow（`.github/workflows/family-35ui-alignment.yml`），且被 path filter 限定在 mobile/api/contracts 三处。
 
+### R15 — 分支必须在窗口期内接入组合根或降级 (Branches Must Wire In Or Be Archived)
+
+任何 `codex/*` / `feat/*` / `chief/*` 等探索性分支，自其最后一次真实功能 commit 起 **7 天内**必须完成以下二者之一：
+1. 真实接入组合根（`main.py` / `dev_wiring.py` 中出现对应 `include_router` / `install_*_wiring` 调用），并开 PR；
+2. 被显式标记为 `archive/*` tag 并从远端分支列表删除（代码不丢失，只是不再以"活跃分支"形态存在）。
+
+超过窗口期仍未接组合根、且无对应 PR 的分支，视为**未完成的孤儿代码**，不计入"已完成能力"，任何汇报中禁止将其描述为"已实现"。
+
+> **伤疤**：AIFAMILY-000 之后的并行 AI agent 开发阶段，累计产生 99 条远端分支，逐条 `git merge-base` 取证后：仅 13 条（约 13%）真正值得合并，其中多条还需要人工排查真实回归后才能合入；60+ 条判定为 `SUPERSEDED_BY_ANOTHER_BRANCH` 或 `EXPERIMENTAL_ONLY`，本质是同一能力被多个 agent 各自重复实现、互不知晓对方存在。最典型案例是"小橘灯"直播能力：18 条独立分支各自实现了房间/推流/审核/回放/商业化的碎片，**没有一条接入组合根**，其中一条 (`xiaojudeng-ai-sandbox`) 的 `main.py` 甚至倒退回 27 行的 Wave-1 骨架，若被误合并会删除 main 当时已有的 AI Coach/Product Intelligence/Commerce 等生产能力。这些分支的存在本身没有代价（探索是必要的），代价在于**无限期存活、无人认领、无淘汰机制**，导致后来者要花掉与"新建整套治理团队"同等量级的取证成本才能分辨哪些是真实进展、哪些是死代码。
+
 ---
 
 ## 2. 强制执行状态
@@ -134,6 +144,7 @@ Python 依赖只用 **uv** + `pyproject.toml`。禁止 pip/poetry/pipenv/require
 | R4 无测试不得称能力 | 部分 | Wave 1 起：DOMAIN_REGISTRY 中 `status: ACTIVE` 必须有测试路径 |
 | R5 合成数据隔离 | 是 | Wave 1 起：路由层禁止 `SYNTHETIC` 标记产物 |
 | R6 / R8 / R9 / R10 | 是 | Wave 1–5 逐步接入，随能力落地同 PR 补测试 |
+| R15 分支窗口期治理 | 部分 | `tools/governance/check_stale_branches.py`（CI 周期任务，非强制阻断，先观测再收紧） |
 
 **未被架构测试覆盖的规则，只是意图，不是护栏。** 上表右列必须随每个 Wave 收敛，任何一行长期停留在"部分"即为治理债务。
 

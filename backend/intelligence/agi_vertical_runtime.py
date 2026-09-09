@@ -132,7 +132,30 @@ class RegistryKnowledgePort:
 
 
 class FeedbackPort(Protocol):
-    async def latest(self, *, family_need_id: str) -> tuple[str, ...]: ...
+    async def latest(
+        self, *, family_need_id: str, family_id: str | None = None
+    ) -> tuple[str, ...]: ...
+
+    async def preferences(self, *, family_id: str, family_need_id: str) -> object | None: ...
+
+
+class ConsentPort(Protocol):
+    """Live consent check used by the vertical runtime.
+
+    Implementations must read the current consent record for every call.  The
+    runtime intentionally accepts a port rather than a cached boolean so that
+    withdrawal takes effect before the next generation and cannot leave an
+    already-created context snapshot as an implicit permission.
+    """
+
+    async def is_current(
+        self,
+        *,
+        family_id: str,
+        subject_ids: tuple[str, ...],
+        purpose: str,
+        consent_version: str,
+    ) -> bool: ...
 
 
 class ModelGatewayPort(Protocol):
@@ -234,6 +257,7 @@ class VerticalFamilyGrowthRuntime:
         feedback: FeedbackPort,
         ledger: EvaluationLedger,
         capabilities: CapabilityPort | None = None,
+        consent: ConsentPort | None = None,
     ) -> None:
         self._gateway = gateway
         self._context = context
@@ -241,6 +265,30 @@ class VerticalFamilyGrowthRuntime:
         self._feedback = feedback
         self._ledger = ledger
         self._capabilities = capabilities
+        self._consent = consent
+        # Process-local scope index used by the evaluation ledger boundary.
+        # Durable deployments use ``DurableVerticalLedgerAdapter``; this index
+        # still prevents a caller from replaying/deleting a run under another
+        # family while exercising the in-process runtime.
+        self._run_families: dict[str, str] = {}
+
+    @property
+    def context_durability_mode(self) -> str:
+        """Expose the selected context port's durability for composition checks."""
+
+        return str(getattr(self._context, "durability_mode", "UNKNOWN"))
+
+    @property
+    def context_port(self) -> ContextPort:
+        """Return the context port used for every generation."""
+
+        return self._context
+
+    @property
+    def feedback_port(self) -> FeedbackPort:
+        """Return the feedback port used for next-round learning input."""
+
+        return self._feedback
 
     async def run(
         self,
@@ -259,11 +307,43 @@ class VerticalFamilyGrowthRuntime:
         )
         if context.family_id != family_id:
             raise VerticalRuntimeError("CONTEXT_SCOPE_MISMATCH")
+        if self._consent is not None:
+            current = await self._consent.is_current(
+                family_id=family_id,
+                subject_ids=context.subject_ids,
+                purpose=context.purpose,
+                consent_version=context.consent_version,
+            )
+            if not current:
+                raise VerticalRuntimeError("CONSENT_NOT_ACTIVE")
         material = await self._knowledge.published(ref=knowledge_ref)
         if material is None:
             raise VerticalRuntimeError("KNOWLEDGE_NOT_PUBLISHED")
-        feedback_refs = await self._feedback.latest(family_need_id=family_need_id)
+        feedback_refs = await _feedback_latest(
+            self._feedback, family_need_id=family_need_id, family_id=family_id
+        )
+        feedback_preferences = await _feedback_preferences(
+            self._feedback, family_id=family_id, family_need_id=family_need_id
+        )
         calibration: dict[str, Any] | None = None
+        if guardian_decision is not None:
+            if (
+                guardian_decision.family_need_id != family_need_id
+                or guardian_decision.run_id != run_id
+                or guardian_decision.path_id != path_id
+            ):
+                raise VerticalRuntimeError("GUARDIAN_DECISION_SCOPE_MISMATCH")
+            self._ledger.decision(guardian_decision)
+            feedback_refs = (*feedback_refs, guardian_decision.decision_ref)
+            # A reference alone is not a learning signal: the next model run
+            # must receive the guardian's bounded correction. Keep this as
+            # explicit calibration metadata rather than merging it into the
+            # family context (R9).
+            calibration = {
+                "decision_ref": guardian_decision.decision_ref,
+                "state": guardian_decision.state,
+                "edits": dict(guardian_decision.edits),
+            }
         capability_candidates: tuple[dict[str, Any], ...] = ()
         if self._capabilities is not None:
             values = context.values
@@ -308,21 +388,6 @@ class VerticalFamilyGrowthRuntime:
             feedback_refs=feedback_refs,
             calibration=calibration,
         )
-        if guardian_decision is not None:
-            if guardian_decision.family_need_id != family_need_id:
-                raise VerticalRuntimeError("GUARDIAN_DECISION_SCOPE_MISMATCH")
-            self._ledger.decision(guardian_decision)
-            feedback_refs = (*feedback_refs, guardian_decision.decision_ref)
-            # A reference alone is not a learning signal: the next model run
-            # must receive the guardian's bounded correction.  Keep this as
-            # explicit calibration metadata rather than merging it into the
-            # family context, because AI output and guardian intent are
-            # different semantic layers (R9).
-            calibration = {
-                "decision_ref": guardian_decision.decision_ref,
-                "state": guardian_decision.state,
-                "edits": dict(guardian_decision.edits),
-            }
         request = StructuredRequest(
             use_case="vertical_family_growth",
             prompt_version="vertical-growth.v1",
@@ -333,6 +398,7 @@ class VerticalFamilyGrowthRuntime:
                 "path_id": path_id,
                 "context": context.values,
                 "feedback_refs": feedback_refs,
+                "feedback_preferences": feedback_preferences,
                 "guardian_calibration": calibration,
                 "capability_candidates": capability_candidates,
             },
@@ -398,7 +464,24 @@ class VerticalFamilyGrowthRuntime:
             lineage_ref=lineage_ref,
         )
         self._ledger.append(entry)
+        self._run_families[run_id] = family_id
         return entry
+
+    def replay(self, *, run_id: str, family_id: str) -> EvaluationLedgerEntry:
+        """Replay a draft only when its server-owned family scope matches."""
+
+        if self._run_families.get(run_id) != family_id:
+            raise VerticalRuntimeError("CONTEXT_SCOPE_MISMATCH")
+        return self._ledger.replay(run_id)
+
+    def delete(self, *, run_id: str, family_id: str) -> str:
+        """Delete an evaluation artifact after enforcing family isolation."""
+
+        if self._run_families.get(run_id) != family_id:
+            raise VerticalRuntimeError("CONTEXT_SCOPE_MISMATCH")
+        proof = self._ledger.delete(run_id)
+        self._run_families.pop(run_id, None)
+        return proof
 
 
 def _assert_capability_grounding(output: dict[str, Any], capability_refs: tuple[str, ...]) -> None:
@@ -420,6 +503,27 @@ def _assert_capability_grounding(output: dict[str, Any], capability_refs: tuple[
                 references.append(f"{ref}@{version}" if isinstance(version, str) else ref)
     if any(not isinstance(ref, str) or ref not in allowed for ref in references):
         raise VerticalRuntimeError("CAPABILITY_GROUNDING_VIOLATION")
+
+
+async def _feedback_latest(
+    feedback: FeedbackPort, *, family_need_id: str, family_id: str
+) -> tuple[str, ...]:
+    """Read feedback with the family scope when supported by the adapter."""
+    try:
+        value = feedback.latest(family_need_id=family_need_id, family_id=family_id)
+    except TypeError:
+        value = feedback.latest(family_need_id=family_need_id)
+    return tuple(await value if hasattr(value, "__await__") else value)
+
+
+async def _feedback_preferences(
+    feedback: FeedbackPort, *, family_id: str, family_need_id: str
+) -> object | None:
+    reader = getattr(feedback, "preferences", None)
+    if not callable(reader):
+        return None
+    value = reader(family_id=family_id, family_need_id=family_need_id)
+    return await value if hasattr(value, "__await__") else value
 
 
 def _lineage_ref(
@@ -453,6 +557,7 @@ __all__ = [
     "EvaluationLedgerEntry",
     "FamilyGrowthContext",
     "FeedbackPort",
+    "ConsentPort",
     "GuardianDecision",
     "KnowledgePort",
     "CapabilityPort",

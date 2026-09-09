@@ -441,6 +441,33 @@ use_cases:
     status: EXPERIMENT
     evidence_refs: [docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s06, docs/07_data/MASTER_AND_BUSINESS_DATA_DECOMPOSITION.md#4.2]
 
+  - id: vertical_family_growth_path_draft
+    name: 垂直家庭成长路径草案
+    business_process_ids: [S05-N02, S06-N01, S07-N01, S08-N01]
+    application_surface: [UI-03, UI-04, UI-05, UI-08, UI-09, UI-11, UI-12]
+    owner: growth-product
+    agent: growth_planner
+    capability_route: vertical_family_growth
+    input_evidence: [FamilyGrowthContext, PublishedKnowledge, CapabilityOffer, FamilyFeedback]
+    data_class: MINOR_SENSITIVE
+    purpose: >
+      在家庭授权和已发布知识/能力边界内生成可追溯的成长路径 Draft，并利用 Guardian
+      的有界校准改进下一次提案；不得自动写入家庭事实或激活计划。
+    output_type: Draft
+    output_schema_ref: vertical-growth-draft.v1
+    prompt_ref: vertical-growth.v1
+    knowledge_refs: [family_growth_knowledge_v1]
+    allowed_tools: [read_context, read_growth_projection, draft_growth_plan, create_human_task]
+    risk_level: HIGH
+    human_gate: EXPLICIT_CONFIRMATION
+    forbidden_outputs: [canonical_fact, activated_plan, automatic_assignment, diagnosis, family_total_score, family_ranking]
+    named_action_owner: guardian_or_designated_professional
+    status: EXPERIMENT
+    evidence_refs:
+      - docs/03_product/AGI_FAMILY_GROWTH_PLATFORM_BLUEPRINT.md
+      - docs/11_delivery/AGI_VERTICAL_EVALUATION_SPEC.md
+      - governance/ADR/ADR-0158-agi-native-family-growth-platform.md
+
   - id: daily_action_proposal
     name: 今日行动建议
     business_process_ids: [S07-N01, S07-N04]

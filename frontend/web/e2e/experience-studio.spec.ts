@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
 
 test("desktop Web can generate, review, feedback and replay a draft", async ({ page }) => {
-  await page.goto("/");
+  // The root route is now the family-growth AGI experience. Keep this
+  // compatibility smoke test scoped to the legacy Experience Studio entry.
+  await page.goto("/legacy");
   await page.getByLabel("你的表达").fill("孩子最近不愿意写作业，我们总在争吵。");
   await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: "生成理解草案" }).click();

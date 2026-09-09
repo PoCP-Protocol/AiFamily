@@ -33,6 +33,7 @@ export type ClientOptions = {
 
 type DraftResponse = {
   run_id: string;
+  provenance_ref: string | null;
   status: "DRAFT";
   output: Record<string, unknown>;
   requires_human_confirmation: true;
@@ -78,11 +79,28 @@ type ReplayResponse = {
 
 const defaultOutputSchema = {
   type: "object",
+  required: ["understanding", "next_step", "path", "limitations"],
   properties: {
-    understanding: { type: "string" },
-    next_step: { type: "string" },
-    limitations: { type: "array", items: { type: "string" } },
+    understanding: { type: "string", minLength: 1 },
+    next_step: { type: "string", minLength: 1 },
+    path: {
+      type: "array",
+      minItems: 1,
+      maxItems: 3,
+      items: {
+        anyOf: [
+          { type: "string", minLength: 1 },
+          { type: "object", minProperties: 1 },
+        ],
+      },
+    },
+    limitations: {
+      type: "array",
+      minItems: 1,
+      items: { type: "string", minLength: 1 },
+    },
   },
+  additionalProperties: false,
 };
 
 /** Same-origin Experience API adapter; no browser-side provider call. */
@@ -281,7 +299,7 @@ function mapDraftResponse(response: DraftResponse, mediaInputs: MediaInput[]): E
       ? limitations
       : ["后端未提供限制清单，请在人工确认前核对。"],
     provenance: {
-      provenance_ref: null,
+      provenance_ref: response.provenance_ref,
       kind: "AI_DRAFT",
       model_attempt_ref: null,
       context_snapshot_ref: response.provenance.context_snapshot_ref || response.context_snapshot_ref,

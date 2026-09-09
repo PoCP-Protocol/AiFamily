@@ -241,6 +241,14 @@ export class FamilyApiClient {
     return this.request<AccountSessionResponse>("/auth/account-session", {
       method: "POST",
       body: { external_ref: externalRef },
+      headers: {
+        // The session issuance endpoint is a state-changing command too. Keep
+        // this key stable for the same development identity so a retry cannot
+        // create a second session command.
+        "idempotency-key": `family-mobile-account-session:${externalRef}`,
+        "x-correlation-id": createMobileRequestId("family-mobile-account-session"),
+        "x-source": "family-ai-mobile",
+      },
     });
   }
 

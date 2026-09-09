@@ -26,6 +26,10 @@ export type AssessmentSessionReceipt = {
   session_id: string;
   status: string;
   replayed?: boolean;
+  session?: {
+    assessment_session_id: string;
+    status: string;
+  };
 };
 
 export type GrowthHypothesisProjection = {
@@ -51,9 +55,24 @@ export type GrowthPathProjection = {
   decision_ref: string | null;
   decision_state: string | null;
   next_step: string | null;
-  path: unknown[];
-  status: "DRAFT";
+  /** Legacy drafts may contain text; structured nodes are capability-grounded. */
+  path: Array<string | GrowthPathNode>;
+  status: "DRAFT" | "REVIEW_REQUIRED" | "REJECTED" | "DEFERRED" | "EMPTY";
   requires_human_confirmation: true;
+  observations?: unknown[];
+  evidence?: unknown[];
+  unknowns?: unknown[];
+  contradictions?: unknown[];
+  feedback_refs?: string[];
+  feedback_signals?: string[];
+};
+
+export type GrowthPathNode = {
+  capability_ref: string;
+  version: string;
+  title?: string;
+  description?: string;
+  delivery_kind?: string;
 };
 
 export type AssessmentResponseInput = {
@@ -87,6 +106,26 @@ export type FamilyGrowthClientOptions = {
   accessToken?: string;
   fetchImpl?: FetchLike;
 };
+
+export async function createDevAccountSession(
+  externalRef: string,
+  options: { baseUrl?: string; fetchImpl?: FetchLike } = {},
+): Promise<{ token: string; family_id: string }> {
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  const response = await fetchImpl(`${options.baseUrl ?? ""}/auth/account-session`, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      "Idempotency-Key": `web-dev-session:${externalRef}`,
+    },
+    body: JSON.stringify({ external_ref: externalRef }),
+  });
+  if (!response.ok) {
+    throw new FamilyGrowthApiError(response.status, await response.text());
+  }
+  return (await response.json()) as { token: string; family_id: string };
+}
 
 export class FamilyGrowthApiClient {
   private readonly baseUrl: string;

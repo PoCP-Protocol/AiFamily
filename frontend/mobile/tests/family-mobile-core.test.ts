@@ -229,6 +229,28 @@ describe("family assessment and 90-day journey", () => {
 });
 
 describe("Family API mobile contract", () => {
+  it("sends an idempotency key when issuing the development account session", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      token: "token-1",
+      expires_at: "2026-09-10T00:00:00Z",
+      account_id: "account-1",
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })) as unknown as typeof fetch;
+    const client = new FamilyApiClient("https://family.example", fetcher);
+
+    await client.issueDevAccountSession("phone:13800000001");
+
+    const [url, request] = vi.mocked(fetcher).mock.calls[0];
+    expect(url).toBe("https://family.example/auth/account-session");
+    expect(request?.method).toBe("POST");
+    expect(request?.headers).toMatchObject({
+      "idempotency-key": "family-mobile-account-session:phone:13800000001",
+      "x-source": "family-ai-mobile",
+    });
+  });
+
   it("uses account Bearer, omits cookies, and calls family contexts", async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ account_id: "account-1", contexts: [] }), {
       status: 200,

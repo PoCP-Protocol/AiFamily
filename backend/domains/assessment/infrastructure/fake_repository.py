@@ -27,26 +27,160 @@ from ..domain.value_objects import AssessmentSessionStatus, AssessmentTool, Asse
 DEFAULT_TEST_ACTOR = "actor-1"
 
 
+_FOUR_POINT_OPTIONS = ["often", "sometimes", "rarely", "not_sure"]
+
+#: The v1 seed tool used a 3-option `FOCUS` (`COMMUNICATION`/`HOMEWORK`/
+#: `SCREEN_TIME`) that never matched the mobile UI-02 screen's real design
+#: (`frontend/mobile/lib/family/core-growth.ts`'s five `GrowthFocusId`
+#: values, plus `FAMILY_STRUCTURE`/`CHILD_GENDER` and per-dimension deep
+#: questions) — every real UI-02 submission against the old tool failed with
+#: `assessment_choice_not_in_tool_version` / `assessment_item_contract_mismatch`.
+#: This v4 item bank was already designed and construct-admission-reviewed
+#: (`tests/domains/assessment/test_family_support_needs_v{2,3,4}_item_bank.py`
+#: are its content-fidelity tests) but never wired into the tool this
+#: repository actually serves — the fix here is to serve it, not to shrink the
+#: mobile screen down to the old 3-option form.
+#:
+#: Deliberately excluded, and must stay excluded until the safety gate exists
+#: in code (see `test_family_support_needs_v3_item_bank.py`'s docstring):
+#: `EMOTION_REGULATION_Q01` (`safety_boundary: human_gate_if_crisis_signal`)
+#: and `PARENT_CAPACITY_PRESSURE` (`safety_boundary:
+#: human_gate_if_parent_crisis`) — both flagged for Human Gate routing that no
+#: code enforces yet. Adding them back without that gate would let a crisis
+#: signal reach a family with no human in the loop.
+_FAMILY_SUPPORT_NEEDS_V4_ITEMS: tuple[dict, ...] = (
+    {
+        "item_ref": "FOCUS",
+        "response_type": "SINGLE_CHOICE",
+        "required": True,
+        "options": [
+            "LEARNING_HABITS",
+            "EMOTION_REGULATION",
+            "PARENT_CHILD_COMMUNICATION",
+            "DEVICE_USE_CONTEXT",
+            "SELF_REGULATION",
+        ],
+    },
+    {
+        "item_ref": "FAMILY_STRUCTURE",
+        "response_type": "SINGLE_CHOICE",
+        "required": False,
+        "options": ["TWO_PARENT", "SINGLE_PARENT", "BLENDED", "PREFER_NOT_TO_SAY"],
+    },
+    {
+        "item_ref": "CHILD_GENDER",
+        "response_type": "SINGLE_CHOICE",
+        "required": False,
+        "options": ["BOY", "GIRL", "SELF_DESCRIBED", "PREFER_NOT_TO_SAY"],
+    },
+    {
+        "item_ref": "LEARNING_HABITS_Q01",
+        "response_type": "SINGLE_CHOICE",
+        "required": False,
+        "options": _FOUR_POINT_OPTIONS,
+    },
+    {
+        "item_ref": "LEARNING_HABITS_Q02",
+        "response_type": "SINGLE_CHOICE",
+        "required": False,
+        "options": _FOUR_POINT_OPTIONS,
+    },
+    {
+        "item_ref": "LEARNING_HABITS_Q03",
+        "response_type": "SINGLE_CHOICE",
+        "required": False,
+        "options": _FOUR_POINT_OPTIONS,
+    },
+    {
+        "item_ref": "PARENT_CHILD_COMMUNICATION_Q01",
+        "response_type": "SINGLE_CHOICE",
+        "required": False,
+        "options": _FOUR_POINT_OPTIONS,
+    },
+    {
+        "item_ref": "PARENT_CHILD_COMMUNICATION_Q02",
+        "response_type": "SINGLE_CHOICE",
+        "required": False,
+        "options": _FOUR_POINT_OPTIONS,
+    },
+    {
+        "item_ref": "PARENT_CHILD_COMMUNICATION_Q03",
+        "response_type": "SINGLE_CHOICE",
+        "required": False,
+        "options": _FOUR_POINT_OPTIONS,
+    },
+    {
+        "item_ref": "DEVICE_USE_CONTEXT_Q01",
+        "response_type": "SINGLE_CHOICE",
+        "required": False,
+        "options": _FOUR_POINT_OPTIONS,
+    },
+    {
+        "item_ref": "DEVICE_USE_CONTEXT_Q02",
+        "response_type": "SINGLE_CHOICE",
+        "required": False,
+        "options": _FOUR_POINT_OPTIONS,
+    },
+    {
+        "item_ref": "DEVICE_USE_CONTEXT_Q03",
+        "response_type": "SINGLE_CHOICE",
+        "required": False,
+        "options": _FOUR_POINT_OPTIONS,
+    },
+    {
+        "item_ref": "EMOTION_REGULATION_Q02",
+        "response_type": "SINGLE_CHOICE",
+        "required": False,
+        "options": _FOUR_POINT_OPTIONS,
+    },
+    {
+        "item_ref": "EMOTION_REGULATION_Q03",
+        "response_type": "SINGLE_CHOICE",
+        "required": False,
+        "options": _FOUR_POINT_OPTIONS,
+    },
+    {
+        "item_ref": "SCHOOL_FAMILY_FEEDBACK_LOOP",
+        "response_type": "SINGLE_CHOICE",
+        "required": False,
+        "options": _FOUR_POINT_OPTIONS,
+    },
+    {
+        "item_ref": "SELF_REGULATION_Q01",
+        "response_type": "SINGLE_CHOICE",
+        "required": False,
+        "options": _FOUR_POINT_OPTIONS,
+    },
+    {
+        "item_ref": "SELF_REGULATION_Q02",
+        "response_type": "SINGLE_CHOICE",
+        "required": False,
+        "options": _FOUR_POINT_OPTIONS,
+    },
+    {
+        "item_ref": "SELF_REGULATION_Q03",
+        "response_type": "SINGLE_CHOICE",
+        "required": False,
+        "options": _FOUR_POINT_OPTIONS,
+    },
+)
+
+
 def default_tool() -> AssessmentTool:
-    """Port of the seed `FAMILY_SUPPORT_NEEDS` tool used by
-    `AssessmentService.loadActiveTool` default (`toolRef = 'FAMILY_SUPPORT_NEEDS'`).
+    """The real `FAMILY_SUPPORT_NEEDS` tool UI-02 submits against.
+
+    v4: 18 items, matching the mobile screen's actual design and the
+    construct-admission-reviewed item bank — see the module-level comment on
+    `_FAMILY_SUPPORT_NEEDS_V4_ITEMS` above for what changed from the old v1
+    3-option stub and what stays excluded on purpose.
     """
     return AssessmentTool(
         tool_ref="FAMILY_SUPPORT_NEEDS",
-        version_no=1,
-        title="家庭支持需求",
-        purpose="了解家庭当前最需要支持的方向",
-        schema_ref="FAMILY_SUPPORT_NEEDS_V1",
-        items=[
-            AssessmentToolItem(
-                item_ref="FOCUS",
-                response_type="SINGLE_CHOICE",
-                required=False,
-                options=["COMMUNICATION", "HOMEWORK", "SCREEN_TIME"],
-            ),
-            AssessmentToolItem(item_ref="item-1", response_type="TEXT", required=False),
-            AssessmentToolItem(item_ref="NOTE", response_type="TEXT", required=False),
-        ],
+        version_no=4,
+        title="家庭支持需要与服务偏好确认(含深挖题·批次2扩容)",
+        purpose="了解家庭当前最需要支持的方向，并针对学习策略/元认知与自我管理支持追加观察题",
+        schema_ref="family://assessment/FAMILY_SUPPORT_NEEDS/v4",
+        items=[AssessmentToolItem(**item) for item in _FAMILY_SUPPORT_NEEDS_V4_ITEMS],
     )
 
 
@@ -86,8 +220,17 @@ class FakeAssessmentRepository:
     def seed_family(self, tenant_id: str, family_id: str) -> None:
         self.families.add(family_id)
         self.tenant_family_bindings.add((tenant_id, family_id))
-        self.tenant_allowed_pages.setdefault(tenant_id, set()).update({"UI-02", "UI-03"})
-        self.tools[("FAMILY_SUPPORT_NEEDS", 1)] = default_tool()
+        self.tenant_allowed_pages.setdefault(tenant_id, set()).update({"UI-01", "UI-02", "UI-03"})
+        # Keyed off the tool's own `version_no`, not a hardcoded `1` — a
+        # session created against `default_tool()` records that tool's real
+        # `version_no` (currently 4, see `default_tool()`'s docstring), and
+        # `load_tool_version` looks the session up by that exact number. A
+        # hardcoded key here previously left `("FAMILY_SUPPORT_NEEDS", 1)` as
+        # the only registered version regardless of what `default_tool()`
+        # actually returned, so every `save_response`/`submit` after v4
+        # landed failed with `assessment_tool_version_not_found`.
+        tool = default_tool()
+        self.tools[(tool.tool_ref, tool.version_no)] = tool
         # Every existing test drives commands/queries as actor `"actor-1"`
         # without separately seeding a membership — grant it OWNER_GUARDIAN
         # here (mirrors a family always having its creator as an
@@ -442,7 +585,13 @@ class FakeAssessmentRepository:
             return existing
         intent = {
             "intent_id": str(uuid.uuid4()),
+            "family_id": family_id,
+            "subject_person_id": subject_person_id,
+            "confirmed_by": confirmed_by,
             "need_type": need_type,
+            "title": self.need_types.get(need_type, {}).get("title", "家庭成长方向"),
+            "goal_text": goal_text,
+            "description": goal_text,
             "status": "OPEN",
             "required_capability_keys": required_capability_keys,
             "evidence_refs": evidence_refs,

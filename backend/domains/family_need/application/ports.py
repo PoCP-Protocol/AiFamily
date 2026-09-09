@@ -133,7 +133,15 @@ class FamilyNeedRepositoryPort(Protocol):
 
     async def append_event(self, event: NeedEvent) -> None: ...
 
+    async def list_events(
+        self, *, tenant_id: str, family_id: str, event_name: str, limit: int = 100
+    ) -> tuple[NeedEvent, ...]: ...
+
     async def save_outcome(self, outcome: FamilyConfirmedOutcome) -> None: ...
+
+    async def get_outcome(
+        self, *, tenant_id: str, family_id: str, outcome_id: str
+    ) -> FamilyConfirmedOutcome | None: ...
 
     async def get_outcomes_for_need(
         self, *, tenant_id: str, family_id: str, need_id: str

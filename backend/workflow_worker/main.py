@@ -23,11 +23,17 @@ from backend.domains.action.infrastructure.postgres import (
 from backend.domains.journey.infrastructure.application import (
     build_postgres_journey_application,
 )
+from backend.intelligence.context_engine.outcome_reflection import (
+    OutcomeReflectionContextWriter,
+)
 from backend.platform.persistence.session import (
     get_engine,
     get_sessionmaker,
     is_postgres_url,
     resolve_database_url,
+)
+from backend.workflow_worker.family_need_outcome_composition import (
+    add_sql_family_need_outcome_reflection_activity,
 )
 from backend.workflow_worker.growth_action_experience_relay import (
     GrowthActionExperienceRelay,
@@ -36,6 +42,7 @@ from backend.workflow_worker.health import build_worker_health_app
 from backend.workflow_worker.runtime import (
     AcceptedActionActivity,
     GrowthActionExperienceRelayActivity,
+    WorkerActivity,
     WorkflowWorkerRuntime,
 )
 
@@ -83,7 +90,21 @@ class WorkflowWorkerSettings:
         )
 
 
-def build_runtime(settings: WorkflowWorkerSettings) -> WorkflowWorkerRuntime:
+def build_runtime(
+    settings: WorkflowWorkerSettings,
+    *,
+    additional_activities: tuple[WorkerActivity, ...] = (),
+) -> WorkflowWorkerRuntime:
+    """Build the worker runtime with explicitly composed activities.
+
+    The worker owns cadence only.  Optional activities (for example the
+    FamilyNeed outcome-reflection projection) must already carry their reader,
+    durable Context broker, identity/consent scope resolver and deletion
+    policy.  Keeping injection at this boundary prevents the process entry
+    point from manufacturing authorization from environment variables.
+    """
+    if not isinstance(additional_activities, tuple):
+        raise TypeError("additional_activities must be a tuple")
     engine = get_engine(settings.database_url)
     session_factory = get_sessionmaker(settings.database_url)
     journey = build_postgres_journey_application(settings.database_url)
@@ -105,6 +126,7 @@ def build_runtime(settings: WorkflowWorkerSettings) -> WorkflowWorkerRuntime:
                 GrowthActionExperienceRelay(session_factory),
                 limit=settings.batch_limit,
             ),
+            *additional_activities,
         ),
         poll_interval=settings.poll_interval,
         activity_timeout=settings.activity_timeout,
@@ -112,9 +134,38 @@ def build_runtime(settings: WorkflowWorkerSettings) -> WorkflowWorkerRuntime:
     )
 
 
-async def serve(settings: WorkflowWorkerSettings | None = None) -> None:
+def build_runtime_with_family_need_reflection(
+    settings: WorkflowWorkerSettings,
+    *,
+    writer: OutcomeReflectionContextWriter,
+    scope_resolver: object,
+    tenant_id: str,
+    family_id: str,
+    limit: int | None = None,
+) -> WorkflowWorkerRuntime:
+    """Compose the base worker with an explicitly authorized reflection pass.
+
+    This is a deployment seam, not an environment-driven default.  The
+    caller supplies the durable Context writer and trusted scope resolver;
+    the worker only owns the SQL event reader and scheduling cadence.
+    """
+    runtime = build_runtime(settings)
+    return add_sql_family_need_outcome_reflection_activity(
+        runtime,
+        engine=get_engine(settings.database_url),
+        writer=writer,
+        scope_resolver=scope_resolver,
+        tenant_id=tenant_id,
+        family_id=family_id,
+        limit=limit if limit is not None else settings.batch_limit,
+    )
+async def serve(
+    settings: WorkflowWorkerSettings | None = None,
+    *,
+    additional_activities: tuple[WorkerActivity, ...] = (),
+) -> None:
     resolved = settings or WorkflowWorkerSettings.from_environment()
-    runtime = build_runtime(resolved)
+    runtime = build_runtime(resolved, additional_activities=additional_activities)
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signal_name in (signal.SIGINT, signal.SIGTERM):
@@ -155,9 +206,13 @@ async def serve(settings: WorkflowWorkerSettings | None = None) -> None:
     LOGGER.info("workflow worker stopped cycles=%s", runtime.health.cycle_count)
 
 
-async def run_once(settings: WorkflowWorkerSettings | None = None) -> None:
+async def run_once(
+    settings: WorkflowWorkerSettings | None = None,
+    *,
+    additional_activities: tuple[WorkerActivity, ...] = (),
+) -> None:
     resolved = settings or WorkflowWorkerSettings.from_environment()
-    runtime = build_runtime(resolved)
+    runtime = build_runtime(resolved, additional_activities=additional_activities)
     outcomes = await runtime.run_cycle()
     if not all(outcome.succeeded for outcome in outcomes):
         failed = [outcome.activity for outcome in outcomes if not outcome.succeeded]

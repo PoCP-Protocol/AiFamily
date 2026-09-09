@@ -139,6 +139,12 @@ class AsyncSqlContextBroker(AsyncContextBrokerPort):
             raise TypeError("session_factory must be an async_sessionmaker")
         self._session_factory = session_factory
 
+    @property
+    def session_factory(self) -> async_sessionmaker[AsyncSession]:
+        """Expose the validated factory for composition-root identity checks."""
+
+        return self._session_factory
+
     async def append(self, observation: StateObservation) -> None:
         if not isinstance(observation, StateObservation):
             raise ContextContractError("STATE_OBSERVATION_REQUIRED")
@@ -212,13 +218,17 @@ class AsyncSqlContextBroker(AsyncContextBrokerPort):
             if subject_id is not None:
                 statement = statement.where(ContextObservationRow.subject_id == subject_id)
             rows = (
-                await session.execute(
-                    statement.order_by(
-                        ContextObservationRow.observed_at,
-                        ContextObservationRow.observation_id,
+                (
+                    await session.execute(
+                        statement.order_by(
+                            ContextObservationRow.observed_at,
+                            ContextObservationRow.observation_id,
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             observations = tuple(_observation_from_row(row) for row in rows)
             snapshot = ContextSnapshot(
                 snapshot_ref=f"context:{uuid4().hex}",
@@ -297,12 +307,16 @@ class AsyncSqlContextBroker(AsyncContextBrokerPort):
             if expires_at <= moment:
                 raise ContextContractError("CONTEXT_SNAPSHOT_EXPIRED")
             links = (
-                await session.execute(
-                    select(ContextSnapshotObservationRow)
-                    .where(ContextSnapshotObservationRow.snapshot_ref == snapshot_ref)
-                    .order_by(ContextSnapshotObservationRow.position)
+                (
+                    await session.execute(
+                        select(ContextSnapshotObservationRow)
+                        .where(ContextSnapshotObservationRow.snapshot_ref == snapshot_ref)
+                        .order_by(ContextSnapshotObservationRow.position)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             observations: list[StateObservation] = []
             for link in links:
                 row = await session.get(
@@ -342,24 +356,28 @@ class AsyncSqlContextBroker(AsyncContextBrokerPort):
     async def delete_subject(self, tenant_id: str, subject_id: str) -> int:
         async with self._session_factory() as session:
             observations = (
-                await session.execute(
-                    select(ContextObservationRow).where(
-                        ContextObservationRow.tenant_id == tenant_id,
-                        ContextObservationRow.subject_id == subject_id,
+                (
+                    await session.execute(
+                        select(ContextObservationRow).where(
+                            ContextObservationRow.tenant_id == tenant_id,
+                            ContextObservationRow.subject_id == subject_id,
+                        )
                     )
                 )
-            ).scalars().all()
-            observation_keys = {
-                (row.tenant_id, row.observation_id) for row in observations
-            }
+                .scalars()
+                .all()
+            )
+            observation_keys = {(row.tenant_id, row.observation_id) for row in observations}
             snapshots = (
-                await session.execute(
-                    select(ContextSnapshotRow).where(ContextSnapshotRow.tenant_id == tenant_id)
+                (
+                    await session.execute(
+                        select(ContextSnapshotRow).where(ContextSnapshotRow.tenant_id == tenant_id)
+                    )
                 )
-            ).scalars().all()
-            snapshot_refs = {
-                row.snapshot_ref for row in snapshots if subject_id in row.subject_ids
-            }
+                .scalars()
+                .all()
+            )
+            snapshot_refs = {row.snapshot_ref for row in snapshots if subject_id in row.subject_ids}
             if snapshot_refs:
                 await session.execute(
                     delete(ContextSnapshotObservationRow).where(

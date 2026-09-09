@@ -94,13 +94,15 @@ def _seed_need_type_catalog() -> None:
     catalog reference data, not a permission: seeding it grants no access that
     the consent and family-scope checks would otherwise refuse.
 
-    `COMMUNICATION` is one of the three options `fake_repository.default_tool()`
-    offers for the `FOCUS` item, which is why the response below answers it.
+    `PARENT_CHILD_COMMUNICATION` is one of the five options
+    `fake_repository.default_tool()` offers for the `FOCUS` item (v4 item
+    bank — see that function's docstring), which is why the response below
+    answers it.
     """
     from backend.apps.family_api import dev_wiring
 
     dev_wiring._assessment_repository.seed_need_type(
-        "COMMUNICATION",
+        "PARENT_CHILD_COMMUNICATION",
         "NEED_PARENT_CHILD_COMMUNICATION",
         "亲子沟通支持",
         "先从倾听开始",
@@ -152,7 +154,7 @@ def test_http_chain_is_idempotent_end_to_end(client: TestClient) -> None:
         json={
             "item_ref": "FOCUS",
             "response_type": "SINGLE_CHOICE",
-            "response_value": "COMMUNICATION",
+            "response_value": "PARENT_CHILD_COMMUNICATION",
         },
         headers={**auth, "idempotency-key": "response-1"},
     )
@@ -195,6 +197,72 @@ def test_http_chain_is_idempotent_end_to_end(client: TestClient) -> None:
     assert body["action"] == "CONFIRM_GROWTH_HYPOTHESIS"
     assert body["outcome"] == "INTENT_CREATED"
     assert body["intent"]["boundary"] == "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME"
+
+    # UI-04 is the next real family-facing seam: the confirmed intent must
+    # project into a reviewable draft, and the guardian's selected choice must
+    # be adopted and readable on a later HTTP request. This is still a dev
+    # deterministic adapter, not proof of a production AI runtime.
+    draft_response = client.get(f"/families/{FAMILY}/growth/generative-plan", headers=auth)
+    assert draft_response.status_code == 200, draft_response.text
+    draft = draft_response.json()["plan"]
+    assert draft["result_status"] == "PLAN_DRAFT"
+    choice = draft["adjustable_choices"][0]
+    selected_choices = {choice["choice_id"]: choice["options"][1]}
+
+    adopted = client.post(
+        f"/families/{FAMILY}/growth/generative-plan/adopt",
+        json={
+            "draft_ref": draft["draft_ref"],
+            "draft_version": draft["draft_version"],
+            "selected_choices": selected_choices,
+        },
+        headers={**auth, "idempotency-key": "ui04-adopt-1"},
+    )
+    assert adopted.status_code == 200, adopted.text
+    assert adopted.json()["plan"]["status"] == "ACTIVE"
+    assert adopted.json()["plan"]["selected_choices"] == selected_choices
+    assert (
+        adopted.json()["plan"]["boundary"] == "HUMAN_ADOPTED_GENERATIVE_DRAFT_NOT_AI_CREATED_FACT"
+    )
+
+    replay = client.post(
+        f"/families/{FAMILY}/growth/generative-plan/adopt",
+        json={
+            "draft_ref": draft["draft_ref"],
+            "draft_version": draft["draft_version"],
+            "selected_choices": selected_choices,
+        },
+        headers={**auth, "idempotency-key": "ui04-adopt-1"},
+    )
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["idempotency_replayed"] is True
+    assert replay.json()["plan"]["plan_id"] == adopted.json()["plan"]["plan_id"]
+
+    readback = client.get(f"/families/{FAMILY}/growth/generative-plan", headers=auth)
+    assert readback.status_code == 200, readback.text
+    assert readback.json()["plan"]["status"] == "ACTIVE"
+    assert readback.json()["plan"]["selected_choices"] == selected_choices
+
+    cross_family = client.get(f"/families/{OTHER_FAMILY}/growth/generative-plan", headers=auth)
+    assert cross_family.status_code == 403
+
+
+def test_ui01_home_projects_the_same_family_scope_as_ui02(client: TestClient) -> None:
+    auth = _auth(client, key="home-auth-1")
+    response = client.get(f"/families/{FAMILY}/ui/01/home", headers=auth)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["projection_version"] == "UI01_FAMILY_HOME_V1"
+    assert body["entry_state"] == "READY"
+    assert body["assessment_campaign"]["state"] == "AVAILABLE"
+    assert body["growth_help"]["subjects"][0]["availability"] == "AVAILABLE"
+    assert body["primary_action"]["task_state"] == "NOT_STARTED"
+
+
+def test_ui01_home_rejects_cross_family_access(client: TestClient) -> None:
+    auth = _auth(client, family=FAMILY, key="home-auth-2")
+    response = client.get(f"/families/{OTHER_FAMILY}/ui/01/home", headers=auth)
+    assert response.status_code == 403
 
 
 def test_missing_credential_is_401_not_403(client: TestClient) -> None:

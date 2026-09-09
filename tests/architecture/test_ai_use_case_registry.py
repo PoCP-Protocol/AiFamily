@@ -144,7 +144,11 @@ def test_registry_is_honest_about_current_maturity() -> None:
     experiment_agents = {item["id"] for item in data["agents"] if item["status"] == "EXPERIMENT"}
     experiment_tools = {item["id"] for item in data["tools"] if item["status"] == "EXPERIMENT"}
 
-    assert experiment_use_cases == {"assessment_interpretation", "growth_plan_draft"}
+    assert experiment_use_cases == {
+        "assessment_interpretation",
+        "growth_plan_draft",
+        "vertical_family_growth_path_draft",
+    }
     assert experiment_agents == {"parent_advisor", "growth_planner"}
     assert experiment_tools == {"read_context"}
     for section in ("use_cases", "agents", "tools"):

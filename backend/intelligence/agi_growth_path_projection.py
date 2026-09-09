@@ -126,7 +126,13 @@ __all__ = ["GrowthPathProjection", "project_next_growth_path"]
 
 
 def _legal_path(value: Any) -> tuple[Any, ...]:
-    """Return only renderable path nodes; never invent a node for bad output."""
+    """Return only renderable path nodes; never invent a node for bad output.
+
+    Structured nodes are capability-grounded: accepting an arbitrary mapping
+    here would let a model smuggle an unregistered action into the UI.  Plain
+    strings remain readable for legacy drafts, but new capability nodes must
+    carry both an immutable reference and version.
+    """
 
     if not isinstance(value, (list, tuple)):
         return ()
@@ -137,6 +143,15 @@ def _legal_path(value: Any) -> tuple[Any, ...]:
                 nodes.append(node)
             continue
         if isinstance(node, dict) and node:
+            capability_ref = node.get("capability_ref")
+            version = node.get("version")
+            if (
+                not isinstance(capability_ref, str)
+                or not capability_ref.strip()
+                or not isinstance(version, str)
+                or not version.strip()
+            ):
+                return ()
             nodes.append(dict(node))
             continue
         return ()

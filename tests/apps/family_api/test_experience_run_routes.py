@@ -30,7 +30,12 @@ def _body(run_id: str) -> dict[str, object]:
         "run_id": run_id,
         "prompt_version": _ASSETS.prompt.version,
         "schema_version": _ASSETS.schema.version,
-        "payload": {"expression": "今天我们在一次小步骤上合作。"},
+        "payload": {
+            "expression": "今天我们在一次小步骤上合作。",
+            "family_need_id": "need-test",
+            "path_id": "path-test",
+            "path": ["共同选择一个可暂停的小步骤"],
+        },
         "output_schema": family_experience_output_schema(),
         "modalities": ["TEXT"],
         "estimated_input_tokens": 64,
@@ -64,6 +69,7 @@ def test_run_routes_record_interactions_and_scrub_deleted_replay() -> None:
             headers={"Idempotency-Key": "decision-http-001"},
         )
         assert decision.status_code == 200, decision.text
+
         assert decision.json()["status"] == "recorded"
 
         feedback = client.post(
@@ -158,6 +164,13 @@ def test_growth_path_projects_from_same_run_after_guardian_decision() -> None:
         )
         assert decision.status_code == 200, decision.text
 
+        feedback = client.post(
+            f"/families/family-growth/experience/multimodal/runs/{run_id}/feedback",
+            json={"signal": "helpful"},
+            headers={"Idempotency-Key": "feedback-growth-path-001"},
+        )
+        assert feedback.status_code == 200, feedback.text
+
         growth_path = client.get(
             f"/families/family-growth/experience/multimodal/runs/{run_id}/growth-path"
         )
@@ -167,11 +180,13 @@ def test_growth_path_projects_from_same_run_after_guardian_decision() -> None:
         assert body["path_id"] == "path-001"
         assert body["run_id"] == run_id
         assert body["decision_state"] == "accepted"
-        assert body["status"] == "EMPTY"
+        assert body["status"] == "DRAFT"
+        assert body["path"] == ["共同选择一个十分钟内可暂停的家庭小步骤"]
         assert body["requires_human_confirmation"] is True
+        assert body["feedback_signals"] == ["helpful"]
 
 
-def test_growth_path_preserves_empty_status_in_http_contract() -> None:
+def test_growth_path_projects_the_structured_candidate_in_http_contract() -> None:
     run_id = "run-growth-path-empty-001"
     with _client() as client:
         draft = client.post(
@@ -185,7 +200,8 @@ def test_growth_path_preserves_empty_status_in_http_contract() -> None:
             f"/families/family-growth/experience/multimodal/runs/{run_id}/growth-path"
         )
         assert response.status_code == 200, response.text
-        assert response.json()["status"] == "EMPTY"
+        assert response.json()["status"] == "DRAFT"
+        assert response.json()["path"] == ["共同选择一个十分钟内可暂停的家庭小步骤"]
 
 
 def test_growth_path_fails_closed_after_run_deletion() -> None:

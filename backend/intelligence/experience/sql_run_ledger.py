@@ -121,9 +121,7 @@ class AsyncExperienceRunLedger(Protocol):
 
     async def replay(self, *, scope: HttpRunScope, run_id: str) -> RunReplaySnapshot: ...
 
-    async def feedback_preferences(
-        self, *, scope: HttpRunScope
-    ) -> FeedbackPreferenceSnapshot: ...
+    async def feedback_preferences(self, *, scope: HttpRunScope) -> FeedbackPreferenceSnapshot: ...
 
 
 class ExperienceRunInteractionRow(ExperienceRunPersistenceBase):
@@ -237,10 +235,7 @@ class SqlAlchemyExperienceRunLedger:
                 if row.create_status == "RESERVED":
                     raise RunHttpConflictError("DRAFT_CREATE_IN_PROGRESS")
                 raise RunHttpConflictError("RUN_ALREADY_EXISTS")
-            if (
-                row.create_fingerprint != request_fingerprint
-                or row.request_ref != request_ref
-            ):
+            if row.create_fingerprint != request_fingerprint or row.request_ref != request_ref:
                 raise RunHttpConflictError("IDEMPOTENCY_REPLAY_MISMATCH")
             if row.create_status == "RESERVED":
                 return DraftPreflight(
@@ -615,9 +610,7 @@ class SqlAlchemyExperienceRunLedger:
         except RunContractError as error:
             raise _map_store_error(error) from error
         interaction_rows = await self._interaction_rows(scope.tenant_id, run_id)
-        for expected, item in enumerate(
-            interaction_rows, start=durable.snapshot.version + 1
-        ):
+        for expected, item in enumerate(interaction_rows, start=durable.snapshot.version + 1):
             self._assert_interaction_row_scope(item, persisted_scope)
             if item.event_sequence != expected:
                 raise RunHttpError("CORRUPT_INTERACTION_SEQUENCE")
@@ -638,17 +631,11 @@ class SqlAlchemyExperienceRunLedger:
                 if deleted or latest is None or latest.draft_payload is None
                 else dict(latest.draft_payload)
             ),
-            artifact_refs=(
-                ()
-                if deleted or latest is None
-                else tuple(latest.artifact_refs)
-            ),
+            artifact_refs=(() if deleted or latest is None else tuple(latest.artifact_refs)),
             deletion_state="deleted" if deleted else "active",
         )
 
-    async def feedback_preferences(
-        self, *, scope: HttpRunScope
-    ) -> FeedbackPreferenceSnapshot:
+    async def feedback_preferences(self, *, scope: HttpRunScope) -> FeedbackPreferenceSnapshot:
         """Aggregate non-sensitive feedback for the exact active scope."""
 
         self._assert_scope(scope)
@@ -694,9 +681,32 @@ class SqlAlchemyExperienceRunLedger:
             last_feedback_at=last_feedback_at,
         )
 
-    async def _scrub_deleted_run(
-        self, row: ExperienceRunRow, tenant_id: str, run_id: str
-    ) -> None:
+    async def feedback_refs(self, *, scope: HttpRunScope, family_need_id: str) -> tuple[str, ...]:
+        """Return feedback event references for one need in the exact scope."""
+
+        if not family_need_id.strip():
+            raise RunHttpError("FAMILY_NEED_ID_REQUIRED")
+        runs = await self._session.execute(
+            select(ExperienceRunRow.run_id).where(
+                ExperienceRunRow.tenant_id == scope.tenant_id,
+                ExperienceRunRow.family_id == scope.family_id,
+                ExperienceRunRow.deletion_state != "deleted",
+            )
+        )
+        refs: list[str] = []
+        for (run_id,) in runs:
+            snapshot = await self.replay(scope=scope, run_id=run_id)
+            payload = snapshot.draft_payload or {}
+            if payload.get("family_need_id") != family_need_id:
+                continue
+            for interaction in snapshot.interactions:
+                if interaction.interaction_type is InteractionType.FEEDBACK:
+                    ref = interaction.payload.get("feedback_ref") or interaction.event_id
+                    if isinstance(ref, str):
+                        refs.append(ref)
+        return tuple(refs)
+
+    async def _scrub_deleted_run(self, row: ExperienceRunRow, tenant_id: str, run_id: str) -> None:
         """Erase derived model material while retaining an audit interaction."""
 
         checkpoints = await self._session.execute(
@@ -891,9 +901,7 @@ class SessionPerCallExperienceRunLedger:
 
     async def _run(self, operation: Any) -> Any:
         async with self._session_factory() as session:
-            ledger = CommittedExperienceRunLedger(
-                SqlAlchemyExperienceRunLedger(session), session
-            )
+            ledger = CommittedExperienceRunLedger(SqlAlchemyExperienceRunLedger(session), session)
             return await operation(ledger)
 
     async def preflight_create(self, **kwargs: Any) -> DraftPreflight:
@@ -921,6 +929,10 @@ class SessionPerCallExperienceRunLedger:
     async def feedback_preferences(self, **kwargs: Any) -> FeedbackPreferenceSnapshot:
         async with self._session_factory() as session:
             return await SqlAlchemyExperienceRunLedger(session).feedback_preferences(**kwargs)
+
+    async def feedback_refs(self, **kwargs: Any) -> tuple[str, ...]:
+        async with self._session_factory() as session:
+            return await SqlAlchemyExperienceRunLedger(session).feedback_refs(**kwargs)
 
 
 def _jsonable(value: Any) -> Any:

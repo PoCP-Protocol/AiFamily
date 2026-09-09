@@ -646,6 +646,25 @@ entries:
       - "SqlAlchemyHumanGate 已接入 0006_ai_human_tasks；尚无常驻队列/lease、通知、dead-letter、生产 identity/consent factory 和完整调度 worker"
       - "NamedActionRequest 已接入 service/fgcn durable TaskAssignment 写入端，family_api 控制面已挂载，但完整 FGCN 分派能力仍未完成；本切片不声称目标态已完成"
 
+  - capability: vertical_family_growth_ai_runtime
+    canonical_path: backend/intelligence/agi_vertical_runtime.py
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "docs/03_product/AGI_FAMILY_GROWTH_PLATFORM_BLUEPRINT.md；docs/11_delivery/AGI_VERTICAL_EVALUATION_SPEC.md"
+    scope: >
+      家庭成长 AGI 的评估型 Draft 运行时：UNDERSTAND → CLARIFY → DESIGN_PATH →
+      PROPOSE_ACTION。只消费授权上下文、已发布知识和能力供给，所有输出保持 DRAFT，
+      不拥有家庭事实、成长计划或服务履约的 canonical 写入权。
+    tests:
+      - tests/intelligence/test_agi_vertical_runtime.py
+      - tests/intelligence/test_agi_vertical_durable.py
+      - tests/intelligence/test_agi_vertical_composition.py
+      - tests/apps/family_api/test_vertical_growth_composition.py
+    known_gaps:
+      - "当前是 intelligence runtime，不是独立业务 Domain；尚无 HTTP 路由与领域仓储"
+      - "持久化通过 Experience ledger 适配器复用，垂直 AGI 尚无独立 PostgreSQL schema"
+      - "真实部署、外部供应商准入、双家庭隔离与重启读回证据尚未完成"
+
   # ---------- 契约 / 数据库 (MIGRATE) ----------
 
   - capability: database_schema

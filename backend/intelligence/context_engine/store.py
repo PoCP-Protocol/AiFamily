@@ -35,6 +35,11 @@ class ContextBroker:
             raise ContextContractError("STATE_OBSERVATION_REQUIRED")
         key = (observation.tenant_id, observation.observation_id)
         if key in self._observations:
+            if self._observations[key] == observation:
+                # Match the durable SQL broker: at-least-once delivery of an
+                # identical observation is a successful replay, while a
+                # payload mismatch remains a hard contract failure.
+                return
             raise ContextContractError("OBSERVATION_ID_ALREADY_EXISTS")
         self._observations[key] = observation
 

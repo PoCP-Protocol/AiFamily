@@ -165,7 +165,7 @@ class TestCachedQueryHandler:
                 session_id,
                 "FOCUS",
                 "SINGLE_CHOICE",
-                "COMMUNICATION",
+                "PARENT_CHILD_COMMUNICATION",
                 _meta("cache-ui03-response"),
             )
         )
@@ -179,7 +179,7 @@ class TestCachedQueryHandler:
             )
         )
         repo.seed_need_type(
-            "COMMUNICATION",
+            "PARENT_CHILD_COMMUNICATION",
             "NEED_PARENT_CHILD_COMMUNICATION",
             "亲子沟通支持",
             "先从倾听开始",

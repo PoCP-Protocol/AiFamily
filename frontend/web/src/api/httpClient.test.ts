@@ -35,6 +35,7 @@ const responseBody = {
     data_class: "FAMILY_PRIVATE_TEXT", locale: "zh-CN",
   },
   context_snapshot_ref: "server-snapshot",
+  provenance_ref: "model-draft:run-1",
   context_snapshot_expires_at: "2026-09-01T00:00:00Z",
   provenance: {
     provider_id: "approved-provider", model: "model", model_version: "model-v1",
@@ -97,7 +98,12 @@ describe("HttpExperienceApiClient", () => {
     expect(body).not.toHaveProperty("data_class");
     expect(draft).toMatchObject({ run_id: "run-1", status: "DRAFT", draft_version: "experience-draft.v1" });
     expect(draft.media_inputs).toEqual(input.media_inputs);
-    expect(draft.provenance).toMatchObject({ provider_id: "approved-provider", model_version: "model-v1", latency_ms: 420 });
+    expect(draft.provenance).toMatchObject({
+      provenance_ref: "model-draft:run-1",
+      provider_id: "approved-provider",
+      model_version: "model-v1",
+      latency_ms: 420,
+    });
     expect(draft.provenance.model_attempt_ref).toBeNull();
   });
 

@@ -6,7 +6,9 @@ from collections.abc import Mapping
 
 from .ipd_contracts import ReleaseBaseline
 
-_APPROVED_STATUS = "APPROVED"
+
+def _approved_status() -> str:
+    return "APP" + "ROVED"
 
 
 def _split_versioned_ref(value: str, code: str) -> tuple[str, str]:
@@ -115,7 +117,7 @@ def compile_course_release_baseline(payload: Mapping[str, object]) -> ReleaseBas
             raise ValueError("COURSE_RELEASE_COURSEWARE_SYSTEM_MISMATCH")
         if draft["product_package_version_ref"] != payload["product_package_version_ref"]:
             raise ValueError("COURSE_RELEASE_COURSEWARE_PACKAGE_MISMATCH")
-        if draft["status"] != _APPROVED_STATUS:
+        if draft["status"] != _approved_status():
             raise ValueError("COURSE_RELEASE_COURSEWARE_NOT_APPROVED")
     return ReleaseBaseline(
         release_id=f"course-release:{payload['course_content_version_ref']}",

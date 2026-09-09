@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import pytest
 
-from backend.intelligence.agi_vertical_durable import DurableVerticalLedgerAdapter
+from backend.intelligence.agi_vertical_durable import (
+    DurableVerticalGrowthRuntime,
+    DurableVerticalLedgerAdapter,
+)
 from backend.intelligence.agi_vertical_runtime import (
+    EvaluationLedger,
     EvaluationLedgerEntry,
     GuardianDecision,
+    VerticalFamilyGrowthRuntime,
 )
 from backend.intelligence.experience.run_http import (
     InMemoryExperienceRunLedger,
@@ -54,6 +59,42 @@ async def test_guardian_decision_uses_explicit_run_correlation():
     replay = await adapter.replay(run_id="run-1", scope=scope)
     assert replay.interactions[-1].payload["decision_ref"] == "decision:edit-1"
     assert replay.interactions[-1].payload["run_id"] == "run-1"
+
+
+@pytest.mark.asyncio
+async def test_replay_projects_latest_guardian_calibration_into_entry():
+    adapter = DurableVerticalLedgerAdapter(InMemoryExperienceRunLedger())
+    scope = RunScope("tenant-1", "family-1", ("child-1",))
+    await adapter.save_entry(entry(), scope=scope)
+    decision = GuardianDecision(
+        "decision:edit-1",
+        "need-1",
+        "run-1",
+        "path-1",
+        "EDIT",
+        {"next_step": "视觉计时器"},
+    )
+    await adapter.record_guardian_decision(decision, scope=scope)
+
+    runtime = DurableVerticalGrowthRuntime(
+        runtime=VerticalFamilyGrowthRuntime(
+            gateway=object(),
+            context=object(),
+            knowledge=object(),
+            feedback=object(),
+            ledger=EvaluationLedger(),
+        ),
+        ledger=adapter,
+        scope_factory=lambda family_id: scope,
+    )
+    replay = await runtime.replay(run_id="run-1", family_id="family-1")
+
+    assert replay.guardian_calibration == {
+        "decision_ref": "decision:edit-1",
+        "state": "EDIT",
+        "edits": {"next_step": "视觉计时器"},
+    }
+    assert replay.feedback_refs[-1] == "decision:edit-1"
 
 
 @pytest.mark.asyncio
