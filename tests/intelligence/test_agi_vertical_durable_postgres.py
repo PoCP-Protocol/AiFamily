@@ -188,6 +188,29 @@ async def test_structured_understanding_survives_postgres_restart_readback(
 
 
 @pytest.mark.asyncio
+async def test_vertical_postgres_readback_after_engine_dispose_reconnects(
+    postgres_session_factory,
+):
+    """A fresh physical connection recovers the durable vertical draft."""
+
+    scope = RunScope("tenant-pg-reconnect", "family-pg-reconnect", ("child-pg",))
+    async with postgres_session_factory() as writer:
+        adapter = DurableVerticalLedgerAdapter(SqlAlchemyExperienceRunLedger(writer))
+        async with writer.begin():
+            await adapter.save_entry(_entry(), scope=scope)
+
+    engine = postgres_session_factory.kw["bind"]
+    await engine.dispose()
+
+    async with postgres_session_factory() as process_b_reader:
+        adapter = DurableVerticalLedgerAdapter(SqlAlchemyExperienceRunLedger(process_b_reader))
+        replay = await adapter.replay(run_id="run-pg-1", scope=scope)
+
+    assert replay.run_id == "run-pg-1"
+    assert replay.draft_payload["family_need_id"] == "need-pg-1"
+
+
+@pytest.mark.asyncio
 async def test_revision_child_parent_lineage_survives_new_session(postgres_session_factory):
     scope = RunScope("tenant-pg-revision", "family-pg-revision", ("child-pg",))
     base = _entry()
