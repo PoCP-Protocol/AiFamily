@@ -811,4 +811,22 @@ def create_app(
     return application
 
 
+def create_production_app(
+    *,
+    production_ai_platform_wiring: ProductionAiPlatformWiring,
+) -> FastAPI:
+    """Create the deployable family API with an explicitly admitted AI platform.
+
+    Deployment owns provider admission, database/session construction and all
+    durable AI adapters.  This helper intentionally accepts only the validated
+    composition object; it never reads credentials or installs synthetic
+    fallbacks.  The module-level ``app`` therefore remains fail-closed when a
+    deployment has not supplied its governed AI composition.
+    """
+
+    if not isinstance(production_ai_platform_wiring, ProductionAiPlatformWiring):
+        raise TypeError("production_ai_platform_wiring must be ProductionAiPlatformWiring")
+    return create_app(production_ai_platform_wiring=production_ai_platform_wiring)
+
+
 app = create_app()

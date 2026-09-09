@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.apps.family_api.assessment_ai_wiring import AssessmentAiAssets
 from backend.apps.family_api.growth_plan_ai_wiring import GrowthPlanAiAssets
-from backend.apps.family_api.main import create_app
+from backend.apps.family_api.main import create_app, create_production_app
 from backend.apps.family_api.production_ai_platform_wiring import (
     ProductionAiPlatformWiring,
     build_production_ai_platform_wiring,
@@ -268,6 +268,21 @@ def test_create_app_rejects_a_second_vertical_composition_root() -> None:
                 production_ai_platform_wiring=wiring,
                 production_vertical_family_growth_composition=object(),  # type: ignore[arg-type]
             )
+    finally:
+        import asyncio
+
+        asyncio.run(engine.dispose())
+
+
+def test_create_production_app_requires_explicit_governed_platform() -> None:
+    engine, wiring = _wiring()
+    try:
+        app = create_production_app(production_ai_platform_wiring=wiring)
+        assert "/families/{family_id}/growth/human-tasks/{task_id}/decisions" in app.openapi()[
+            "paths"
+        ]
+        with pytest.raises(TypeError, match="must be ProductionAiPlatformWiring"):
+            create_production_app(production_ai_platform_wiring=object())  # type: ignore[arg-type]
     finally:
         import asyncio
 
