@@ -24,6 +24,8 @@ Guardian 读取已验证 Growth Plan Draft 或已采纳计划时，会暴露家�
    purpose、Guardian consent reference 和 correlation id。
 4. 没有唯一可解析 subject scope 时 fail closed；读取返回不能以猜测的主体替代
    审计主体。
+5. Guardian 必须属于 Draft/Plan 的已确认 subject scope；同家庭的其他 Guardian
+   不因家庭级身份自动获得该计划的读取权。
 
 ## Consequences
 

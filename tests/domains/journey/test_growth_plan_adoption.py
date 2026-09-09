@@ -194,6 +194,16 @@ async def test_guardian_reads_latest_validated_draft_before_adoption() -> None:
 
 
 @pytest.mark.asyncio
+async def test_guardian_outside_confirmed_subject_scope_cannot_read_plan() -> None:
+    application, repository = service(draft())
+    actor = GrowthPlanActor("guardian-b", "tenant-a", "family-a", "membership-b", "consent-b")
+
+    with pytest.raises(JourneyForbiddenError, match="growth_plan_subject_scope"):
+        await application.get_current(actor)
+    assert repository.recorded_read_calls == []
+
+
+@pytest.mark.asyncio
 async def test_adoption_replays_same_request_and_rejects_key_reuse_for_another_version() -> None:
     application, _ = service(draft())
     actor = GrowthPlanActor("guardian-a", "tenant-a", "family-a", "membership-a", "consent-a")

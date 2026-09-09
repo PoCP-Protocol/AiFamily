@@ -146,7 +146,9 @@ class AdoptedGrowthPlanRepository(Protocol):
 
 
 class GrowthPlanAdoptionPolicy(Protocol):
-    async def assert_can_read(self, actor: GrowthPlanActor) -> None: ...
+    async def assert_can_read(
+        self, actor: GrowthPlanActor, subject_refs: tuple[str, ...] = ()
+    ) -> None: ...
 
     async def assert_can_adopt(
         self, actor: GrowthPlanActor, subject_refs: tuple[str, ...]
@@ -249,6 +251,7 @@ class GrowthPlanAdoptionService:
             tenant_id=actor.tenant_id, family_id=actor.family_id
         )
         if current is not None:
+            await self.policy.assert_can_read(actor, current.subject_refs)
             await self.repository.record_read(
                 actor=actor,
                 subject_person_id=_read_subject(current.subject_refs, actor),
@@ -263,6 +266,7 @@ class GrowthPlanAdoptionService:
         if draft is None:
             return {"family_id": actor.family_id, "plan": None}
         _validate_draft(draft, actor)
+        await self.policy.assert_can_read(actor, draft.subject_refs)
         await self.repository.record_read(
             actor=actor,
             subject_person_id=_read_subject(draft.subject_refs, actor),
@@ -290,10 +294,14 @@ class GrowthPlanAdoptionService:
 
 
 class GuardianGrowthPlanPolicy:
-    async def assert_can_read(self, actor: GrowthPlanActor) -> None:
+    async def assert_can_read(
+        self, actor: GrowthPlanActor, subject_refs: tuple[str, ...] = ()
+    ) -> None:
         _validate_actor(actor)
         if actor.actor_type != "GUARDIAN":
             raise JourneyForbiddenError("growth_plan_read_requires_guardian")
+        if subject_refs and actor.actor_id not in subject_refs:
+            raise JourneyForbiddenError("guardian_not_in_growth_plan_subject_scope")
 
     async def assert_can_adopt(self, actor: GrowthPlanActor, subject_refs: tuple[str, ...]) -> None:
         _validate_actor(actor)
