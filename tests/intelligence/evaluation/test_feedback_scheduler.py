@@ -124,6 +124,28 @@ async def test_scheduler_retries_failed_worker_and_lease_expires() -> None:
 
 
 @pytest.mark.asyncio
+async def test_scheduler_marks_permanent_failure_after_max_attempts() -> None:
+    _, batch = _worker()
+    jobs = InMemoryFeedbackRegressionJobStore()
+    now = datetime(2026, 9, 10, tzinfo=UTC)
+    await jobs.enqueue(FeedbackRegressionJob("job-terminal", batch, now))
+
+    class FailingWorker:
+        async def run_once(self, batch):
+            raise RuntimeError("permanent")
+
+    scheduler = FeedbackRegressionScheduler(
+        jobs=jobs,
+        worker=FailingWorker(),
+        worker_id="worker-a",
+        max_attempts=1,
+    )
+    result = await scheduler.run_once(now=now)
+    assert result[0].status is FeedbackJobStatus.FAILED
+    assert (await jobs.get("job-terminal")).status is FeedbackJobStatus.FAILED
+
+
+@pytest.mark.asyncio
 async def test_sql_job_store_claim_and_takeover_survive_new_session() -> None:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:

@@ -1466,6 +1466,10 @@ PostgreSQL worker 运行与多进程证据。
 构造期强制校验注入 ledger 暴露 `record_evaluation`。部署进程重启后可先读取
 任务终态，避免把重复执行误当成新一轮评测；相关调度/wiring 测试 5 passed。
 
+本轮又补上长期运行的失败终态：scheduler 支持注入 `max_attempts`，达到上限后
+调用 job store 的 `fail()` 进入 `FAILED`，不再无限重试；未达到上限才按 retry
+delay 重新排队。该策略不改变业务事实或发布状态，相关调度/wiring 测试 6 passed。
+
 迁移能力已同步登记至 `governance/MIGRATION_MANIFEST.yaml` 的
 `feedback_regression_scheduler` 条目，成熟度明确标为 `IMPLEMENTED_EXPERIMENT`，
 并列出真实 PostgreSQL 并发与 worker 部署缺口。

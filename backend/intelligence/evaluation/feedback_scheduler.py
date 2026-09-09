@@ -95,6 +95,10 @@ class FeedbackRegressionJobStore(Protocol):
         now: datetime,
     ) -> FeedbackRegressionJob: ...
 
+    async def fail(
+        self, job_id: str, *, worker_id: str, error: str, now: datetime
+    ) -> FeedbackRegressionJob: ...
+
 
 class InMemoryFeedbackRegressionJobStore:
     def __init__(self) -> None:
@@ -154,6 +158,18 @@ class InMemoryFeedbackRegressionJobStore:
             job,
             status=FeedbackJobStatus.PENDING,
             due_at=_aware(due_at),
+            lease_owner=None,
+            lease_until=None,
+            last_error=error[:256],
+        )
+        self.jobs[job_id] = updated
+        return updated
+
+    async def fail(self, job_id: str, *, worker_id: str, error: str, now: datetime):
+        job = self._leased(job_id, worker_id)
+        updated = replace(
+            job,
+            status=FeedbackJobStatus.FAILED,
             lease_owner=None,
             lease_until=None,
             last_error=error[:256],
@@ -256,6 +272,17 @@ class SqlAlchemyFeedbackRegressionJobStore:
             await session.flush()
             return _stored(row)
 
+    async def fail(self, job_id: str, *, worker_id: str, error: str, now: datetime):
+        async with self._session_factory() as session, session.begin():
+            row = await self._leased_row(session, job_id, worker_id)
+            row.status = FeedbackJobStatus.FAILED.value
+            row.lease_owner = None
+            row.lease_until = None
+            row.last_error = error[:256]
+            row.updated_at = _aware(now)
+            await session.flush()
+            return _stored(row)
+
     async def _leased_row(self, session: AsyncSession, job_id: str, worker_id: str):
         row = await session.scalar(
             select(FeedbackRegressionJobRow)
@@ -286,14 +313,22 @@ class FeedbackRegressionScheduler:
         worker_id: str,
         lease_ttl: timedelta = timedelta(minutes=2),
         retry_delay: timedelta = timedelta(minutes=5),
+        max_attempts: int = 3,
     ) -> None:
-        if not worker_id.strip() or lease_ttl <= timedelta(0) or retry_delay <= timedelta(0):
+        if (
+            not worker_id.strip()
+            or lease_ttl <= timedelta(0)
+            or retry_delay <= timedelta(0)
+            or isinstance(max_attempts, bool)
+            or max_attempts < 1
+        ):
             raise ValueError("FEEDBACK_SCHEDULER_CONFIG_INVALID")
         self.jobs = jobs
         self.worker = worker
         self.worker_id = worker_id
         self.lease_ttl = lease_ttl
         self.retry_delay = retry_delay
+        self.max_attempts = max_attempts
 
     async def run_once(
         self, *, now: datetime, limit: int = 10
@@ -307,16 +342,24 @@ class FeedbackRegressionScheduler:
             try:
                 result = await self.worker.run_once(job.batch)
             except Exception as error:
-                await self.jobs.retry(
-                    job.job_id,
-                    worker_id=self.worker_id,
-                    due_at=now + self.retry_delay,
-                    error=type(error).__name__,
-                    now=now,
-                )
+                error_code = type(error).__name__
+                if job.attempts >= self.max_attempts:
+                    status = FeedbackJobStatus.FAILED
+                    await self.jobs.fail(
+                        job.job_id, worker_id=self.worker_id, error=error_code, now=now
+                    )
+                else:
+                    status = FeedbackJobStatus.PENDING
+                    await self.jobs.retry(
+                        job.job_id,
+                        worker_id=self.worker_id,
+                        due_at=now + self.retry_delay,
+                        error=error_code,
+                        now=now,
+                    )
                 results.append(
                     FeedbackSchedulerResult(
-                        job.job_id, FeedbackJobStatus.PENDING, None, type(error).__name__
+                        job.job_id, status, None, error_code
                     )
                 )
             else:

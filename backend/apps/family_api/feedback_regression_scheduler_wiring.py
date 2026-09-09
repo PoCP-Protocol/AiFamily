@@ -66,6 +66,7 @@ def build_sql_feedback_regression_scheduler(
     schedule: FeedbackRegressionSchedule | None = None,
     lease_ttl: timedelta = timedelta(minutes=2),
     retry_delay: timedelta = timedelta(minutes=5),
+    max_attempts: int = 3,
 ) -> FeedbackRegressionSchedulerRuntime:
     """Build the durable scheduler without creating fallback dependencies."""
 
@@ -85,6 +86,7 @@ def build_sql_feedback_regression_scheduler(
         worker_id=worker_id,
         lease_ttl=lease_ttl,
         retry_delay=retry_delay,
+        max_attempts=max_attempts,
     )
     return FeedbackRegressionSchedulerRuntime(
         jobs=jobs,
