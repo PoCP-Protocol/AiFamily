@@ -400,6 +400,7 @@ class VerticalFamilyGrowthRuntime:
                 "family_need_id": family_need_id,
                 "path_id": path_id,
                 "context": context.values,
+                "required_dimensions": _required_dimensions(context.values),
                 "feedback_refs": feedback_refs,
                 "feedback_preferences": feedback_preferences,
                 "guardian_calibration": calibration,
@@ -415,7 +416,21 @@ class VerticalFamilyGrowthRuntime:
                     # Optional v2 understanding envelope. Legacy providers
                     # remain readable, while any provider emitting dimensions
                     # must carry explicit evidence/unknown semantics below.
-                    "dimensions": {"type": "array"},
+                    "dimensions": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["name"],
+                            "properties": {
+                                "name": {"type": "string"},
+                                "state": {"type": "string"},
+                                "evidence_refs": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                            },
+                        },
+                    },
                     "evidence_refs": {"type": "array", "items": {"type": "string"}},
                     "unknowns": {"type": "array"},
                     "contradictions": {"type": "array"},
@@ -462,6 +477,7 @@ class VerticalFamilyGrowthRuntime:
         _assert_understanding_evidence_honesty(
             draft.output,
             source_refs=context.values.get("source_refs"),
+            required_dimensions=_required_dimensions(context.values),
         )
         _assert_capability_grounding(draft.output, capability_refs)
         entry = EvaluationLedgerEntry(
@@ -541,7 +557,10 @@ def _assert_capability_grounding(output: dict[str, Any], capability_refs: tuple[
 
 
 def _assert_understanding_evidence_honesty(
-    output: dict[str, Any], *, source_refs: object = None
+    output: dict[str, Any],
+    *,
+    source_refs: object = None,
+    required_dimensions: tuple[str, ...] = (),
 ) -> None:
     """Validate the optional v2 understanding envelope without inventing facts.
 
@@ -557,6 +576,14 @@ def _assert_understanding_evidence_honesty(
     dimensions = output.get("dimensions", [])
     if not isinstance(dimensions, list):
         raise VerticalRuntimeError("UNDERSTANDING_DIMENSIONS_INVALID")
+    if required_dimensions:
+        names = [
+            dimension.get("name")
+            for dimension in dimensions
+            if isinstance(dimension, dict)
+        ]
+        if len(names) != len(set(names)) or set(names) != set(required_dimensions):
+            raise VerticalRuntimeError("UNDERSTANDING_DIMENSION_SET_INVALID")
     evidence_refs = output.get("evidence_refs", ())
     if not isinstance(evidence_refs, list) or any(
         not isinstance(ref, str) or not ref.strip() for ref in evidence_refs
@@ -575,6 +602,11 @@ def _assert_understanding_evidence_honesty(
     if not isinstance(unknowns, list) or not isinstance(contradictions, list):
         raise VerticalRuntimeError("UNDERSTANDING_DISCLOSURE_FIELDS_INVALID")
     declared_refs = set(evidence_refs)
+    unknown_dimensions = {
+        item.get("dimension")
+        for item in unknowns
+        if isinstance(item, dict) and isinstance(item.get("dimension"), str)
+    }
     for dimension in dimensions:
         if not isinstance(dimension, dict) or not isinstance(dimension.get("name"), str):
             raise VerticalRuntimeError("UNDERSTANDING_DIMENSION_INVALID")
@@ -583,6 +615,8 @@ def _assert_understanding_evidence_honesty(
         # dimension epistemic state therefore uses the non-ambiguous ``state``
         # key so UNKNOWN cannot be mistaken for a lifecycle promotion.
         is_unknown = dimension.get("state") == "UNKNOWN"
+        if is_unknown and dimension.get("name") not in unknown_dimensions:
+            raise VerticalRuntimeError("UNDERSTANDING_UNKNOWN_NOT_DISCLOSED")
         if not is_unknown and (
             not isinstance(refs, list)
             or not refs
@@ -603,6 +637,23 @@ def _assert_understanding_evidence_honesty(
             raise VerticalRuntimeError("UNDERSTANDING_CONTRADICTION_REF_NOT_DECLARED")
         if source_refs is not None and any(ref not in set(source_refs) for ref in refs):
             raise VerticalRuntimeError("UNDERSTANDING_CONTRADICTION_REF_UNGROUNDED")
+
+
+def _required_dimensions(values: dict[str, Any]) -> tuple[str, ...]:
+    """Return the server-declared understanding dimensions for this context.
+
+    The list is context metadata, not a client-controlled request field.  It
+    lets a product surface require a complete five-dimension observation while
+    keeping older internal callers on the backwards-compatible envelope path.
+    """
+
+    raw = values.get("required_dimensions", ())
+    if not isinstance(raw, (list, tuple)):
+        return ()
+    dimensions = tuple(item.strip() for item in raw if isinstance(item, str) and item.strip())
+    if len(dimensions) != len(set(dimensions)):
+        raise VerticalRuntimeError("UNDERSTANDING_REQUIRED_DIMENSIONS_INVALID")
+    return dimensions
 
 
 async def _feedback_latest(

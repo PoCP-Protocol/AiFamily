@@ -834,6 +834,82 @@ async def test_structured_unknown_and_contradiction_are_preserved():
 
 
 @pytest.mark.asyncio
+async def test_declared_understanding_dimensions_require_complete_evidence_envelope():
+    dimensions = ("情境", "关系", "节奏", "能力", "支持")
+    provider = FakeProvider(
+        {
+            "vertical_family_growth": {
+                "understanding": "证据不足，先保留未知",
+                "next_step": "补一次观察",
+                "path": [],
+                "dimensions": [
+                    {"name": "情境", "evidence_refs": ["obs:1"]},
+                    {"name": "关系", "state": "UNKNOWN"},
+                    {"name": "节奏", "evidence_refs": ["obs:1"]},
+                    {"name": "能力", "state": "UNKNOWN"},
+                    {"name": "支持", "evidence_refs": ["obs:1"]},
+                ],
+                "evidence_refs": ["obs:1"],
+                "unknowns": [
+                    {"dimension": "关系", "reason": "没有足够观察"},
+                    {"dimension": "能力", "reason": "没有足够观察"},
+                ],
+                "contradictions": [],
+            }
+        }
+    )
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=real_gateway(provider),
+        context=Context({"source_refs": ["obs:1"], "required_dimensions": dimensions}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+    )
+    entry = await runtime.run(
+        family_need_id="need-five-dimensions",
+        path_id="path-five-dimensions",
+        run_id="run-five-dimensions",
+        family_id="family-five-dimensions",
+        knowledge_ref="growth.v1",
+        provider_id=provider.provider_id,
+    )
+    assert tuple(item["name"] for item in entry.draft.output["dimensions"]) == dimensions
+
+
+@pytest.mark.asyncio
+async def test_declared_understanding_dimensions_reject_missing_dimension():
+    provider = FakeProvider(
+        {
+            "vertical_family_growth": {
+                "understanding": "不完整",
+                "next_step": "补充观察",
+                "path": [],
+                "dimensions": [{"name": "情境", "state": "UNKNOWN"}],
+                "evidence_refs": [],
+                "unknowns": [{"dimension": "情境", "reason": "缺证据"}],
+                "contradictions": [],
+            }
+        }
+    )
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=real_gateway(provider),
+        context=Context({"required_dimensions": ("情境", "关系")}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+    )
+    with pytest.raises(VerticalRuntimeError, match="DIMENSION_SET_INVALID"):
+        await runtime.run(
+            family_need_id="need-missing-dimension",
+            path_id="path-missing-dimension",
+            run_id="run-missing-dimension",
+            family_id="family-missing-dimension",
+            knowledge_ref="growth.v1",
+            provider_id=provider.provider_id,
+        )
+
+
+@pytest.mark.asyncio
 async def test_structured_evidence_must_belong_to_context_snapshot():
     provider = FakeProvider(
         {
