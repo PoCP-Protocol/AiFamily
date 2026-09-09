@@ -1484,6 +1484,10 @@ delay 重新排队。该策略不改变业务事实或发布状态，相关调�
 相关测试通过。真实 PostgreSQL schema upgrade 与回读仍受
 `AIFAMILY_TEST_DATABASE_URL` 门控，本轮未测得。
 
+SQL ledger 回归测试已补充人工恢复的跨 session 读取：失败任务经 operator requeue
+后，`attempts=0`、`requeued_by` 和 `requeued_at` 均可从新 session 回读；本轮 4 个
+调度测试通过。该测试使用 SQLite metadata path，真实 PostgreSQL 仍受环境门控。
+
 迁移能力已同步登记至 `governance/MIGRATION_MANIFEST.yaml` 的
 `feedback_regression_scheduler` 条目，成熟度明确标为 `IMPLEMENTED_EXPERIMENT`，
 并列出真实 PostgreSQL 并发与 worker 部署缺口。

@@ -299,7 +299,6 @@ class SqlAlchemyFeedbackRegressionJobStore:
         async with self._session_factory() as session, session.begin():
             row = await self._leased_row(session, job_id, worker_id)
             row.status = FeedbackJobStatus.PENDING.value
-            row.attempts = 0
             row.due_at = _aware(due_at)
             row.lease_owner = None
             row.lease_until = None
@@ -335,6 +334,7 @@ class SqlAlchemyFeedbackRegressionJobStore:
             if row.status != FeedbackJobStatus.FAILED.value:
                 raise ValueError("FEEDBACK_JOB_NOT_FAILED")
             row.status = FeedbackJobStatus.PENDING.value
+            row.attempts = 0
             row.due_at = _aware(due_at)
             row.last_error = f"REQUEUED_BY:{operator_ref[:128]}"
             row.requeued_by = operator_ref[:256]

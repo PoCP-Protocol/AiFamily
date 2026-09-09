@@ -196,5 +196,21 @@ async def test_sql_job_store_claim_and_takeover_survive_new_session() -> None:
             "sql-job", worker_id="worker-b", now=now + timedelta(minutes=1)
         )
         assert completed.status is FeedbackJobStatus.COMPLETED
+
+        await store.enqueue(FeedbackRegressionJob("sql-failed", batch, now))
+        await store.claim_due(
+            worker_id="worker-a", now=now, lease_ttl=timedelta(minutes=1), limit=1
+        )
+        await store.fail("sql-failed", worker_id="worker-a", error="RuntimeError", now=now)
+        restored = await SqlAlchemyFeedbackRegressionJobStore(sessions).requeue_failed(
+            "sql-failed",
+            operator_ref="ops-sql",
+            due_at=now + timedelta(minutes=2),
+            now=now + timedelta(minutes=1),
+        )
+        assert restored.status is FeedbackJobStatus.PENDING
+        assert restored.attempts == 0
+        assert restored.requeued_by == "ops-sql"
+        assert restored.requeued_at == now + timedelta(minutes=1)
     finally:
         await engine.dispose()
