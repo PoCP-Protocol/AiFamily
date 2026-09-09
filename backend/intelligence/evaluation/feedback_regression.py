@@ -9,6 +9,7 @@ facts.  A report can be handed to the existing release gate by an operator.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -97,6 +98,19 @@ class FeedbackRegressionReport:
         eligible = self.total_cases > 0 and self.passed_cases == self.total_cases
         return "ELIGIBLE" if eligible else "BLOCKED"
 
+    def to_ledger_payload(self) -> dict[str, Any]:
+        """Return only the bounded projection safe for the Experience ledger."""
+
+        return {
+            "report_ref": self.report_ref,
+            "case_version": self.case_version,
+            "total_cases": self.total_cases,
+            "passed_cases": self.passed_cases,
+            "release_eligibility": self.release_eligibility,
+            "education_outcome_status": "NOT_MEASURED",
+            "feedback_refs": tuple(item.feedback_ref for item in self.results),
+        }
+
 
 FeedbackRegressionAdapter = Callable[[FeedbackRegressionCase], Mapping[str, Any]]
 
@@ -154,6 +168,40 @@ def evaluate_feedback_regression(
     )
 
 
+async def persist_feedback_regression_report(
+    ledger: Any,
+    *,
+    scope: Any,
+    run_id: str,
+    report: FeedbackRegressionReport,
+    idempotency_key: str,
+) -> Any:
+    """Persist a report reference beside one durable experience run.
+
+    The ledger is intentionally injected as a port.  This helper does not
+    create a session, query a family, or archive report contents; it only
+    projects the bounded report metadata through the existing evaluation
+    interaction contract.
+    """
+
+    if not isinstance(run_id, str) or not run_id.strip():
+        raise FeedbackRegressionError("run_id is required")
+    if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+        raise FeedbackRegressionError("idempotency_key is required")
+    method = getattr(ledger, "record_evaluation", None)
+    if not callable(method):
+        raise TypeError("ledger must expose record_evaluation")
+    result = method(
+        scope=scope,
+        run_id=run_id,
+        report_ref=report.report_ref,
+        case_version=report.case_version,
+        idempotency_key=idempotency_key,
+        payload=report.to_ledger_payload(),
+    )
+    return await result if inspect.isawaitable(result) else result
+
+
 _FORBIDDEN_KEYS = frozenset(
     {
         "raw_media",
@@ -198,4 +246,5 @@ __all__ = [
     "FeedbackRegressionReport",
     "FeedbackRegressionResult",
     "evaluate_feedback_regression",
+    "persist_feedback_regression_report",
 ]

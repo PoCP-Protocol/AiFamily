@@ -1418,6 +1418,13 @@ Release Gate 与真人控制事件。禁止原始媒体、家庭/租户标识、
 陈述和证据摘录进入样本或报告。当前证据为 4 个隔离单测，成熟度仍为
 `EXPERIMENT`，不代表生产反馈 worker 或真实家庭回归闭环已经部署。
 
+本轮进一步将报告的**元数据投影**接入既有 Experience Run Ledger：
+`persist_feedback_regression_report()` 只写 `report_ref`、case version、样本数、
+通过数、发布资格和 feedback refs；正文仍由 Evaluation Archive 持有。已用内存
+ledger 验证幂等重试、回放和跨家庭 scope 拒绝（6 个评测测试通过）。这证明了
+canonical persistence seam，而不是 PostgreSQL 部署证据；真实反馈采集 worker、
+PostgreSQL 重启回读和真人 Release Gate 关联仍是下一道门。
+
 **这次交付顺带确认了你(2026-09-10)提到的"多AI通过ADR-0158协同"**：我在
 准备这次实现时发现共享本地`D:/AiFamily`工作树的`main`分支HEAD在短时间内
 从`fd2d90a`变成`0fa84a1`，且这两个commit跟`origin/main`都不在同一条历史

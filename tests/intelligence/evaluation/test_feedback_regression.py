@@ -6,6 +6,11 @@ from backend.intelligence.evaluation.feedback_regression import (
     FeedbackRegressionCase,
     FeedbackRegressionError,
     evaluate_feedback_regression,
+    persist_feedback_regression_report,
+)
+from backend.intelligence.experience.run_http import (
+    InMemoryExperienceRunLedger,
+    RunScope,
 )
 
 
@@ -67,3 +72,64 @@ def test_adapter_failure_is_reported_as_failed_case() -> None:
 
     assert report.passed_cases == 0
     assert report.results[0].failure_reason.startswith("RuntimeError:")
+
+
+@pytest.mark.asyncio
+async def test_report_projects_to_canonical_experience_ledger_and_replays() -> None:
+    ledger = InMemoryExperienceRunLedger()
+    scope = RunScope(tenant_id="tenant-1", family_id="family-1", subject_ids=("child-1",))
+    ledger.create_draft(
+        scope=scope,
+        run_id="run-1",
+        request_ref="agi:need-1:path-1",
+        draft_payload={"family_need_id": "need-1", "status": "DRAFT"},
+        idempotency_key="create-1",
+    )
+    report = evaluate_feedback_regression(
+        [_case()], lambda case: {"next_step": "记录一次晨间观察"}, case_version="feedback-v1"
+    )
+
+    first = await persist_feedback_regression_report(
+        ledger,
+        scope=scope,
+        run_id="run-1",
+        report=report,
+        idempotency_key="eval-1",
+    )
+    repeated = await persist_feedback_regression_report(
+        ledger,
+        scope=scope,
+        run_id="run-1",
+        report=report,
+        idempotency_key="eval-1",
+    )
+
+    assert first.status == "recorded"
+    assert repeated.idempotency_replayed is True
+    replay = ledger.replay(scope=scope, run_id="run-1")
+    evaluation = [item for item in replay.entries if item.interaction_type.value == "evaluation"]
+    assert len(evaluation) == 1
+    assert evaluation[0].payload["report_ref"] == report.report_ref
+    assert evaluation[0].payload["release_eligibility"] == "ELIGIBLE"
+
+
+@pytest.mark.asyncio
+async def test_report_projection_cannot_be_read_from_another_family() -> None:
+    ledger = InMemoryExperienceRunLedger()
+    owner = RunScope(tenant_id="tenant-1", family_id="family-1", subject_ids=("child-1",))
+    other = RunScope(tenant_id="tenant-1", family_id="family-2", subject_ids=("child-2",))
+    ledger.create_draft(
+        scope=owner,
+        run_id="run-1",
+        request_ref="agi:need-1:path-1",
+        draft_payload={"family_need_id": "need-1", "status": "DRAFT"},
+        idempotency_key="create-1",
+    )
+    report = evaluate_feedback_regression(
+        [_case()], lambda case: {"next_step": "记录一次晨间观察"}, case_version="feedback-v1"
+    )
+    await persist_feedback_regression_report(
+        ledger, scope=owner, run_id="run-1", report=report, idempotency_key="eval-1"
+    )
+    with pytest.raises(Exception, match="SCOPE_MISMATCH"):
+        ledger.replay(scope=other, run_id="run-1")
