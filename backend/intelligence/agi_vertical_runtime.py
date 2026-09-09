@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
@@ -533,6 +533,34 @@ class VerticalFamilyGrowthRuntime:
             raise VerticalRuntimeError("GUARDIAN_DECISION_SCOPE_MISMATCH")
         self._ledger.decision(decision)
         return self._ledger.replay(run_id)
+
+    async def revise(
+        self,
+        *,
+        run_id: str,
+        next_run_id: str,
+        family_id: str,
+        decision: GuardianDecision,
+    ) -> EvaluationLedgerEntry:
+        """Generate a new draft from a guardian correction without rewriting history."""
+
+        current = await self.decide(run_id=run_id, family_id=family_id, decision=decision)
+        if not next_run_id.strip() or next_run_id == run_id:
+            raise VerticalRuntimeError("REVISION_RUN_ID_INVALID")
+        next_decision = replace(decision, run_id=next_run_id)
+        revised = await self.run(
+            family_need_id=current.family_need_id,
+            path_id=current.path_id,
+            run_id=next_run_id,
+            family_id=family_id,
+            knowledge_ref=current.knowledge_ref,
+            guardian_decision=next_decision,
+            context_snapshot_ref=current.context_snapshot_ref,
+        )
+        if revised.draft.output == current.draft.output:
+            self.delete(run_id=next_run_id, family_id=family_id)
+            raise VerticalRuntimeError("REVISION_NO_CHANGE")
+        return revised
 
 
 def _assert_capability_grounding(output: dict[str, Any], capability_refs: tuple[str, ...]) -> None:

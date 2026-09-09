@@ -88,6 +88,25 @@ class Gateway:
         )
 
 
+class RevisionGateway(Gateway):
+    async def generate_structured(self, request, *, provider_id=None):
+        self.calls += 1
+        self.last_request = request
+        next_step = (
+            "采用视觉计时器"
+            if request.payload.get("guardian_calibration")
+            else "开始仪式"
+        )
+        return ModelDraft(
+            {"understanding": "启动阻力", "next_step": next_step, "path": []},
+            AiProvenance(
+                "fake", "model", "v1", request.prompt_version,
+                request.schema_version, request.context_snapshot_ref, 1,
+                request.data_class, request.use_case,
+            ),
+        )
+
+
 def test_guardian_decision_rejects_unbounded_calibration_fields():
     with pytest.raises(VerticalRuntimeError, match="GUARDIAN_CALIBRATION_FIELD_INVALID"):
         GuardianDecision("d", "n", "r", "p", "EDIT", {"raw_prompt": "secret"})
@@ -555,6 +574,43 @@ async def test_guardian_decision_is_carried_into_next_round_and_replay_is_read_o
     assert deletion_ref == "deletion:run-2"
     with pytest.raises(VerticalRuntimeError, match="EVALUATION_ENTRY_NOT_FOUND"):
         ledger.replay("run-2")
+
+
+@pytest.mark.asyncio
+async def test_guardian_revision_creates_changed_next_draft_without_rewriting_source():
+    gateway = RevisionGateway()
+    ledger = EvaluationLedger()
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=gateway,
+        context=Context({"delay": "high"}),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=ledger,
+    )
+    await runtime.run(
+        family_need_id="need-revision",
+        path_id="path-revision",
+        run_id="run-original",
+        family_id="family-revision",
+        knowledge_ref="growth.v1",
+    )
+    revised = await runtime.revise(
+        run_id="run-original",
+        next_run_id="run-revised",
+        family_id="family-revision",
+        decision=GuardianDecision(
+            "decision:revision",
+            "need-revision",
+            "run-original",
+            "path-revision",
+            "EDIT",
+            {"next_step": "视觉计时器"},
+        ),
+    )
+    assert revised.run_id == "run-revised"
+    assert revised.draft.output["next_step"] == "采用视觉计时器"
+    assert ledger.read("run-original").draft.output["next_step"] == "开始仪式"
+    assert revised.lineage_ref != ledger.read("run-original").lineage_ref
 
 
 @pytest.mark.asyncio

@@ -69,6 +69,7 @@ class VerticalGrowthDecisionRequest(BaseModel):
     path_id: str = Field(min_length=1, max_length=200)
     state: str = Field(pattern="^(ACCEPT|REJECT|EDIT|DEFER)$")
     edits: dict[str, object] = Field(default_factory=dict)
+    next_run_id: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 def get_vertical_family_growth_runtime(
@@ -116,6 +117,8 @@ def _map_runtime_error(
         "IDEMPOTENCY_REPLAY_MISMATCH",
         "RUN_CREATE_CONFLICT",
         "INTERACTION_APPEND_CONFLICT",
+        "REVISION_RUN_ID_INVALID",
+        "REVISION_NO_CHANGE",
     }:
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
     if detail in {"CONSENT_NOT_ACTIVE", "CONSENT_REVOKED"}:
@@ -224,12 +227,25 @@ async def decide_vertical_growth_draft(
         edits=dict(payload.edits),
     )
     try:
-        decide = getattr(runtime, "decide", None)
-        if not callable(decide):
-            raise VerticalRuntimeError("vertical_family_growth_decision_unavailable")
-        entry = await _await_if_needed(
-            decide(run_id=run_id, family_id=family_id, decision=decision)
-        )
+        if payload.next_run_id is not None:
+            revise = getattr(runtime, "revise", None)
+            if not callable(revise):
+                raise VerticalRuntimeError("vertical_family_growth_revision_unavailable")
+            entry = await _await_if_needed(
+                revise(
+                    run_id=run_id,
+                    next_run_id=payload.next_run_id,
+                    family_id=family_id,
+                    decision=decision,
+                )
+            )
+        else:
+            decide = getattr(runtime, "decide", None)
+            if not callable(decide):
+                raise VerticalRuntimeError("vertical_family_growth_decision_unavailable")
+            entry = await _await_if_needed(
+                decide(run_id=run_id, family_id=family_id, decision=decision)
+            )
     except (VerticalRuntimeError, RunHttpError, ContextContractError, ValueError) as error:
         raise _map_runtime_error(error) from error
     return _entry_response(entry)

@@ -181,6 +181,48 @@ def test_guardian_decision_route_preserves_scope_and_conflict_status() -> None:
     assert conflict.json()["detail"] == "GUARDIAN_DECISION_SCOPE_MISMATCH"
 
 
+def test_guardian_decision_route_accepts_explicit_revision_run() -> None:
+    class RevisionRuntime(_Runtime):
+        async def revise(self, *, run_id, next_run_id, family_id, decision):
+            assert run_id == "run-1"
+            assert next_run_id == "run-2"
+            return await self.run(
+                family_need_id=decision.family_need_id,
+                path_id=decision.path_id,
+                run_id=next_run_id,
+                family_id=family_id,
+                knowledge_ref="claim:1",
+            )
+
+    app = FastAPI()
+    runtime = RevisionRuntime()
+    app.state.vertical_family_growth_runtime = runtime
+    app.include_router(router)
+    client = TestClient(app)
+    client.post(
+        "/families/family-a/growth/ai-drafts",
+        json={
+            "family_need_id": "need-1",
+            "path_id": "path-1",
+            "run_id": "run-1",
+            "knowledge_ref": "claim:1",
+        },
+    )
+    response = client.post(
+        "/families/family-a/growth/ai-drafts/run-1/decisions",
+        json={
+            "decision_ref": "decision:revision",
+            "family_need_id": "need-1",
+            "path_id": "path-1",
+            "state": "EDIT",
+            "next_run_id": "run-2",
+            "edits": {"next_step": "视觉计时器"},
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["run_id"] == "run-2"
+
+
 def test_vertical_replay_and_delete_accept_async_runtime_methods() -> None:
     """Durable PostgreSQL runtimes expose awaitable replay/delete methods."""
 

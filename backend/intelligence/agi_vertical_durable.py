@@ -8,7 +8,7 @@ deletion semantics remain the platform's existing responsibility.
 from __future__ import annotations
 
 import inspect
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 from backend.intelligence.agi_growth_path_projection import (
@@ -296,6 +296,54 @@ class DurableVerticalGrowthRuntime:
             raise VerticalRuntimeError("GUARDIAN_DECISION_CORRELATION_MISMATCH")
         await self._ledger.record_guardian_decision(decision, scope=scope)
         return await self.replay(run_id=run_id, family_id=family_id)
+
+    async def revise(
+        self,
+        *,
+        run_id: str,
+        next_run_id: str,
+        family_id: str,
+        decision: GuardianDecision,
+    ) -> EvaluationLedgerEntry:
+        """Persist a new calibrated draft while retaining the source run."""
+
+        if not next_run_id.strip() or next_run_id == run_id:
+            raise VerticalRuntimeError("REVISION_RUN_ID_INVALID")
+        source = await self.replay(run_id=run_id, family_id=family_id)
+        if (
+            source.family_need_id != decision.family_need_id
+            or source.path_id != decision.path_id
+            or decision.run_id != run_id
+        ):
+            raise VerticalRuntimeError("GUARDIAN_DECISION_SCOPE_MISMATCH")
+        existing = None
+        try:
+            existing = await self.replay(run_id=next_run_id, family_id=family_id)
+        except RunHttpError as error:
+            if error.code != "RUN_NOT_FOUND":
+                raise
+        except VerticalRuntimeError as error:
+            if str(error) != "EVALUATION_ENTRY_NOT_FOUND":
+                raise
+        if existing is not None:
+            return existing
+        scope = await self._scope(family_id)
+        await self._ledger.record_guardian_decision(decision, scope=scope)
+        revised = await self._runtime.run(
+            family_need_id=source.family_need_id,
+            path_id=source.path_id,
+            run_id=next_run_id,
+            family_id=family_id,
+            knowledge_ref=source.knowledge_ref,
+            guardian_decision=replace(decision, run_id=next_run_id),
+            context_snapshot_ref=source.context_snapshot_ref,
+        )
+        await self._ledger.save_entry(revised, scope=scope)
+        replayed = await self.replay(run_id=next_run_id, family_id=family_id)
+        if replayed.draft.output == source.draft.output:
+            await self.delete(run_id=next_run_id, family_id=family_id)
+            raise VerticalRuntimeError("REVISION_NO_CHANGE")
+        return replayed
 
 
 __all__ = ["DurableVerticalGrowthRuntime", "DurableVerticalLedgerAdapter", "DurableVerticalRun"]
