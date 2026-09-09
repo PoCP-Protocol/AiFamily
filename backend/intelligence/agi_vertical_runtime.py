@@ -211,6 +211,11 @@ class EvaluationLedgerEntry:
     knowledge_version: str = ""
     lineage_ref: str = ""
     parent_run_id: str = ""
+    input_refs: tuple[str, ...] = ()
+    prompt_ref: str = ""
+    system_policy_ref: str = ""
+    knowledge_source: str = ""
+    knowledge_digest: str = ""
 
 
 class EvaluationLedger:
@@ -493,6 +498,11 @@ class VerticalFamilyGrowthRuntime:
             knowledge_ref=material.ref,
             knowledge_version=material.version,
             lineage_ref=lineage_ref,
+            input_refs=request.input_refs,
+            prompt_ref=request.prompt_execution_plan.prompt_ref,
+            system_policy_ref=request.prompt_execution_plan.system_policy_ref,
+            knowledge_source=material.source,
+            knowledge_digest=material.digest,
         )
         self._ledger.append(entry)
         self._run_families[run_id] = family_id

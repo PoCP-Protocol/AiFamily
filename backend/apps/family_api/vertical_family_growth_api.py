@@ -59,6 +59,7 @@ class VerticalGrowthDraftResponse(BaseModel):
     knowledge_version: str
     lineage_ref: str
     parent_run_id: str
+    provenance_chain: dict[str, object]
     provenance: dict[str, object]
 
 
@@ -146,6 +147,19 @@ def _entry_response(entry: object) -> VerticalGrowthDraftResponse:
         knowledge_version=entry.knowledge_version,
         lineage_ref=entry.lineage_ref,
         parent_run_id=getattr(entry, "parent_run_id", ""),
+        provenance_chain={
+            "context_snapshot_ref": entry.context_snapshot_ref,
+            "knowledge_ref": entry.knowledge_ref,
+            "knowledge_version": entry.knowledge_version,
+            "knowledge_source": getattr(entry, "knowledge_source", ""),
+            "knowledge_digest": getattr(entry, "knowledge_digest", ""),
+            "prompt_ref": getattr(entry, "prompt_ref", ""),
+            "prompt_version": entry.draft.provenance.prompt_version,
+            "schema_version": entry.draft.provenance.schema_version,
+            "system_policy_ref": getattr(entry, "system_policy_ref", ""),
+            "input_refs": list(getattr(entry, "input_refs", ())),
+            "lineage_ref": entry.lineage_ref,
+        },
         provenance={
             name: getattr(entry.draft.provenance, name)
             for name in entry.draft.provenance.__dataclass_fields__

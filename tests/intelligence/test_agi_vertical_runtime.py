@@ -272,6 +272,11 @@ async def test_published_capability_versions_are_part_of_request_identity():
     assert entry.capability_refs == ("practice:focus@1.0.0",)
     assert entry.knowledge_ref == "growth.v1"
     assert entry.knowledge_version == "v1"
+    assert entry.knowledge_source == "source:education"
+    assert entry.knowledge_digest == "digest-v1"
+    assert entry.prompt_ref == "vertical-family-growth"
+    assert entry.system_policy_ref == "family-growth-safety.v1"
+    assert "knowledge:growth.v1@v1" in entry.input_refs
     assert entry.lineage_ref.startswith("lineage:")
     assert len(entry.lineage_ref) == len("lineage:") + 32
     assert "knowledge:growth.v1@v1" in gateway.last_request.input_refs

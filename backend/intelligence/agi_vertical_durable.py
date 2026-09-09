@@ -82,6 +82,11 @@ class DurableVerticalLedgerAdapter:
             "knowledge_version": entry.knowledge_version,
             "lineage_ref": entry.lineage_ref,
             "parent_run_id": entry.parent_run_id,
+            "input_refs": entry.input_refs,
+            "prompt_ref": entry.prompt_ref,
+            "system_policy_ref": entry.system_policy_ref,
+            "knowledge_source": entry.knowledge_source,
+            "knowledge_digest": entry.knowledge_digest,
             "context_snapshot_ref": entry.context_snapshot_ref,
         }
         snapshot = await self._call(
@@ -280,6 +285,11 @@ class DurableVerticalGrowthRuntime:
             knowledge_version=payload.get("knowledge_version", ""),
             lineage_ref=payload.get("lineage_ref", ""),
             parent_run_id=payload.get("parent_run_id", ""),
+            input_refs=tuple(payload.get("input_refs", ())),
+            prompt_ref=payload.get("prompt_ref", ""),
+            system_policy_ref=payload.get("system_policy_ref", ""),
+            knowledge_source=payload.get("knowledge_source", ""),
+            knowledge_digest=payload.get("knowledge_digest", ""),
         )
 
     async def delete(self, *, run_id: str, family_id: str) -> RunReplaySnapshot:
