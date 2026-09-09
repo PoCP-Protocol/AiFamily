@@ -15,6 +15,7 @@ from backend.apps.family_api.production_ai_platform_wiring import (
     ProductionAiPlatformWiring,
     build_production_ai_platform_wiring,
 )
+from backend.domains.assessment.api import dependencies as assessment_dependencies
 from backend.intelligence.context_engine.sql_store import AsyncSqlContextBroker
 from backend.intelligence.model_gateway.attempt_persistence import SqlAlchemyAttemptSink
 from backend.intelligence.model_gateway.gateway import ModelGateway
@@ -47,12 +48,15 @@ def test_single_entry_point_mounts_the_complete_ai_surface() -> None:
     try:
         app = FastAPI()
         wiring.install(app)
+        paths = app.openapi()["paths"]
+        assert assessment_dependencies.get_query_handler in app.dependency_overrides
+        assert assessment_dependencies.get_growth_hypothesis_handler in app.dependency_overrides
         assert (
             "/families/{family_id}/growth/onboardings/{onboarding_id}/ai-plan-drafts"
-            in app.openapi()["paths"]
+            in paths
         )
         assert (
-            "/families/{family_id}/growth/human-tasks/{task_id}/decisions" in app.openapi()["paths"]
+            "/families/{family_id}/growth/human-tasks/{task_id}/decisions" in paths
         )
     finally:
         import asyncio
