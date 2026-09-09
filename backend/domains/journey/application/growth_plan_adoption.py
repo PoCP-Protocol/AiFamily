@@ -133,6 +133,17 @@ class AdoptedGrowthPlanRepository(Protocol):
         cannot diverge. Returns plan, created, idempotency_replayed.
         """
 
+    async def record_read(
+        self,
+        *,
+        actor: GrowthPlanActor,
+        subject_person_id: str,
+        accessed_fields: tuple[str, ...],
+        approval_ref: str,
+        correlation_id: str,
+    ) -> None:
+        """Persist the legally required read-access record atomically."""
+
 
 class GrowthPlanAdoptionPolicy(Protocol):
     async def assert_can_read(self, actor: GrowthPlanActor) -> None: ...
@@ -238,6 +249,13 @@ class GrowthPlanAdoptionService:
             tenant_id=actor.tenant_id, family_id=actor.family_id
         )
         if current is not None:
+            await self.repository.record_read(
+                actor=actor,
+                subject_person_id=_read_subject(current.subject_refs, actor),
+                accessed_fields=_growth_plan_read_fields(current),
+                approval_ref=actor.consent_ref,
+                correlation_id=f"growth-plan-read:{actor.family_id}:{current.plan_id}",
+            )
             return {"family_id": actor.family_id, "plan": current.as_dict()}
         draft = await self.draft_reader.load_latest_validated_draft(
             tenant_id=actor.tenant_id, family_id=actor.family_id
@@ -245,6 +263,19 @@ class GrowthPlanAdoptionService:
         if draft is None:
             return {"family_id": actor.family_id, "plan": None}
         _validate_draft(draft, actor)
+        await self.repository.record_read(
+            actor=actor,
+            subject_person_id=_read_subject(draft.subject_refs, actor),
+            accessed_fields=(
+                "draft_ref",
+                "draft_version",
+                "validation_receipt_ref",
+                "provenance_ref",
+                "output",
+            ),
+            approval_ref=actor.consent_ref,
+            correlation_id=f"growth-plan-read:{actor.family_id}:{draft.draft_ref}",
+        )
         return {
             "family_id": actor.family_id,
             "plan": {
@@ -380,6 +411,31 @@ def _request_fingerprint(command: AdoptGrowthPlanCommand) -> str:
         separators=(",", ":"),
     )
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _read_subject(subject_refs: tuple[str, ...], actor: GrowthPlanActor) -> str:
+    non_actor = tuple(ref for ref in subject_refs if ref != actor.actor_id)
+    if len(non_actor) == 1:
+        return non_actor[0]
+    if actor.actor_id in subject_refs and len(subject_refs) == 1:
+        return actor.actor_id
+    if len(subject_refs) == 1:
+        return subject_refs[0]
+    raise JourneyForbiddenError("growth_plan_read_subject_scope_ambiguous")
+
+
+def _growth_plan_read_fields(plan: AdoptedGrowthPlan) -> tuple[str, ...]:
+    return (
+        "plan_id",
+        "draft_ref",
+        "draft_version",
+        "title",
+        "family_goal",
+        "stages",
+        "selected_choices",
+        "limitations",
+        "provenance_ref",
+    )
 
 
 __all__ = [

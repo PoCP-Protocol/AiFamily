@@ -106,6 +106,30 @@ class InMemoryAdoptedGrowthPlanRepository(AdoptedGrowthPlanRepository):
     async def get_current(self, *, tenant_id: str, family_id: str) -> AdoptedGrowthPlan | None:
         return self.current.get((tenant_id, family_id))
 
+    async def record_read(
+        self,
+        *,
+        actor: GrowthPlanActor,
+        subject_person_id: str,
+        accessed_fields: tuple[str, ...],
+        approval_ref: str,
+        correlation_id: str,
+    ) -> None:
+        self.audit_recorder.record_read(
+            actor_id=actor.actor_id,
+            tenant_id=actor.tenant_id,
+            action="ReadFamilyGrowthPlan",
+            resource_type="AdoptedGrowthPlan",
+            resource_id=actor.family_id,
+            subject_person_id=subject_person_id,
+            accessed_fields=accessed_fields,
+            access_purpose="growth_tracking",
+            approval_ref=approval_ref,
+            reason="guardian read family growth plan",
+            correlation_id=correlation_id,
+            subject_is_minor=True,
+        )
+
     async def adopt_once(
         self,
         *,

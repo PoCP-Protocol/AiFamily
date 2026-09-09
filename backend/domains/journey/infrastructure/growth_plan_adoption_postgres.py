@@ -25,11 +25,12 @@ from backend.domains.identity.infrastructure.sqlalchemy_repository import (
     SqlAlchemyIdentityRepository,
 )
 from backend.intelligence.context_engine.contracts import ContextScope, DataClass
-from backend.platform.audit import AuditEvent, persist_events
+from backend.platform.audit import AuditEvent, AuditRecorder, persist_events
 
 from ..application.growth_plan_adoption import (
     AdoptedGrowthPlan,
     AdoptedGrowthPlanRepository,
+    GrowthPlanActor,
     GrowthPlanDraftReader,
     ValidatedGrowthPlanDraft,
 )
@@ -156,6 +157,34 @@ class SqlAlchemyAdoptedGrowthPlanRepository(AdoptedGrowthPlanRepository):
                 .first()
             )
             return _plan_from_row(row) if row else None
+
+    async def record_read(
+        self,
+        *,
+        actor: GrowthPlanActor,
+        subject_person_id: str,
+        accessed_fields: tuple[str, ...],
+        approval_ref: str,
+        correlation_id: str,
+    ) -> None:
+        recorder = AuditRecorder()
+        recorder.record_read(
+            actor_id=actor.actor_id,
+            tenant_id=actor.tenant_id,
+            action="ReadFamilyGrowthPlan",
+            resource_type="AdoptedGrowthPlan",
+            resource_id=actor.family_id,
+            subject_person_id=subject_person_id,
+            accessed_fields=accessed_fields,
+            access_purpose="growth_tracking",
+            approval_ref=approval_ref,
+            reason="guardian read family growth plan",
+            correlation_id=correlation_id,
+            subject_is_minor=True,
+        )
+        async with self.session_factory() as session:
+            await recorder.flush(session)
+            await session.commit()
 
     async def adopt_once(
         self,

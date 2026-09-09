@@ -443,7 +443,9 @@ entries:
       Growth Plan Draft/Guardian Adoption 的 PostgreSQL 持久化实现位于
       backend/domains/journey/infrastructure/growth_plan_adoption_postgres.py，
       由 0077_journey_adopted_growth_plans 提供唯一 ACTIVE 计划投影；真实跨进程 HTTP
-      证据仍需在本次集成门禁中补齐。
+      证据仍需在本次集成门禁中补齐。Adoption Draft/Plan 读取已通过现有
+      AuditRecorder READ 事件记录 actor、minor subject、字段集合、purpose、approval
+      与 correlation；实现边界见 ADR-0164，真实 PostgreSQL 读取审计回读证据仍待补齐。
     postgres_test_gate: >
       tests/domains/journey/test_postgres_transaction_integration.py 在设置
       AIFAMILY_TEST_DATABASE_URL 时验证幂等回放与异常回滚；未设置时明确 skip。
