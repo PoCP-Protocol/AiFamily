@@ -221,3 +221,36 @@ def test_dev_postgres_uses_durable_installer_before_dev_fake(
 
     assert calls == ["postgresql+asyncpg://example/aifamily"]
     assert len(_mounted_routes(app)) == 1
+
+
+def test_dev_postgres_overrides_assessment_fake_with_durable_wiring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AIFAMILY_ENV", "test")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example/aifamily")
+    calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(main, "get_engine", lambda _url: "postgres-engine")
+    monkeypatch.setattr(main, "get_sessionmaker", lambda _url: "postgres-sessions")
+    monkeypatch.setattr(
+        main,
+        "SqlAlchemyAssessmentIdentityResolver",
+        lambda engine, session_factory: (engine, session_factory),
+    )
+    monkeypatch.setattr(
+        main,
+        "SqlAlchemyAssessmentIdentityResolver",
+        lambda engine, session_factory: (engine, session_factory),
+    )
+
+    def install_durable_assessment(app, **kwargs) -> None:  # noqa: ANN001
+        calls.append(kwargs)
+
+    monkeypatch.setattr(main, "install_postgres_assessment_http_wiring", install_durable_assessment)
+
+    main.create_app()
+
+    assert len(calls) == 1
+    assert calls[0]["engine"] == "postgres-engine"
+    assert calls[0]["identity_resolver"] == ("postgres-engine", "postgres-sessions")
+    assert calls[0]["interpretation_factory"].__name__ == "DeterministicInterpretationAdapter"

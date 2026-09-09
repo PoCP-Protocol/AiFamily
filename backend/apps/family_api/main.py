@@ -41,6 +41,10 @@ from backend.apps.family_api.growth_onboarding_wiring import (
     install_growth_onboarding_production_wiring,
 )
 from backend.apps.family_api.production_ai_platform_wiring import ProductionAiPlatformWiring
+from backend.apps.family_api.production_assessment_http_wiring import (
+    SqlAlchemyAssessmentIdentityResolver,
+    install_postgres_assessment_http_wiring,
+)
 from backend.apps.family_api.production_commerce_api import build_production_commerce_router
 from backend.apps.family_api.production_commerce_context import (
     ProductionCommerceReadContextResolver,
@@ -57,6 +61,9 @@ from backend.domains.assessment.api import (
     register_exception_handlers as register_assessment_exception_handlers,
 )
 from backend.domains.assessment.api import router as assessment_router
+from backend.domains.assessment.infrastructure.deterministic_interpretation import (
+    DeterministicInterpretationAdapter,
+)
 from backend.domains.commerce.api.routes import router as commerce_router
 from backend.domains.family_need.api.routes import (
     register_exception_handlers as register_family_need_exception_handlers,
@@ -330,6 +337,30 @@ def _mount_identity(application: FastAPI, *, database_url: str | None = None) ->
         install_identity_dev_wiring(application, engine=get_engine())
 
 
+def _mount_postgres_assessment_persistence(
+    application: FastAPI, *, database_url: str | None = None
+) -> None:
+    """Keep dev/test assessment data durable when PostgreSQL is explicit.
+
+    The interpretation adapter remains the admitted deterministic test
+    adapter. Only the repository and authenticated identity move to the real
+    PostgreSQL path; this is not a production AI claim.
+    """
+
+    configured_url = database_url or _runtime_database_url()
+    if not is_dev_environment() or configured_url is None or not is_postgres_url(configured_url):
+        return
+    engine = get_engine(configured_url)
+    session_factory = get_sessionmaker(configured_url)
+    identity_resolver = SqlAlchemyAssessmentIdentityResolver(engine, session_factory)
+    install_postgres_assessment_http_wiring(
+        application,
+        engine=engine,
+        identity_resolver=identity_resolver,
+        interpretation_factory=DeterministicInterpretationAdapter,
+    )
+
+
 def _mount_growth_plan_adoption(application: FastAPI) -> None:
     """Mount the generative growth-plan adoption slice (UI-04 adopt/read).
 
@@ -549,9 +580,7 @@ def create_app(
         production_ai_platform_wiring is not None
         and production_vertical_family_growth_composition is not None
     ):
-        raise ValueError(
-            "production_ai_platform_wiring owns vertical family-growth composition"
-        )
+        raise ValueError("production_ai_platform_wiring owns vertical family-growth composition")
     _configure_fgcn_persistence()
     application = FastAPI(title="AiFamily family_api", version="0.1.0")
     if production_commerce_context_resolver is not None:
@@ -690,6 +719,11 @@ def create_app(
         # Dev/test use the same operator API contracts with synthetic records;
         # this module refuses installation outside the explicit allow-list.
         install_dev_operator_query_wiring(application)
+    # An explicit PostgreSQL URL must also replace dev_wiring's in-memory
+    # assessment repository. Keep this after dev wiring so the durable seam
+    # wins, and before any explicitly supplied production AI composition so
+    # that the latter remains the final authority for both persistence and AI.
+    _mount_postgres_assessment_persistence(application)
     # Growth plan adoption (UI-04): dev/test only, see `_mount_growth_plan_adoption`.
     _mount_growth_plan_adoption(application)
     if engagement_runtime_resolver is not None and engagement_runtime_wiring is not None:
