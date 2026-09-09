@@ -1456,6 +1456,12 @@ bounded report projection 写入 canonical Experience ledger。它不读取家�
 本机本轮因未设置 `AIFAMILY_TEST_DATABASE_URL` 明确 skip；因此 PostgreSQL 证据仍为
 `UNMEASURED`，不是通过。
 
+本轮新增 `backend/apps/family_api/feedback_regression_scheduler_wiring.py`，提供
+部署拥有的 SQL scheduler factory 与 bounded tick。factory 强制注入
+`async_sessionmaker`、已授权 case source、ledger、adapter 和 worker id，不读取凭据、
+不创建 fallback；相关 wiring/调度测试 5 passed。它只是部署接缝，不能替代真实
+PostgreSQL worker 运行与多进程证据。
+
 迁移能力已同步登记至 `governance/MIGRATION_MANIFEST.yaml` 的
 `feedback_regression_scheduler` 条目，成熟度明确标为 `IMPLEMENTED_EXPERIMENT`，
 并列出真实 PostgreSQL 并发与 worker 部署缺口。
