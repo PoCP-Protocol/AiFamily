@@ -42,6 +42,9 @@ class FeedbackRegressionSchedulerRuntime:
     async def enqueue(self, job: FeedbackRegressionJob) -> FeedbackRegressionJob:
         return await self.jobs.enqueue(job)
 
+    async def get(self, job_id: str) -> FeedbackRegressionJob | None:
+        return await self.jobs.get(job_id)
+
     async def run_scheduled_tick(
         self, *, now: datetime | None = None
     ) -> tuple[FeedbackSchedulerResult, ...]:
@@ -70,6 +73,8 @@ def build_sql_feedback_regression_scheduler(
         raise TypeError("session_factory must be an async_sessionmaker")
     if not callable(getattr(case_source, "load", None)):
         raise TypeError("case_source must expose async load")
+    if not callable(getattr(ledger, "record_evaluation", None)):
+        raise TypeError("ledger must expose record_evaluation")
     if not callable(adapter):
         raise TypeError("adapter must be callable")
     jobs = SqlAlchemyFeedbackRegressionJobStore(session_factory)

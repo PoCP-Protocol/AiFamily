@@ -1462,6 +1462,10 @@ bounded report projection 写入 canonical Experience ledger。它不读取家�
 不创建 fallback；相关 wiring/调度测试 5 passed。它只是部署接缝，不能替代真实
 PostgreSQL worker 运行与多进程证据。
 
+本轮补齐 scheduler runtime 的 `get(job_id)` 状态回读，并在 production factory
+构造期强制校验注入 ledger 暴露 `record_evaluation`。部署进程重启后可先读取
+任务终态，避免把重复执行误当成新一轮评测；相关调度/wiring 测试 5 passed。
+
 迁移能力已同步登记至 `governance/MIGRATION_MANIFEST.yaml` 的
 `feedback_regression_scheduler` 条目，成熟度明确标为 `IMPLEMENTED_EXPERIMENT`，
 并列出真实 PostgreSQL 并发与 worker 部署缺口。

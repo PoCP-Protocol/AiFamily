@@ -75,6 +75,8 @@ class FeedbackRegressionJob:
 class FeedbackRegressionJobStore(Protocol):
     async def enqueue(self, job: FeedbackRegressionJob) -> FeedbackRegressionJob: ...
 
+    async def get(self, job_id: str) -> FeedbackRegressionJob | None: ...
+
     async def claim_due(
         self, *, worker_id: str, now: datetime, lease_ttl: timedelta, limit: int
     ) -> tuple[FeedbackRegressionJob, ...]: ...
@@ -104,6 +106,9 @@ class InMemoryFeedbackRegressionJobStore:
             raise ValueError("FEEDBACK_JOB_CONFLICT")
         self.jobs[job.job_id] = existing or job
         return existing or job
+
+    async def get(self, job_id: str) -> FeedbackRegressionJob | None:
+        return self.jobs.get(job_id)
 
     async def claim_due(self, *, worker_id: str, now: datetime, lease_ttl: timedelta, limit: int):
         if not worker_id.strip() or lease_ttl <= timedelta(0) or limit < 1:
@@ -186,6 +191,13 @@ class SqlAlchemyFeedbackRegressionJobStore:
                 return existing
             session.add(_row(job, now))
         return job
+
+    async def get(self, job_id: str) -> FeedbackRegressionJob | None:
+        if not isinstance(job_id, str) or not job_id.strip():
+            raise ValueError("FEEDBACK_JOB_ID_REQUIRED")
+        async with self._session_factory() as session:
+            row = await session.get(FeedbackRegressionJobRow, job_id)
+            return None if row is None else _stored(row)
 
     async def claim_due(
         self, *, worker_id: str, now: datetime, lease_ttl: timedelta, limit: int

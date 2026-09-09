@@ -25,6 +25,14 @@ def test_production_feedback_scheduler_requires_explicit_dependencies() -> None:
             adapter=lambda case: {},
             worker_id="worker-1",
         )
+    with pytest.raises(TypeError, match="record_evaluation"):
+        build_sql_feedback_regression_scheduler(
+            session_factory=sessions,
+            case_source=FeedbackRegressionCaseSource(),
+            ledger=object(),
+            adapter=lambda case: {},
+            worker_id="worker-1",
+        )
 
 
 def test_production_feedback_scheduler_builds_sql_runtime() -> None:

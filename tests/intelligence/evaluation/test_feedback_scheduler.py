@@ -84,6 +84,7 @@ async def test_scheduler_claims_and_completes_feedback_batch() -> None:
         )
         == ()
     )
+    assert (await jobs.get("job-1")).status is FeedbackJobStatus.COMPLETED
 
 
 @pytest.mark.asyncio
@@ -133,6 +134,7 @@ async def test_sql_job_store_claim_and_takeover_survive_new_session() -> None:
         store = SqlAlchemyFeedbackRegressionJobStore(sessions)
         now = datetime(2026, 9, 10, tzinfo=UTC)
         await store.enqueue(FeedbackRegressionJob("sql-job", batch, now))
+        assert (await store.get("sql-job")).status is FeedbackJobStatus.PENDING
         claimed = await store.claim_due(
             worker_id="worker-a", now=now, lease_ttl=timedelta(minutes=1), limit=1
         )
