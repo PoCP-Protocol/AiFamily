@@ -407,3 +407,181 @@ async def test_two_families_differ_from_postgres_context_evidence_only(
     assert gateway.requests[0].payload["context"]["focus"] != (
         gateway.requests[1].payload["context"]["focus"]
     )
+
+
+@pytest.mark.asyncio
+async def test_same_family_counterfactual_changes_only_changed_context_input(
+    postgres_context_session_factory,
+):
+    """Changing one durable observation changes only its dependent output."""
+
+    family_id = "family-v10-counterfactual"
+    subject_id = f"child:{family_id}"
+    now = datetime.now(UTC)
+
+    def scope() -> ContextScope:
+        return ContextScope(
+            tenant_id="tenant-v10",
+            region_id="CN",
+            family_id=family_id,
+            subject_ids=(subject_id,),
+            purpose="family-growth-understanding",
+            consent_version="consent.v1",
+            consent_granted=True,
+            data_class=DataClass.OPERATIONAL_TEXT,
+            locale="zh-CN",
+            deletion_ref="delete:v10",
+            correlation_id="corr:v10",
+            causation_id="cause:v10",
+        )
+
+    class Gateway:
+        async def generate_structured(self, request, *, provider_id=None):
+            context = request.payload["context"]
+            from backend.intelligence.model_gateway.contracts import AiProvenance
+
+            provenance = AiProvenance(
+                "test",
+                "counterfactual",
+                "v1",
+                request.prompt_version,
+                request.schema_version,
+                request.context_snapshot_ref,
+                1,
+                request.data_class,
+                request.use_case,
+            )
+            return ModelDraft(
+                {
+                    "understanding": f"观察到：{context['focus']}",
+                    "next_step": "保持稳定支持节奏",
+                    "path": [],
+                    "dimensions": [
+                        {"name": name, "state": "UNKNOWN"}
+                        for name in request.payload["required_dimensions"]
+                    ],
+                    "evidence_refs": list(context["source_refs"]),
+                    "unknowns": [
+                        {"dimension": name, "reason": "counterfactual-test"}
+                        for name in request.payload["required_dimensions"]
+                    ],
+                    "contradictions": [],
+                },
+                provenance,
+            )
+
+    class Knowledge:
+        async def published(self, *, ref):
+            return PublishedKnowledge(
+                ref, "v1", "source:test", "family-growth", "digest", "guidance"
+            )
+
+    class Feedback:
+        async def latest(self, *, family_need_id, family_id=None):
+            return ()
+
+    broker = AsyncSqlContextBroker(postgres_context_session_factory)
+    current_scope = scope()
+    stable = StateObservation(
+        observation_id="observation:v10:stable",
+        tenant_id="tenant-v10",
+        family_id=family_id,
+        subject_id=subject_id,
+        dimension="support_rhythm",
+        observed_value="每周一次",
+        evidence_refs=("observation:v10:stable",),
+        provenance="guardian-expression",
+        observed_at=now,
+        data_class=current_scope.data_class,
+        purpose=current_scope.purpose,
+        consent_version=current_scope.consent_version,
+        consent_granted=True,
+        region_id="CN",
+        locale="zh-CN",
+        deletion_ref=current_scope.deletion_ref,
+        correlation_id=current_scope.correlation_id,
+        causation_id=current_scope.causation_id,
+        expires_at=now + timedelta(hours=1),
+        retention_policy="v10-test",
+    )
+
+    await broker.append(stable)
+    first_observation = StateObservation(
+        observation_id="observation:v10:first",
+        tenant_id=stable.tenant_id,
+        family_id=stable.family_id,
+        subject_id=stable.subject_id,
+        dimension="focus",
+        observed_value="作业启动",
+        evidence_refs=("observation:v10:first",),
+        provenance=stable.provenance,
+        observed_at=stable.observed_at,
+        data_class=stable.data_class,
+        purpose=stable.purpose,
+        consent_version=stable.consent_version,
+        consent_granted=stable.consent_granted,
+        region_id=stable.region_id,
+        locale=stable.locale,
+        deletion_ref=stable.deletion_ref,
+        correlation_id=stable.correlation_id,
+        causation_id=stable.causation_id,
+        expires_at=stable.expires_at,
+        retention_policy=stable.retention_policy,
+    )
+    await broker.append(first_observation)
+    first_snapshot = await broker.snapshot(scope=current_scope, now=now)
+    runtime = VerticalFamilyGrowthRuntime(
+        gateway=Gateway(),
+        context=SqlFamilyGrowthContextPort(broker, lambda _family_id: current_scope),
+        knowledge=Knowledge(),
+        feedback=Feedback(),
+        ledger=EvaluationLedger(),
+    )
+    first = await runtime.run(
+        family_need_id="need:v10",
+        path_id="path:v10",
+        run_id="run:v10:first",
+        family_id=family_id,
+        knowledge_ref="knowledge:v10",
+        context_snapshot_ref=first_snapshot.snapshot_ref,
+    )
+
+    second_observation = StateObservation(
+        observation_id="observation:v10:second",
+        tenant_id=stable.tenant_id,
+        family_id=stable.family_id,
+        subject_id=stable.subject_id,
+        dimension="focus",
+        observed_value="亲子沟通",
+        evidence_refs=("observation:v10:second",),
+        provenance=stable.provenance,
+        observed_at=stable.observed_at,
+        data_class=stable.data_class,
+        purpose=stable.purpose,
+        consent_version=stable.consent_version,
+        consent_granted=stable.consent_granted,
+        region_id=stable.region_id,
+        locale=stable.locale,
+        deletion_ref=stable.deletion_ref,
+        correlation_id=stable.correlation_id,
+        causation_id=stable.causation_id,
+        expires_at=stable.expires_at,
+        retention_policy=stable.retention_policy,
+    )
+    await broker.append(second_observation)
+    second_snapshot = await broker.snapshot(scope=current_scope, now=now)
+    second = await runtime.run(
+        family_need_id="need:v10",
+        path_id="path:v10",
+        run_id="run:v10:second",
+        family_id=family_id,
+        knowledge_ref="knowledge:v10",
+        context_snapshot_ref=second_snapshot.snapshot_ref,
+    )
+
+    assert first.draft.output["next_step"] == second.draft.output["next_step"]
+    assert first.draft.output["understanding"] != second.draft.output["understanding"]
+    assert (
+        first.draft.provenance.context_snapshot_ref
+        != second.draft.provenance.context_snapshot_ref
+    )
