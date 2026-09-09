@@ -1450,6 +1450,12 @@ bounded report projection 写入 canonical Experience ledger。它不读取家�
 跨 session 测试验证了状态机；相关评测/迁移/架构测试共 22 passed。尚未把该表在
 真实 PostgreSQL 上做多 worker 并发演练，也未部署常驻 worker 进程。
 
+已补充真实 PostgreSQL 门控测试
+`tests/intelligence/evaluation/test_feedback_scheduler_postgres.py`，复用仓库的
+独立 schema、Alembic/asyncpg 测试基础设施，覆盖双 worker lease、到期接管和完成。
+本机本轮因未设置 `AIFAMILY_TEST_DATABASE_URL` 明确 skip；因此 PostgreSQL 证据仍为
+`UNMEASURED`，不是通过。
+
 迁移能力已同步登记至 `governance/MIGRATION_MANIFEST.yaml` 的
 `feedback_regression_scheduler` 条目，成熟度明确标为 `IMPLEMENTED_EXPERIMENT`，
 并列出真实 PostgreSQL 并发与 worker 部署缺口。
