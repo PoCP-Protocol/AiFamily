@@ -87,3 +87,38 @@ def test_install_rejects_scope_factory_that_does_not_return_context_scope() -> N
         import asyncio
 
         asyncio.run(invoke())
+
+
+def test_production_snapshot_factory_rejects_synthetic_context() -> None:
+    from backend.intelligence.context_engine.contracts import ContextScope, DataClass
+
+    base = _composition()
+    composition = ProductionVerticalFamilyGrowthComposition(
+        environment="production",
+        session_factory=base.session_factory,
+        runtime=base.runtime,
+        context_broker=base.context_broker,
+        durable_ledger=base.durable_ledger,
+        scope_factory=lambda family_id: ContextScope(
+            tenant_id="tenant-a",
+            region_id="CN",
+            family_id=family_id,
+            subject_ids=("child-a",),
+            purpose="family-growth",
+            consent_version="v1",
+            consent_granted=True,
+            data_class=DataClass.SYNTHETIC,
+            locale="zh-CN",
+            deletion_ref="delete:a",
+            correlation_id="corr",
+            causation_id="cause",
+        ),
+    )
+    application = SimpleNamespace(state=SimpleNamespace())
+    composition.install(application)
+    factory = application.state.vertical_family_growth_runtime._context_snapshot_factory
+
+    import asyncio
+
+    with pytest.raises(ValueError, match="synthetic context"):
+        asyncio.run(factory(family_id="family-a", run_id="run-a"))

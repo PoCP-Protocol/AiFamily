@@ -19,6 +19,9 @@ vertical routes 保持 503 fail-closed。
 测试环境一旦选择真实数据库，就不会出现“数据库是生产形态、AI runtime 却是内存
 fixture”的混合状态。
 
+此外，staging/production composition 的 scope factory 返回 `SYNTHETIC` 数据分类
+时，在创建 Context snapshot 前即 fail closed；合成数据不能穿过生产组合根。
+
 ## Consequence
 
 真实 PostgreSQL 测试必须显式构造同一 session factory、durable Context、durable

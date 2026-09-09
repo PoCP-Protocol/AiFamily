@@ -34,7 +34,7 @@ from backend.intelligence.agi_vertical_runtime import (
     VerticalFamilyGrowthRuntime,
 )
 from backend.intelligence.context_engine.async_port import AsyncContextBrokerPort
-from backend.intelligence.context_engine.contracts import ContextScope
+from backend.intelligence.context_engine.contracts import ContextScope, DataClass
 from backend.intelligence.context_engine.family_growth_port import SqlFamilyGrowthContextPort
 from backend.intelligence.experience.run_http import RunScope
 from backend.intelligence.experience.sql_run_ledger import SessionPerCallExperienceRunLedger
@@ -115,6 +115,13 @@ class ProductionVerticalFamilyGrowthComposition:
                 scope = await scope
             if not isinstance(scope, ContextScope) or scope.family_id != family_id:
                 raise ValueError("vertical family-growth context scope mismatch")
+            if (
+                self.environment in {"staging", "production"}
+                and scope.data_class is DataClass.SYNTHETIC
+            ):
+                raise ValueError(
+                    "synthetic context is not permitted in production vertical composition"
+                )
             snapshot = await self.context_broker.snapshot(scope=scope)
             return snapshot.snapshot_ref
 
