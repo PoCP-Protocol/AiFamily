@@ -14,18 +14,16 @@ from backend.apps.family_api.main import create_app
 
 
 def test_health_returns_200_ok() -> None:
-    client = TestClient(create_app())
+    with TestClient(create_app()) as client:
+        response = client.get("/health")
 
-    response = client.get("/health")
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
 
 
 def test_ready_returns_200_when_database_is_reachable() -> None:
-    client = TestClient(create_app())
+    with TestClient(create_app()) as client:
+        response = client.get("/ready")
 
-    response = client.get("/ready")
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "ready"}
+        assert response.status_code == 200
+        assert response.json() == {"status": "ready"}

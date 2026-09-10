@@ -204,59 +204,58 @@ def test_http_chain_draft_submit_review_and_published_listing() -> None:
     from backend.apps.family_api.main import create_app
 
     reset_dev_state()
-    client = TestClient(create_app())
+    with TestClient(create_app()) as client:
+        draft_body = {
+            "title": "90天成长陪伴计划",
+            "problem_statement": "家庭缺少可持续的成长陪伴节奏",
+            "assessment_criteria": ["家庭能坚持每周复盘"],
+            "learning_goal": "建立每周固定的家庭成长复盘习惯",
+            "lessons": [
+                {
+                    "lesson_id": "lesson-1",
+                    "sequence": 1,
+                    "title": "第一课：设定家庭小目标",
+                    "knowledge_point": "小目标比大目标更容易坚持",
+                    "action_task": "本周设定一个五分钟就能做到的小目标",
+                }
+            ],
+            "review_cadence": "每周一次",
+            "outcome_metrics": ["家庭复盘完成率"],
+            "content_accuracy_claim_refs": ["evidence-claim:content-accuracy:http-1"],
+        }
+        create_response = client.post("/product-intelligence/courses", json=draft_body)
+        assert create_response.status_code == 200, create_response.text
+        course_id = create_response.json()["id"]
+        assert create_response.json()["status"] == "DRAFT"
 
-    draft_body = {
-        "title": "90天成长陪伴计划",
-        "problem_statement": "家庭缺少可持续的成长陪伴节奏",
-        "assessment_criteria": ["家庭能坚持每周复盘"],
-        "learning_goal": "建立每周固定的家庭成长复盘习惯",
-        "lessons": [
-            {
-                "lesson_id": "lesson-1",
-                "sequence": 1,
-                "title": "第一课：设定家庭小目标",
-                "knowledge_point": "小目标比大目标更容易坚持",
-                "action_task": "本周设定一个五分钟就能做到的小目标",
-            }
-        ],
-        "review_cadence": "每周一次",
-        "outcome_metrics": ["家庭复盘完成率"],
-        "content_accuracy_claim_refs": ["evidence-claim:content-accuracy:http-1"],
-    }
-    create_response = client.post("/product-intelligence/courses", json=draft_body)
-    assert create_response.status_code == 200, create_response.text
-    course_id = create_response.json()["id"]
-    assert create_response.json()["status"] == "DRAFT"
+        submit_response = client.post(
+            f"/product-intelligence/courses/{course_id}/submit-for-review", json={}
+        )
+        assert submit_response.status_code == 200, submit_response.text
+        assert submit_response.json()["course"]["status"] == "UNDER_REVIEW"
+        task_id = submit_response.json()["task_id"]
 
-    submit_response = client.post(
-        f"/product-intelligence/courses/{course_id}/submit-for-review", json={}
-    )
-    assert submit_response.status_code == 200, submit_response.text
-    assert submit_response.json()["course"]["status"] == "UNDER_REVIEW"
-    task_id = submit_response.json()["task_id"]
+        decide_response = client.post(
+            f"/product-intelligence/courses/{course_id}/review-decision",
+            json={"task_id": task_id, "approved": True, "reason": "内容核验通过"},
+        )
+        assert decide_response.status_code == 200, decide_response.text
+        assert decide_response.json()["course"]["status"] == "PUBLISHED"
 
-    decide_response = client.post(
-        f"/product-intelligence/courses/{course_id}/review-decision",
-        json={"task_id": task_id, "approved": True, "reason": "内容核验通过"},
-    )
-    assert decide_response.status_code == 200, decide_response.text
-    assert decide_response.json()["course"]["status"] == "PUBLISHED"
+        published_response = client.get("/product-intelligence/courses/published")
+        assert published_response.status_code == 200, published_response.text
+        published_ids = [item["id"] for item in published_response.json()]
+        assert course_id in published_ids
 
-    published_response = client.get("/product-intelligence/courses/published")
-    assert published_response.status_code == 200, published_response.text
-    published_ids = [item["id"] for item in published_response.json()]
-    assert course_id in published_ids
+        get_response = client.get(f"/product-intelligence/courses/{course_id}")
+        assert get_response.status_code == 200
+        assert get_response.json()["status"] == "PUBLISHED"
 
-    get_response = client.get(f"/product-intelligence/courses/{course_id}")
-    assert get_response.status_code == 200
-    assert get_response.json()["status"] == "PUBLISHED"
-
-    delivery_response = client.get(
-        f"/product-intelligence/courses/{course_id}/delivery-projection"
-    )
-    assert delivery_response.status_code == 400
-    assert delivery_response.json()["detail"] == "course_delivery_lineage_incomplete"
+        delivery_response = client.get(
+            f"/product-intelligence/courses/{course_id}/delivery-projection"
+        )
+        assert delivery_response.status_code == 400
+        assert delivery_response.json()["detail"] == "course_delivery_lineage_incomplete"
 
 
 def test_http_review_rejection_does_not_publish_and_task_mismatch_is_rejected() -> None:
@@ -264,48 +263,50 @@ def test_http_review_rejection_does_not_publish_and_task_mismatch_is_rejected() 
     from backend.apps.family_api.main import create_app
 
     reset_dev_state()
-    client = TestClient(create_app())
-    body = {
-        "title": "21天亲子沟通课",
-        "problem_statement": "家庭需要稳定的沟通节奏",
-        "assessment_criteria": ["家长能完成一次倾听练习"],
-        "learning_goal": "建立可重复的家庭沟通动作",
-        "lessons": [{
-            "lesson_id": "lesson-1",
-            "sequence": 1,
-            "title": "先听再答",
-            "knowledge_point": "先复述再回应",
-            "action_task": "今晚完成一次复述练习",
-        }],
-        "review_cadence": "每周一次",
-        "outcome_metrics": ["有效对话次数"],
-        "content_accuracy_claim_refs": ["evidence-claim:content-accuracy:reject"],
-    }
-    created = client.post("/product-intelligence/courses", json=body)
-    assert created.status_code == 200
-    course_id = created.json()["id"]
-    submitted = client.post(f"/product-intelligence/courses/{course_id}/submit-for-review", json={})
-    assert submitted.status_code == 200
-    task_id = submitted.json()["task_id"]
+    with TestClient(create_app()) as client:
+        body = {
+            "title": "21天亲子沟通课",
+            "problem_statement": "家庭需要稳定的沟通节奏",
+            "assessment_criteria": ["家长能完成一次倾听练习"],
+            "learning_goal": "建立可重复的家庭沟通动作",
+            "lessons": [{
+                "lesson_id": "lesson-1",
+                "sequence": 1,
+                "title": "先听再答",
+                "knowledge_point": "先复述再回应",
+                "action_task": "今晚完成一次复述练习",
+            }],
+            "review_cadence": "每周一次",
+            "outcome_metrics": ["有效对话次数"],
+            "content_accuracy_claim_refs": ["evidence-claim:content-accuracy:reject"],
+        }
+        created = client.post("/product-intelligence/courses", json=body)
+        assert created.status_code == 200
+        course_id = created.json()["id"]
+        submitted = client.post(
+            f"/product-intelligence/courses/{course_id}/submit-for-review", json={}
+        )
+        assert submitted.status_code == 200
+        task_id = submitted.json()["task_id"]
 
-    mismatch = client.post(
-        f"/product-intelligence/courses/{course_id}/review-decision",
-        json={"task_id": "wrong-task-id", "approved": True, "reason": "错误测试"},
-    )
-    assert mismatch.status_code in {400, 404, 422}
+        mismatch = client.post(
+            f"/product-intelligence/courses/{course_id}/review-decision",
+            json={"task_id": "wrong-task-id", "approved": True, "reason": "错误测试"},
+        )
+        assert mismatch.status_code in {400, 404, 422}
 
-    rejected = client.post(
-        f"/product-intelligence/courses/{course_id}/review-decision",
-        json={"task_id": task_id, "approved": False, "reason": "内容准确性证据不足"},
-    )
-    assert rejected.status_code == 200
-    assert rejected.json()["course"]["status"] == "DRAFT"
-    current = client.get(f"/product-intelligence/courses/{course_id}")
-    assert current.status_code == 200
-    assert current.json()["status"] == "DRAFT"
+        rejected = client.post(
+            f"/product-intelligence/courses/{course_id}/review-decision",
+            json={"task_id": task_id, "approved": False, "reason": "内容准确性证据不足"},
+        )
+        assert rejected.status_code == 200
+        assert rejected.json()["course"]["status"] == "DRAFT"
+        current = client.get(f"/product-intelligence/courses/{course_id}")
+        assert current.status_code == 200
+        assert current.json()["status"] == "DRAFT"
 
-    projection = client.get(
-        f"/product-intelligence/courses/{course_id}/delivery-projection"
-    )
-    assert projection.status_code == 400
-    assert projection.json()["detail"] == "course_delivery_requires_published_course"
+        projection = client.get(
+            f"/product-intelligence/courses/{course_id}/delivery-projection"
+        )
+        assert projection.status_code == 400
+        assert projection.json()["detail"] == "course_delivery_requires_published_course"

@@ -12,12 +12,13 @@ from backend.domains.assessment.api.dev_auth import get_state
 
 
 @pytest.fixture()
-def dev_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+def dev_client(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("AIFAMILY_ENV", "test")
     reset_dev_state()
     get_state().tokens.clear()
     get_state().receipts.clear()
-    return TestClient(create_app())
+    with TestClient(create_app()) as client:
+        yield client
 
 
 def test_dev_query_routes_use_the_same_operator_contract(dev_client: TestClient) -> None:

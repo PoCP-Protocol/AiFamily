@@ -69,9 +69,10 @@ def _dev_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture()
-def client() -> TestClient:
+def client():
     reset_dev_state()
-    return TestClient(create_app())
+    with TestClient(create_app()) as client:
+        yield client
 
 
 @pytest.fixture()

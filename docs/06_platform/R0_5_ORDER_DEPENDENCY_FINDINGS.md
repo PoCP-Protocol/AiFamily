@@ -90,20 +90,90 @@ outside a `with` block, to prevent regression.
 ## Case 02 — journey_e2e_* database-not-found (assessment_http /
 ## course_release_baseline reports seen in earlier full-suite CI runs)
 
-**Not yet independently re-verified with the same engine-identity-tracing
-rigor as Case 01.** Given Case 01's disproof of the engine-cache-disposal
-hypothesis, and given that `test_course_release_baseline_routes.py` is one
-of the files reporting this exact symptom in CI, the leading hypothesis is
-now that **this is the SAME root cause as Case 01** (bare TestClient
-without `with`, in the same file) rather than an independent
-cross-database-lifecycle leak. Not yet confirmed — flagging as
-UNRESOLVED-BUT-LIKELY-SAME-AS-CASE-01, pending a repeat of Case 01's fix
-applied to this file and a clean re-run.
+**RE-VERIFIED after Case 01's full-repo fix landed (all 13 files converted
+to `with TestClient(create_app()) as client:`). The "same root cause as
+Case 01" hypothesis is DISPROVEN — Case 02 is an independent, distinct
+mechanism.**
+
+B-alone (`tests/domains/journey/test_fastapi_postgres_e2e.py`, the only
+file using the `journey_e2e_*` ephemeral-database pattern), run 3
+consecutive times against real Postgres (`aifamily_test` on
+`127.0.0.1:55442`): **PASS / PASS / PASS.**
+
+A→B (`test_assessment_routes.py` + `test_course_release_baseline_routes.py`
++ `test_fastapi_postgres_e2e.py`, in that order), run twice: **14 passed /
+14 passed**, no failure.
+
+**B→A (`test_fastapi_postgres_e2e.py` run FIRST, then
+`test_course_release_baseline_routes.py`), run twice: 4 failed / 4 failed,
+100% reproducible.** All 4 failures in the course-release file, every one
+with the same signature:
 
 ```
-classification: UNRESOLVED (leading hypothesis: same as Case 01)
-root cause confidence: LOW-MEDIUM (not independently traced)
+asyncpg.exceptions.InvalidCatalogNameError: database "journey_e2e_<uuid>" does not exist
 ```
+
+**Direct instrumentation disproves the obvious "DATABASE_URL env leaked"
+explanation.** A temporary probe print in `get_engine()`
+(`backend/platform/persistence/session.py`) showed the course-release
+test's own `get_engine()` call correctly resolving
+`sqlite+aiosqlite:///:memory:` — `DATABASE_URL` had been correctly reverted
+by `monkeypatch`'s teardown; the failing test's *own* code path never
+touches the dead `journey_e2e_*` engine. Yet the traceback shows the
+`InvalidCatalogNameError` occurring **inside the same request's own call
+stack** — nested under `anyio.from_thread.BlockingPortal` → `await
+self.app(...)` → SQLAlchemy's `Engine(postgresql+asyncpg://.../journey_e2e_<uuid>)`
+— i.e. a connection object bound to the *previous* test's already-dropped
+database somehow fires **during** the current, unrelated test's request
+handling, on an `Engine` object the current test never referenced.
+
+This is consistent with a leaked async/greenlet-bridged resource (a
+pending asyncpg connection or SQLAlchemy greenlet task tied to the old,
+disposed `AsyncEngine`) that outlives its owning test's event loop and its
+owning fixture's synchronous `clear_engine_cache()` call — which, per its
+own docstring (`_dispose_engine_pool`), "does not await each driver-level
+close." The leaked resource's exception then surfaces on whatever
+subsequent test happens to be sharing the same worker thread/greenlet stack
+when it is finally scheduled, misattributing the failure to an unrelated
+test.
+
+This is **not** the Case 01 mechanism (bare `TestClient` without `with`) —
+`test_fastapi_postgres_e2e.py` (the predecessor, "A" in B→A) does not use
+`TestClient` at all; it uses `httpx.AsyncClient` with `ASGITransport`
+directly. Case 01's fix (already fully applied repo-wide) does not touch
+this file and does not resolve this failure.
+
+```
+classification: ASYNC_RESOURCE_LIFECYCLE_LEAK (cross-event-loop, distinct from Case 01)
+root cause confidence: CONFIRMED order-dependency (B alone PASS x3, A->B PASS x2, B->A FAIL x2 100%)
+exact leaked-resource identity: NOT YET ISOLATED (evidence points to `baselined_database_url`
+  fixture's `clear_engine_cache()` sync dispose not awaiting the underlying asyncpg
+  connection's close, but the precise object holding the reference has not been
+  traced with add'l instrumentation — would need per-object refcount/gc tracing,
+  a deeper investigation than this pass's time budget)
+```
+
+**Recommendation, not implemented this pass (per the no-speculative-fix
+rule) — pending architect review, same three candidate directions already
+on record in `CI_TEST_ISOLATION_DIAGNOSIS.md`:**
+
+1. Make `baselined_database_url`'s teardown `await`-dispose the engine
+   properly (`await engine.dispose()` instead of relying on
+   `clear_engine_cache()`'s sync-only dispose) before dropping the
+   ephemeral database — directly targets the specific gap this fixture's
+   own leak pattern exercises.
+2. Key `_ENGINE_CACHE` by `(url, event_loop_id)` so a stale engine can never
+   be reused across a closed loop — broader, addresses the general class,
+   not just this fixture.
+3. Structural: give Postgres-ephemeral-database e2e tests
+   (`journey_e2e_*`-style) their own CI job/process boundary, separate from
+   the fixed-shared-database test files — reduces exposure without fixing
+   the underlying leak.
+
+Recommend (1) as the narrowest, lowest-risk fix specific to this
+fixture, with (2) as the durable platform-level fix for the general class —
+both require architect sign-off before implementation, per this branch's
+scope discipline.
 
 ## Case 03 — platform_audit_events does not exist
 ## (test_s4_http_postgres_closure.py)
@@ -134,14 +204,30 @@ classification: UNRESOLVED (leading hypothesis: REAL_FUNCTIONAL_BUG, not CI-isol
 root cause confidence: NONE YET (not investigated this pass)
 ```
 
-## CROSS-CASE ROOT CAUSE: PARTIAL
+## CROSS-CASE ROOT CAUSE: PARTIAL (updated after Case 01 fix + Case 02 re-verification)
 
-Not one unified root cause. Case 01 is CONFIRMED as a TestClient lifecycle
-fixture bug, independent of any other test. Case 02 is suspected to share
-Case 01's mechanism but unconfirmed. Cases 03 and 04 show no evidence of
-sharing Case 01's or each other's mechanism and need independent
-investigation — explicitly NOT forcing a unified explanation across all
-four, per the R0.5 directive.
+Confirmed: four cases, at least three distinct mechanisms, no forced unified
+explanation.
+
+- **Case 01**: CONFIRMED, FIXED. `TestClient` lifecycle fixture bug (bare
+  construction, no `with`). Repo-wide remediation complete (13/13 files).
+- **Case 02**: CONFIRMED as order-dependent (B->A fails 100%, A->B and B
+  alone are clean) but a **different** mechanism from Case 01 — an async
+  resource (likely an under-disposed `AsyncEngine`/connection from the
+  `journey_e2e_*` ephemeral-database fixture) leaking across a test-loop
+  boundary and surfacing on an unrelated later test. NOT fixed this pass;
+  documented for architect review.
+- **Case 03**: CONFIRMED, FIXED. `search_path` pollution from an engine
+  borrowed from the cache and returned to the pool without resetting
+  `search_path`.
+- **Case 04**: CONFIRMED, FIXED. Real wall-clock dependency in a TTL
+  expiry test, unrelated to CI infrastructure at all.
+
+Three of four cases are closed. Case 02 is the one remaining open item,
+correctly NOT folded into Case 01's fix despite superficial similarity
+(both involve Postgres and both were seen in the same CI runs) — this is
+exactly the "no unified explanation without evidence" discipline the R0.5
+protocol asked for.
 
 ## FIX RECOMMENDATION (not implemented this pass, pending architect review)
 

@@ -33,12 +33,11 @@ def test_ready_returns_200_against_real_postgres(monkeypatch: pytest.MonkeyPatch
         pytest.skip(SKIP_REASON)
 
     monkeypatch.setenv(DATABASE_URL_ENV_VAR, url)
-    client = TestClient(create_app())
+    with TestClient(create_app()) as client:
+        response = client.get("/ready")
 
-    response = client.get("/ready")
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "ready"}
+        assert response.status_code == 200
+        assert response.json() == {"status": "ready"}
 
 
 def test_ready_returns_503_when_postgres_is_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -50,9 +49,8 @@ def test_ready_returns_503_when_postgres_is_unreachable(monkeypatch: pytest.Monk
     monkeypatch.setenv(
         DATABASE_URL_ENV_VAR, "postgresql+asyncpg://nobody:nobody@127.0.0.1:1/nonexistent"
     )
-    client = TestClient(create_app())
+    with TestClient(create_app()) as client:
+        response = client.get("/ready")
 
-    response = client.get("/ready")
-
-    assert response.status_code == 503
-    assert "database not reachable" in response.json()["detail"]
+        assert response.status_code == 503
+        assert "database not reachable" in response.json()["detail"]

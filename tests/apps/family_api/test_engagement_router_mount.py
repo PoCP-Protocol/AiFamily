@@ -24,38 +24,39 @@ def test_production_engagement_route_fails_closed_without_runtime(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(ENV_VAR, "production")
-    response = TestClient(create_app()).post(
-        ENGAGEMENT_URL,
-        json={"request_id": "request-1", "event_ids": ["event-1"]},
-    )
+    with TestClient(create_app()) as client:
+        response = client.post(
+            ENGAGEMENT_URL,
+            json={"request_id": "request-1", "event_ids": ["event-1"]},
+        )
 
-    assert response.status_code == 503
-    assert response.json()["detail"] == "engagement_runtime_not_configured"
+        assert response.status_code == 503
+        assert response.json()["detail"] == "engagement_runtime_not_configured"
 
 
 def test_test_environment_keeps_engagement_route_callable_with_synthetic_data(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(ENV_VAR, "test")
-    client = TestClient(create_app())
-    session = client.post(
-        "/auth/account-session",
-        json={"external_ref": "guardian-test:family-test"},
-        headers={"Idempotency-Key": "engagement-session-1"},
-    )
-    assert session.status_code == 200
-    token = session.json()["token"]
+    with TestClient(create_app()) as client:
+        session = client.post(
+            "/auth/account-session",
+            json={"external_ref": "guardian-test:family-test"},
+            headers={"Idempotency-Key": "engagement-session-1"},
+        )
+        assert session.status_code == 200
+        token = session.json()["token"]
 
-    response = client.post(
-        "/families/family-test/experience/engagement/drafts",
-        json={"request_id": "engagement-test-1", "event_ids": ["event-test-1"]},
-        headers={"Authorization": f"Bearer {token}"},
-    )
+        response = client.post(
+            "/families/family-test/experience/engagement/drafts",
+            json={"request_id": "engagement-test-1", "event_ids": ["event-test-1"]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
 
-    assert response.status_code == 200
-    assert response.json()["status"] == "DRAFT"
-    assert response.json()["scope"]["data_class"] == "SYNTHETIC"
-    assert response.json()["requires_human_confirmation"] is True
+        assert response.status_code == 200
+        assert response.json()["status"] == "DRAFT"
+        assert response.json()["scope"]["data_class"] == "SYNTHETIC"
+        assert response.json()["requires_human_confirmation"] is True
 
 
 def test_create_app_exposes_explicit_production_engagement_wiring_hook(

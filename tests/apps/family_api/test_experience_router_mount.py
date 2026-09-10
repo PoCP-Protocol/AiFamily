@@ -84,22 +84,22 @@ def test_unconfigured_experience_runtime_fails_closed_with_503(
 
     _require_mount(app)
 
-    response = TestClient(app).post(EXPERIENCE_URL, json=_valid_draft_payload())
+    with TestClient(app) as client:
+        response = client.post(EXPERIENCE_URL, json=_valid_draft_payload())
 
-    assert response.status_code == 503
-    assert response.json()["detail"] == "multimodal_experience_runtime_not_configured"
+        assert response.status_code == 503
+        assert response.json()["detail"] == "multimodal_experience_runtime_not_configured"
 
 
 def test_health_and_ready_remain_available() -> None:
-    client = TestClient(create_app())
+    with TestClient(create_app()) as client:
+        health = client.get("/health")
+        ready = client.get("/ready")
 
-    health = client.get("/health")
-    ready = client.get("/ready")
-
-    assert health.status_code == 200
-    assert health.json() == {"status": "ok"}
-    assert ready.status_code == 200
-    assert ready.json() == {"status": "ready"}
+        assert health.status_code == 200
+        assert health.json() == {"status": "ok"}
+        assert ready.status_code == 200
+        assert ready.json() == {"status": "ready"}
 
 
 def test_create_app_rejects_ambiguous_experience_runtime_wiring() -> None:

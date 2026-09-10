@@ -73,57 +73,58 @@ def test_default_test_composition_supports_draft_replay_isolation_and_delete(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("AIFAMILY_ENV", "test")
-    client = TestClient(create_app())
-    payload = {
-        "family_need_id": "need-default-http",
-        "path_id": "path-default-http",
-        "run_id": "run-default-http",
-        "knowledge_ref": "vertical-growth.v1",
-    }
+    with TestClient(create_app()) as client:
+        payload = {
+            "family_need_id": "need-default-http",
+            "path_id": "path-default-http",
+            "run_id": "run-default-http",
+            "knowledge_ref": "vertical-growth.v1",
+        }
 
-    created = client.post(
-        "/families/family-default/growth/ai-drafts",
-        json=payload,
-    )
-    assert created.status_code == 200, created.text
-    assert created.json()["status"] == "DRAFT"
-    assert created.json()["provenance"]["use_case"] == "vertical_family_growth"
-    body = created.json()
-    assert body["context_snapshot_ref"]
-    assert body["knowledge_ref"] == payload["knowledge_ref"]
-    assert body["lineage_ref"]
-    assert body["provenance"]["context_snapshot_ref"] == body["context_snapshot_ref"]
-    assert body["provenance"]["prompt_version"]
-    assert body["provenance"]["schema_version"]
+        created = client.post(
+            "/families/family-default/growth/ai-drafts",
+            json=payload,
+        )
+        assert created.status_code == 200, created.text
+        assert created.json()["status"] == "DRAFT"
+        assert created.json()["provenance"]["use_case"] == "vertical_family_growth"
+        body = created.json()
+        assert body["context_snapshot_ref"]
+        assert body["knowledge_ref"] == payload["knowledge_ref"]
+        assert body["lineage_ref"]
+        assert body["provenance"]["context_snapshot_ref"] == body["context_snapshot_ref"]
+        assert body["provenance"]["prompt_version"]
+        assert body["provenance"]["schema_version"]
 
-    replay = client.get("/families/family-default/growth/ai-drafts/run-default-http")
-    assert replay.status_code == 200, replay.text
-    assert replay.json()["run_id"] == payload["run_id"]
+        replay = client.get("/families/family-default/growth/ai-drafts/run-default-http")
+        assert replay.status_code == 200, replay.text
+        assert replay.json()["run_id"] == payload["run_id"]
 
-    cross_family = client.get("/families/other-family/growth/ai-drafts/run-default-http")
-    assert cross_family.status_code == 404
+        cross_family = client.get("/families/other-family/growth/ai-drafts/run-default-http")
+        assert cross_family.status_code == 404
 
-    deleted = client.delete("/families/family-default/growth/ai-drafts/run-default-http")
-    assert deleted.status_code == 204, deleted.text
-    assert (
-        client.get("/families/family-default/growth/ai-drafts/run-default-http").status_code == 404
-    )
+        deleted = client.delete("/families/family-default/growth/ai-drafts/run-default-http")
+        assert deleted.status_code == 204, deleted.text
+        assert (
+            client.get("/families/family-default/growth/ai-drafts/run-default-http").status_code
+            == 404
+        )
 
 
 def test_postgres_test_environment_does_not_install_synthetic_vertical_runtime(monkeypatch) -> None:
     monkeypatch.setenv("AIFAMILY_ENV", "test")
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://example/aifamily")
 
-    client = TestClient(create_app())
-    response = client.post(
-        "/families/family-default/growth/ai-drafts",
-        json={
-            "family_need_id": "need-postgres-no-composition",
-            "path_id": "path-postgres-no-composition",
-            "run_id": "run-postgres-no-composition",
-            "knowledge_ref": "vertical-growth.v1",
-        },
-    )
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/families/family-default/growth/ai-drafts",
+            json={
+                "family_need_id": "need-postgres-no-composition",
+                "path_id": "path-postgres-no-composition",
+                "run_id": "run-postgres-no-composition",
+                "knowledge_ref": "vertical-growth.v1",
+            },
+        )
 
-    assert response.status_code == 503
-    assert response.json()["detail"] == "vertical_family_growth_runtime_not_configured"
+        assert response.status_code == 503
+        assert response.json()["detail"] == "vertical_family_growth_runtime_not_configured"

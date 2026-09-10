@@ -54,7 +54,8 @@ def _dev_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(create_app())
+    with TestClient(create_app()) as client:
+        yield client
 
 
 def _auth(client: TestClient, family: str = FAMILY, key: str = "auth-1") -> dict[str, str]:
