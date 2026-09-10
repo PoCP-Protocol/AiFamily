@@ -101,6 +101,7 @@ from backend.domains.membership.api.routes import router as membership_router
 from backend.domains.product_intelligence.api.course_routes import (
     configure_course_content_gate,
     configure_course_content_repository,
+    configure_course_release_baseline_repository,
     configure_course_system_repository,
 )
 from backend.domains.product_intelligence.api.course_routes import (
@@ -441,6 +442,15 @@ def _mount_course_content(application: FastAPI, *, database_url: str | None = No
     configure_course_content_repository(InMemoryCourseContentRepository())
     configure_course_system_repository(development_course_system_repository())
     configure_course_content_gate(InMemoryHumanGate())
+    # A prior `create_app()` call in this same process may have taken the
+    # production branch above and installed a PostgreSQL-backed release
+    # baseline repository bound to that call's engine. Without this reset,
+    # this dev/test app would silently inherit that stale repository —
+    # `_release_baseline_store` is a module-level global in `course_routes`,
+    # not per-app state — and requests here would try to use a connection
+    # to a database that may since have been dropped (see R0.5 Case 02:
+    # `docs/06_platform/R0_5_ORDER_DEPENDENCY_FINDINGS.md`).
+    configure_course_release_baseline_repository(None)
     configure_courseware_gateway(
         build_gateway(
             environment="development",

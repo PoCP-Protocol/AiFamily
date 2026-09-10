@@ -210,13 +210,98 @@ thread by default. This would explain why the failure appears inside the
 though the new test never touches the old engine through any code path
 this investigation has instrumented so far.
 
-**Not pursued further this pass** — isolating the exact suspended-greenlet
-object would need lower-level instrumentation (greenlet frame
-inspection, or reproducing without pytest to rule out a
-pytest/pytest-asyncio-specific interaction) than this investigation's time
-budget allows. Per the architect's stop condition, reporting back for a
-decision on whether to continue CASE02-TRACE-2 in this session or hand it
-off, rather than continuing to guess at fixes.
+## Case 02 — CASE02-TRACE-2: root cause CONFIRMED (2026-09-10, same day)
+
+The greenlet-across-OS-thread hypothesis above is **disproven**. A
+standalone reproducer (`asyncio.run(phase_one()); asyncio.run(phase_two())`,
+no pytest, no pytest-asyncio, no `TestClient`/`BlockingPortal`, pure
+`httpx.AsyncClient` + `ASGITransport`) reproduced the exact same
+`InvalidCatalogNameError` 100% of the time. Since there is no sync/async
+greenlet bridge and no shared-thread suspended-coroutine mechanism
+possible in that reproducer at all, the leak cannot be a greenlet
+scheduling artifact — it must be ordinary Python object state.
+
+**Actual root cause, found by reading the composition root
+(`backend/apps/family_api/main.py::_mount_course_content`) and confirmed
+by counterfactual test:**
+
+`course_routes.py` module holds `_release_baseline_store` as a
+**process-wide, module-level global**, not per-`create_app()` state.
+`_mount_course_content` has two branches:
+
+```python
+if not is_dev_environment():
+    configured_url = database_url or _runtime_database_url()
+    if configured_url is not None and is_postgres_url(configured_url):
+        install_course_content_production_wiring(engine=get_engine(configured_url))
+    return
+
+configure_course_content_repository(InMemoryCourseContentRepository())
+configure_course_system_repository(development_course_system_repository())
+configure_course_content_gate(InMemoryHumanGate())
+# ... (courseware gateway, actor resolver) ...
+# — no call to configure_course_release_baseline_repository(None) here —
+```
+
+`install_course_content_production_wiring` (in
+`course_content_wiring.py`) calls
+`configure_course_release_baseline_repository(ConnectionScopedCourseReleaseBaselineRepository(engine))`
+— installing a Postgres-backed repository bound to whatever engine that
+call received. The dev/test branch resets `_repository`,
+`_course_system_repository`, `_gate`, the courseware gateway, and the
+actor resolver — but **never resets `_release_baseline_store`**. If a
+prior `create_app()` call in the same process took the production branch
+(exactly what `test_fastapi_postgres_e2e.py` does — it sets
+`AIFAMILY_ENV=production`), the stale, Postgres-bound
+`ConnectionScopedCourseReleaseBaselineRepository` silently survives into
+every subsequent dev/test app in that process, including
+`test_course_release_baseline_routes.py`'s (`AIFAMILY_ENV=test`) app. Its
+`.save()`/`.get()` calls then try to use a connection to the ephemeral
+`journey_e2e_<uuid>` database — which by then has been dropped.
+
+This explains every piece of prior evidence at once:
+- Why it reproduces with zero async/greenlet/pytest machinery involved —
+  it is a plain global-variable leak.
+- Why `get_engine()` always resolved correctly (to sqlite) in the failing
+  test — the failing request never calls `get_engine()` at all; it calls
+  the stale repository object captured by closure over the *old* engine.
+- Why order matters (`journey_e2e_*` production-mode app must run first)
+  and why the reverse direction is clean (a dev/test app run first
+  installs no baseline repository at all — `_release_baseline_store`
+  stays `None`, the in-memory dict fallback is used, and no persisted
+  state carries forward to a later app either way).
+
+**Fix**: `backend/apps/family_api/main.py::_mount_course_content`'s dev/test
+branch now calls `configure_course_release_baseline_repository(None)`
+alongside its other resets, restoring the documented "`None` is
+fail-closed / in-memory fallback" contract
+(`configure_course_release_baseline_store`'s own docstring) for every
+dev/test app, regardless of what a prior app in the same process wired.
+
+**Counterfactual proof, exactly as directed:**
+
+```
+WITH fix:    JOURNEY alone x3 PASS, RELEASE alone x3 PASS,
+             JOURNEY->RELEASE x3 PASS, RELEASE->JOURNEY x3 PASS
+WITHOUT fix (git stash the one-line change, re-run):
+             JOURNEY->RELEASE: 4 failed, 1 passed — reproduces identically
+WITH fix restored (git stash pop): JOURNEY->RELEASE PASS again
+```
+
+```
+classification: STALE_MODULE_GLOBAL_ACROSS_APP_INSTANCES
+root cause confidence: CONFIRMED (standalone non-pytest reproduction +
+  code-level identification + counterfactual with/without matrix)
+```
+
+Broader regression check: `tests/domains/product_intelligence/` +
+`tests/apps/family_api/` full run after the fix — 317 passed, 21 skipped
+(real-Postgres-gated tests, no `AIFAMILY_TEST_DATABASE_URL` in that run),
+1 failed (the already-documented, independent
+`service_cases.family_id` uuid/varchar mismatch — unrelated, out of
+scope). No regressions from this fix.
+
+**CASE02 status: CLOSED.**
 
 **Recommendation, not implemented this pass (per the no-speculative-fix
 rule) — pending architect review, same three candidate directions already
@@ -269,44 +354,67 @@ classification: UNRESOLVED (leading hypothesis: REAL_FUNCTIONAL_BUG, not CI-isol
 root cause confidence: NONE YET (not investigated this pass)
 ```
 
-## CROSS-CASE ROOT CAUSE: PARTIAL (updated after Case 01 fix + Case 02 re-verification)
-
-Confirmed: four cases, at least three distinct mechanisms, no forced unified
-explanation.
+## CROSS-CASE ROOT CAUSE: RESOLVED — four cases, four distinct mechanisms, no forced unified explanation
 
 - **Case 01**: CONFIRMED, FIXED. `TestClient` lifecycle fixture bug (bare
   construction, no `with`). Repo-wide remediation complete (13/13 files).
-- **Case 02**: CONFIRMED as order-dependent (B->A fails 100%, A->B and B
-  alone are clean) but a **different** mechanism from Case 01 — an async
-  resource (likely an under-disposed `AsyncEngine`/connection from the
-  `journey_e2e_*` ephemeral-database fixture) leaking across a test-loop
-  boundary and surfacing on an unrelated later test. NOT fixed this pass;
-  documented for architect review.
+- **Case 02**: CONFIRMED, FIXED. A module-level global
+  (`_release_baseline_store` in `course_routes.py`) not reset by
+  `_mount_course_content`'s dev/test branch, silently inheriting a
+  Postgres-bound repository wired by an earlier, production-mode
+  `create_app()` call in the same process. Nothing to do with async
+  lifecycle, event loops, or greenlets — a plain composition-root reset
+  gap. See CASE02-TRACE-2 below for the two retracted hypotheses that
+  preceded this confirmed one.
 - **Case 03**: CONFIRMED, FIXED. `search_path` pollution from an engine
   borrowed from the cache and returned to the pool without resetting
   `search_path`.
 - **Case 04**: CONFIRMED, FIXED. Real wall-clock dependency in a TTL
   expiry test, unrelated to CI infrastructure at all.
 
-Three of four cases are closed. Case 02 is the one remaining open item,
-correctly NOT folded into Case 01's fix despite superficial similarity
-(both involve Postgres and both were seen in the same CI runs) — this is
-exactly the "no unified explanation without evidence" discipline the R0.5
-protocol asked for.
+All four cases are closed, each with an independently confirmed,
+distinct mechanism — none forced into a unified "shared database" or
+"engine cache" narrative despite three of the four superficially
+involving Postgres. This is exactly the "no unified explanation without
+evidence" discipline the R0.5 protocol asked for, and Case 02 in
+particular is a direct demonstration of why: two plausible, well-argued
+hypotheses (engine-cache cross-loop reuse, then async-dispose-before-drop)
+were both tested against a real counterfactual matrix and both retracted
+when the matrix didn't move — only the third hypothesis, verified with a
+non-pytest standalone reproduction plus a with/without-fix counterfactual,
+was confirmed.
 
-## FIX RECOMMENDATION (not implemented this pass, pending architect review)
+## RESOLUTION SUMMARY (all four cases closed)
 
-1. **Case 01 (and likely 02)**: fix the bare `TestClient(create_app())` call
-   sites to use `with TestClient(create_app()) as client:` — a small, scoped
-   test-file diff, not a CI/infra change. Add an architecture/static test
-   forbidding the bare form to prevent regression.
-2. **Case 03**: needs its own B-alone / A-then-B / B-then-A investigation —
-   not yet done.
-3. **Case 04**: needs independent functional-bug investigation (likely
-   unrelated to CI isolation at all) — treat with the same rigor as the
-   consent-withdrawal P0, not folded into the CI-isolation effort.
-4. Do not change ENGINE_CACHE_SIZE. Do not implement the event-loop-keyed
-   cache redesign proposed in the earlier (now partially retracted)
-   diagnosis doc until Case 02 is independently confirmed to actually need
-   it — Case 01's disproof means that fix might not be necessary at all for
-   the cases we have direct evidence on.
+1. **Case 01**: fixed — all bare `TestClient(create_app())` call sites
+   repo-wide converted to `with TestClient(create_app()) as client:`.
+2. **Case 02**: fixed — `_mount_course_content`'s dev/test branch now
+   calls `configure_course_release_baseline_repository(None)`, matching
+   its existing reset of every other module-level composition seam in
+   that branch. `dispose_cached_engine(url)` was also added to
+   `session.py` as part of investigating (and retracting) an earlier
+   hypothesis for this case — kept as an independently useful lifecycle
+   primitive with its own passing regression test, not because it fixes
+   Case 02.
+3. **Case 03**: fixed — `test_store.py` rewritten to use
+   `postgres_schema_engine`, which pins `search_path` at the connection
+   level instead of leaving a shared cached connection's `search_path`
+   pointing at a dropped schema.
+4. **Case 04**: fixed — the fixed-clock test now passes an explicit
+   `now` to `gate.decide(...)` instead of defaulting to real wall-clock
+   time.
+
+`ENGINE_CACHE_SIZE` was never changed. The event-loop-keyed cache
+redesign proposed in the earlier (retracted) diagnosis was never
+implemented — correctly, since none of the four confirmed root causes
+needed it.
+
+## Follow-up recommended, not done this pass
+
+- Add an architecture/static test forbidding bare `TestClient(create_app())`
+  outside a `with` block, to prevent Case 01 regressing.
+- Inventory other module-level composition-root globals in
+  `backend/apps/family_api/main.py`'s `_mount_*` functions for the same
+  "dev/test branch resets some globals but not all" pattern that caused
+  Case 02 — `_release_baseline_store` was found by tracing one specific
+  failure, not by a systematic audit; siblings likely exist.
