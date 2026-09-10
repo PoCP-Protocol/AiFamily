@@ -85,6 +85,7 @@ async def test_published_asset_pair_resolves_as_one_contract() -> None:
     assert resolved.output_schema["required"] == [
         "understanding",
         "next_step",
+        "path",
         "limitations",
     ]
     assert resolved.output_schema["additionalProperties"] is False

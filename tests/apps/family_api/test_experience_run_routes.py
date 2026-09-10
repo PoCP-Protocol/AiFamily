@@ -30,7 +30,12 @@ def _body(run_id: str) -> dict[str, object]:
         "run_id": run_id,
         "prompt_version": _ASSETS.prompt.version,
         "schema_version": _ASSETS.schema.version,
-        "payload": {"expression": "今天我们在一次小步骤上合作。"},
+        "payload": {
+            "expression": "今天我们在一次小步骤上合作。",
+            "family_need_id": "need-test",
+            "path_id": "path-test",
+            "path": ["共同选择一个可暂停的小步骤"],
+        },
         "output_schema": family_experience_output_schema(),
         "modalities": ["TEXT"],
         "estimated_input_tokens": 64,
@@ -64,6 +69,7 @@ def test_run_routes_record_interactions_and_scrub_deleted_replay() -> None:
             headers={"Idempotency-Key": "decision-http-001"},
         )
         assert decision.status_code == 200, decision.text
+
         assert decision.json()["status"] == "recorded"
 
         feedback = client.post(
@@ -73,9 +79,7 @@ def test_run_routes_record_interactions_and_scrub_deleted_replay() -> None:
         )
         assert feedback.status_code == 200, feedback.text
 
-        replay = client.get(
-            f"/families/family-http/experience/multimodal/runs/{run_id}/replay"
-        )
+        replay = client.get(f"/families/family-http/experience/multimodal/runs/{run_id}/replay")
         assert replay.status_code == 200, replay.text
         assert replay.json()["status"] == "DRAFT"
         assert replay.json()["deletion_state"] == "active"
@@ -135,6 +139,97 @@ def test_run_routes_require_idempotency_for_mutations_and_isolate_scope() -> Non
             f"/families/other-family/experience/multimodal/runs/{run_id}/replay"
         )
         assert cross_scope.status_code == 403
+
+
+def test_growth_path_projects_from_same_run_after_guardian_decision() -> None:
+    run_id = "run-growth-path-001"
+    with _client() as client:
+        draft = client.post(
+            "/families/family-growth/experience/multimodal/drafts",
+            json=_body(run_id)
+            | {
+                "payload": {
+                    "family_need_id": "need-001",
+                    "path_id": "path-001",
+                }
+            },
+            headers={"Idempotency-Key": "create-growth-path-001"},
+        )
+        assert draft.status_code == 200, draft.text
+
+        decision = client.post(
+            f"/families/family-growth/experience/multimodal/runs/{run_id}/decisions",
+            json={"decision": "confirm"},
+            headers={"Idempotency-Key": "decision-growth-path-001"},
+        )
+        assert decision.status_code == 200, decision.text
+
+        feedback = client.post(
+            f"/families/family-growth/experience/multimodal/runs/{run_id}/feedback",
+            json={"signal": "helpful"},
+            headers={"Idempotency-Key": "feedback-growth-path-001"},
+        )
+        assert feedback.status_code == 200, feedback.text
+
+        growth_path = client.get(
+            f"/families/family-growth/experience/multimodal/runs/{run_id}/growth-path"
+        )
+        assert growth_path.status_code == 200, growth_path.text
+        body = growth_path.json()
+        assert body["family_need_id"] == "need-001"
+        assert body["path_id"] == "path-001"
+        assert body["run_id"] == run_id
+        assert body["decision_state"] == "accepted"
+        assert body["status"] == "DRAFT"
+        assert body["path"] == ["共同选择一个十分钟内可暂停的家庭小步骤"]
+        assert body["requires_human_confirmation"] is True
+        assert body["feedback_signals"] == ["helpful"]
+
+
+def test_growth_path_projects_the_structured_candidate_in_http_contract() -> None:
+    run_id = "run-growth-path-empty-001"
+    with _client() as client:
+        draft = client.post(
+            "/families/family-growth/experience/multimodal/drafts",
+            json=_body(run_id)
+            | {"payload": {"family_need_id": "need-empty", "path_id": "path-empty"}},
+            headers={"Idempotency-Key": "create-growth-path-empty-001"},
+        )
+        assert draft.status_code == 200, draft.text
+        response = client.get(
+            f"/families/family-growth/experience/multimodal/runs/{run_id}/growth-path"
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "DRAFT"
+        assert response.json()["path"] == ["共同选择一个十分钟内可暂停的家庭小步骤"]
+
+
+def test_growth_path_fails_closed_after_run_deletion() -> None:
+    run_id = "run-growth-path-delete-001"
+    with _client() as client:
+        draft = client.post(
+            "/families/family-growth/experience/multimodal/drafts",
+            json=_body(run_id)
+            | {
+                "payload": {
+                    "family_need_id": "need-delete",
+                    "path_id": "path-delete",
+                }
+            },
+            headers={"Idempotency-Key": "create-growth-path-delete-001"},
+        )
+        assert draft.status_code == 200, draft.text
+        deleted = client.request(
+            "DELETE",
+            f"/families/family-growth/experience/multimodal/runs/{run_id}",
+            headers={"Idempotency-Key": "delete-growth-path-001"},
+        )
+        assert deleted.status_code == 200, deleted.text
+
+        growth_path = client.get(
+            f"/families/family-growth/experience/multimodal/runs/{run_id}/growth-path"
+        )
+        assert growth_path.status_code == 410
 
 
 def test_draft_create_replays_without_a_second_application_invocation() -> None:

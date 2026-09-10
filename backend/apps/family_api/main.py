@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
+from backend.apps.family_api.ai_coach_wiring import ai_coach_provider_registry
 from backend.apps.family_api.dev_operator_query_wiring import install_dev_operator_query_wiring
 from backend.apps.family_api.dev_wiring import install_dev_wiring, is_dev_environment
 from backend.apps.family_api.evaluation_query_api import router as evaluation_query_router
@@ -39,12 +40,30 @@ from backend.apps.family_api.growth_onboarding_wiring import (
     install_growth_onboarding_dev_wiring,
     install_growth_onboarding_production_wiring,
 )
+from backend.apps.family_api.production_ai_platform_wiring import ProductionAiPlatformWiring
+from backend.apps.family_api.production_assessment_http_wiring import (
+    SqlAlchemyAssessmentIdentityResolver,
+    install_postgres_assessment_http_wiring,
+)
+from backend.apps.family_api.production_commerce_api import build_production_commerce_router
+from backend.apps.family_api.production_commerce_context import (
+    ProductionCommerceReadContextResolver,
+)
 from backend.apps.family_api.production_growth_wiring import ProductionGrowthConfirmationWiring
+from backend.apps.family_api.production_vertical_family_growth_wiring import (
+    ProductionVerticalFamilyGrowthComposition,
+)
 from backend.apps.family_api.routes import router
+from backend.apps.family_api.vertical_family_growth_api import (
+    router as vertical_family_growth_router,
+)
 from backend.domains.assessment.api import (
     register_exception_handlers as register_assessment_exception_handlers,
 )
 from backend.domains.assessment.api import router as assessment_router
+from backend.domains.assessment.infrastructure.deterministic_interpretation import (
+    DeterministicInterpretationAdapter,
+)
 from backend.domains.commerce.api.routes import router as commerce_router
 from backend.domains.family_need.api.routes import (
     register_exception_handlers as register_family_need_exception_handlers,
@@ -69,13 +88,26 @@ from backend.domains.journey.api.routes import (
     register_exception_handlers as register_journey_exception_handlers,
 )
 from backend.domains.journey.api.routes import router as journey_router
+from backend.domains.journey.application.growth_plan_adoption import (
+    GrowthPlanAdoptionService,
+    GuardianGrowthPlanPolicy,
+)
+from backend.domains.journey.infrastructure.growth_plan_adoption_postgres import (
+    SqlAlchemyAdoptedGrowthPlanRepository,
+    SqlAlchemyGrowthPlanDraftReader,
+    build_postgres_growth_plan_actor_resolver,
+)
 from backend.domains.membership.api.routes import router as membership_router
 from backend.domains.product_intelligence.api.course_routes import (
     configure_course_content_gate,
     configure_course_content_repository,
+    configure_course_system_repository,
 )
 from backend.domains.product_intelligence.api.course_routes import (
     router as course_content_router,
+)
+from backend.domains.product_intelligence.api.courseware_dependencies import (
+    configure_courseware_gateway,
 )
 from backend.domains.product_intelligence.api.dependencies import (
     configure_actor_resolver as configure_product_intelligence_actor_resolver,
@@ -101,6 +133,9 @@ from backend.domains.product_intelligence.infrastructure.course_content_reposito
 from backend.domains.product_intelligence.infrastructure.course_content_wiring import (
     install_course_content_production_wiring,
 )
+from backend.domains.product_intelligence.infrastructure.course_system_repository import (
+    development_course_system_repository,
+)
 from backend.domains.product_intelligence.infrastructure.family_experience_signal_wiring import (
     install_family_experience_signal_production_wiring,
 )
@@ -118,6 +153,13 @@ from backend.domains.service.fgcn.api.routes import (
     register_exception_handlers as register_fgcn_exception_handlers,
 )
 from backend.domains.service.fgcn.api.routes import router as fgcn_router
+from backend.intelligence.agi_vertical_composition import (
+    install_vertical_family_growth_runtime,
+)
+from backend.intelligence.agi_vertical_dev_wiring import (
+    build_dev_vertical_family_growth_runtime,
+)
+from backend.intelligence.agi_vertical_runtime import VerticalFamilyGrowthRuntime
 from backend.intelligence.evaluation.query import AuthorizedEvaluationQueryService
 from backend.intelligence.experience.api import MultimodalDraftRuntimeResolver
 from backend.intelligence.experience.engagement_api import EngagementDraftRuntimeResolver
@@ -127,6 +169,9 @@ from backend.intelligence.experience.operations_query import (
     HmacExperienceOperationsCursorSigner,
 )
 from backend.intelligence.human_gate.gate import InMemoryHumanGate
+from backend.intelligence.model_gateway.gateway import build_gateway
+from backend.intelligence.model_gateway.providers.fake import FakeProvider
+from backend.intelligence.product_management.courseware_generation import COURSEWARE_USE_CASE
 from backend.platform.persistence.session import (
     DATABASE_URL_ENV_VAR,
     get_engine,
@@ -175,27 +220,26 @@ def _mount_growth_onboarding(
 ) -> None:
     """Mount GrowthOnboarding once, selecting only an explicit environment seam.
 
-    Dev/test gets the production-shaped fake installer so tests can provide a
-    concrete runtime and actor resolver without changing the route. Production
-    gets the PostgreSQL installer only when an explicit PostgreSQL URL exists;
-    otherwise the route is still discoverable but retains its 503 defaults.
-    This keeps an absent production dependency fail-closed without silently
-    installing synthetic adapters.
+    An explicit PostgreSQL URL always selects the PostgreSQL installer, even
+    in dev/test, so authentication, onboarding, and later growth requests
+    share one durable identity and database. Only dev/test without PostgreSQL
+    falls back to the explicit fake installer; production without PostgreSQL
+    keeps the route discoverable but fail-closed.
     """
-
-    if is_dev_environment():
-        install_growth_onboarding_dev_wiring(
-            application,
-            runtime=runtime or build_fake_growth_onboarding_runtime(),
-            actor_resolver=actor_resolver or InMemoryGrowthOnboardingActorResolver(),
-        )
-        return
 
     configured_url = database_url or _runtime_database_url()
     if configured_url is not None and is_postgres_url(configured_url):
         install_growth_onboarding_production_wiring(
             application,
             database_url=configured_url,
+        )
+        return
+
+    if is_dev_environment():
+        install_growth_onboarding_dev_wiring(
+            application,
+            runtime=runtime or build_fake_growth_onboarding_runtime(),
+            actor_resolver=actor_resolver or InMemoryGrowthOnboardingActorResolver(),
         )
         return
 
@@ -272,6 +316,7 @@ def _mount_identity(application: FastAPI, *, database_url: str | None = None) ->
     application.include_router(identity_router)
     configured_url = database_url or _runtime_database_url()
     if configured_url is not None and is_postgres_url(configured_url):
+
         def _fresh_engine():
             return create_async_engine(
                 configured_url,
@@ -292,6 +337,30 @@ def _mount_identity(application: FastAPI, *, database_url: str | None = None) ->
         install_identity_dev_wiring(application, engine=get_engine())
 
 
+def _mount_postgres_assessment_persistence(
+    application: FastAPI, *, database_url: str | None = None
+) -> None:
+    """Keep dev/test assessment data durable when PostgreSQL is explicit.
+
+    The interpretation adapter remains the admitted deterministic test
+    adapter. Only the repository and authenticated identity move to the real
+    PostgreSQL path; this is not a production AI claim.
+    """
+
+    configured_url = database_url or _runtime_database_url()
+    if not is_dev_environment() or configured_url is None or not is_postgres_url(configured_url):
+        return
+    engine = get_engine(configured_url)
+    session_factory = get_sessionmaker(configured_url)
+    identity_resolver = SqlAlchemyAssessmentIdentityResolver(engine, session_factory)
+    install_postgres_assessment_http_wiring(
+        application,
+        engine=engine,
+        identity_resolver=identity_resolver,
+        interpretation_factory=DeterministicInterpretationAdapter,
+    )
+
+
 def _mount_growth_plan_adoption(application: FastAPI) -> None:
     """Mount the generative growth-plan adoption slice (UI-04 adopt/read).
 
@@ -306,28 +375,38 @@ def _mount_growth_plan_adoption(application: FastAPI) -> None:
     Action gate as production would use, backed by process-local state that
     must never be reachable outside dev/test).
 
-    No production adapter exists yet for either a durable validated-draft
-    reader or a durable idempotent adoption repository (see
-    `growth_plan_adoption_dev_wiring`'s module docstring), so outside
-    dev/test the route is intentionally left unmounted rather than mounted
-    with adapters that do not exist — the same fail-closed posture as every
-    other domain here, just expressed as "not yet mounted" instead of "503".
+    With a PostgreSQL URL, production uses the durable validated-draft reader,
+    adoption repository, and bearer-session guardian resolver. Without a
+    PostgreSQL URL, the route remains fail-closed outside dev/test; dev/test
+    keeps its explicit process-local adapter.
     """
 
-    if not is_dev_environment():
+    database_url = _runtime_database_url()
+    if not is_dev_environment() and not (
+        database_url is not None and is_postgres_url(database_url)
+    ):
         return
 
-    from backend.apps.family_api import dev_wiring as _dev_wiring
-    from backend.domains.journey.infrastructure.growth_plan_adoption_dev_wiring import (
-        build_dev_actor_resolver,
-        build_dev_growth_plan_adoption_service,
-    )
+    if database_url is not None and is_postgres_url(database_url):
+        session_factory = get_sessionmaker(database_url)
+        service = GrowthPlanAdoptionService(
+            draft_reader=SqlAlchemyGrowthPlanDraftReader(session_factory),
+            repository=SqlAlchemyAdoptedGrowthPlanRepository(session_factory),
+            policy=GuardianGrowthPlanPolicy(),
+        )
+        resolve_actor = build_postgres_growth_plan_actor_resolver(session_factory)
+    else:
+        from backend.apps.family_api import dev_wiring as _dev_wiring
+        from backend.domains.journey.infrastructure.growth_plan_adoption_dev_wiring import (
+            build_dev_actor_resolver,
+            build_dev_growth_plan_adoption_service,
+        )
 
-    service = build_dev_growth_plan_adoption_service(
-        _dev_wiring.growth_plan_draft_store,
-        _dev_wiring.growth_plan_adoption_repository,
-    )
-    resolve_actor = build_dev_actor_resolver(_dev_wiring._identity)
+        service = build_dev_growth_plan_adoption_service(
+            _dev_wiring.growth_plan_draft_store,
+            _dev_wiring.growth_plan_adoption_repository,
+        )
+        resolve_actor = build_dev_actor_resolver(_dev_wiring._identity)
     application.include_router(
         build_growth_plan_adoption_router(
             GrowthPlanAdoptionHttpDependencies(resolve_actor, service)
@@ -360,7 +439,27 @@ def _mount_course_content(application: FastAPI, *, database_url: str | None = No
         return
 
     configure_course_content_repository(InMemoryCourseContentRepository())
+    configure_course_system_repository(development_course_system_repository())
     configure_course_content_gate(InMemoryHumanGate())
+    configure_courseware_gateway(
+        build_gateway(
+            environment="development",
+            providers={
+                "fake-deterministic": FakeProvider(
+                    provider_id="fake-deterministic",
+                    responses_by_use_case={
+                        COURSEWARE_USE_CASE: {
+                            "title": "课程课件候选",
+                            "outline": ["理解主题", "完成练习", "记录复盘"],
+                            "family_action": "完成一项家庭行动并记录观察",
+                            "evidence_refs": ["claim:curriculum"],
+                        }
+                    },
+                )
+            },
+            registry=ai_coach_provider_registry(),
+        )
+    )
 
     def _dev_product_intelligence_actor(request) -> ProductIntelligenceActorContext:  # noqa: ANN001
         tenant_scope = request.headers.get("x-tenant-scope", "dev-tenant")
@@ -373,6 +472,7 @@ def _mount_course_content(application: FastAPI, *, database_url: str | None = No
                 {
                     "product_intelligence.course_content.author",
                     "product_intelligence.course_content.review",
+                    "product_intelligence.course_release.review",
                 }
             ),
         )
@@ -454,10 +554,63 @@ def create_app(
     experience_operations_query_service: AuthorizedExperienceOperationsQueryService | None = None,
     experience_operations_cursor_signer: HmacExperienceOperationsCursorSigner | None = None,
     experience_operations_query_wiring: Callable[[FastAPI], None] | None = None,
+    assessment_production_ai_wiring: Callable[[FastAPI], None] | None = None,
+    growth_plan_ai_wiring: Callable[[FastAPI], None] | None = None,
+    production_ai_growth_surface_wiring: Callable[[FastAPI], None] | None = None,
+    production_ai_platform_wiring: ProductionAiPlatformWiring | None = None,
+    vertical_family_growth_runtime: VerticalFamilyGrowthRuntime | None = None,
+    production_vertical_family_growth_composition: ProductionVerticalFamilyGrowthComposition
+    | None = None,
+    production_commerce_context_resolver: ProductionCommerceReadContextResolver | None = None,
+    production_commerce_repository_factory: Callable | None = None,
     growth_confirmation_wiring: ProductionGrowthConfirmationWiring | None = None,
 ) -> FastAPI:
+    if production_ai_platform_wiring is not None and any(
+        value is not None
+        for value in (
+            assessment_production_ai_wiring,
+            growth_plan_ai_wiring,
+            production_ai_growth_surface_wiring,
+        )
+    ):
+        raise ValueError(
+            "production_ai_platform_wiring cannot be combined with individual AI wiring hooks"
+        )
+    if (
+        production_ai_platform_wiring is not None
+        and production_vertical_family_growth_composition is not None
+    ):
+        raise ValueError("production_ai_platform_wiring owns vertical family-growth composition")
     _configure_fgcn_persistence()
     application = FastAPI(title="AiFamily family_api", version="0.1.0")
+    if production_commerce_context_resolver is not None:
+        if production_commerce_repository_factory is None:
+            raise TypeError("production commerce repository factory is required")
+        application.include_router(
+            build_production_commerce_router(
+                context_resolver=production_commerce_context_resolver,
+                repository_factory=production_commerce_repository_factory,
+            )
+        )
+    application.include_router(vertical_family_growth_router)
+    if production_vertical_family_growth_composition is not None:
+        production_vertical_family_growth_composition.install(application)
+    elif production_ai_platform_wiring is None and vertical_family_growth_runtime is not None:
+        install_vertical_family_growth_runtime(application, vertical_family_growth_runtime)
+    elif (
+        production_ai_platform_wiring is None
+        and is_dev_environment()
+        and not is_postgres_url(_runtime_database_url() or "")
+    ):
+        # Dev/test gets an explicit, production-shaped composition using the
+        # normal gateway admission path. Production remains fail-closed until
+        # durable context/knowledge/consent adapters are available.
+        install_vertical_family_growth_runtime(
+            application,
+            build_dev_vertical_family_growth_runtime(
+                environment=os.environ.get("AIFAMILY_ENV", "test")
+            ),
+        )
     # Operator-only evaluation evidence is mounted in every environment for
     # contract parity; without an explicitly composed identity-bound service,
     # the routes remain fail-closed with 503.
@@ -495,9 +648,12 @@ def create_app(
     # registration and OpenAPI visibility, not availability — see
     # governance/DOMAIN_REGISTRY.yaml → membership.known_gaps.
     application.include_router(membership_router)
-    # Product catalogue read. Development/test use fixture data and sandbox
-    # adapters; the route and business contract remain identical to production.
-    application.include_router(commerce_router)
+    # Product catalogue read is currently a fixture-only DEV/TEST slice. Do
+    # not advertise its test-loop paths from a production OpenAPI document;
+    # production commerce must be mounted only after real persistence and
+    # payment/entitlement adapters are wired.
+    if is_dev_environment():
+        application.include_router(commerce_router)
     # Family Need closes the first platform-level vertical slice: an explicit
     # family expression becomes an N1 need aggregate, is clarified, profiled
     # and matched against a real Product/Service supply reference. The default
@@ -563,6 +719,11 @@ def create_app(
         # Dev/test use the same operator API contracts with synthetic records;
         # this module refuses installation outside the explicit allow-list.
         install_dev_operator_query_wiring(application)
+    # An explicit PostgreSQL URL must also replace dev_wiring's in-memory
+    # assessment repository. Keep this after dev wiring so the durable seam
+    # wins, and before any explicitly supplied production AI composition so
+    # that the latter remains the final authority for both persistence and AI.
+    _mount_postgres_assessment_persistence(application)
     # Growth plan adoption (UI-04): dev/test only, see `_mount_growth_plan_adoption`.
     _mount_growth_plan_adoption(application)
     if engagement_runtime_resolver is not None and engagement_runtime_wiring is not None:
@@ -584,6 +745,32 @@ def create_app(
         experience_runtime_wiring(application)
     if engagement_runtime_resolver is not None:
         install_engagement_runtime_resolver(application, engagement_runtime_resolver)
+    # Same "install after dev wiring" rule as experience_runtime_wiring above:
+    # an explicitly supplied assessment AI composition (real Model Gateway +
+    # Agent Runtime + Context Engine, per `ProductionAssessmentAiComposition`)
+    # must overwrite dev_wiring's `DeterministicInterpretationAdapter`
+    # dependency_overrides, not lose a race against them. Without this hook,
+    # `create_app()` could never actually serve the generative UI-02 -> UI-03
+    # interpretation path over HTTP — the composition and its 7 tests
+    # (`tests/apps/family_api/test_production_assessment_ai_wiring.py`) existed
+    # but nothing called `install_production_assessment_http_wiring` from the
+    # app factory itself.
+    if assessment_production_ai_wiring is not None:
+        if not callable(assessment_production_ai_wiring):
+            raise TypeError("assessment_production_ai_wiring must be callable")
+        assessment_production_ai_wiring(application)
+    if growth_plan_ai_wiring is not None:
+        if not callable(growth_plan_ai_wiring):
+            raise TypeError("growth_plan_ai_wiring must be callable")
+        growth_plan_ai_wiring(application)
+    if production_ai_growth_surface_wiring is not None:
+        if not callable(production_ai_growth_surface_wiring):
+            raise TypeError("production_ai_growth_surface_wiring must be callable")
+        production_ai_growth_surface_wiring(application)
+    if production_ai_platform_wiring is not None:
+        if not isinstance(production_ai_platform_wiring, ProductionAiPlatformWiring):
+            raise TypeError("production_ai_platform_wiring must be ProductionAiPlatformWiring")
+        production_ai_platform_wiring.install(application)
     if engagement_runtime_wiring is not None:
         if not callable(engagement_runtime_wiring):
             raise TypeError("engagement_runtime_wiring must be callable")
@@ -622,6 +809,24 @@ def create_app(
     if growth_confirmation_wiring is not None:
         growth_confirmation_wiring.install(application)
     return application
+
+
+def create_production_app(
+    *,
+    production_ai_platform_wiring: ProductionAiPlatformWiring,
+) -> FastAPI:
+    """Create the deployable family API with an explicitly admitted AI platform.
+
+    Deployment owns provider admission, database/session construction and all
+    durable AI adapters.  This helper intentionally accepts only the validated
+    composition object; it never reads credentials or installs synthetic
+    fallbacks.  The module-level ``app`` therefore remains fail-closed when a
+    deployment has not supplied its governed AI composition.
+    """
+
+    if not isinstance(production_ai_platform_wiring, ProductionAiPlatformWiring):
+        raise TypeError("production_ai_platform_wiring must be ProductionAiPlatformWiring")
+    return create_app(production_ai_platform_wiring=production_ai_platform_wiring)
 
 
 app = create_app()

@@ -53,7 +53,7 @@ def repo() -> FakeAssessmentRepository:
     child_id = str(uuid.uuid4())
     repository.seed_subject(family_id, child_id, "小明")
     repository.seed_need_type(
-        "COMMUNICATION",
+        "PARENT_CHILD_COMMUNICATION",
         "NEED_PARENT_CHILD_COMMUNICATION",
         "亲子沟通支持",
         "先从倾听开始",
@@ -140,7 +140,7 @@ class TestAssessmentSessionLifecycle:
                 session_id,
                 "FOCUS",
                 "SINGLE_CHOICE",
-                "COMMUNICATION",
+                "PARENT_CHILD_COMMUNICATION",
                 _meta("s2"),
             )
         )
@@ -167,7 +167,7 @@ class TestAssessmentSessionLifecycle:
                 session_id,
                 "FOCUS",
                 "SINGLE_CHOICE",
-                "COMMUNICATION",
+                "PARENT_CHILD_COMMUNICATION",
                 _meta("c2"),
             )
         )
@@ -274,7 +274,7 @@ class TestGrowthHypothesisFlow:
                 session_id,
                 "FOCUS",
                 "SINGLE_CHOICE",
-                "COMMUNICATION",
+                "PARENT_CHILD_COMMUNICATION",
                 _meta("h2"),
             )
         )

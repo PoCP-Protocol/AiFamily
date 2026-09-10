@@ -51,7 +51,7 @@ const SERVICE_PREFERENCE_OPTIONS: readonly ServicePreference[] = ["看文字建�
 export default function FamilyAssessmentScreen() {
   const colors = useColors();
   const session = useFamilyApiSession();
-  const { selectedGrowthFocus, assessmentSyncState, selectGrowthFocus, setAssessmentSyncState } = useFamilyMobile();
+  const { selectedGrowthFocus, assessmentSyncState, selectGrowthFocus, setAssessmentSyncState, setAssessmentSubject } = useFamilyMobile();
   const [familyStructure, setFamilyStructure] = useState<FamilyStructure>("双亲家庭");
   const [childGender, setChildGender] = useState<ChildGender>("男孩");
   const [servicePreference, setServicePreference] = useState<ServicePreference>("看文字建议");
@@ -137,6 +137,7 @@ export default function FamilyAssessmentScreen() {
         return;
       }
       try {
+        setAssessmentSubject(subjectId);
         setAssessmentSyncState("syncing");
         setSubmissionError(null);
         const familyId = session.selectedFamily.family_id;

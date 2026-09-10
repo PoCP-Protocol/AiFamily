@@ -133,9 +133,9 @@ export default function FamilyAssessmentResultScreen() {
 
         <Pressable onPress={() => router.push(routeForUi("UI-03"))} style={({ pressed }) => [styles.primaryButton, { backgroundColor: colors.tint }, pressed && styles.pressed]}>
           <IconSymbol name="star.fill" size={18} color="#FFFFFF" />
-          <Text style={styles.primaryButtonText}>升级到 AI 成长诊断，看更完整的分析</Text>
+          <Text style={styles.primaryButtonText}>生成一份可审阅的支持假设</Text>
         </Pressable>
-        <Text style={[styles.nextStepHint, { color: colors.muted }]}>下一步，AI 会基于本次家庭自查整理支持假设；你可以先阅读，再决定是否继续。</Text>
+        <Text style={[styles.nextStepHint, { color: colors.muted }]}>下一步，AI 只会基于这次自查整理一份草案；它不是诊断，也不会自动替你决定。</Text>
         <Pressable onPress={() => router.replace(routeForUi("UI-02"))} style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}>
           <Text style={[styles.linkButtonText, { color: colors.muted }]}>返回调整免费测评</Text>
         </Pressable>

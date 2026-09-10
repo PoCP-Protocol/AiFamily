@@ -39,6 +39,8 @@ def _lessons_to_json(lessons: tuple[CourseLesson, ...]) -> list[dict]:
             "action_task": lesson.action_task,
             "media_asset_ids": list(lesson.media_asset_ids),
             "tool_refs": list(lesson.tool_refs),
+            "stage_id": lesson.stage_id,
+            "bom_line_ref": lesson.bom_line_ref,
         }
         for lesson in lessons
     ]
@@ -56,6 +58,8 @@ def _lessons_from_json(rows: list[dict] | None) -> tuple[CourseLesson, ...]:
             action_task=row["action_task"],
             media_asset_ids=tuple(row.get("media_asset_ids") or ()),
             tool_refs=tuple(row.get("tool_refs") or ()),
+            stage_id=row.get("stage_id"),
+            bom_line_ref=row.get("bom_line_ref"),
         )
         for row in rows
     )
@@ -72,6 +76,7 @@ def _course_from_row(row) -> CourseContent:
         updated_at=row["updated_at"],
         title=row["title"],
         product_component_id=row["product_component_id"],
+        course_system_version_ref=row.get("course_system_version_ref"),
         problem_statement=row["problem_statement"],
         assessment_criteria=tuple(row["assessment_criteria"] or ()),
         learning_goal=row["learning_goal"],
@@ -104,6 +109,7 @@ class SqlAlchemyCourseContentRepository:
             "updated_at": course.updated_at,
             "title": course.title,
             "product_component_id": course.product_component_id,
+            "course_system_version_ref": course.course_system_version_ref,
             "problem_statement": course.problem_statement,
             "assessment_criteria": _dump(list(course.assessment_criteria)),
             "learning_goal": course.learning_goal,
@@ -123,12 +129,14 @@ class SqlAlchemyCourseContentRepository:
                 insert into course_content(
                   id, tenant_scope, version, status, created_by, created_at, updated_at,
                   title, product_component_id, problem_statement, assessment_criteria,
+                  course_system_version_ref,
                   learning_goal, lessons, ai_coach_prompt_ref, review_cadence,
                   outcome_metrics, content_accuracy_claim_refs, reviewed_by, reviewed_at,
                   review_reason, published_at
                 ) values (
                   :id, :tenant_scope, :version, :status, :created_by, :created_at, :updated_at,
                   :title, :product_component_id, :problem_statement, :assessment_criteria,
+                  :course_system_version_ref,
                   :learning_goal, :lessons, :ai_coach_prompt_ref, :review_cadence,
                   :outcome_metrics, :content_accuracy_claim_refs, :reviewed_by, :reviewed_at,
                   :review_reason, :published_at
@@ -136,6 +144,7 @@ class SqlAlchemyCourseContentRepository:
                 on conflict (tenant_scope, id) do update set
                   version=excluded.version, status=excluded.status, updated_at=excluded.updated_at,
                   title=excluded.title, product_component_id=excluded.product_component_id,
+                  course_system_version_ref=excluded.course_system_version_ref,
                   problem_statement=excluded.problem_statement,
                   assessment_criteria=excluded.assessment_criteria,
                   learning_goal=excluded.learning_goal, lessons=excluded.lessons,

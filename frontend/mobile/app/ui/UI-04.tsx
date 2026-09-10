@@ -8,6 +8,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { createMobileRequestId, familyApi } from "@/lib/family/family-api-client";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
+import { useFamilyMobile } from "@/lib/family/family-state";
 import {
   isAdoptedGrowthPlan,
   isGrowthPlanDraft,
@@ -24,7 +25,13 @@ const actorLabel = { ADULT: "家长", FAMILY: "全家", CHILD_OPTIONAL: "孩子�
 
 export default function GenerativeGrowthPlanScreen() {
   const session = useFamilyApiSession();
+  const { activeOnboardingId, assessmentSubjectId } = useFamilyMobile();
   const [response, setResponse] = useState<GenerativeGrowthPlanResponse | null>(null);
+  const [canonicalPriority, setCanonicalPriority] = useState<Awaited<ReturnType<typeof familyApi.getGrowthPriority>> | null>(null);
+  const [canonicalDraft, setCanonicalDraft] = useState<Record<string, unknown> | null>(null);
+  const [humanTask, setHumanTask] = useState<{ task_id: string; status: string } | null>(null);
+  const [canonicalState, setCanonicalState] = useState<"idle" | "loading" | "ready" | "blocked" | "error">("idle");
+  const [canonicalMessage, setCanonicalMessage] = useState<string | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [selectedChoices, setSelectedChoices] = useState<Record<string, string>>({});
@@ -37,6 +44,25 @@ export default function GenerativeGrowthPlanScreen() {
     }
     setLoadState("loading");
     setMessage(null);
+    if (activeOnboardingId && assessmentSubjectId) {
+      setCanonicalState("loading");
+      try {
+        const priority = await familyApi.getGrowthPriority(
+          session.token,
+          session.selectedFamily.family_id,
+          activeOnboardingId,
+        );
+        setCanonicalPriority(priority);
+        setCanonicalState("ready");
+        setLoadState("ready");
+        return;
+      } catch {
+        setCanonicalState("error");
+        setCanonicalMessage("成长方向暂时无法同步，请稍后重试。系统没有生成未经验证的替代方案。");
+        setLoadState("error");
+        return;
+      }
+    }
     try {
       const result = await familyApi.getGenerativeGrowthPlan<GenerativeGrowthPlanResponse>(
         session.token,
@@ -52,7 +78,7 @@ export default function GenerativeGrowthPlanScreen() {
       setLoadState("error");
       setMessage("成长方案暂时没有同步成功。你的家庭理解仍会保留，可以稍后再试。");
     }
-  }, [session.selectedFamily, session.status, session.token]);
+  }, [activeOnboardingId, assessmentSubjectId, session.selectedFamily, session.status, session.token]);
 
   useEffect(() => { void loadPlan(); }, [loadPlan]);
 
@@ -64,6 +90,92 @@ export default function GenerativeGrowthPlanScreen() {
     () => !draft || draft.adjustable_choices.every((choice) => selectedChoices[choice.choice_id]),
     [draft, selectedChoices],
   );
+
+  const confirmCanonicalPriority = async () => {
+    if (!activeOnboardingId || !canonicalPriority?.draft || !session.token || !session.selectedFamily) return;
+    const decision = canonicalPriority.draft.decision;
+    if (decision === "NO_PRIORITY_YET") {
+      setCanonicalState("blocked");
+      setCanonicalMessage("当前没有足够证据形成成长方向，需要回到测评补充信息。");
+      return;
+    }
+    setCanonicalState("loading");
+    try {
+      const confirmed = await familyApi.confirmGrowthPriority(
+        session.token,
+        session.selectedFamily.family_id,
+        activeOnboardingId,
+        canonicalPriority.draft.draft_id,
+        decision,
+        createMobileRequestId("ui04-priority-confirm"),
+      );
+      setCanonicalPriority((current) => current ? { ...current, active_priority: confirmed.priority } : current);
+      setCanonicalState("ready");
+    } catch {
+      setCanonicalState("error");
+      setCanonicalMessage("成长方向确认失败，请稍后重试。");
+    }
+  };
+
+  const requestCanonicalAiDraft = async () => {
+    if (!activeOnboardingId || !assessmentSubjectId || !canonicalPriority?.active_priority || !session.token || !session.selectedFamily) return;
+    setCanonicalState("loading");
+    setCanonicalMessage(null);
+    try {
+      const generated = await familyApi.generateGrowthPlanDraft<Record<string, unknown>>(
+        session.token,
+        session.selectedFamily.family_id,
+        activeOnboardingId,
+        assessmentSubjectId,
+      );
+      setCanonicalDraft(generated);
+      setCanonicalState("ready");
+    } catch {
+      setCanonicalState("blocked");
+      setCanonicalMessage("受控 AI 运行时尚未对当前环境开放，系统已停止，不会用规则文案冒充 AI 草案。");
+    }
+  };
+
+  const submitCanonicalReview = async () => {
+    if (!canonicalDraft || !activeOnboardingId || !assessmentSubjectId || !session.token || !session.selectedFamily) return;
+    const scorecard = canonicalDraft.scorecard;
+    const draftId = scorecard && typeof scorecard === "object" && "draft_id" in scorecard ? scorecard.draft_id : null;
+    if (typeof draftId !== "string") {
+      setCanonicalState("blocked");
+      setCanonicalMessage("AI 草案缺少可审计 draft_id，已停止进入人工闸门。");
+      return;
+    }
+    try {
+      const task = await familyApi.submitGrowthPlanReview<{ task_id: string; status: string }>(
+        session.token,
+        session.selectedFamily.family_id,
+        draftId,
+        assessmentSubjectId,
+      );
+      setHumanTask(task);
+      setCanonicalMessage("草案已提交给家长确认。接受、拒绝或升级都不会自动改变家庭事实。");
+    } catch {
+      setCanonicalState("error");
+      setCanonicalMessage("人工复核任务创建失败，请稍后重试。");
+    }
+  };
+
+  const decideCanonicalReview = async (outcome: "ACCEPT" | "REJECT" | "ESCALATE") => {
+    if (!humanTask || !session.token || !session.selectedFamily) return;
+    try {
+      const decided = await familyApi.decideGrowthPlanHumanTask<Record<string, unknown>>(
+        session.token,
+        session.selectedFamily.family_id,
+        humanTask.task_id,
+        outcome,
+      );
+      setHumanTask({ task_id: humanTask.task_id, status: String(decided.status ?? outcome) });
+      setCanonicalMessage(outcome === "ACCEPT" ? "已由家长确认，成长方向现在可以进入执行前准备。" : "已停止这份草案，家庭可以稍后重新选择或寻求人工支持。");
+    } catch {
+      setCanonicalState("error");
+      setCanonicalMessage("人工决定没有保存成功，请稍后重试。");
+    }
+  };
 
   const adoptPlan = async () => {
     if (!draft || submitting || !allChoicesSelected) return;
@@ -103,6 +215,19 @@ export default function GenerativeGrowthPlanScreen() {
           {loadState === "loading" ? <LoadingState /> : null}
           {loadState === "empty" ? <EmptyState /> : null}
           {loadState === "error" ? <ErrorState message={message} onRetry={loadPlan} /> : null}
+          {activeOnboardingId && assessmentSubjectId ? (
+            <CanonicalGrowthDirection
+              priority={canonicalPriority}
+              draft={canonicalDraft}
+              task={humanTask}
+              state={canonicalState}
+              message={canonicalMessage}
+              onConfirmPriority={confirmCanonicalPriority}
+              onGenerateDraft={requestCanonicalAiDraft}
+              onSubmitReview={submitCanonicalReview}
+              onDecision={decideCanonicalReview}
+            />
+          ) : null}
           {informationNeeded ? (
             <InformationNeeded
               summary={informationNeeded.known_context_summary}
@@ -159,6 +284,45 @@ function Header() {
         <Text style={styles.headerTitle}>家庭成长方案</Text>
       </View>
       <View style={styles.iconButton} />
+    </View>
+  );
+}
+
+function CanonicalGrowthDirection({
+  priority,
+  draft,
+  task,
+  state,
+  message,
+  onConfirmPriority,
+  onGenerateDraft,
+  onSubmitReview,
+  onDecision,
+}: {
+  priority: Awaited<ReturnType<typeof familyApi.getGrowthPriority>> | null;
+  draft: Record<string, unknown> | null;
+  task: { task_id: string; status: string } | null;
+  state: "idle" | "loading" | "ready" | "blocked" | "error";
+  message: string | null;
+  onConfirmPriority: () => Promise<void>;
+  onGenerateDraft: () => Promise<void>;
+  onSubmitReview: () => Promise<void>;
+  onDecision: (outcome: "ACCEPT" | "REJECT" | "ESCALATE") => Promise<void>;
+}) {
+  const candidate = priority?.draft?.candidate;
+  const active = priority?.active_priority;
+  return (
+    <View style={styles.canonicalCard}>
+      <Text style={styles.canonicalKicker}>真实家庭成长链路</Text>
+      <Text style={styles.canonicalTitle}>先确认方向，再让 AI 起草</Text>
+      <Text style={styles.canonicalCopy}>成长方向来自已提交的家庭理解；AI 只能生成可编辑草案，不能直接改变家庭事实。</Text>
+      {candidate ? <View style={styles.canonicalRow}><Text style={styles.canonicalLabel}>候选方向</Text><Text style={styles.canonicalValue}>{candidate.dimension_id}</Text></View> : null}
+      {active ? <View style={styles.canonicalRow}><Text style={styles.canonicalLabel}>当前方向</Text><Text style={styles.canonicalValue}>{active.dimension_id ?? active.priority_id}</Text></View> : null}
+      {!active && priority?.draft ? <Pressable disabled={state === "loading"} onPress={() => void onConfirmPriority()} style={styles.canonicalButton}><Text style={styles.canonicalButtonText}>确认这个成长方向</Text></Pressable> : null}
+      {active && !draft ? <Pressable disabled={state === "loading"} onPress={() => void onGenerateDraft()} style={styles.canonicalButton}><Text style={styles.canonicalButtonText}>{state === "loading" ? "正在请求受控 AI" : "生成可审阅 AI 草案"}</Text></Pressable> : null}
+      {draft ? <View style={styles.canonicalDraft}><Text style={styles.canonicalDraftTitle}>AI 草案已生成，仍待人工闸门</Text><Text style={styles.canonicalMeta}>draft 状态：DRAFT · 结果不会自动写入家庭事实</Text>{!task ? <Pressable onPress={() => void onSubmitReview()} style={styles.canonicalButton}><Text style={styles.canonicalButtonText}>提交家长确认</Text></Pressable> : null}</View> : null}
+      {task ? <View style={styles.canonicalDraft}><Text style={styles.canonicalDraftTitle}>家长确认任务：{task.status}</Text><View style={styles.canonicalDecisionRow}><Pressable onPress={() => void onDecision("REJECT")} style={styles.canonicalSecondary}><Text style={styles.canonicalSecondaryText}>拒绝</Text></Pressable><Pressable onPress={() => void onDecision("ESCALATE")} style={styles.canonicalSecondary}><Text style={styles.canonicalSecondaryText}>转人工</Text></Pressable><Pressable onPress={() => void onDecision("ACCEPT")} style={styles.canonicalButtonSmall}><Text style={styles.canonicalButtonText}>接受</Text></Pressable></View></View> : null}
+      {message ? <Text style={styles.canonicalMessage}>{message}</Text> : null}
     </View>
   );
 }
@@ -305,6 +469,23 @@ function StageCard({ stage, index }: { stage: GrowthPlanStage; index: number }) 
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#F7F3EC" },
+  canonicalCard: { borderRadius: 24, backgroundColor: "#EEF4F0", borderWidth: 1, borderColor: "#C9DED1", padding: 18, marginBottom: 16 },
+  canonicalKicker: { color: "#2F6657", fontSize: 11, fontWeight: "900", letterSpacing: 0.8 },
+  canonicalTitle: { color: "#213C32", fontSize: 21, lineHeight: 29, fontWeight: "900", marginTop: 6 },
+  canonicalCopy: { color: "#53685E", fontSize: 13, lineHeight: 20, marginTop: 7 },
+  canonicalRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#D7E7DC" },
+  canonicalLabel: { color: "#678075", fontSize: 12, fontWeight: "700" },
+  canonicalValue: { color: "#244D3E", fontSize: 13, fontWeight: "900" },
+  canonicalButton: { minHeight: 44, borderRadius: 22, backgroundColor: "#2F6657", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, marginTop: 13 },
+  canonicalButtonSmall: { minHeight: 40, borderRadius: 20, backgroundColor: "#2F6657", alignItems: "center", justifyContent: "center", paddingHorizontal: 16, flex: 1 },
+  canonicalButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" },
+  canonicalDraft: { borderRadius: 16, backgroundColor: "#FFFFFF", padding: 13, marginTop: 13 },
+  canonicalDraftTitle: { color: "#244D3E", fontSize: 14, fontWeight: "900" },
+  canonicalMeta: { color: "#6B7D74", fontSize: 12, lineHeight: 18, marginTop: 5 },
+  canonicalDecisionRow: { flexDirection: "row", gap: 8, marginTop: 12 },
+  canonicalSecondary: { minHeight: 40, borderRadius: 20, borderWidth: 1, borderColor: "#A9BDB1", alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+  canonicalSecondaryText: { color: "#456356", fontSize: 12, fontWeight: "800" },
+  canonicalMessage: { color: "#8B4B2A", fontSize: 12, lineHeight: 19, marginTop: 11 },
   content: { paddingHorizontal: 18, paddingBottom: 126 },
   header: { minHeight: 72, paddingHorizontal: 16, flexDirection: "row", alignItems: "center" },
   iconButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center" },

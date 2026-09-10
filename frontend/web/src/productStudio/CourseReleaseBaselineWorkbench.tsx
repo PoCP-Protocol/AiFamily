@@ -5,16 +5,21 @@ import {
   isReleaseLessonComplete,
   type CourseReleaseLessonBinding,
 } from "./courseReleaseBaseline";
+import { HttpCourseReleaseLifecycleApiClient, type CourseReleaseLifecycleApiClient } from "./courseReleaseLifecycleApi";
 
 const splitRefs = (value: string) => value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean);
 
-export function CourseReleaseBaselineWorkbench() {
+export function CourseReleaseBaselineWorkbench({ client }: { client?: CourseReleaseLifecycleApiClient } = {}) {
+  const api = client ?? new HttpCourseReleaseLifecycleApiClient();
   const [form, setForm] = useState(createCourseReleaseBaselineForm);
   const [activeLesson, setActiveLesson] = useState(0);
   const [confirmed, setConfirmed] = useState(false);
   const [compiled, setCompiled] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [releaseId, setReleaseId] = useState<string | null>(null);
+  const [gateState, setGateState] = useState<string | null>(null);
   const completeLessons = useMemo(() => form.lessons.filter(isReleaseLessonComplete).length, [form.lessons]);
+  const governedLessons = useMemo(() => form.lessons.filter((item) => item.courseware_governance_status === "GOVERNED").length, [form.lessons]);
   const lesson = form.lessons[activeLesson];
 
   const updateField = (field: keyof typeof form, value: string) => {
@@ -30,9 +35,13 @@ export function CourseReleaseBaselineWorkbench() {
     setCompiled(null);
     setError(null);
   };
-  const compile = () => {
+  const compile = async () => {
     try {
-      setCompiled(JSON.stringify(compileCourseReleaseBaseline(form), null, 2));
+      const draft = compileCourseReleaseBaseline(form);
+      setCompiled(JSON.stringify(draft, null, 2));
+      const persisted = await api.compile(draft);
+      setReleaseId(persisted.release_id);
+      setGateState("DRAFT 已保存，可提交人工发布门禁。");
       setError(null);
     } catch (cause) {
       const code = cause instanceof Error ? cause.message : "RELEASE_BASELINE_INVALID";
@@ -44,12 +53,35 @@ export function CourseReleaseBaselineWorkbench() {
     }
   };
 
+  const submitGate = async () => {
+    if (!releaseId) return;
+    try {
+      const result = await api.approve(releaseId, form.evidence_receipt_refs.split(/[\n,]/).map((item) => item.trim()).filter(Boolean), `course-release:${releaseId}`);
+      setGateState(`人工门禁已记录：${result.audit.to_status}`);
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "人工发布门禁提交失败");
+    }
+  };
+
+  const restoreBaseline = async () => {
+    if (!releaseId) return;
+    try {
+      const baseline = await api.get(releaseId);
+      setGateState(`已从服务端恢复发布基线：${baseline.status}`);
+      setCompiled(JSON.stringify(baseline, null, 2));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "发布基线恢复失败");
+    }
+  };
+
   return (
     <section aria-label="Course release baseline compiler" className="panel course-release-workbench">
       <p className="section-kicker">PLM · Immutable BOM · Release candidate · Human decision</p>
       <h2>课程发布基线与课件 BOM</h2>
       <p className="muted">冻结课程体系、产品包、产品定义、24课时、内容规格、课件资产包、Skill、Prompt、安全策略与证据回执的精确版本。编译成功仍只是 DRAFT。</p>
-      <div className="callout" role="note"><strong>合同预览，尚无生产发布路由</strong><p>浏览器不能创建 RELEASED 状态、回滚目标或人工决定；正式发布必须由服务端 Human Gate 生成。</p></div>
+      <div className="callout" role="note"><strong>合同预览，尚无生产发布路由</strong><p>浏览器不能创建 RELEASED 状态、回滚目标或人工决定；正式发布必须由服务端 Human Gate 生成。</p><p>当前 CourseContent DRAFT 与本发布基线是两个不同层级的对象；编译结果不会自动提交或升级为课程发布版本。</p></div>
+      <div className="callout" role="status" aria-label="课件资产治理准备度"><strong>课件资产治理</strong><p>{governedLessons}/24 节课件已通过资产治理状态；未达到 GOVERNED 的课时不能编译发布基线。</p></div>
 
       <div className="course-release-lineage-grid">
         <label>课程体系版本引用<input value={form.course_system_version_ref} onChange={(event) => updateField("course_system_version_ref", event.target.value)} placeholder="course-system:learning-growth@v1" /></label>
@@ -82,11 +114,13 @@ export function CourseReleaseBaselineWorkbench() {
 
       <div className="course-compile-actions">
         <label className="consent-row"><input checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} type="checkbox" />我确认该结果只是发布基线 DRAFT，仍需证据准入、资产 QA 和人工发布决定。</label>
-        <button className="secondary-button" disabled={!confirmed} onClick={compile} type="button">编译发布基线 DRAFT</button>
-        <button className="primary-button" disabled type="button">提交人工发布门禁</button>
+        <button className="secondary-button" disabled={!confirmed} onClick={() => void compile()} type="button">编译发布基线 DRAFT</button>
+        <button className="primary-button" disabled={!releaseId} onClick={() => void submitGate()} type="button">提交人工发布门禁</button>
+        <button className="secondary-button" disabled={!releaseId} onClick={() => void restoreBaseline()} type="button">恢复已保存基线</button>
       </div>
       {error ? <div className="callout" role="alert"><strong>发布基线未通过</strong><p>{error}</p></div> : null}
-      {compiled ? <details className="course-contract-preview"><summary>查看不可变发布基线合同</summary><pre>{compiled}</pre></details> : null}
+      {compiled ? <div className="callout" role="status" aria-label="共享PLM草稿状态"><strong>共享 PLM ReleaseBaseline DRAFT 已编译</strong><p>该结果已映射到统一 ReleaseBaseline 合同，状态仍为 DRAFT；尚未审批、发布或写入生产状态。</p><details className="course-contract-preview"><summary>查看不可变发布基线合同</summary><pre>{compiled}</pre></details></div> : null}
+      {gateState ? <div className="callout" role="status" aria-label="课程发布门禁状态"><strong>发布门禁状态</strong><p>{gateState}</p></div> : null}
     </section>
   );
 }

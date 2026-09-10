@@ -31,6 +31,20 @@ describe("24 lesson course template", () => {
     expect(state.lessons[23]).toMatchObject({ lesson_id: "lesson-24", sequence: 24 });
   });
 
+  it("starts from a six-stage family-growth curriculum baseline", () => {
+    const state = createCourseContentTemplate({ withCurriculumBaseline: true });
+    expect(state.lessons[0]).toMatchObject({ title: "看见家庭现状", stage_id: "S1" });
+    expect(state.lessons[12]).toMatchObject({ title: "设计日常行动", stage_id: "S4" });
+    expect(state.lessons[23]).toMatchObject({ title: "共创下一周期", stage_id: "S6" });
+    expect(state.lessons.every((lesson) => lesson.knowledge_point && lesson.action_task)).toBe(true);
+    expect(state.lessons.every((lesson) => lesson.media_asset_ids.length === 3)).toBe(true);
+    expect(state.lessons[0].media_asset_ids).toEqual([
+      "courseware:family-growth:lesson-01:deck@v1",
+      "courseware:family-growth:lesson-01:worksheet@v1",
+      "courseware:family-growth:lesson-01:document@v1",
+    ]);
+  });
+
   it("compiles only browser-owned design fields", () => {
     const input = compileCourseContentDraft(completeTemplate());
     expect(input.lessons).toHaveLength(24);

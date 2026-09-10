@@ -66,6 +66,15 @@ _RULES: dict[PrincipalCapability, _RouteRule] = {
         PrincipalRiskLevel.HIGH,
         PrincipalHumanGate.EXPLICIT_CONFIRMATION,
     ),
+    PrincipalCapability.VERTICAL_FAMILY_GROWTH: _RouteRule(
+        "growth_planning",
+        "growth_planner",
+        ("read_context", "read_growth_projection", "draft_growth_plan", "create_human_task"),
+        "family_growth_reviewed",
+        PrincipalOutputType.DRAFT,
+        PrincipalRiskLevel.HIGH,
+        PrincipalHumanGate.EXPLICIT_CONFIRMATION,
+    ),
     PrincipalCapability.DAILY_ACTION_PROPOSAL: _RouteRule(
         "action_coaching",
         "growth_planner",

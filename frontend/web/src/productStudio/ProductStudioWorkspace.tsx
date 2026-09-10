@@ -4,10 +4,14 @@ import { ProductConceptDecisionWorkbench } from "./ProductConceptDecisionWorkben
 import { CourseContentWorkbench } from "./CourseContentWorkbench";
 import { CourseContentGovernancePanel } from "./CourseContentGovernancePanel";
 import { CourseReleaseBaselineWorkbench } from "./CourseReleaseBaselineWorkbench";
+import { CourseSystemBlueprintPanel } from "./CourseSystemBlueprintPanel";
 import { ProductDefinitionOperatorReviewWorkbench } from "./ProductDefinitionOperatorReviewWorkbench";
 import { ProductFactoryComposer } from "./ProductFactoryComposer";
 import { ProductPackageReviewWorkbench } from "./ProductPackageReviewWorkbench";
 import { ProductPortfolioWorkbench } from "./ProductPortfolioWorkbench";
+import { CommercialOfferDraftPanel } from "./CommercialOfferDraftPanel";
+import { CommercialReadinessPanel } from "./CommercialReadinessPanel";
+import { CommerceProjectionPanel } from "./CommerceProjectionPanel";
 import { ProductStudio } from "./ProductStudio";
 import { sandboxProductStudioState } from "./sandboxFixture";
 
@@ -108,9 +112,13 @@ export function ProductStudioWorkspace() {
       </div>
       <div aria-labelledby="workspace-tab-course-content" hidden={activeTab !== "course-content"} id="workspace-panel-course-content" role="tabpanel" tabIndex={0}>
         <div className="course-content-stage">
-          <CourseContentWorkbench contractPreview />
+          <CourseContentWorkbench />
+          <CourseSystemBlueprintPanel enabled={activeTab === "course-content"} />
           <CourseContentGovernancePanel contractPreview />
           <CourseReleaseBaselineWorkbench />
+          <CommercialOfferDraftPanel />
+          <CommercialReadinessPanel />
+          <CommerceProjectionPanel />
         </div>
       </div>
       <div aria-labelledby="workspace-tab-sandbox" hidden={activeTab !== "sandbox"} id="workspace-panel-sandbox" role="tabpanel" tabIndex={0}>

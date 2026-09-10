@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.domains.service.api.dependencies import get_action_context
@@ -23,6 +23,12 @@ class SubmitCommerceIntentRequest(BaseModel):
     product_ref: str
     product_version: int = Field(gt=0)
     attributes: dict[str, object] = Field(default_factory=dict)
+
+
+class RequestRefundBody(BaseModel):
+    source_order_intent_id: str
+    reason: str = Field(min_length=1)
+    evidence_receipt_ref: str | None = None
 
 
 def _raise_http(exc: CommerceDomainError) -> None:
@@ -109,3 +115,41 @@ async def get_commerce_customer_projection(
     return await queries.get_customer_projection(
         repo, tenant_id=ctx.tenant_id, family_id=ctx.family_id
     )
+
+
+@router.post("/refunds")
+async def request_commerce_refund(
+    family_id: str,
+    body: RequestRefundBody,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    repo: CommerceRepositoryPort = Depends(get_repository),
+    ctx: ActionContext = Depends(get_action_context),
+) -> Any:
+    """Record the local DEV/TEST recovery transition.
+
+    This endpoint never claims that a payment provider refunded money. It only
+    revokes the matching local entitlement and returns the versioned evidence
+    receipt when supplied.
+    """
+    if family_id != ctx.family_id:
+        raise HTTPException(status_code=403, detail="family_scope_violation")
+    if ctx.environment not in {"DEV", "TEST"}:
+        raise HTTPException(status_code=403, detail="commerce_fixture_boundary")
+    try:
+        refund, entitlement = await commands.request_refund(
+            repo,
+            tenant_id=ctx.tenant_id,
+            family_id=ctx.family_id,
+            source_order_intent_id=body.source_order_intent_id,
+            idempotency_key=idempotency_key,
+            reason=body.reason,
+            evidence_receipt_ref=body.evidence_receipt_ref,
+        )
+    except CommerceDomainError as exc:
+        _raise_http(exc)
+    return {
+        "refund": refund.model_dump(mode="json"),
+        "entitlement": entitlement.model_dump(mode="json"),
+        "external_effect": False,
+        "text_equivalent": "已记录本地退款恢复并撤销权益，不代表支付机构已退款。",
+    }

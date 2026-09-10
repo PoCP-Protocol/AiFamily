@@ -203,7 +203,10 @@ async def get_service_customer_projection(
     )
 
 
-@router.get("/families/{family_id}/growth/onboardings/{onboarding_id}/service-journey")
+@router.get(
+    "/families/{family_id}/growth/onboardings/{onboarding_id}/service-journey",
+    operation_id="service_get_service_journey_legacy",
+)
 async def get_service_journey(
     family_id: str,
     onboarding_id: str,

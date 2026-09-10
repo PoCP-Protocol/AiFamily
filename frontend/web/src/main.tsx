@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { FamilyGrowthExperience } from "./familyGrowth/FamilyGrowthExperience";
 import { ProductStudioWorkspace } from "./productStudio/ProductStudioWorkspace";
 import "./styles.css";
 
@@ -8,6 +9,9 @@ export function WebRoot() {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
   if (path === "/product-studio") {
     return <main><ProductStudioWorkspace /></main>;
+  }
+  if (path === "/family-growth" || path === "/") {
+    return <FamilyGrowthExperience />;
   }
   return <App />;
 }

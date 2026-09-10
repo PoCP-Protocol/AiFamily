@@ -72,7 +72,13 @@ line-length = 100
 # byte-identical to the source repository on purpose — keeping the migration
 # diff verifiable matters more than lint conformance on throwaway scripts.
 # Backend Python is fully linted; nothing here relaxes that.
-exclude = ["frontend"]
+#
+# .claude/worktrees/ holds other concurrent sessions' isolated git worktree
+# checkouts (created by the EnterWorktree tool) — a different session's
+# in-progress code that happens to sit under this directory on disk, not
+# this repo's own lint debt. It has its own lint pass in its own worktree
+# root when that session runs one.
+exclude = ["frontend", ".claude/worktrees"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]

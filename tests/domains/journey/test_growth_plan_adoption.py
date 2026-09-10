@@ -40,9 +40,13 @@ class Repository:
         self.current: AdoptedGrowthPlan | None = None
         self.receipts: dict[str, tuple[str, AdoptedGrowthPlan]] = {}
         self.recorded_audit_events: list[AuditEvent] = []
+        self.recorded_read_calls: list[dict[str, object]] = []
 
     async def get_current(self, **_: str) -> AdoptedGrowthPlan | None:
         return self.current
+
+    async def record_read(self, **_: object) -> None:
+        self.recorded_read_calls.append(dict(_))
 
     async def adopt_once(
         self,
@@ -150,7 +154,7 @@ def service(value: ValidatedGrowthPlanDraft | None) -> tuple[GrowthPlanAdoptionS
 
 @pytest.mark.asyncio
 async def test_guardian_adopts_dynamic_generated_draft_and_reads_it_back() -> None:
-    application, _ = service(draft())
+    application, repository = service(draft())
     actor = GrowthPlanActor("guardian-a", "tenant-a", "family-a", "membership-a", "consent-a")
     response = await application.adopt(
         AdoptGrowthPlanCommand(
@@ -171,11 +175,14 @@ async def test_guardian_adopts_dynamic_generated_draft_and_reads_it_back() -> No
     current = (await application.get_current(actor))["plan"]
     assert current["draft_version"] == 3
     assert current["selected_choices"] == {"meeting-time": "周五晚"}
+    assert len(repository.recorded_read_calls) == 1
+    assert repository.recorded_read_calls[0]["subject_person_id"] == "child-a"
+    assert repository.recorded_read_calls[0]["approval_ref"] == "consent-a"
 
 
 @pytest.mark.asyncio
 async def test_guardian_reads_latest_validated_draft_before_adoption() -> None:
-    application, _ = service(draft())
+    application, repository = service(draft())
     actor = GrowthPlanActor("guardian-a", "tenant-a", "family-a", "membership-a", "consent-a")
 
     response = await application.get_current(actor)
@@ -183,6 +190,17 @@ async def test_guardian_reads_latest_validated_draft_before_adoption() -> None:
     assert response["plan"]["result_status"] == "PLAN_DRAFT"
     assert response["plan"]["draft_version"] == 3
     assert response["plan"]["duration"]["days"] == 35
+    assert len(repository.recorded_read_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_guardian_outside_confirmed_subject_scope_cannot_read_plan() -> None:
+    application, repository = service(draft())
+    actor = GrowthPlanActor("guardian-b", "tenant-a", "family-a", "membership-b", "consent-b")
+
+    with pytest.raises(JourneyForbiddenError, match="growth_plan_subject_scope"):
+        await application.get_current(actor)
+    assert repository.recorded_read_calls == []
 
 
 @pytest.mark.asyncio

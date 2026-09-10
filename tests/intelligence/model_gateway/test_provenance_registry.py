@@ -159,7 +159,7 @@ async def test_registry_hides_unknown_and_foreign_scope_references(session_facto
 async def test_registry_rejects_non_draft_and_forbidden_fact_shaped_output(session_factory):
     async with session_factory() as session:
         registry = SqlAlchemyModelDraftRegistry(session)
-        with pytest.raises(ModelDraftRegistryError, match="MUST_REMAIN_DRAFT"):
+        with pytest.raises(ValueError, match="ModelDraft status must remain DRAFT"):
             await registry.save(
                 draft_id="draft:validated",
                 provenance_ref="model-draft:validated",

@@ -1,0 +1,10 @@
+{
+  "schema": "agi-vertical-red-team-fixture-v1",
+  "evaluation_only": true,
+  "scenarios": [
+    {"scenario_id":"same_need_feedback_delta","family_need_id":"need-homework-1","run_id":"run-2","context_snapshot_ref":"ctx-2","knowledge":{"status":"PUBLISHED","version":"growth.v1","digest":"sha256:k1"},"guardian_feedback_ref":"feedback:guardian-edit-1","first_draft":{"family_need_id":"need-homework-1","next_step":"observe","provenance":{"source_ref":"feedback:guardian-edit-1","knowledge_digest":"sha256:k1","decision_ref":"decision:edit-1"}},"draft":{"family_need_id":"need-homework-1","status":"PERSPECTIVE","next_step":"start ritual","provenance":{"source_ref":"feedback:guardian-edit-1","knowledge_digest":"sha256:k1","decision_ref":"decision:edit-1"}}},
+    {"scenario_id":"fixed_knowledge_context_delta","family_need_id":"need-homework-1","run_id":"run-3","context_snapshot_ref":"ctx-3","knowledge":{"status":"PUBLISHED","version":"growth.v1","digest":"sha256:k1"},"first_draft":{"family_need_id":"need-homework-1","next_step":"observe","provenance":{"knowledge_digest":"sha256:k1"}},"draft":{"family_need_id":"need-homework-1","status":"RECOMMENDATION","next_step":"visual timer","provenance":{"knowledge_digest":"sha256:k1"}}},
+    {"scenario_id":"decision_restart_persistence","family_need_id":"need-homework-1","run_id":"run-4","context_snapshot_ref":"ctx-4","knowledge":{"status":"PUBLISHED","version":"growth.v1","digest":"sha256:k1"},"decision":{"state":"EDIT","decision_ref":"decision:edit-2"},"draft":{"family_need_id":"need-homework-1","status":"ACTION_PROPOSAL","provenance":{"decision_ref":"decision:edit-2"}}},
+    {"scenario_id":"cross_family_scope_isolation","family_need_id":"need-homework-2","run_id":"run-5","context_snapshot_ref":"ctx-5","knowledge":{"status":"PUBLISHED","version":"growth.v1","digest":"sha256:k1"},"draft":{"family_need_id":"need-homework-2","status":"DRAFT","provenance":{}},"cross_scope":{"status":403,"provider_invocations":0}}
+  ]
+}

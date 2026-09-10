@@ -26,6 +26,7 @@ inventing a course-specific claim taxonomy.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -87,6 +88,8 @@ class CourseLesson(BaseModel):
     action_task: str
     media_asset_ids: tuple[str, ...] = ()
     tool_refs: tuple[str, ...] = ()
+    stage_id: str | None = None
+    bom_line_ref: str | None = None
 
     @field_validator("lesson_id", "title", "knowledge_point", "action_task")
     @classmethod
@@ -97,6 +100,11 @@ class CourseLesson(BaseModel):
     @classmethod
     def _refs_valid(cls, value: tuple[str, ...], info):
         return _refs(value, info.field_name, allow_empty=True)
+
+    @field_validator("stage_id", "bom_line_ref")
+    @classmethod
+    def _optional_ref(cls, value: str | None, info) -> str | None:
+        return _text(value, info.field_name) if value is not None else None
 
 
 class CourseContent(BaseModel):
@@ -134,6 +142,7 @@ class CourseContent(BaseModel):
 
     title: str
     product_component_id: str | None = None
+    course_system_version_ref: str | None = None
     problem_statement: str
     assessment_criteria: tuple[str, ...]
     learning_goal: str
@@ -187,6 +196,23 @@ class CourseContent(BaseModel):
                 "course_content_lesson_sequence_must_be_unique"
             )
         return tuple(sorted(value, key=lambda lesson: lesson.sequence))
+
+    @model_validator(mode="after")
+    def _validate_lineage(self) -> CourseContent:
+        if self.course_system_version_ref is None:
+            return self
+        if not re.fullmatch(r"course-system:\S+@v[1-9]\d*", self.course_system_version_ref):
+            raise ProductIntelligenceValidationError(
+                "course_content_course_system_version_ref_invalid"
+            )
+        if len(self.lessons) != 24:
+            raise ProductIntelligenceValidationError("course_content_lineage_requires_24_lessons")
+        for lesson in self.lessons:
+            expected_stage = f"S{(lesson.sequence - 1) // 4 + 1}"
+            expected_bom = f"courseware:family-growth:lesson-{lesson.sequence:02d}@v1"
+            if lesson.stage_id != expected_stage or lesson.bom_line_ref != expected_bom:
+                raise ProductIntelligenceValidationError("course_content_lesson_lineage_invalid")
+        return self
 
     def submit_for_review(self) -> CourseContent:
         """`DRAFT -> UNDER_REVIEW`. Same "anyone can ask, only a permissioned

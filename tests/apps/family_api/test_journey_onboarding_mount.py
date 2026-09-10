@@ -198,3 +198,59 @@ def test_production_postgres_uses_production_installer_once(
 
     assert calls == ["postgresql+asyncpg://example/aifamily"]
     assert len(_mounted_routes(app)) == 1
+
+
+def test_dev_postgres_uses_durable_installer_before_dev_fake(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AIFAMILY_ENV", "test")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example/aifamily")
+    calls: list[str | None] = []
+
+    def install_production(app, *, database_url: str | None = None) -> None:
+        calls.append(database_url)
+        app.include_router(growth_onboarding_router)
+
+    def fail_if_fake_installed(*_args, **_kwargs):
+        raise AssertionError("explicit PostgreSQL must not select dev fake onboarding")
+
+    monkeypatch.setattr(main, "install_growth_onboarding_production_wiring", install_production)
+    monkeypatch.setattr(main, "install_growth_onboarding_dev_wiring", fail_if_fake_installed)
+
+    app = main.create_app()
+
+    assert calls == ["postgresql+asyncpg://example/aifamily"]
+    assert len(_mounted_routes(app)) == 1
+
+
+def test_dev_postgres_overrides_assessment_fake_with_durable_wiring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AIFAMILY_ENV", "test")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example/aifamily")
+    calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(main, "get_engine", lambda _url: "postgres-engine")
+    monkeypatch.setattr(main, "get_sessionmaker", lambda _url: "postgres-sessions")
+    monkeypatch.setattr(
+        main,
+        "SqlAlchemyAssessmentIdentityResolver",
+        lambda engine, session_factory: (engine, session_factory),
+    )
+    monkeypatch.setattr(
+        main,
+        "SqlAlchemyAssessmentIdentityResolver",
+        lambda engine, session_factory: (engine, session_factory),
+    )
+
+    def install_durable_assessment(app, **kwargs) -> None:  # noqa: ANN001
+        calls.append(kwargs)
+
+    monkeypatch.setattr(main, "install_postgres_assessment_http_wiring", install_durable_assessment)
+
+    main.create_app()
+
+    assert len(calls) == 1
+    assert calls[0]["engine"] == "postgres-engine"
+    assert calls[0]["identity_resolver"] == ("postgres-engine", "postgres-sessions")
+    assert calls[0]["interpretation_factory"].__name__ == "DeterministicInterpretationAdapter"

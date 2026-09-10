@@ -13,6 +13,14 @@ from .ports import AssessmentInterpretationPort, AssessmentRepositoryPort
 
 
 @dataclass(frozen=True)
+class GetUi01ProjectionQuery:
+    family_id: str
+    tenant_id: str
+    actor_id: str
+    correlation_id: str = ""
+
+
+@dataclass(frozen=True)
 class GetUi02ProjectionQuery:
     family_id: str
     tenant_id: str
@@ -41,6 +49,41 @@ class AssessmentQueryHandler:
     ):
         self._repository = repository
         self._interpretation = interpretation
+
+    async def get_ui01_projection(self, query: GetUi01ProjectionQuery) -> dict:
+        """Build the mobile home projection from the same family-scoped facts as UI-02.
+
+        UI-01 is a read surface, not a second source of family truth.  It exposes
+        only entry states and navigation-safe summaries; it never invokes the AI
+        interpreter or writes a growth fact.
+        """
+        await self._repository.assert_tenant_family_scope(
+            query.tenant_id, query.family_id, query.actor_id
+        )
+        policy_allows = await self._repository.tenant_allows_page(query.tenant_id, "UI-01")
+        if not policy_allows:
+            return _ui01_projection(query.tenant_id, query.family_id, "POLICY_BLOCKED", [], [])
+
+        subjects = await self._repository.load_assessable_subjects(query.family_id)
+        sessions = await self._repository.load_recent_sessions(
+            query.tenant_id, query.family_id, limit=10
+        )
+        mapped_subjects = [
+            {
+                "person_id": subject["person_id"],
+                "display_name": subject["display_name"],
+                "availability": "AVAILABLE" if subject["consent_granted"] else "CONSENT_REQUIRED",
+            }
+            for subject in subjects
+        ]
+        await _record_ui01_read(self, query, mapped_subjects)
+        return _ui01_projection(
+            query.tenant_id,
+            query.family_id,
+            "READY",
+            mapped_subjects,
+            [session.model_dump(mode="json") for session in sessions],
+        )
 
     async def get_ui02_projection(self, query: GetUi02ProjectionQuery) -> dict:
         await self._repository.assert_tenant_family_scope(
@@ -211,11 +254,17 @@ def _ui03_projection(
     hypothesis: dict | None,
     ai_state: str = "NOT_INVOKED",
 ) -> dict:
+    latest_assessment_session_id = None
+    if hypothesis is not None:
+        source_refs = hypothesis.get("source_refs")
+        if isinstance(source_refs, dict):
+            latest_assessment_session_id = source_refs.get("assessment_session_id")
     return {
         "projection_version": "UI03_GROWTH_HYPOTHESIS_V1",
         "tenant_id": tenant_id,
         "family_id": family_id,
         "availability": availability,
+        "latest_assessment_session_id": latest_assessment_session_id,
         "hypothesis": hypothesis,
         "named_actions": {
             "confirm": "CONFIRM_GROWTH_HYPOTHESIS",
@@ -223,6 +272,99 @@ def _ui03_projection(
         },
         "ai_state": ai_state,
     }
+
+
+def _ui01_projection(
+    tenant_id: str,
+    family_id: str,
+    entry_state: str,
+    subjects: list[dict],
+    sessions: list[dict],
+) -> dict:
+    """Stable UI-01 contract; values are projections, not new business facts."""
+    available = any(item["availability"] == "AVAILABLE" for item in subjects)
+    submitted = any(item.get("status") == "SUBMITTED" for item in sessions)
+    return {
+        "projection_version": "UI01_FAMILY_HOME_V1",
+        "entry_state": entry_state,
+        "family": {"display_name": "我的家庭"},
+        "greeting": {"time_segment": "MORNING"},
+        "assessment_campaign": {"state": "AVAILABLE" if available else "POLICY_BLOCKED"},
+        "notification": {"state": "NOT_CONFIGURED", "unread_count": 0, "target_ui": "UI-34"},
+        "quick_entries": [
+            {
+                "feature_id": "ai_diagnostic",
+                "title": "AI理解",
+                "target_ui": "UI-03",
+                "availability": "AVAILABLE",
+            },
+            {
+                "feature_id": "challenge_camp",
+                "title": "21天成长行动",
+                "target_ui": "UI-09",
+                "availability": "AVAILABLE",
+            },
+            {
+                "feature_id": "plan_90",
+                "title": "90天成长方向",
+                "target_ui": "UI-04",
+                "availability": "AVAILABLE",
+            },
+            {
+                "feature_id": "growth_cases",
+                "title": "成长案例",
+                "target_ui": "UI-12",
+                "availability": "AVAILABLE",
+            },
+            {
+                "feature_id": "expert_live",
+                "title": "专家直播",
+                "target_ui": "UI-23",
+                "availability": "AVAILABLE",
+            },
+            {
+                "feature_id": "family_advisor",
+                "title": "家庭顾问",
+                "target_ui": "UI-24",
+                "availability": "AVAILABLE",
+            },
+        ],
+        "growth_help": {
+            "state": "AVAILABLE" if available else "CONSENT_REQUIRED",
+            "subjects": subjects,
+        },
+        "primary_action": {
+            "assignment_text": "查看刚刚提交的家庭测评" if submitted else "先完成一次家庭测评",
+            "task_state": "NOT_STARTED",
+        },
+        "today_tasks": [],
+        "journey": None,
+        "recommendations": [],
+    }
+
+
+async def _record_ui01_read(
+    handler: AssessmentQueryHandler,
+    query: GetUi01ProjectionQuery,
+    subjects: list[dict],
+) -> None:
+    for subject in subjects:
+        if subject["availability"] != "AVAILABLE":
+            continue
+        await handler._repository.record_read_access(
+            tenant_id=query.tenant_id,
+            family_id=query.family_id,
+            actor_id=query.actor_id,
+            action="assessment.ui01.read",
+            resource_type="FAMILY_HOME_PROJECTION",
+            resource_id=f"UI-01:{query.family_id}",
+            subject_person_id=subject["person_id"],
+            accessed_fields=("subject_person_id", "display_name", "assessment_session_status"),
+            access_purpose="FAMILY_HOME",
+            reason="mobile family home projection",
+            correlation_id=_read_correlation(query.correlation_id, "UI-01", query.family_id),
+            approval_ref=f"consent:ASSESSMENT:{subject['person_id']}",
+        )
 
 
 def _ui02_projection(tenant_id: str, family_id: str, availability: str) -> dict:

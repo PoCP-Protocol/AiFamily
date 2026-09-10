@@ -2005,6 +2005,59 @@ capabilities:
       - "Postgres 集成测试是仅有的测试层——没有不依赖真实数据库的快速单元测试（对照 family_experience_signal 已补的 test_family_experience_signal.py）"
       - "GET /product-intelligence/improvement-candidates 是否有下游消费方（产品/内容团队的实际决策动作）尚无代码证据"
 
+  - capability: vertical_family_growth_draft_runtime
+    business_capability: growth_plan_delivery
+    domain: intelligence/agi_vertical_runtime
+    purpose: >
+      在家庭授权上下文、已发布知识和能力目录约束下，生成可追溯的家庭成长路径
+      Draft，并接收有界 Guardian 校准；该能力只产出评估账本草案，不写入家庭事实、
+      成长计划或服务履约状态。
+    actor: [guardian, ai, system]
+    command:
+      - generate_growth_path_draft
+      - record_guardian_calibration
+      - replay_growth_path_draft
+      - delete_growth_path_draft
+    api:
+      - "POST /families/{family_id}/growth/ai-drafts"
+    code:
+      runtime: backend/intelligence/agi_vertical_runtime.py
+      durable_adapter: backend/intelligence/agi_vertical_durable.py
+      composition: backend/intelligence/agi_vertical_composition.py
+      projection: backend/intelligence/agi_growth_path_projection.py
+      http_api: backend/apps/family_api/vertical_family_growth_api.py
+    tests:
+      - tests/intelligence/test_agi_vertical_runtime.py
+      - tests/intelligence/test_agi_vertical_durable.py
+      - tests/intelligence/test_agi_vertical_composition.py
+      - tests/apps/family_api/test_vertical_growth_composition.py
+    consent:
+      required: true
+      note: >
+        ContextPort 要求 consent_version；真实 HTTP 解析与撤回联动尚未接入，不能将
+        运行时构造期字段误报为完整 ConsentGate 闭环。
+    audit:
+      required: true
+      note: >
+        DurableVerticalLedgerAdapter 复用 Experience run ledger 的回放/删除/决策记录；
+        进程内 EvaluationLedger 仅是评估实验账本，不是 canonical 审计账本。
+    idempotency:
+      required: true
+      note: >
+        durable create/decision/delete 使用 run/decision 级幂等键；进程内账本以 run_id
+        replay collision 拒绝重复写入。
+    ai:
+      involved: true
+      constraint: >
+        所有模型调用必须经过 backend/intelligence/model_gateway；输出强制 DRAFT 且
+        may_mutate_business_state 恒为 false，Guardian 决策仅作为有界校准元数据。
+    status: IMPLEMENTED_TESTED
+    known_gaps:
+      - "HTTP 路由已存在并覆盖 draft/replay/decision/delete；生产环境仍需显式 composition root 注入，未配置时 fail-closed"
+      - "durable 适配器依赖既有 Experience ledger，但垂直 draft 尚无独立 PostgreSQL 表/迁移"
+      - "已完成 durable adapter 的 PostgreSQL 隔离、幂等、重启读回测试；尚未完成同一 ref 的真实浏览器双家庭 V-01～V-10 全量验收"
+      - "外部模型供应商准入仍受 model_gateway 合规审查阻断，当前测试使用 FakeProvider"
+
   - capability: product_intelligence_course_publication
     business_capability: product_intelligence
     domain: domains/product_intelligence

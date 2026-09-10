@@ -98,6 +98,17 @@ entries:
     evidence:
       - "membership/infrastructure/sqlalchemy_repository.py 的 commit()/_stage() 是手写约定，非正式 UnitOfWork 类"
 
+  - capability: platform_notification
+    disposition: REIMPLEMENT
+    target: [backend/platform/notification]
+    status: IMPLEMENTED_EXPERIMENT
+    evidence:
+      - "ADR-0166 冻结通知总控边界；已实现 scope、intent、幂等 identity、provider-neutral channel port 与 fail-closed policy contract"
+      - "tests/platform/notification/test_contracts.py：4 项契约测试通过"
+    known_gaps:
+      - "尚无 durable SQL intent/attempt、canonical outbox consumer、retry/lease/DLQ worker"
+      - "尚无真实 HTTP/PostgreSQL、生产 identity/consent wiring 或授权外发 adapter evidence"
+
   - capability: model_gateway
     disposition: REIMPLEMENT
     target:
@@ -767,6 +778,18 @@ entries:
       - "PostgreSQL Application Adapter 与可信 Actor resolver 已接入默认 dependency；非 PostgreSQL 或无可信上下文均 fail closed"
       - "已增加独立 Alembic baseline 数据库上的 UI-04→UI-05 Priority→Preview→Plan→Confirm→ServiceJourney HTTP E2E 门禁"
       - "行动记录写入、current_day 推进与阶段 REVIEW_DUE 到期转换仍待实现"
+      - "0077 新增 journey_adopted_growth_plans；Growth Plan Draft/Guardian Adoption 现复用既有 Draft、Idempotency 与 Audit 原语，并可由 PostgreSQL 组合根跨进程读回"
+      - "Growth Plan Draft/Plan 读取复用 AuditRecorder READ 事件，subject/purpose/approval/correlation 均显式记录；真实 PostgreSQL HTTP 读取审计回读仍待补齐"
+      - "AIFAMILY_ENV=test 配置 PostgreSQL 时禁止自动安装合成 vertical runtime；无显式 durable composition 保持 503，保证测试与生产依赖形状一致"
+      - "staging/production vertical composition 在 Context snapshot 边界拒绝 SYNTHETIC data class"
+      - "staging/production vertical composition 构造时要求 live Consent port，缺失即 fail closed"
+    architecture_decisions:
+      - governance/ADR/ADR-0163-durable-growth-plan-adoption.md
+      - governance/ADR/ADR-0164-growth-plan-read-audit-boundary.md
+      - governance/ADR/ADR-0165-test-postgres-vertical-composition-parity.md
+    implementation:
+      - backend/domains/journey/infrastructure/growth_plan_adoption_postgres.py
+      - database/migrations/versions/0077_journey_adopted_growth_plans.py
 
   - capability: design_copilot
     disposition: MIGRATE
@@ -1187,6 +1210,27 @@ entries:
       - "50_开发_dev/backend/domains/assessment/infrastructure/claude_interpretation.py"
     evidence:
       - "该文件的 structured output schema 设计(JSON schema 强制 construct_ref 枚举)、边界重校验(不信任 schema 本身，收到输出后再跑一次 assert_interpretation_boundary)、知识库 grounding 注入(system prompt 动态拼接已核验理论依据)、grounding_source 净化(模型自报的引用 id 经白名单核对，编造的一律清空不透传)等具体手法值得重写时参照，但调用方式必须换成走 model_gateway，不能保留 `anthropic.AsyncAnthropic()` 直连"
+
+  - capability: assessment_ai_run_ledger_persistence
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - database/migrations/versions/0069_ai_run_ledger.py
+      - backend/domains/assessment/infrastructure/ai_run_ledger.py
+      - tests/domains/assessment/test_ai_run_ledger_integration.py
+    status: MIGRATED_TESTED
+    evidence:
+      - "0069_ai_run_ledger 接在 main 唯一 Alembic head 链上，创建 assessment AI 运行元数据表(assessment_ai_run_ledger)"
+      - "表只保存 run/session、执行深度、生成器/模型、token、时间和 outcome，不承载家庭事实、计划或结果"
+      - "真实 PostgreSQL 集成测试覆盖 success 与 boundary_violation 写入和读回"
+    reason: >
+      integrate/growth-plan-adoption 分支曾独立重新发明同一张表
+      (0071_ai_run_ledger.py，与本条目 target 的 0069 版本逐字节相同)，
+      对齐 main 时已删除重复迁移文件，保留 main 的 0069 版本。此前该能力
+      在 MIGRATION_MANIFEST 中没有登记行，本条目补登记，避免"迁移进来了
+      但未登记"的漂移。
+    known_gaps:
+      - "仍需在 family_api 生产组合根接入真实身份、Consent、Model Gateway 和持久 Human Gate 后，才能宣称业务 AI 闭环完成"
 
   - capability: commerce_product_catalog
     disposition: REIMPLEMENT
@@ -1972,6 +2016,43 @@ entries:
     known_gaps:
       - "当前仅为进程内契约，无持久化 ProductCharter、运营审批工作流、版本发布与 family_api 运行时接线"
 
+  - capability: capability_registry_runtime
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence
+      - backend/intelligence/capability_registry
+      - tests/intelligence/capability_registry
+    status: MIGRATED_TESTED
+    evidence:
+      - "CapabilityOffer 与 fail-closed registry 已实现，支持能力版本登记、状态转换和按版本读取"
+      - "tests/intelligence/capability_registry 覆盖必填字段、重复登记、状态转换与未知能力拒绝"
+    reason: "为 AI Runtime 提供统一能力目录边界；当前仅内存实现，不拥有业务事实"
+    known_gaps:
+      - "尚未接入 durable catalog、family_api 查询接口与发布审计流水"
+
+  - capability: vertical_family_growth_ai_runtime
+    disposition: REIMPLEMENT
+    source: []
+    target:
+      - backend/intelligence/agi_vertical_runtime.py
+      - backend/intelligence/agi_vertical_durable.py
+      - backend/intelligence/agi_vertical_composition.py
+      - backend/intelligence/agi_growth_path_projection.py
+      - tests/intelligence/test_agi_vertical_runtime.py
+      - tests/intelligence/test_agi_vertical_durable.py
+      - tests/intelligence/test_agi_vertical_composition.py
+    status: MIGRATED_TESTED
+    evidence:
+      - "运行时通过 ModelGatewayPort 生成结构化 ModelDraft，并拒绝非 DRAFT 或可变更业务状态的输出"
+      - "Context/Knowledge/Feedback/Capability ports 明确隔离家庭作用域、发布知识与能力供给"
+      - "DurableVerticalLedgerAdapter 复用 Experience run ledger，支持幂等创建、Guardian 决策、回放和删除"
+      - "tests/intelligence/test_agi_vertical_runtime.py、test_agi_vertical_durable.py、test_agi_vertical_composition.py 已覆盖核心契约"
+    reason: "垂直家庭成长 AGI 是 AiFamily intelligence 层的重新实现能力，不从旧仓库迁入领域事实或供应商调用"
+    known_gaps:
+      - "尚无独立 HTTP surface、PostgreSQL vertical 表和真实部署证据"
+      - "真实双家庭隔离、重启读回、Consent 撤回/删除级联仍待验收"
+
   - capability: media_factory_gate1_benchmark
     disposition: REIMPLEMENT
     source: []
@@ -2031,6 +2112,21 @@ entries:
       - "No orchestrator, no ASR/TTS/LLM wiring, no concurrency (max_concurrent_sessions=1)"
       - "The progressive poll and bounded final drain (ADR-0019 decision 13) are an architecture seam, not evidence that any engine streams frames"
       - "Final-drain bound of 8 polls is an unmeasured safety limit, not a measured production optimum"
+
+  - capability: feedback_regression_scheduler
+    disposition: REIMPLEMENT
+    source: ["AiFamily vertical family-growth AGI feedback regression design"]
+    target:
+      - backend/intelligence/evaluation/feedback_scheduler.py
+      - database/migrations/versions/0078_ai_feedback_regression_jobs.py
+    status: IMPLEMENTED_EXPERIMENT
+    evidence:
+      - "Lease-based scheduler with SQLAlchemy job store, row-level claim, retry and takeover semantics"
+      - "Migration 0078 persists scheduler metadata separately from Experience facts"
+      - "22 related evaluation/migration/architecture tests passed"
+    known_gaps:
+      - "Real PostgreSQL multi-worker concurrency and deployed worker process are not yet evidenced"
+      - "Scheduler never promotes a release and only invokes the governed feedback regression worker"
 
 # ============ 待人工裁决清单（disposition = REVIEW_REQUIRED 的完整索引） ============
 review_required_index:

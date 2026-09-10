@@ -51,7 +51,7 @@ export type CreateDraftInput = {
   schema_version: string;
   data_class: DataClass;
   context_snapshot_ref: string;
-  payload: { expression: string };
+  payload: { expression: string } & Record<string, unknown>;
   input_refs: string[];
   media_inputs: MediaInput[];
   scope: ExperienceScope;

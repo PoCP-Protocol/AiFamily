@@ -199,6 +199,7 @@ class Ui03GrowthHypothesisProjectionResponse(BaseModel):
     tenant_id: str
     family_id: str
     availability: Literal["READY", "NO_SUBMITTED_ASSESSMENT", "POLICY_BLOCKED"]
+    latest_assessment_session_id: str | None = None
     hypothesis: Ui03GrowthHypothesisModel | None
     named_actions: Ui03NamedActionsModel
     ai_state: Literal["NOT_INVOKED", "MODEL_DRAFT_READY", "MODEL_GATEWAY_BLOCKED"]

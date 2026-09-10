@@ -2,16 +2,15 @@
 
 对每一条远端 `codex/*` / `feat/*` / `chief/*` 探索性分支：
 1. 若其最后一次真实功能 commit 距今超过 R15_WINDOW_DAYS 天，且
-2. 该分支未在 main.py / dev_wiring.py 中被 include_router / install_*_wiring 引用
-   （即未接组合根），且
+2. 该分支未在 main.py / dev_wiring.py 中被 include_router /
+   install_*_wiring 引用（即未接组合根），且
 3. 该分支没有对应的开放 PR，
 
-则判定为违反 R15，输出到 stderr 并以非零退出码结束（供 CI 周期任务观测，当前不阻断
-push/merge —— 见 REPOSITORY_CONSTITUTION.md §2 执行状态表 "部分" 标注：先观测出真实
-分布，再决定是否升级为强制阻断）。
+则判定为违反 R15，输出到 stderr 并以非零退出码结束（供 CI 周期任务观测，当前不阻断 push/merge —— 见
+REPOSITORY_CONSTITUTION.md §2 执行状态表 "部分" 标注：先观测出真实分布，再决定是否升级为强制阻断）。
 
-不做任何自动 push/delete/tag 操作 —— 分支删除是不可逆动作，必须由人工在看到本工具输出
-后决定，参见 `.claude/commands/branch-triage.md` 的既有纪律：
+不做任何自动 push/delete/tag 操作 —— 分支删除是不可逆动作，必须由人工在看到本工具输出后决定，
+参见 `.claude/commands/branch-triage.md` 的既有纪律：
 "删除远程分支前，必须让用户逐字确认具体分支名"。
 本工具只诚实地报告状态，不代为决策。
 """

@@ -38,14 +38,23 @@ import type {
   FamilyExperienceAnalyticsResponse,
 } from "./feedback-api-contracts";
 
-// Real family_need endpoints (POST /needs/signals, POST /needs/{need_id}/ai-coach/messages),
-// deliberately separate from the orchestration-series methods below (requestGrowthHelp etc.):
-// those call /orchestration/needs|intents|decisions paths that do not exist in the backend
-// (see backend/domains/family_need/api/routes.py for the real routes this pair calls instead).
+// The family-help flow is deliberately backed by the canonical family_need
+// routes. There is no client-facing orchestration API in the current backend;
+// callers must not manufacture one in the mobile layer.
 export interface CaptureNeedSignalResponse {
   action: "CAPTURE_FAMILY_NEED";
   replayed: boolean;
   boundary: string;
+  signal: {
+    signal_id: string;
+    source: string;
+    raw_text: string;
+    captured_at: string;
+    status: string;
+    tenant_id: string;
+    family_id: string;
+    subject_person_ids: string[];
+  };
   need: {
     need_id: string;
     status: string;
@@ -174,10 +183,6 @@ export function createMobileRequestId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function accountSessionIdempotencyKey(externalRef: string) {
-  return `account-session:${externalRef}`;
-}
-
 export class FamilyApiClient {
   readonly baseUrl: string;
 
@@ -246,7 +251,12 @@ export class FamilyApiClient {
       method: "POST",
       body: { external_ref: externalRef },
       headers: {
-        "idempotency-key": accountSessionIdempotencyKey(externalRef),
+        // The session issuance endpoint is a state-changing command too. Keep
+        // this key stable for the same development identity so a retry cannot
+        // create a second session command.
+        "idempotency-key": `${externalRef.startsWith("phone:") ? "family-mobile-account-session" : "account-session"}:${externalRef}`,
+        "x-correlation-id": createMobileRequestId("family-mobile-account-session"),
+        "x-source": "family-ai-mobile",
       },
     });
   }
@@ -263,12 +273,8 @@ export class FamilyApiClient {
     return this.request<{ revoked: boolean }>("/auth/session/revoke", { method: "POST", token });
   }
 
-  getActiveOnboarding(token: string, familyId: string) {
-    return this.request<ActiveOnboarding | null>(`/families/${familyId}/growth/onboarding/active`, { token });
-  }
-
-  startGrowthOnboarding<T>(token: string, familyId: string, body: { childId: string; guardianPersonId: string; structuredSafetySignals: string[] }, idempotencyKey: string) {
-    return this.request<T>(`/families/${familyId}/growth/onboarding`, {
+  startGrowthOnboarding<T>(token: string, familyId: string, body: { intent_id: string }, idempotencyKey: string) {
+    return this.request<T>(`/families/${familyId}/growth/onboardings`, {
       method: "POST",
       token,
       body,
@@ -571,6 +577,33 @@ export class FamilyApiClient {
     });
   }
 
+  generateGrowthPlanDraft<T>(token: string, familyId: string, onboardingId: string, subjectId: string) {
+    return this.request<T>(`/families/${familyId}/growth/onboardings/${onboardingId}/ai-plan-drafts`, {
+      method: "POST",
+      token,
+      body: { subject_id: subjectId },
+      headers: { "x-correlation-id": createMobileRequestId("family-mobile-ai-plan-draft") },
+    });
+  }
+
+  submitGrowthPlanReview<T>(token: string, familyId: string, draftId: string, subjectId: string) {
+    return this.request<T>(`/families/${familyId}/growth/ai-plan-drafts/${draftId}/review`, {
+      method: "POST",
+      token,
+      body: { subject_id: subjectId },
+      headers: { "x-correlation-id": createMobileRequestId("family-mobile-ai-plan-review") },
+    });
+  }
+
+  decideGrowthPlanHumanTask<T>(token: string, familyId: string, taskId: string, outcome: "ACCEPT" | "REJECT" | "ESCALATE", reason?: string) {
+    return this.request<T>(`/families/${familyId}/growth/human-tasks/${taskId}/decisions`, {
+      method: "POST",
+      token,
+      body: { outcome, reason },
+      headers: { "x-correlation-id": createMobileRequestId("family-mobile-ai-plan-decision") },
+    });
+  }
+
   startFamilyAssessment(token: string, familyId: string, body: { subject_person_id: string; tool_ref?: string }, idempotencyKey: string) {
     return this.request<AssessmentMutationReceipt>(`/families/${familyId}/assessments/sessions`, {
       method: "POST", token, body,
@@ -710,21 +743,46 @@ export class FamilyApiClient {
   }
 
   requestGrowthHelp<T>(token: string, familyId: string, body: { subject_person_id: string; raw_text: string }, idempotencyKey: string) {
-    return this.request<T>(`/families/${familyId}/orchestration/needs`, {
+    return this.request<CaptureNeedSignalResponse>(`/families/${familyId}/needs/signals`, {
       method: "POST",
       token,
-      body,
+      body: {
+        raw_text: body.raw_text,
+        statement: body.raw_text,
+        desired_outcome: "先找到一个双方都能接受、可以暂停的下一步。",
+        source: "FAMILY_EXPRESSED",
+        purpose: "family_need_capture",
+        consent_version: "family-need.v1",
+        data_class: "MINOR_PERSONAL_DATA",
+        subject_person_ids: [body.subject_person_id],
+      },
       headers: {
         "idempotency-key": idempotencyKey,
         "x-correlation-id": createMobileRequestId("family-mobile-growth-help"),
         "x-source": "family-ai-mobile",
       },
-    });
+    }).then((result) => ({
+      signal_id: result.signal.signal_id,
+      need_id: result.need.need_id,
+      proposed_need_type: result.need.category,
+      confirm_prompt: result.need.statement,
+      supported: true,
+      safety_route: "NORMAL" as const,
+      next_action: "CONFIRM_INTENT" as const,
+    })) as Promise<T>;
   }
 
   confirmGrowthIntent<T>(token: string, familyId: string, body: { signal_id: string; goal_text: string }, idempotencyKey: string) {
-    return this.request<T>(`/families/${familyId}/orchestration/intents`, {
-      method: "POST", token, body,
+    return this.request<T>(`/families/${familyId}/needs/${body.signal_id}/clarify`, {
+      method: "POST", token, body: {
+        statement: body.goal_text,
+        desired_outcome: body.goal_text,
+        expected_version: 1,
+        purpose: "family_need_clarification",
+        consent_version: "family-need.v1",
+        data_class: "MINOR_PERSONAL_DATA",
+        subject_person_ids: [],
+      },
       headers: {
         "idempotency-key": idempotencyKey,
         "x-correlation-id": createMobileRequestId("family-mobile-growth-intent"),
@@ -734,8 +792,8 @@ export class FamilyApiClient {
   }
 
   requestGrowthRecommendation<T>(token: string, familyId: string, intentId: string, idempotencyKey: string) {
-    return this.request<T>(`/families/${familyId}/orchestration/intents/${intentId}/recommendations`, {
-      method: "POST", token, body: {},
+    return this.request<T>(`/families/${familyId}/needs/${intentId}/ai-coach/messages`, {
+      method: "POST", token, body: { parent_message: "请基于刚才确认的家庭困扰，给出一个双方都能拒绝或暂停的下一步，并说明不确定性。" },
       headers: {
         "idempotency-key": idempotencyKey,
         "x-correlation-id": createMobileRequestId("family-mobile-growth-recommendation"),
@@ -744,15 +802,8 @@ export class FamilyApiClient {
     });
   }
 
-  decideGrowthService<T>(token: string, familyId: string, body: { intent_id: string; recommendation_id: string; recommendation_version: number; decision_type: "ACCEPT_RECOMMENDATION" | "SELECT_ALTERNATIVE" | "DISMISS"; selected_offer_refs: string[] }, idempotencyKey: string) {
-    return this.request<T>(`/families/${familyId}/orchestration/decisions`, {
-      method: "POST", token, body,
-      headers: {
-        "idempotency-key": idempotencyKey,
-        "x-correlation-id": createMobileRequestId("family-mobile-growth-decision"),
-        "x-source": "family-ai-mobile",
-      },
-    });
+  decideGrowthService<T>(token: string, familyId: string, body: { intent_id: string; recommendation_id: string; recommendation_version: number; decision_type: "ACCEPT_RECOMMENDATION" | "SELECT_ALTERNATIVE" | "DISMISS"; selected_offer_refs: string[] }, idempotencyKey: string): Promise<T> {
+    return Promise.reject(new FamilyApiError("当前家庭帮助只支持成人确认与 AI Perspective，服务决策尚未开放。", 409, "FAMILY_SERVICE_DECISION_NOT_AVAILABLE", body));
   }
 
   // Real family_need endpoints — see the CaptureNeedSignalResponse/AiCoachMessageResponse

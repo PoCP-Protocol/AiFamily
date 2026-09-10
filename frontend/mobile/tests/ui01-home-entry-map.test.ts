@@ -33,13 +33,13 @@ describe("UI-01 original-home hotspot contract", () => {
   it("keeps the original UI-01 visible feature modules implemented in the home source", () => {
     const homeSource = readFileSync(resolve(process.cwd(), "app/(tabs)/index.tsx"), "utf8");
 
-    expect(homeSource).toContain("家庭成长平台");
-    expect(homeSource).toContain("今天也一起陪孩子成长");
+    expect(homeSource).toContain("AiFamily");
+    expect(homeSource).toContain("今天，先照顾好一件事");
     expect(homeSource).toContain("AssessmentBannerArt");
-    expect(homeSource).toContain("今日成长任务");
-    expect(homeSource).toContain("推荐内容/服务");
+    expect(homeSource).toContain("今天的安排");
+    expect(homeSource).toContain("给你的参考");
 
-    for (const label of ["AI诊断", "21天挑战营", "90天成长计划", "成长案例", "专家直播", "家庭顾问"]) {
+    for (const label of ["理解家庭", "一起练习", "成长方向", "看看别家", "听听专家", "找人聊聊"]) {
       expect(homeSource).toContain(`label: "${label}"`);
     }
   });

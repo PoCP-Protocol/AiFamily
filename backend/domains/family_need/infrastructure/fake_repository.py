@@ -134,12 +134,35 @@ class FakeFamilyNeedRepository:
             raise FamilyNeedConflictError("need_event_version_duplicate")
         self.events.append(event)
 
+    async def list_events(
+        self, *, tenant_id: str, family_id: str, event_name: str, limit: int = 100
+    ) -> tuple[NeedEvent, ...]:
+        if limit <= 0:
+            raise ValueError("event limit must be positive")
+        return tuple(
+            event
+            for event in self.events
+            if event.tenant_id == tenant_id
+            and event.family_id == family_id
+            and event.event_name == event_name
+        )[:limit]
+
     async def save_outcome(self, outcome: FamilyConfirmedOutcome) -> None:
         assert_context(outcome.context)
         existing = self.outcomes.get(outcome.outcome_id)
         if existing is not None and existing.context != outcome.context:
             raise FamilyNeedForbiddenError("outcome_tenant_scope_conflict")
         self.outcomes[outcome.outcome_id] = outcome
+
+    async def get_outcome(
+        self, *, tenant_id: str, family_id: str, outcome_id: str
+    ) -> FamilyConfirmedOutcome | None:
+        outcome = self.outcomes.get(outcome_id)
+        if outcome is None or not self._visible(
+            outcome.context, tenant_id=tenant_id, family_id=family_id
+        ):
+            return None
+        return outcome
 
     async def get_outcomes_for_need(
         self, *, tenant_id: str, family_id: str, need_id: str

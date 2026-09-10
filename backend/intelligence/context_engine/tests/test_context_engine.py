@@ -168,7 +168,16 @@ def test_subject_erasure_removes_observations_and_snapshots() -> None:
 
 def test_duplicate_observation_ids_are_tenant_scoped() -> None:
     broker = ContextBroker()
-    broker.append(observation())
+    item = observation()
+    broker.append(item)
     broker.append(observation(tenant_id="tenant-2"))
     with pytest.raises(ContextContractError, match="OBSERVATION_ID_ALREADY_EXISTS"):
-        broker.append(observation())
+        broker.append(replace(item, observed_value="tampered"))
+
+
+def test_identical_observation_replay_is_idempotent() -> None:
+    broker = ContextBroker()
+    item = observation()
+    broker.append(item)
+    broker.append(item)
+    assert broker.snapshot(scope=context_scope(), now=NOW).observations == (item,)

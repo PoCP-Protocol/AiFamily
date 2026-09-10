@@ -359,9 +359,7 @@ def test_dev_experience_run_ledger_survives_create_decision_and_replay(
         assert projection["run_id"] == "run-dev-wiring-persistent-001"
         assert projection["status"] == "DRAFT"
         assert projection["deletion_state"] == "active"
-        assert projection["draft_payload"]["understanding"] == (
-            "这是由生产同构测试链路生成的合成草案"
-        )
+        assert "晚间学习" in projection["draft_payload"]["understanding"]
         assert projection["entries"][-1]["interaction_type"] == "decision"
         assert projection["entries"][-1]["payload"]["decision"] == "accepted"
 

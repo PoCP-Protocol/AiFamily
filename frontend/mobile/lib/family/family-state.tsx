@@ -22,6 +22,7 @@ interface FamilyMobileContextValue extends FamilyMobileState {
   selectGrowthFocus(focus: GrowthFocusId): void;
   answerAssessment(questionId: string, answer: AssessmentAnswer): void;
   setAssessmentSyncState(state: FamilyMobileState["assessmentSyncState"]): void;
+  setAssessmentSubject(subjectId: string | null): void;
   setActiveOnboardingId(onboardingId: string | null): void;
   recordChildChoice(promptId: string, choice: ChildChoice): void;
   savePrivateGrowthStory(draft: PrivateGrowthStoryDraft): void;
@@ -100,6 +101,7 @@ export function FamilyMobileProvider({ children }: PropsWithChildren) {
     selectGrowthFocus: (focus) => dispatch({ type: "select_growth_focus", focus }),
     answerAssessment: (questionId, answer) => dispatch({ type: "answer_assessment", questionId, answer }),
     setAssessmentSyncState: (nextState) => dispatch({ type: "set_assessment_sync", state: nextState }),
+    setAssessmentSubject: (subjectId) => dispatch({ type: "set_assessment_subject", subjectId }),
     setActiveOnboardingId: (onboardingId) => dispatch({ type: "set_active_onboarding", onboardingId }),
     recordChildChoice: (promptId, choice) => dispatch({ type: "record_child_choice", promptId, choice }),
     savePrivateGrowthStory: (draft) => dispatch({ type: "save_private_growth_story", draft }),

@@ -93,7 +93,8 @@ async def test_synthetic_runtime_generates_a_draft_through_gateway() -> None:
 
     result = await runtime.application.generate_draft(_command(runtime))
 
-    assert result.output["understanding"] == "这是由生产同构测试链路生成的合成草案"
+    assert "晚间学习" in result.output["understanding"]
+    assert "持续催促" in result.output["understanding"]
     assert result.requires_human_confirmation is True
     assert result.routed.experience.draft.status == "DRAFT"
     assert result.snapshot.scope.data_class is DataClass.SYNTHETIC

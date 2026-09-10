@@ -6,6 +6,7 @@ import pytest
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from backend.apps.family_api.main import create_app
 from backend.apps.family_api.production_ai_growth_surface_wiring import (
     install_production_ai_growth_surface,
 )
@@ -61,3 +62,14 @@ def test_composite_surface_rejects_partial_or_synthetic_composition() -> None:
             growth_plan_composition_resolver=None,  # type: ignore[arg-type]
             clock=lambda: datetime.now(UTC),
         )
+
+
+def test_create_app_mounts_explicit_production_ai_growth_surface_hook() -> None:
+    calls: list[object] = []
+
+    def install(app):
+        calls.append(app)
+
+    app = create_app(production_ai_growth_surface_wiring=install)
+
+    assert calls == [app]

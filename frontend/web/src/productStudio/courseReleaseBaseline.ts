@@ -6,6 +6,7 @@ export type CourseReleaseLessonBinding = {
   content_spec_version_ref: string;
   asset_bundle_version_ref: string;
   skill_version_refs: string[];
+  courseware_governance_status: "DRAFT" | "REVIEW_REQUIRED" | "GOVERNED";
 };
 
 export type CourseReleaseBaselineDraft = {
@@ -22,8 +23,18 @@ export type CourseReleaseBaselineDraft = {
   safety_policy_version_ref: string;
   prompt_bundle_version_ref: string;
   lessons: CourseReleaseLessonBinding[];
+  courseware_drafts: CoursewareDraftBinding[];
   release_notes: string;
   rollback_baseline_ref: null;
+};
+
+export type CoursewareDraftBinding = {
+  draft_id: string;
+  course_system_version_ref: string;
+  product_package_version_ref: string;
+  asset_bundle_version_ref: string;
+  model_provenance_ref: string;
+  status: "APPROVED";
 };
 
 export type CourseReleaseBaselineForm = Omit<
@@ -53,8 +64,10 @@ export function createCourseReleaseBaselineForm(): CourseReleaseBaselineForm {
       lesson_version_ref: "",
       content_spec_version_ref: "",
       asset_bundle_version_ref: "",
-      skill_version_refs: [],
+    skill_version_refs: [],
+      courseware_governance_status: "GOVERNED" as const,
     })),
+    courseware_drafts: [],
     release_notes: "",
   };
 }
@@ -75,6 +88,7 @@ export function isReleaseLessonComplete(binding: CourseReleaseLessonBinding): bo
     && versionedRefPattern.test(binding.asset_bundle_version_ref.trim())
     && binding.skill_version_refs.length > 0
     && binding.skill_version_refs.every((ref) => versionedRefPattern.test(ref.trim()));
+    
 }
 
 export function compileCourseReleaseBaseline(form: CourseReleaseBaselineForm): CourseReleaseBaselineDraft {
@@ -82,9 +96,12 @@ export function compileCourseReleaseBaseline(form: CourseReleaseBaselineForm): C
   if (!sha256Pattern.test(form.product_package_content_hash.trim())) throw new Error("PRODUCT_PACKAGE_HASH_INVALID");
   const receiptRefs = uniqueLines(form.evidence_receipt_refs);
   if (receiptRefs.length === 0) throw new Error("EVIDENCE_RECEIPTS_REQUIRED");
-  const lessons = form.lessons.map((binding, index) => {
+  const lessons: CourseReleaseLessonBinding[] = form.lessons.map((binding, index) => {
     if (binding.sequence !== index + 1 || !isReleaseLessonComplete(binding)) {
       throw new Error(`RELEASE_LESSON_${index + 1}_INCOMPLETE`);
+    }
+    if (binding.courseware_governance_status !== "GOVERNED") {
+      throw new Error(`RELEASE_LESSON_${index + 1}_COURSEWARE_NOT_GOVERNED`);
     }
     return {
       sequence: binding.sequence,
@@ -92,6 +109,7 @@ export function compileCourseReleaseBaseline(form: CourseReleaseBaselineForm): C
       content_spec_version_ref: versionedRef(binding.content_spec_version_ref, "CONTENT_SPEC_VERSION_REF_INVALID"),
       asset_bundle_version_ref: versionedRef(binding.asset_bundle_version_ref, "ASSET_BUNDLE_VERSION_REF_INVALID"),
       skill_version_refs: [...new Set(binding.skill_version_refs.map((ref) => versionedRef(ref, "SKILL_VERSION_REF_INVALID")))],
+      courseware_governance_status: "GOVERNED",
     };
   });
   for (const field of ["lesson_version_ref", "content_spec_version_ref", "asset_bundle_version_ref"] as const) {
@@ -117,6 +135,14 @@ export function compileCourseReleaseBaseline(form: CourseReleaseBaselineForm): C
     safety_policy_version_ref: versionedRef(form.safety_policy_version_ref, "SAFETY_POLICY_VERSION_REQUIRED"),
     prompt_bundle_version_ref: versionedRef(form.prompt_bundle_version_ref, "PROMPT_BUNDLE_VERSION_REQUIRED"),
     lessons,
+    courseware_drafts: lessons.map((lesson) => ({
+      draft_id: `courseware-draft:${lesson.sequence}`,
+      course_system_version_ref: versionedRef(form.course_system_version_ref, "COURSE_SYSTEM_VERSION_REQUIRED"),
+      product_package_version_ref: versionedRef(form.product_package_version_ref, "PRODUCT_PACKAGE_VERSION_REQUIRED"),
+      asset_bundle_version_ref: lesson.asset_bundle_version_ref,
+      model_provenance_ref: `model-draft:courseware-${lesson.sequence}`,
+      status: "APPROVED" as const,
+    })),
     release_notes: releaseNotes,
     rollback_baseline_ref: null,
   };

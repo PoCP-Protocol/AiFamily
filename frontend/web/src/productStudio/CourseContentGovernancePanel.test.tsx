@@ -19,7 +19,8 @@ describe("CourseContentGovernancePanel", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "读取已发布课程" }));
     expect(screen.getByText("1 门课程")).toBeInTheDocument();
     expect(screen.getByText("1 个课时")).toBeInTheDocument();
-    expect(within(screen.getByLabelText("课程治理缺口")).getByText(/MISSING_FROM_CONTRACT/)).toBeInTheDocument();
+    expect(within(screen.getByLabelText("课程治理缺口")).getByText(/课程体系：BOUND/)).toBeInTheDocument();
+    expect(within(screen.getByLabelText("课程治理缺口")).getByText(/课时\/BOM血缘：INCOMPLETE/)).toBeInTheDocument();
     expect(screen.getByText(/claim:rhythm（仅引用，未证明 receipt admission）/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "共同定义问题" })).toBeInTheDocument();
     expect(screen.queryByText(/综合分|推荐排名/)).not.toBeInTheDocument();

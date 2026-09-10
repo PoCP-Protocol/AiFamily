@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from backend.platform.audit.recorder import AuditRecorder
 from backend.platform.consent.models import ConsentGrant, ConsentPurpose
 
 from ..domain.activity_catalog import ActivityCatalogItem
@@ -89,6 +90,9 @@ class FakeServiceRepository:
 
     async def commit(self) -> None:
         return None
+
+    async def flush_audit(self, recorder: AuditRecorder) -> int:
+        return len(recorder.all_events())
 
     @staticmethod
     def _scoped(store: dict, tenant_id: str, family_id: str) -> list:

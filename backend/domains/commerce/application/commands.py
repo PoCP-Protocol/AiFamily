@@ -1,9 +1,10 @@
 """Named commerce commands for the no-op DEV/TEST intent flow."""
 
+import re
 from datetime import UTC, datetime
 
 from ..domain.errors import CommerceConflictError, CommerceNotFoundError, CommerceValidationError
-from ..domain.facts import Entitlement, OrderIntent
+from ..domain.facts import Entitlement, OrderIntent, RefundRequest
 from .ports import CommerceRepositoryPort
 
 
@@ -87,3 +88,73 @@ async def submit_order_intent(
     await repo.save_entitlement(entitlement)
     await repo.commit()
     return intent, entitlement
+
+
+async def request_refund(
+    repo: CommerceRepositoryPort,
+    *,
+    tenant_id: str,
+    family_id: str,
+    source_order_intent_id: str,
+    idempotency_key: str | None,
+    reason: str,
+    evidence_receipt_ref: str | None = None,
+) -> tuple[RefundRequest, Entitlement]:
+    """Process a local refund recovery transition idempotently.
+
+    The adapter only revokes the local entitlement; payment settlement remains
+    an explicit external integration and is never implied by this command.
+    """
+    if not idempotency_key:
+        raise CommerceValidationError("idempotency-key header is required")
+    if not reason.strip():
+        raise CommerceValidationError("refund_reason_is_required")
+    if evidence_receipt_ref is not None and not re.search(
+        r"@v[1-9][0-9]*$", evidence_receipt_ref.strip()
+    ):
+        raise CommerceValidationError("refund_evidence_receipt_invalid")
+    existing = await repo.find_refund_by_idempotency(
+        tenant_id=tenant_id, family_id=family_id, idempotency_key=idempotency_key
+    )
+    if existing is not None:
+        entitlement = next(
+            (item for item in await repo.list_entitlements(tenant_id=tenant_id, family_id=family_id)
+             if item.entitlement_id == existing.entitlement_id), None
+        )
+        if entitlement is None:
+            raise CommerceConflictError("refund_entitlement_missing")
+        return existing, entitlement
+    intent = next(
+        (item for item in await repo.list_order_intents(tenant_id=tenant_id, family_id=family_id)
+         if item.order_intent_id == source_order_intent_id), None
+    )
+    if intent is None:
+        raise CommerceNotFoundError("order_intent_not_found")
+    entitlement = next(
+        (item for item in await repo.list_entitlements(tenant_id=tenant_id, family_id=family_id)
+         if item.source_order_intent_id == source_order_intent_id), None
+    )
+    if entitlement is None:
+        raise CommerceConflictError("refund_entitlement_missing")
+    now = datetime.now(UTC).replace(tzinfo=None)
+    refund = RefundRequest(
+        refund_id=f"commerce-refund-{source_order_intent_id}",
+        tenant_id=tenant_id, family_id=family_id,
+        source_order_intent_id=source_order_intent_id,
+        entitlement_id=entitlement.entitlement_id, status="PROCESSED",
+        reason=reason.strip(), idempotency_key=idempotency_key,
+        created_at=now, updated_at=now,
+    )
+    attributes = dict(entitlement.attributes)
+    if evidence_receipt_ref:
+        refs = list(attributes.get("evidence_refs", ()))
+        if evidence_receipt_ref.strip() not in refs:
+            refs.append(evidence_receipt_ref.strip())
+        attributes["evidence_refs"] = refs
+    revoked = entitlement.model_copy(
+        update={"status": "REVOKED", "updated_at": now, "attributes": attributes}
+    )
+    await repo.save_refund(refund)
+    await repo.save_entitlement(revoked)
+    await repo.commit()
+    return refund, revoked

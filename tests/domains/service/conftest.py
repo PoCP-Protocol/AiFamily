@@ -38,6 +38,7 @@ from backend.domains.service.infrastructure.sqlalchemy_repository import (
     SqlAlchemyServiceRepository,
 )
 from backend.platform.audit.recorder import AuditRecorder
+from backend.platform.audit.store import AuditBase
 from tests.support.postgres import SKIP_REASON, postgres_schema_engine, postgres_test_url
 
 
@@ -51,6 +52,7 @@ async def sqlalchemy_repo() -> AsyncIterator[SqlAlchemyServiceRepository]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(AuditBase.metadata.create_all)
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with session_factory() as session:
         yield SqlAlchemyServiceRepository(session)
@@ -70,6 +72,8 @@ async def postgres_repo() -> AsyncIterator[SqlAlchemyServiceRepository]:
         pytest.skip(SKIP_REASON)
 
     async with postgres_schema_engine(Base.metadata) as engine:
+        async with engine.begin() as conn:
+            await conn.run_sync(AuditBase.metadata.create_all)
         session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         async with session_factory() as session:
             yield SqlAlchemyServiceRepository(session)

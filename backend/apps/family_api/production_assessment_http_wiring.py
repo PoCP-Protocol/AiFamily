@@ -355,6 +355,91 @@ def install_production_assessment_http_wiring(
     )
 
 
+def install_postgres_assessment_http_wiring(
+    app: FastAPI,
+    *,
+    engine: AsyncEngine,
+    identity_resolver: IdentityResolver,
+    interpretation_factory: Callable[[], object],
+    repository_factory: RepositoryFactory = SqlAlchemyAssessmentRepository,
+) -> None:
+    """Install durable assessment persistence for an explicit PostgreSQL test app.
+
+    This seam keeps assessment commands and queries on the real SQLAlchemy
+    repository while allowing test to inject its admitted deterministic
+    interpretation adapter. It does not claim production AI readiness;
+    production uses ``install_production_assessment_http_wiring``.
+    """
+
+    if not isinstance(app, FastAPI):
+        raise TypeError("app must be a FastAPI instance")
+    if not isinstance(engine, AsyncEngine):
+        raise TypeError("engine must be an AsyncEngine")
+    if not callable(identity_resolver) or not callable(interpretation_factory):
+        raise TypeError("identity_resolver and interpretation_factory must be callable")
+    if not callable(repository_factory):
+        raise TypeError("assessment repository_factory must be callable")
+
+    async def family_context(
+        family_id: str = Path(...),
+        authorization: str | None = Header(default=None),
+        x_correlation_id: str | None = Header(default=None),
+        x_causation_id: str | None = Header(default=None),
+    ) -> FamilyContext:
+        return await _resolve_identity(
+            identity_resolver,
+            family_id,
+            authorization,
+            x_correlation_id,
+            x_causation_id,
+        )
+
+    async def command_handler() -> AsyncIterator[AssessmentCommandHandler]:
+        async with engine.begin() as connection:
+            yield AssessmentCommandHandler(repository_factory(connection))
+
+    async def query_handler(
+        family_id: str = Path(...),
+        authorization: str | None = Header(default=None),
+        x_correlation_id: str | None = Header(default=None),
+        x_causation_id: str | None = Header(default=None),
+    ) -> AsyncIterator[AssessmentQueryHandler]:
+        await _resolve_identity(
+            identity_resolver,
+            family_id,
+            authorization,
+            x_correlation_id,
+            x_causation_id,
+        )
+        async with engine.begin() as connection:
+            yield AssessmentQueryHandler(repository_factory(connection), interpretation_factory())
+
+    async def growth_hypothesis_handler(
+        family_id: str = Path(...),
+        authorization: str | None = Header(default=None),
+        x_correlation_id: str | None = Header(default=None),
+        x_causation_id: str | None = Header(default=None),
+    ) -> AsyncIterator[GrowthHypothesisCommandHandler]:
+        await _resolve_identity(
+            identity_resolver,
+            family_id,
+            authorization,
+            x_correlation_id,
+            x_causation_id,
+        )
+        async with engine.begin() as connection:
+            yield GrowthHypothesisCommandHandler(
+                repository_factory(connection), interpretation_factory()
+            )
+
+    app.dependency_overrides[assessment_dependencies.get_family_context] = family_context
+    app.dependency_overrides[assessment_dependencies.get_command_handler] = command_handler
+    app.dependency_overrides[assessment_dependencies.get_query_handler] = query_handler
+    app.dependency_overrides[assessment_dependencies.get_growth_hypothesis_handler] = (
+        growth_hypothesis_handler
+    )
+
+
 async def _resolve_identity(
     resolver: IdentityResolver,
     family_id: str,
@@ -389,5 +474,6 @@ __all__ = [
     "ProductionAssessmentAiCompositionResolver",
     "SqlAlchemyAssessmentContextScopeResolver",
     "SqlAlchemyAssessmentIdentityResolver",
+    "install_postgres_assessment_http_wiring",
     "install_production_assessment_http_wiring",
 ]

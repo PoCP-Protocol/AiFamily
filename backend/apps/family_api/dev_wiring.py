@@ -66,7 +66,7 @@ import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from fastapi import FastAPI, Header, HTTPException, Path
 from sqlalchemy import text
@@ -573,8 +573,20 @@ _family_experience_signal_repository = _ConnectionScopedFamilyExperienceSignalRe
 # singletons directly — there is no `install_*` override entry point for this
 # router because it is built by a factory (`build_growth_plan_adoption_router`)
 # rather than pre-wired with `app.dependency_overrides` like the routers above.
-growth_plan_draft_store = InMemoryGrowthPlanDraftStore()
+growth_plan_draft_store = InMemoryGrowthPlanDraftStore(
+    intent_source=lambda _tenant_id, family_id: _latest_growth_intent_for_family(family_id)
+)
 growth_plan_adoption_repository = InMemoryAdoptedGrowthPlanRepository()
+
+
+def _latest_growth_intent_for_family(family_id: str) -> dict | None:
+    """Read the latest confirmed assessment intent for the same dev family."""
+    intents = [
+        intent
+        for intent in _assessment_repository.growth_intents.values()
+        if intent.get("family_id", family_id) == family_id
+    ]
+    return intents[-1] if intents else None
 
 
 class _DevProviderAdmissionQuery:
@@ -1438,6 +1450,65 @@ def _dev_ai_coach_deps() -> family_need_ai_coach_deps.AiCoachDeps:
 _assessment_repository = FakeAssessmentRepository()
 _assessment_interpretation = DeterministicInterpretationAdapter()
 
+# UI-03's projection reads `load_hypothesis_evidence`, which returns `None`
+# (surfacing as `NO_SUBMITTED_ASSESSMENT` even after a real submit) unless the
+# answered FOCUS option maps to a registered need type — this is catalog
+# reference data, not a permission, so seeding it grants no access consent/
+# family-scope checks would otherwise refuse (same reasoning
+# `tests/apps/family_api/test_assessment_routes.py::_seed_need_type_catalog`
+# already documents for its one PARENT_CHILD_COMMUNICATION-only seed).
+# Registered against `default_tool()`'s real v4 `FOCUS` options (the five
+# `GrowthFocusId` values the mobile UI-02 screen actually offers —
+# `frontend/mobile/lib/family/core-growth.ts`), not the old v1 3-option stub
+# (`COMMUNICATION`/`HOMEWORK`/`SCREEN_TIME`) this loop registered before v4
+# landed. Content mirrors each dimension's `nextSupportDirections`/
+# `operationalDefinition` in
+# `frontend/mobile/lib/family/family-assessment-capability-memory.ts` so the
+# dev hypothesis reads like the same product, not a placeholder — and
+# covering all five (not just the one tests happen to exercise) is what keeps
+# the *dev* UI-02/UI-03 chain from silently dead-ending at "no hypothesis"
+# for whichever four options a real family picks that the tests never touch.
+for _focus_ref, _need_type_ref, _title, _description, _capability_keys in (
+    (
+        "PARENT_CHILD_COMMUNICATION",
+        "NEED_PARENT_CHILD_COMMUNICATION",
+        "亲子沟通支持",
+        "先从倾听开始，找到孩子愿意开口的时刻",
+        ["LISTENING_COACH"],
+    ),
+    (
+        "LEARNING_HABITS",
+        "NEED_LEARNING_HABITS_SUPPORT",
+        "学习习惯支持",
+        "从拆解任务和建立开始仪式入手，而不是催促",
+        ["HOMEWORK_COACH"],
+    ),
+    (
+        "DEVICE_USE_CONTEXT",
+        "NEED_DEVICE_USE_BALANCE",
+        "手机与边界支持",
+        "先理解孩子在屏幕上寻找什么，再一起把规则说清楚",
+        ["SCREEN_TIME_COACH"],
+    ),
+    (
+        "EMOTION_REGULATION",
+        "NEED_EMOTION_REGULATION_SUPPORT",
+        "情绪管理支持",
+        "先把感受说出来，再一起处理事情",
+        ["EMOTION_COACH"],
+    ),
+    (
+        "SELF_REGULATION",
+        "NEED_SELF_REGULATION_SUPPORT",
+        "自我管理支持",
+        "让孩子一起参与计划、执行和复盘，而不是只被安排",
+        ["SELF_REGULATION_COACH"],
+    ),
+):
+    _assessment_repository.seed_need_type(
+        _focus_ref, _need_type_ref, _title, _description, _capability_keys
+    )
+
 # Experience runs must survive separate HTTP requests in the synthetic
 # composition just as they do in production persistence. Keep one explicit
 # ledger per family for the process lifetime; the runtime scope still includes
@@ -1762,6 +1833,35 @@ async def _dev_family_context(
     _assessment_repository.grant_family_manage_permission(
         family_id, person_id, role="OWNER_GUARDIAN"
     )
+
+    # UI-02's projection reports `availability: NO_SUBJECT` until at least one
+    # subject exists — production reads this from a real Family/Relationship
+    # aggregate the account onboarding flow creates; dev has no such flow yet.
+    #
+    # Cross-domain inconsistency found while wiring this (recorded here, not
+    # silently worked around): `family_need` seeds its dev-only child subject
+    # as the readable string `dev-child:{family_id}` (see
+    # `_dev_family_need_actor` above), but `assessment`'s
+    # `StartAssessmentCommandHandler.start` requires `subject_person_id` to be
+    # a real UUID (`commands.py::_is_uuid`) — a readable dev id fails
+    # `valid_subject_person_id_required`. Reusing the exact same string here
+    # would make this endpoint's dev seeding silently inconsistent with its
+    # own domain's validation, not just with `family_need`'s convention. This
+    # is a genuine cross-domain subject-id-format gap (uuid vs readable-string)
+    # that a real Family/Relationship aggregate must resolve for every domain
+    # at once; it is not something dev_wiring should paper over by relaxing
+    # `_is_uuid`. Until that aggregate exists, seed a *stable* per-family UUID
+    # (uuid5, not uuid4) so the same family always gets the same subject id
+    # across requests/restarts — required for the dev session to behave
+    # idempotently, not just to pass validation once.
+    dev_child_id = str(uuid5(NAMESPACE_URL, f"dev-child:{family_id}"))
+    if not any(
+        subject["person_id"] == dev_child_id
+        for subject in _assessment_repository.subjects.get(family_id, [])
+    ):
+        _assessment_repository.seed_subject(
+            family_id, dev_child_id, "孩子", consent_granted=True
+        )
 
     return assessment_deps.FamilyContext(
         tenant_id=tenant_id,

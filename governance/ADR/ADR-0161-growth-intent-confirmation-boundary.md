@@ -1,4 +1,4 @@
-# ADR-0019: GrowthIntent 确认写入的 canonical owner 与原子边界
+# ADR-0161: GrowthIntent 确认写入的 canonical owner 与原子边界
 
 - **Status**: Accepted
 - **Date**: 2026-09-01

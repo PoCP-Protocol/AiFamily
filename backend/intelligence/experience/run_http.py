@@ -93,8 +93,7 @@ class FeedbackPreferenceSnapshot:
             raise RunHttpError("SCOPE_REQUIRED")
         counts = (self.helpful_count, self.not_helpful_count, self.request_human_count)
         if any(
-            isinstance(value, bool) or not isinstance(value, int) or value < 0
-            for value in counts
+            isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in counts
         ):
             raise RunHttpError("FEEDBACK_PREFERENCE_COUNT_INVALID")
         if sum(counts) > 10_000:
@@ -285,6 +284,8 @@ class ExperienceRunLedger(Protocol):
 
     def feedback_preferences(self, *, scope: RunScope) -> FeedbackPreferenceSnapshot: ...
 
+    def feedback_refs(self, *, scope: RunScope, family_need_id: str) -> tuple[str, ...]: ...
+
 
 @dataclass(slots=True)
 class _RunRecord:
@@ -345,9 +346,7 @@ class InMemoryExperienceRunLedger:
                 idempotency_key=idempotency_key,
                 status="replay",
                 snapshot=snapshot,
-                response_payload=(
-                    None if existing.deleted else existing.create_response_payload
-                ),
+                response_payload=(None if existing.deleted else existing.create_response_payload),
             )
         if any(key[1] == run_id for key in self._records):
             raise RunHttpError("RUN_SCOPE_MISMATCH")
@@ -578,6 +577,25 @@ class InMemoryExperienceRunLedger:
             last_feedback_at=last_feedback_at,
         )
 
+    def feedback_refs(self, *, scope: RunScope, family_need_id: str) -> tuple[str, ...]:
+        """Return bounded feedback references for one need and exact scope."""
+
+        self._assert_scope(scope)
+        if not family_need_id.strip():
+            raise RunHttpError("FAMILY_NEED_ID_REQUIRED")
+        refs: list[str] = []
+        for record in self._records.values():
+            if record.deleted or record.scope.key != scope.key:
+                continue
+            if record.checkpoint.draft_payload.get("family_need_id") != family_need_id:
+                continue
+            for interaction in record.interactions:
+                if interaction.interaction_type is InteractionType.FEEDBACK:
+                    ref = interaction.payload.get("feedback_ref") or interaction.event_id
+                    if isinstance(ref, str):
+                        refs.append(ref)
+        return tuple(refs)
+
     def record_decision(
         self,
         *,
@@ -780,9 +798,7 @@ def _validate_feedback_payload(payload: Mapping[str, Any]) -> None:
     event_refs = payload.get("real_event_refs")
     if event_refs is not None and (
         not isinstance(event_refs, (list, tuple))
-        or any(
-            not isinstance(ref, str) or not ref.strip() or len(ref) > 256 for ref in event_refs
-        )
+        or any(not isinstance(ref, str) or not ref.strip() or len(ref) > 256 for ref in event_refs)
     ):
         raise RunHttpError("REAL_EVENT_REFS_INVALID")
 
@@ -799,11 +815,7 @@ def _validate_evaluation_payload(payload: Mapping[str, Any]) -> None:
         or not report_ref.strip()
     ):
         raise RunHttpError("BENCHMARK_REPORT_REF_INVALID")
-    if (
-        not isinstance(case_version, str)
-        or not case_version.strip()
-        or len(case_version) > 128
-    ):
+    if not isinstance(case_version, str) or not case_version.strip() or len(case_version) > 128:
         raise RunHttpError("EVALUATION_CASE_VERSION_INVALID")
     if payload.get("education_outcome_status") != "NOT_MEASURED":
         raise RunHttpError("EDUCATION_OUTCOME_MUST_REMAIN_NOT_MEASURED")

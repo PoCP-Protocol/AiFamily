@@ -247,6 +247,35 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
+    # 0073 is data-only (inserts FAMILY_SUPPORT_NEEDS v3/v4 rows into the
+    # existing `family_assessment_tools` table); no new tables. Renumbered
+    # from this branch's original 0067 to chain after main's 0072 during the
+    # integrate/growth-plan-adoption reconciliation merge.
+    "0073_family_support_needs_v4_item_bank": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 74,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0074 owns the course-system manifest table. Renumbered from 0068.
+    "0074_course_system": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 75,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0075 only adds a lineage reference column to course_content. Renumbered
+    # from 0069.
+    "0075_course_content_lineage": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 75,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    # 0076 owns the immutable course release baseline table. Renumbered from
+    # 0070.
+    "0076_course_release_baseline": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 76,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
 }
 
 _MODEL_DRAFTS_ADR = (

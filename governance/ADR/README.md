@@ -23,6 +23,9 @@
 | [0009](ADR-0009-ruff-format-as-repo-standard.md) | 采纳 ruff format 为格式化标准 | Accepted | 2026-08-29 | T-01 清理 388 个 ruff 错误时 86% 是 E501；定向格式化 35 个文件后仓库进入"部分已格式化"混合态，判为三态中最差；采纳 ruff format 为唯一标准但**推迟全量 sweep**（多 agent 在飞，全量重排会覆盖他人未提交工作）。本 ADR 原取号 0007，与 product-zone-scoring 撞号后按本 README 的改号规则重编为 0009 |
 | [0018](ADR-0018-media-avatar-provider-and-gate1-benchmark.md) | Media Avatar Provider 与 Gate1 Offline Benchmark | Accepted | 2026-09-03 | Avatar/Media Offline 落 `backend/intelligence`；Provider 化；不硬绑引擎；人眼 Gate 不可被单测替代；AUTOavantar 仅概念重写；V2 Identity Master 为主参考；不得写 Family canonical truth |
 | [0019](ADR-0019-realtime-avatar-provider-and-gpu-node-boundary.md) | Realtime Avatar Provider 与 GPU Media Compute Node 边界 | Accepted | 2026-09-04 | Realtime 落 `media_factory/realtime/`；ADR-0018 §3 的 `Offline != Realtime` 首次获得架构测试执行；provider 中立九动词契约 + 不透明 identity locator；Transport 与契约结构性分离（防「WebSocket PASS 被读成数字人完成」）；`real_neural_inference` 由远端 attest 不由适配器假设；GPU 节点只存 ephemeral 媒体状态，业务真值永在 AiFamily；指标未测即 `NOT_RUN` |
+| [0161](ADR-0161-growth-intent-confirmation-boundary.md) | GrowthIntent 确认写入的 canonical owner 与原子边界 | Accepted | 2026-09-01 | 本 ADR 原取号 0019，与 realtime-avatar-provider（main 独立分支同期同号）撞号，`integrate/growth-plan-adoption` 对齐 main 合并时按本 README 的改号规则重编为 0161（原空号，来自已废弃并删除的 ai_run_ledger 重复实现 ADR） |
+| [0164](ADR-0164-growth-plan-read-audit-boundary.md) | Growth Plan 读取审计边界 | Proposed | 2026-09-10 | Adoption 读取复用 AuditRecorder READ 事件，覆盖未成年人访问留痕；真实 PostgreSQL HTTP/重启证据待补 |
+| [0165](ADR-0165-test-postgres-vertical-composition-parity.md) | Test PostgreSQL 与生产 Vertical Composition 同构 | Proposed | 2026-09-10 | test 配置 PostgreSQL 时禁止自动安装合成 runtime；无显式 durable composition 则 canonical route 503 |
 
 ### 决定之间的关系
 

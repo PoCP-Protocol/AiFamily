@@ -12,6 +12,18 @@ export type PublishedCourseLesson = {
   action_task: string;
   media_asset_ids: string[];
   tool_refs: string[];
+  stage_id?: string;
+  bom_line_ref?: string;
+  courseware_assets?: CoursewareGovernanceAsset[];
+};
+
+export type CoursewareGovernanceAsset = {
+  asset_id: string;
+  version_ref: string;
+  provenance_ref: string;
+  qa_status: "DRAFT" | "REVIEW_REQUIRED" | "APPROVED";
+  rights_status: "UNKNOWN" | "CLEARED" | "RESTRICTED";
+  safety_status: "UNKNOWN" | "REVIEW_REQUIRED" | "CLEARED";
 };
 
 export type PublishedCourseContent = {
@@ -24,6 +36,7 @@ export type PublishedCourseContent = {
   updated_at: string;
   title: string;
   product_component_id: string | null;
+  course_system_version_ref?: string | null;
   problem_statement: string;
   assessment_criteria: string[];
   learning_goal: string;
@@ -46,6 +59,7 @@ export interface CourseContentReadApiClient {
 type Options = {
   baseUrl?: string;
   fetchImpl?: ProductStudioFetch;
+  tenantScope?: string;
   accessToken?: string;
   accessTokenProvider?: ProductStudioAccessTokenProvider;
 };
@@ -53,12 +67,12 @@ type Options = {
 const COURSE_PREFIX = "/product-intelligence/courses";
 const COURSE_KEYS = new Set([
   "id", "version", "status", "tenant_scope", "created_by", "created_at", "updated_at",
-  "title", "product_component_id", "problem_statement", "assessment_criteria", "learning_goal",
+  "title", "product_component_id", "course_system_version_ref", "problem_statement", "assessment_criteria", "learning_goal",
   "lessons", "ai_coach_prompt_ref", "review_cadence", "outcome_metrics",
   "content_accuracy_claim_refs", "reviewed_by", "reviewed_at", "review_reason", "published_at",
 ]);
 const LESSON_KEYS = new Set([
-  "lesson_id", "sequence", "title", "knowledge_point", "action_task", "media_asset_ids", "tool_refs",
+  "lesson_id", "sequence", "title", "knowledge_point", "action_task", "media_asset_ids", "tool_refs", "stage_id", "bom_line_ref", "courseware_assets",
 ]);
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -118,7 +132,25 @@ function lesson(value: unknown, index: number): PublishedCourseLesson {
     action_task: text(item.action_task, "行动任务"),
     media_asset_ids: textList(item.media_asset_ids, "课件资产引用", true),
     tool_refs: textList(item.tool_refs, "工具引用", true),
+    stage_id: item.stage_id === undefined ? undefined : text(item.stage_id, "阶段引用"),
+    bom_line_ref: item.bom_line_ref === undefined ? undefined : text(item.bom_line_ref, "BOM行引用"),
+    courseware_assets: item.courseware_assets === undefined ? undefined : assetList(item.courseware_assets),
   };
+}
+
+function assetList(value: unknown): CoursewareGovernanceAsset[] {
+  if (!Array.isArray(value)) throw new ProductStudioApiError("INVALID_RESPONSE", "课件治理资产不是数组。");
+  return value.map((raw) => {
+    const item = record(raw, "课件治理资产");
+    return {
+      asset_id: text(item.asset_id, "asset_id"),
+      version_ref: text(item.version_ref, "课件版本引用"),
+      provenance_ref: text(item.provenance_ref, "课件来源凭证"),
+      qa_status: item.qa_status as CoursewareGovernanceAsset["qa_status"],
+      rights_status: item.rights_status as CoursewareGovernanceAsset["rights_status"],
+      safety_status: item.safety_status as CoursewareGovernanceAsset["safety_status"],
+    };
+  });
 }
 
 export function validatePublishedCourse(value: unknown): PublishedCourseContent {
@@ -156,6 +188,7 @@ export function validatePublishedCourse(value: unknown): PublishedCourseContent 
     updated_at: updatedAt,
     title: text(item.title, "课程名称"),
     product_component_id: nullableText(item.product_component_id, "product_component_id"),
+    course_system_version_ref: item.course_system_version_ref === undefined ? null : nullableText(item.course_system_version_ref, "course_system_version_ref"),
     problem_statement: text(item.problem_statement, "问题陈述"),
     assessment_criteria: textList(item.assessment_criteria, "评估标准"),
     learning_goal: text(item.learning_goal, "学习目标"),

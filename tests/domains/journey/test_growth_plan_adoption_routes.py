@@ -74,6 +74,9 @@ class Repository:
     async def get_current(self, **_: str) -> AdoptedGrowthPlan | None:
         return self.plan
 
+    async def record_read(self, **_: object) -> None:
+        return None
+
     async def adopt_once(
         self,
         *,

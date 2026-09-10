@@ -403,6 +403,14 @@ class ModelDraft:
     provenance: AiProvenance
     status: DraftStatus = "DRAFT"
 
+    def __post_init__(self) -> None:
+        # ``Literal["DRAFT"]`` protects static callers only.  Python does not
+        # enforce Literal values at runtime, so an untrusted adapter could
+        # otherwise construct ``ModelDraft(status="APPROVED")`` and bypass
+        # the R9 boundary before any domain Human Gate sees the result.
+        if self.status != "DRAFT":
+            raise ValueError("ModelDraft status must remain DRAFT")
+
     @property
     def may_mutate_business_state(self) -> bool:
         """Always `False`, by construction rather than by convention.

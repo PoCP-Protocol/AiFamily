@@ -75,21 +75,10 @@ def test_adapter_requires_review_metadata(field: str, value: object, error: str)
 
 
 def test_adapter_rejects_non_draft_model_output() -> None:
-    non_draft = replace(_model_draft(), status="APPROVED")
-
-    with pytest.raises(ProductPackageDraftError, match="DRAFT_ONLY"):
-        ModelDraftProductPackageAdapter().adapt(
-            non_draft,
-            package_id="package-1",
-            product_id="product-1",
-            version="0.1.0",
-            model_attempt_ref="attempt:1",
-            evidence_refs=("evidence:1",),
-            assumptions=("assumption:1",),
-            next_validation="validate with an anonymous pilot",
-            owner="product:p1",
-            expires_at=_GENERATED_AT + timedelta(days=1),
-        )
+    # ModelDraft enforces the R9 boundary at its own construction seam.
+    # Invalid upstream status can no longer reach the product adapter.
+    with pytest.raises(ValueError, match="status must remain DRAFT"):
+        replace(_model_draft(), status="APPROVED")
 
 
 def test_expiry_must_follow_provenance_and_be_timezone_aware() -> None:

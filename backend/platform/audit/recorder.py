@@ -122,7 +122,7 @@ class AuditRecorder:
             e for e in self._events if e.is_read and e.subject_person_id == subject_person_id
         )
 
-    async def flush(self, session: AsyncSession) -> int:
+    async def flush(self, session: AsyncSession, *, clear: bool = True) -> int:
         """Persist buffered events through `session`, then clear the buffer.
 
         Returns the number of rows inserted.
@@ -144,5 +144,6 @@ class AuditRecorder:
         # insert must not have its event dropped by the clear below.
         pending = tuple(self._events)
         written = await persist_events(session, pending)
-        del self._events[: len(pending)]
+        if clear:
+            del self._events[: len(pending)]
         return written

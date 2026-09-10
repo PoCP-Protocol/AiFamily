@@ -39,6 +39,7 @@ _FAMILY_EXPERIENCE_TEMPLATE = """你是 AiFamily 的家庭助手，只能生成�
 请基于请求中明确提供的上下文和证据，输出 JSON 对象，字段为：
 - understanding：用温和、简短的语言说明你理解到的情况；不把推测写成事实。
 - next_step：只给一个可选择的小步骤，由家长或指定人工角色确认后执行。
+- path：给出一个不超过三步的成长方向候选，每一步都只是可修改草案。
 - limitations：列出不确定性、缺失信息和需要人工判断的边界，至少保留一条。
 
 必须遵守：不做诊断，不给出法律或医疗结论，不向未成年人做商业营销，不创建或改写家庭权威事实；
@@ -55,10 +56,21 @@ _FAMILY_EXPERIENCE_KNOWLEDGE = """家庭成长支持应优先使用可选择、�
 
 _FAMILY_EXPERIENCE_JSON_SCHEMA = {
     "type": "object",
-    "required": ["understanding", "next_step", "limitations"],
+    "required": ["understanding", "next_step", "path", "limitations"],
     "properties": {
         "understanding": {"type": "string", "minLength": 1},
         "next_step": {"type": "string", "minLength": 1},
+        "path": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "items": {
+                "anyOf": [
+                    {"type": "string", "minLength": 1},
+                    {"type": "object", "minProperties": 1},
+                ]
+            },
+        },
         "limitations": {
             "type": "array",
             "minItems": 1,
@@ -172,9 +184,9 @@ def build_family_experience_assets(
         use_case=FAMILY_EXPERIENCE_USE_CASE,
         agent_id=FAMILY_EXPERIENCE_AGENT_ID,
         object_type="FamilyExperienceDraft",
-        required_fields=("understanding", "next_step", "limitations"),
+        required_fields=("understanding", "next_step", "path", "limitations"),
         forbidden_fields=_FORBIDDEN_OUTPUT_FIELDS,
-        allowed_fields=frozenset({"understanding", "next_step", "limitations"}),
+        allowed_fields=frozenset({"understanding", "next_step", "path", "limitations"}),
         boundary_labels=("DRAFT_ONLY", "FAMILY_PRIVATE", "HUMAN_REVIEW_REQUIRED"),
         human_gate_rule="REVIEW_REQUIRED",
         json_schema=_FAMILY_EXPERIENCE_JSON_SCHEMA,

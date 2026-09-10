@@ -121,6 +121,12 @@ def _assert_service_context(ctx: ActionContext) -> None:
     )
 
 
+async def _commit(repo: ServiceRepositoryPort, recorder: AuditRecorder) -> None:
+    """Persist audit facts in the same transaction as service state."""
+    await repo.flush_audit(recorder)
+    await repo.commit()
+
+
 def _new_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4()}"
 
@@ -267,7 +273,7 @@ async def register_service_provider(
         idempotency_key=_event_key(ctx, "register_service_provider", provider.provider_id),
         payload={"provider_id": provider.provider_id, "provider_ref": provider.provider_ref},
     )
-    await repo.commit()
+    await _commit(repo, recorder)
     return provider
 
 
@@ -339,7 +345,7 @@ async def publish_service_offering(
         idempotency_key=_event_key(ctx, "publish_service_offering", offering.service_offering_id),
         payload={"service_offering_id": offering.service_offering_id},
     )
-    await repo.commit()
+    await _commit(repo, recorder)
     return offering
 
 
@@ -400,7 +406,7 @@ async def open_availability_slot(
         idempotency_key=_event_key(ctx, "open_availability_slot", slot.availability_slot_id),
         payload={"availability_slot_id": slot.availability_slot_id},
     )
-    await repo.commit()
+    await _commit(repo, recorder)
     return slot
 
 
@@ -601,7 +607,7 @@ async def submit_booking_request(
             "outcome_ref": booking.service_snapshot.get("outcome_ref"),
         },
     )
-    await repo.commit()
+    await _commit(repo, recorder)
     return booking
 
 
@@ -693,7 +699,7 @@ async def confirm_booking_request(
             "delivery_record_id": record.booking_service_record_id,
         },
     )
-    await repo.commit()
+    await _commit(repo, recorder)
     return confirmed, record
 
 
@@ -776,7 +782,7 @@ async def cancel_booking_request(
             "delivery_record_id": record.booking_service_record_id if record else None,
         },
     )
-    await repo.commit()
+    await _commit(repo, recorder)
     return cancelled
 
 
@@ -831,7 +837,7 @@ async def fulfil_service_record(
             "outcome_ref": booking.service_snapshot.get("outcome_ref"),
         },
     )
-    await repo.commit()
+    await _commit(repo, recorder)
     return completed
 
 
@@ -881,7 +887,7 @@ async def create_private_checkin_draft(
         resource_id=draft.private_checkin_draft_id,
         after={"onboarding_id": onboarding_id, "action_ref": action_ref},
     )
-    await repo.commit()
+    await _commit(repo, recorder)
     return draft
 
 
@@ -998,7 +1004,7 @@ async def record_family_feedback(
         },
         occurred_at=now,
     )
-    await repo.commit()
+    await _commit(repo, recorder)
     return feedback
 
 
@@ -1092,7 +1098,7 @@ async def decide_service_quality(
         },
         occurred_at=now,
     )
-    await repo.commit()
+    await _commit(repo, recorder)
     return decision
 
 
@@ -1201,5 +1207,5 @@ async def record_service_action(
         },
         occurred_at=now,
     )
-    await repo.commit()
+    await _commit(repo, recorder)
     return action

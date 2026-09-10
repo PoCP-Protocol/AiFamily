@@ -25,6 +25,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Protocol
 
+from backend.platform.audit.recorder import AuditRecorder
 from backend.platform.consent.models import ConsentGrant, ConsentPurpose
 
 from ..domain.activity_catalog import ActivityCatalogItem
@@ -65,6 +66,8 @@ class ServiceRepositoryPort(Protocol):
         written" cannot land half-applied — which is the only thing that makes
         the double-booking refusal meaningful."""
         ...
+
+    async def flush_audit(self, recorder: AuditRecorder) -> int: ...
 
     # -- supply masters --
     async def save_provider(self, entity: ServiceProvider) -> None: ...

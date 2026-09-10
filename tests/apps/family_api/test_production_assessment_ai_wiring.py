@@ -445,7 +445,7 @@ async def test_http_ui03_to_guardian_confirmation_reuses_same_model_draft(
     repository.grant_family_manage_permission("family-1", "guardian-1")
     repository.seed_subject("family-1", child_id, "小宇")
     repository.seed_need_type(
-        "COMMUNICATION",
+        "PARENT_CHILD_COMMUNICATION",
         "COMMUNICATION_SUPPORT",
         "沟通支持",
         "先观察家庭沟通节奏。",
@@ -471,7 +471,7 @@ async def test_http_ui03_to_guardian_confirmation_reuses_same_model_draft(
             session_id,
             "FOCUS",
             "SINGLE_CHOICE",
-            "COMMUNICATION",
+            "PARENT_CHILD_COMMUNICATION",
             MutationMeta("corr:response", "idem:response", "test"),
         )
     )
