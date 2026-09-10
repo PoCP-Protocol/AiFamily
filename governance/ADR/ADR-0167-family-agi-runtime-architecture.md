@@ -76,3 +76,49 @@ SAFETY / GOVERNANCE / EVAL（Consent / Guardian / RBAC / Audit / Evals，已有�
 ## 下一步
 
 邀请Codex在此ADR下回应/反驳——本ADR直接决定`path_orchestration`及其后续切片的架构坐标，不是单方面的技术决策。当前具体推进目标：把AGI-0→AGI-1的差距（Family World Model的最小雏形、跨会话Memory）列为下一个可验证增量，而不是继续在"回答变得更聪明"这个维度上打磨。
+
+## 修订（2026-09-10）：Runtime Convergence——从愿景架构到收敛决策
+
+用户第三轮架构诊断指出：本ADR原版本停留在"愿景蓝图"层面，没有解决一个更紧迫的真实问题——**当前仓库存在三套完全独立、无复用关系的"智能执行"实现**，且都被诚实核实过（`Explore` agent读代码验证，非猜测）：
+
+| Runtime | 入口方法 | 数据模型 | 端口数 | 多步/循环能力 |
+|---|---|---|---|---|
+| `backend/intelligence/agent_runtime/runtime.py` (`AgentRuntime`) | `execute()` | `AgentRun` | 1 (`AgentExecutionPort`) | 无——严格单步：调一次网关拿一个DRAFT就结束 |
+| `backend/intelligence/agi_vertical_runtime.py` (`VerticalFamilyGrowthRuntime`) | `run()`/`revise()`/`reflect()` | `EvaluationLedgerEntry` | 4（Context/Knowledge/Feedback/Gateway） | 有链式（`revise()`内部递归调用`run()`，靠`parent_run_id`追踪），但不是真正的Plan/Step/Goal循环——没有这些class存在 |
+| `backend/intelligence/principal/runtime.py` (`PrincipalRuntime`) | `draft()` | `PrincipalDraft` | 无独立port，直接用gateway/router | 无——单步 |
+
+三者互不import、互不复用，各自实现了一遍"调用模型拿结构化输出"的骨架。这是真实的架构债，不是这份ADR初版愿景描述掩盖过的问题。
+
+### 决策：Single Family Intelligence Kernel，不新建第四套
+
+**不新建`backend/intelligence/family_agi_runtime/`或任何新顶层package**——继续扩展`backend/intelligence/agent_runtime/`，把它从"单步执行原语"升级为收纳通用循环能力的位置。四个角色正式冻结：
+
+- **`AgentRuntime`** = 单步、受权限约束的结构化执行原语（现状保留，不改语义）
+- **Family Intelligence Loop**（新增，位置待定为`agent_runtime/`下的模块，不是新package）= 长期目标/规划/执行/观察/反思/重规划——**目前不存在**，`VerticalFamilyGrowthRuntime`的`revise()`/`reflect()`是这个角色的唯一真实雏形，将被迁移改造为这个角色的实现，不是被推翻重写
+- **`Principal`** = 用户面对的统一人格/Supervisor Experience，只负责路由/解释/确认，不做Goal/Plan（现状已经符合这个定位，不用大改）
+- **`ToolRuntime`** = 唯一行动与外部工具边界（现状保留）
+
+### 具体迁移方向（供后续实施ADR/PR细化，本次不动代码）
+
+调研确认的可迁移边界：
+
+- **迁到`agent_runtime`成为通用能力**：`EvaluationLedger`（append/decision/read/replay/delete，跟family语义无关，是纯粹的日志/重放基础设施）；`revise()`/`reflect()`的框架逻辑（除payload构造外都通用）；`_lineage_ref()`（内容无关的稳定ID生成）
+- **留在家庭特定层，降级为`VerticalFamilyProfile`配置对象**：`family_need_id`/`path_id`/`family_id`/`context_snapshot_ref`/`guardian_calibration`/capability grounding检查——这些字段在`agi_vertical_runtime.py`里出现86次，是真正的家庭业务语义，不该被抽象掉
+
+### `path_orchestration` feature branch 处置
+
+`feat/path-draft-persistence-clean`/`feat/path-orchestration-understand-gateway-adapter`/`feat/path-orchestration-knowledge-candidates`三条分支（对应PR#23/#25/#26）**不直接整体merge进main**。吸收其契约设计，归档分支本身：
+
+- `FamilyPathContext` → 并入 Family World Model的context契约
+- `PathDraft` → 并入 Plan/GrowthPath契约
+- `PathFeedbackSignal` → 并入 Guardian Calibration（`VerticalFamilyGrowthRuntime.decide()`已有的机制）
+- `PathDraftPersistencePort` → 改造成`EvaluationLedger`的adapter，不是独立持久化层
+- `ContextDrivenPathDraftPlanner` → 降级为Candidate Pre-selector（确定性过滤层，不冒充Planner）
+
+这不代表三个PR的工作被浪费——`GatewayBackedUnderstandAdapter`/`GatewayBackedCandidateExplanationAdapter`（真实Model Gateway调用+去标识化+知识检索/模型转写分离）这两个设计模式本身是对的，会被复用到Family Intelligence Loop的实现里，只是不再作为独立的`path_orchestration`package存在。
+
+### 本次未决事项（诚实标注，非本次会话解决范围）
+
+- 具体的代码迁移（把`agi_vertical_runtime.py`的通用部分真的搬进`agent_runtime/`）是下一个PR的工作，本次修订只锁定方向，不动代码
+- `VerticalFamilyProfile`的确切字段/接口设计需要在实施PR里定稿，本ADR只给出迁移边界的判断依据
+- status继续`Proposed`——这是架构级决策，需要codex/总控确认后才能`Accepted`，不由本次会话单方面拍板

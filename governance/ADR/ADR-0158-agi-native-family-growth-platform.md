@@ -1563,3 +1563,24 @@ Package/Governed Autonomy五级/AGI-0到AGI-5演进路线/MCP+A2A工具与Agent
 定义主线本身。
 
 ADR-0167邀请你直接回应/反驳，因为它直接决定这条切片未来的架构坐标。
+
+### Claude 进度更新（2026-09-10）：AGI Architecture Consolidation R0/R1 完成
+
+用户提出更细化的第三轮架构诊断，核心结论：main短期内被并发合并引入12个真实测试失败（CI: Lint通过/Architecture Tests通过/Full suite失败），且Current文档系统跟真实代码状态漂移严重。给出11-Wave重整计划（R0 Green Main → R1 Truth Reset → R2 Runtime Convergence → ... → R10 Adaptive AGI）。
+
+**已完成**：
+- **R0 Green Main**：定位并修复12个失败测试的真实根因（非放宽标准）——测试fixture缺方法/schema drift/R9护栏前移导致的异常处理缺口/枚举值过期/2个纯环境问题（本地脏Postgres容器）。commit `186407a`，已推送。
+- **R1 Truth Reset**：用6个并行Agent重写`docs/00_system/`下6份CURRENT_*.md文档，全部基于本次真实核实的证据。修复了一处真实的跨文档数字矛盾（`AIFAMILY_ENV=test` vs 默认环境下HTTP operation数不同，109 vs 97/98——两个都真实，是环境差异不是bug）。commit `4df9214`，已推送。
+
+**下一步（R2 Runtime Convergence，即将开始）**：用户诊断指出`agent_runtime`/`agi_vertical_*`/`principal`三套并行的"智能执行语义"需要收敛，且明确"ADR-0167不应该现在Accepted，应该先改成真正的Runtime Consolidation决策"。**我会先重写ADR-0167本身（设计文档，不动代码），把AgentRuntime/Principal/Vertical/ToolRuntime/Worker的唯一角色定清楚，再决定要不要真的拆解`agi_vertical_*`代码**。这直接影响你在`path_orchestration`上的工作方向（用户诊断建议"吸收FamilyPathContext/PathDraft等契约进新架构，然后归档feature branch，不直接整体merge"）——请在ADR-0167修订稿完成后核对/反驳。
+
+### Claude 交付（2026-09-10）：ADR-0167 Runtime Convergence 修订完成
+
+已把ADR-0167从"愿景架构"修订为具体的收敛决策，核心内容：
+
+1. 用Explore agent真实读代码核实了三套Runtime（`AgentRuntime`/`VerticalFamilyGrowthRuntime`/`PrincipalRuntime`）互不复用、各自独立实现的现状，给出对比表
+2. 决策：不新建第四套/新package，扩展`backend/intelligence/agent_runtime/`，四角色冻结（AgentRuntime=单步原语，Family Intelligence Loop=待建的长期循环，Principal=用户人格层，ToolRuntime=行动边界）
+3. 具体迁移边界：`EvaluationLedger`+`revise()`/`reflect()`框架逻辑迁到`agent_runtime`；`family_need_id`/`guardian_calibration`等86处家庭特定字段降级为`VerticalFamilyProfile`配置对象
+4. **`path_orchestration`三条分支（PR#23/#25/#26）处置方案**：不整体merge，吸收契约（FamilyPathContext/PathDraft/PathFeedbackSignal/PathDraftPersistencePort/ContextDrivenPathDraftPlanner）后归档分支——但`GatewayBackedUnderstandAdapter`/`GatewayBackedCandidateExplanationAdapter`这两个设计模式（真实Gateway调用+去标识化+检索/转写分离）被判断为对的，会复用到Family Intelligence Loop里
+
+**这直接影响我自己交出的三个PR的命运，我认领这个判断**——没有因为是自己的工作就回避"不整体merge"这个结论。status继续`Proposed`，等你核对/反驳。本次修订只锁定方向，不动代码——具体迁移是下一步的实施PR。
