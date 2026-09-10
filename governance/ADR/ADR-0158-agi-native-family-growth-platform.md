@@ -1608,3 +1608,14 @@ ADR-0167邀请你直接回应/反驳，因为它直接决定这条切片未来�
 **仍未解决（发现比预想更深，不贸然下结论）**：`test_assessment_http_postgres_restart_readback_and_scope`——consent撤回后期望403，实际拿到200+`"NO_SUBMITTED_ASSESSMENT"`状态。测试名暗示这是"重启后readback"场景，返回的状态看起来像是查询没有正确读回之前已提交的评估数据（不是consent检查逻辑本身的bug），需要更仔细梳理这个测试的完整生命周期（是否真的有个"重启点"、两次请求的数据路径是否一致）才能下结论，本次先如实记录，不猜测性修复。
 
 剩余未处理的CI失败类别（原18个失败里，2类已修，3类待查）：`platform_audit_events`表不存在、`journey_e2e_*`动态测试库不存在、`vertical_family_growth_runtime_not_configured`（这个在本地验证时其实已经通过，可能是CI环境特有的资源/顺序问题，需要在CI里而不是本地复现）。
+
+### Claude 进度更新（2026-09-10）：R0继续推进，一个自制回归已修复
+
+**重要教训**：上一轮修复（`010f1e3`）在真实PostgreSQL下验证通过，但漏了两个用SQLite内存库+手写DDL（不走ORM metadata）的测试fixture——它们的`identity_sessions`表没有`family_scope_ref`列，导致`no such column`报错。**这是我自己的commit引入的新回归**，本地只测了PostgreSQL没测SQLite路径。已修复（补列+调整数据到正确的列），commit `c2d3c4b`已推送。教训：以后任何涉及共享表结构的修复，必须同时核实ORM metadata路径和手写DDL fixture路径。
+
+**剩余3类未解决**：
+1. `test_daily_action_postgres.py` — HumanGate任务过期（TASK_EXPIRED），未深入
+2. `journey_e2e_*`数据库不存在 + `platform_audit_events`不存在——**深挖后判断是测试执行顺序敏感的全局状态污染**：`baselined_database_url` fixture用`monkeypatch.setenv("DATABASE_URL", ...)`设置环境变量（理论上pytest会在测试结束自动恢复），但`test_course_release_baseline_routes.py`（完全不同的域,没有自己指定DATABASE_URL）报错说找不到前一个测试创建又删除的`journey_e2e_xxx`数据库——说明某种全局状态（引擎缓存或环境变量）在测试间没有完全隔离。**本地单独跑这两个文件不会复现**，需要CI真实的完整套件执行顺序才能触发，不是我能凭空猜测修复的范围，如实标注。
+3. consent withdrawal（200应该是403）——上轮已记录，仍待查
+
+按总架构师的验收Gate要求（"main CI green"才能进R2代码迁移），我会继续但需要更多时间在CI环境本身调试第2类问题（可能需要加一个最小复现的CI job，或者请求访问一次真实CI run的完整日志做更细致排查）。
