@@ -14,7 +14,7 @@ from sqlalchemy import make_url, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from backend.apps.family_api.main import create_app
-from backend.platform.persistence.session import clear_engine_cache
+from backend.platform.persistence.session import clear_engine_cache, dispose_cached_engine
 from tests.support.postgres import SKIP_REASON, postgres_test_url
 
 
@@ -46,15 +46,34 @@ async def baselined_database_url() -> AsyncIterator[str]:
         assert migrated.returncode == 0, migrated.stdout + migrated.stderr
         yield database_url
     finally:
-        clear_engine_cache()
+        # Lifecycle order matters: stop users of the database, await the
+        # cached AsyncEngine's own disposal (so its driver-level
+        # connections are actually closed, not just returned to a pool
+        # that outlives this fixture), THEN drop the database. Dropping
+        # first and hoping stale resources clean up later is exactly the
+        # pattern that let a leaked async resource surface during an
+        # unrelated, later test (R0.5 Case 02).
+        await dispose_cached_engine(database_url)
         async with admin.connect() as connection:
-            await connection.execute(
+            remaining = await connection.execute(
                 text(
-                    "select pg_terminate_backend(pid) from pg_stat_activity "
+                    "select pid, application_name, state from pg_stat_activity "
                     "where datname=:database and pid<>pg_backend_pid()"
                 ),
                 {"database": database_name},
             )
+            remaining_rows = remaining.fetchall()
+            if remaining_rows:
+                # Emergency cleanup only — if this fires routinely, the
+                # engine disposal above did not fully close its
+                # connections and the root cause is not yet resolved.
+                await connection.execute(
+                    text(
+                        "select pg_terminate_backend(pid) from pg_stat_activity "
+                        "where datname=:database and pid<>pg_backend_pid()"
+                    ),
+                    {"database": database_name},
+                )
             await connection.execute(text(f'drop database if exists "{database_name}"'))
         await admin.dispose()
 

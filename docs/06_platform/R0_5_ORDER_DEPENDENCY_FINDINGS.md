@@ -146,12 +146,77 @@ this file and does not resolve this failure.
 ```
 classification: ASYNC_RESOURCE_LIFECYCLE_LEAK (cross-event-loop, distinct from Case 01)
 root cause confidence: CONFIRMED order-dependency (B alone PASS x3, A->B PASS x2, B->A FAIL x2 100%)
-exact leaked-resource identity: NOT YET ISOLATED (evidence points to `baselined_database_url`
-  fixture's `clear_engine_cache()` sync dispose not awaiting the underlying asyncpg
-  connection's close, but the precise object holding the reference has not been
-  traced with add'l instrumentation — would need per-object refcount/gc tracing,
-  a deeper investigation than this pass's time budget)
+exact leaked-resource identity: NOT YET ISOLATED (see RETRACTION below)
 ```
+
+## Case 02 — Retraction (2026-09-10, same day): async-dispose-before-drop did NOT fix it
+
+Per architect directive, implemented `dispose_cached_engine(database_url)`
+(`backend/platform/persistence/session.py`) — pops exactly one cached
+engine and `await`s its `dispose()` — and rewired
+`baselined_database_url`'s teardown in `test_fastapi_postgres_e2e.py` to:
+stop users → `await dispose_cached_engine(database_url)` → verify no
+unexpected `pg_stat_activity` rows → drop database. Added a diagnostic
+query before `pg_terminate_backend` per the "terminate_backend is an
+emergency net, not the correctness mechanism" directive.
+
+**Counterfactual matrix, re-run against real Postgres after the fix:**
+
+```
+JOURNEY alone x3:            PASS / PASS / PASS
+RELEASE alone x3:             PASS / PASS / PASS
+JOURNEY -> RELEASE x3:        FAIL / FAIL / FAIL   (4 failed, 1 passed — UNCHANGED)
+RELEASE -> JOURNEY x3:        PASS / PASS / PASS
+```
+
+**The fix did not change the failure at all — same signature, same
+100% reproducibility.** Per the architect's explicit stop condition
+("如果新 async disposal 不能解决：立即撤回这个根因假设"), the
+`dispose_cached_engine` hypothesis is RETRACTED as the root cause of Case
+02 (the API itself is kept — it is a real, independently useful lifecycle
+primitive backed by its own passing regression test in
+`tests/platform/persistence/test_ephemeral_engine_disposal.py` — but it
+does not close Case 02).
+
+**New evidence from re-probing after the fix, narrowing the search:** a
+second `get_engine()` trace, run *after* the disposal fix, shows the
+failing test's own `get_engine()` call correctly resolving to
+`sqlite+aiosqlite:///:memory:` — same as before the fix. Yet the actual
+exception occurs inside `pool._create_connection()` → `__connect()`, a
+**live, synchronous checkout attempt** against a `Pool` object that is
+provably bound to the *previous* test's `journey_e2e_<uuid>` `Engine` —
+not a deferred/background task discovered later, an active checkout
+happening in the current request's own call stack.
+
+This rules out both prior explanations:
+- Not `_ENGINE_CACHE` returning a stale entry (the cache correctly
+  resolves to sqlite for this test both before and after the fix).
+- Not an un-awaited `AsyncEngine.dispose()` leaving connections open (now
+  awaited, and the failure is identical).
+
+**Leading new hypothesis, NOT yet confirmed — flagging for CASE02-TRACE-2,
+not implementing speculatively:** SQLAlchemy's greenlet-based async bridge
+(`await_only` / `greenlet_spawn` in
+`sqlalchemy/util/_concurrency_py3k.py`) trampolines synchronous DBAPI calls
+onto a per-OS-thread greenlet stack, independent of `asyncio`'s per-test
+event loop. If a checkout against the journey engine's pool was
+interrupted mid-greenlet-switch when that test ended (rather than running
+to completion), the suspended greenlet is an OS-thread-level object that
+outlives the asyncio event loop closing — and could be resumed by an
+unrelated `greenlet_spawn` call in a *later* test sharing the same
+worker thread, since pytest runs test functions sequentially on one OS
+thread by default. This would explain why the failure appears inside the
+*new* test's own call stack (nested under its `BlockingPortal` call) even
+though the new test never touches the old engine through any code path
+this investigation has instrumented so far.
+
+**Not pursued further this pass** — isolating the exact suspended-greenlet
+object would need lower-level instrumentation (greenlet frame
+inspection, or reproducing without pytest to rule out a
+pytest/pytest-asyncio-specific interaction) than this investigation's time
+budget allows. Per the architect's stop condition, reporting back for a
+decision on whether to continue CASE02-TRACE-2 in this session or hand it
+off, rather than continuing to guess at fixes.
 
 **Recommendation, not implemented this pass (per the no-speculative-fix
 rule) — pending architect review, same three candidate directions already

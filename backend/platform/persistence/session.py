@@ -132,15 +132,47 @@ def _dispose_engine_pool(engine: AsyncEngine) -> None:
 
 
 def clear_engine_cache() -> None:
-    """Drop every cached engine, disposing each pool.
+    """Drop every cached engine, disposing each pool synchronously.
 
     Exists so tests can reset engine state between cases; the previous
     ``lru_cache`` had no exposed way to do this
     (`docs/06_platform/PERSISTENCE.md` §3 gap 4, second half).
+
+    This is a **best-effort, synchronous** cache reset, not a lifecycle
+    guarantee. It does not await the underlying driver-level connection
+    close (see ``_dispose_engine_pool``). A caller that must prove an
+    engine is fully closed before destroying the database backing it —
+    e.g. before ``DROP DATABASE`` on an ephemeral test database — must use
+    ``dispose_cached_engine`` instead, not this function.
     """
     while _ENGINE_CACHE:
         _, engine = _ENGINE_CACHE.popitem(last=False)
         _dispose_engine_pool(engine)
+
+
+async def dispose_cached_engine(database_url: str) -> bool:
+    """Remove exactly one cached ``AsyncEngine`` and await its full disposal.
+
+    Intended for lifecycle owners that must prove a specific engine is
+    closed before destroying the database backing it (e.g. an ephemeral
+    Postgres test database about to be dropped). Unlike
+    ``clear_engine_cache``, this awaits ``AsyncEngine.dispose()`` directly,
+    so the driver-level connections are actually closed before this
+    coroutine returns — not just returned to a pool that is then
+    abandoned.
+
+    Looks up ``database_url`` exactly as passed — the same string used to
+    call ``get_engine`` originally, since ``_ENGINE_CACHE`` is keyed by the
+    literal URL string.
+
+    Returns ``True`` if a cached engine existed under that URL and was
+    disposed, ``False`` if there was nothing to dispose.
+    """
+    engine = _ENGINE_CACHE.pop(database_url, None)
+    if engine is None:
+        return False
+    await engine.dispose()
+    return True
 
 
 def _create_engine(database_url: str) -> AsyncEngine:
