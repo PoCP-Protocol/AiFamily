@@ -656,11 +656,6 @@ class SqlAlchemyAssessmentRepository(AssessmentRepositoryPort):
                      and nt.effective_from<=now() and (nt.effective_to is null or
                      nt.effective_to>now())
                 where s.family_id=:family_id and s.tenant_id=:tenant_id and s.status='SUBMITTED'
-                  and exists(
-                    select 1 from consents c
-                    where c.family_id=s.family_id and c.subject_person_id=s.subject_person_id
-                      and c.purpose='ASSESSMENT' and c.status='GRANTED'
-                  )
                   and (cast(:session_id as uuid) is null or s.assessment_session_id=cast(:session_id
                   as uuid))
                 group by s.assessment_session_id,s.subject_person_id,p.display_name,s.submitted_at,
