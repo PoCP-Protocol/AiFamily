@@ -2,14 +2,24 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { ProductStudioWorkspace } from "./productStudio/ProductStudioWorkspace";
+import { ThemeProvider } from "./theme/ThemeProvider";
+import { ColorSchemeToggle } from "./theme/ColorSchemeToggle";
 import "./styles.css";
 
 export function WebRoot() {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
-  if (path === "/product-studio") {
-    return <main><ProductStudioWorkspace /></main>;
-  }
-  return <App />;
+  return (
+    <ThemeProvider>
+      <ColorSchemeToggle />
+      {path === "/product-studio" ? (
+        <main>
+          <ProductStudioWorkspace />
+        </main>
+      ) : (
+        <App />
+      )}
+    </ThemeProvider>
+  );
 }
 
 const root = document.getElementById("root");
