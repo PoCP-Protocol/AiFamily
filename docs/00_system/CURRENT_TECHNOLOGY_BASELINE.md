@@ -3,10 +3,10 @@ id: SYS-TECHBASELINE-001
 title: AiFamily 当前技术基线
 type: system
 status: current
-version: 1.0
+version: 2.0
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-09-04
+updated: 2026-09-10
 canonical: true
 supersedes: null
 superseded_by: null
@@ -15,39 +15,42 @@ superseded_by: null
 # 当前技术架构 (Current Tech Architecture)
 
 - **状态**: 见上方 front matter `status: current` — 依据 `governance/REPOSITORY_CONSTITUTION.md` R13，本文件是本主题唯一当前真相
-- **生效**: 2026-08-29 (AIFAMILY-000, Wave 0 结束时快照)
+- **生效**: 2026-09-10（本次核实基于仓库自带 `.venv`（Python 3.12.10）实跑验证，非静态阅读代码推断）
 
 ---
 
 ## 0. 范围声明
 
-本文件描述 AiFamily 仓库在 Wave 0 (AIFAMILY-000) 结束时的技术基线现状，不描述未来 Wave 的目标架构（后者见 `docs/11_delivery/CURRENT_PROGRAM_PLAN.md`）。
+本文件描述 AiFamily 仓库**当前**（本次核实时点）的技术基线现状，不描述未来 Wave 的目标架构（后者见 `docs/11_delivery/CURRENT_PROGRAM_PLAN.md`）。历史演进（例如"Wave 0 时后端运行时尚不存在"）见文末《History》一节，不与下方当前状态描述混排。
 
-> **⚠ 2026-09-04 现状核实追记**：本文件 §2 说的"FastAPI/SQLAlchemy/Alembic/PostgreSQL 在 AiFamily 当前不存在，Wave 1 才建"**已经不成立**——Wave 1 已经发生。实测：真实 FastAPI 应用（`app.openapi()['paths']` = 85 个业务 operations）、66 个 Alembic migration（`database/migrations/versions/`，本会话验证过 upgrade→downgrade→upgrade 循环）、真实 PostgreSQL（docker-compose.dev.yml 起的 `aifamily-dev-postgres`，多个域有真实 round-trip 集成测试）。本文件按定义是"Wave 0 结束时的快照"，不是持续维护的当前真相；下方 §1-§6 的正文保留原文作为该快照的历史记录，是否需要整份归档到 `docs/99_archive/` 并由一份新的 Wave 1+ 技术基线文档取代，属 chief-architect 的裁决，本条追记不做这个决定。
+## 1. 语言与依赖工具链
 
-## 1. 语言与依赖工具链：已建立
+- **语言**：`pyproject.toml` 声明 `requires-python = ">=3.12"`；仓库 `.venv` 实测 Python 3.12.10。
+- **依赖管理**：uv + `pyproject.toml`（仓库根），无 pip/poetry/pipenv/requirements.txt 并存。
 
-- **语言**：Python >= 3.12。
-- **依赖管理**：uv + `pyproject.toml`，已在仓库根建立（`governance/REPOSITORY_CONSTITUTION.md` R11）。
-- **禁止**：pip/poetry/pipenv/requirements.txt 并存；不可移植的环境产物入仓（绝对路径 `.pth`、已构建 venv、`.pyc`）。
+## 2. 后端运行时：真实存在且已挂载
 
-对应 `governance/MIGRATION_MANIFEST.yaml` 条目 `dependency_management`（disposition: REIMPLEMENT，target: `pyproject.toml`，**status: DONE**）：
+`pyproject.toml` 的 `[project.dependencies]` 实测声明并锁定：
 
-> 源仓库零个 `pyproject.toml`/`requirements*.txt`/lock 文件；两个 venv 无对应 manifest；`apps/ai-runtime` 的 `.pth` 硬编码绝对路径 `D:\family-ai\...` 不可移植。AiFamily 已用 uv + `pyproject.toml` 建立。
+- `fastapi>=0.115`、`uvicorn[standard]>=0.30`、`pydantic>=2.7`
+- `sqlalchemy>=2.0`、`alembic>=1.13`
+- `asyncpg>=0.29`（生产 Postgres 驱动）、`aiosqlite>=0.20`（测试用内存库）
+- `httpx>=0.27`、`pyyaml>=6.0`
+- `opentelemetry-api>=1.27`、`opentelemetry-sdk>=1.27`
 
-## 2. 后端运行时：不存在（Wave 1 才建）
+实测验证（本次会话）：
 
-FastAPI / SQLAlchemy / Alembic / PostgreSQL **在 AiFamily 当前不存在**。这是 Wave 1 (AIFAMILY-001) 的产出，不是 Wave 0 的产出。
+- `backend/apps/family_api/main.py` 存在真实 `FastAPI()` 应用；用 `.venv/Scripts/python.exe` 加载该 app 并调用 `app.openapi()['paths']`，**默认环境（无 AIFAMILY_ENV）实测 98 个路径**（`AIFAMILY_ENV=test` 会额外装载 dev/test 专属路由，变成 108 个，见 CURRENT_SYSTEM_BASELINE.md §1.3——两个数字都真实，差异来自环境变量）（在系统解释器 Python 3.11 下会因语法特性 (`type X = (...)`) 报错，必须用仓库自带 `.venv` 3.12 才能正常导入——记录此坑供后续核实者避免误判）。
+- `grep -rl "sqlalchemy" backend --include="*.py"` 命中 **166 个文件**（含测试）。
+- `database/migrations/versions/` 下 Alembic revision 脚本实测 **79 个 `.py` 文件**。`alembic.ini` 存在于仓库根。
+- `grep -rl "opentelemetry" backend --include="*.py"` 命中 **2 个文件**：`backend/intelligence/observability/opentelemetry.py`、`backend/intelligence/observability/__init__.py`——即 OpenTelemetry 目前只接入了 observability 这一处 span sink，尚未验证是否已在其余域普遍使用。
+- `docker-compose.dev.yml` 定义 `aifamily-dev-postgres`（`postgres:16-alpine`）服务；`grep -rl "asyncpg\|postgresql://" backend --include="*.py"` 命中 **8 个文件**，说明存在真实指向 PostgreSQL 连接串/驱动的代码路径（未逐一重跑集成测试确认 round-trip 全绿，此点为"not verified this pass"）。
 
-依据 `governance/REPOSITORY_CONSTITUTION.md` R1，正式后端唯一确定为 Python/FastAPI/SQLAlchemy/PostgreSQL。依据 `MIGRATION_MANIFEST.yaml` 条目 `fastapi_runtime_entrypoint`（disposition: REIMPLEMENT，target: `backend/apps/family_api`，status: PLANNED）：
-
-> 全仓库零个 `FastAPI()`/`uvicorn.run()`/`include_router()` 首方调用，唯一 `APIRouter`（`product_intelligence/api/routes.py`）自述"Not mounted into any app yet"。Python 侧从未有过运行时入口，Wave 1 是第一次创建。
-
-数据库迁移工具链同样是 Wave 1+ 议题：源仓库权威 schema（`50_开发_dev/database/migrations/*.sql`，58 个文件，0001-0058）是手写 SQL + `schema_migrations` 追踪表，非 TypeORM/Prisma。判定为 **MIGRATE**（`MIGRATION_MANIFEST.yaml` 条目 `database_schema`），但存在阻塞项：4 组文件名重号（0022/0023/0024/0053 各有两个不同内容的文件）必须先解决，才能生成 Alembic 首个 revision。
+**结论：FastAPI / SQLAlchemy / Alembic / PostgreSQL 在当前仓库中均为真实存在、已接线的依赖，不是规划中或占位的依赖。** 关于此前"不存在"的判断为何过期，见文末 History。
 
 ## 3. 架构测试：位于 tests/architecture
 
-`tests/architecture/` 目录承载 `governance/REPOSITORY_CONSTITUTION.md` R14 要求的机械检验：
+`tests/architecture/` 目录承载 `governance/REPOSITORY_CONSTITUTION.md` R14 要求的机械检验（本次未逐条重跑，清单本身未变更，沿用既有记录）：
 
 | 规则 | 测试文件 |
 |---|---|
@@ -58,33 +61,32 @@ FastAPI / SQLAlchemy / Alembic / PostgreSQL **在 AiFamily 当前不存在**。�
 | R12 无隐式路径耦合 | `tests/architecture/test_no_layout_coupling.py` |
 | R13 历史文档不充当真相 | `tests/architecture/test_docs_truth_boundary.py` |
 
-R14 的纪律本身来自一条实测伤疤：`50_开发_dev/governance/FPAI_PROVIDER_REGISTRY.yaml` 声明 3 个供应商，其生成物 `provider-registry.generated.ts` 只有 2 个（缺 `deepseek-chat`），生成器 `--check` 在基线 commit 上就是 exit 1——因为源仓库没有 CI 真正跑它。AiFamily 的架构测试必须在 CI 中运行，写成常量或文档不算执行。
+## 4. 前端：Mobile 与 Web 均已入仓
 
-## 4. 无隐式路径耦合：R12 的具体约束
+实测（本次会话）：
 
-禁止依赖进程 cwd、`sys.path` 注入、或目录深度来解析导入；所有内部包必须以真实可安装包的方式解析；禁止在代码中硬编码仓库物理路径或目录名。这条约束直接来自源仓库的实测故障（`backend/domains/*` 全部用裸顶层导入 `from packages.contracts.evidence import Provenance`，只有把 cwd 钉在 `50_开发_dev/backend` 才能跑）。Wave 1 建立 FastAPI 运行时入口时必须遵守。
+- `frontend/mobile/package.json`：Expo `~54.0.29`、React `19.1.0`、React Native `0.81.5`、TypeScript `~5.9.3`。`find frontend/mobile -type f -not -path "*/node_modules/*"` 实测 **508 个文件**。
+- `frontend/web/package.json`（package name: `aifamily-experience-studio-web`）：React `^19.1.1`、Vite `^7.1.3`、TypeScript `^5.9.2`；脚本包含 `vitest`、`playwright test`、`eslint`——即 Web 侧已有真实构建/测试/lint 工具链，不是此前记录的"无组件框架、无 bundler"状态。此前文档中 `frontend_web` 为 `REVIEW_REQUIRED / BLOCKED` 的判断已过期，需 chief-architect 确认最新 manifest 状态（本次未核实 `governance/MIGRATION_MANIFEST.yaml` 中 `frontend_web` 当前 disposition 字段，标注 not verified this pass）。
 
-## 5. 前端：Mobile 已整体迁入，Web 待裁决
+## 5. 当前技术基线小结
 
-> **2026-08-29 更新**：本节此前写的"AiFamily 当前无前端代码 / frontend_mobile 判定为 KEEP_NON_PYTHON"已经**过期**，被 project-owner override 推翻并已实际执行。保留此说明是因为宪章 R13 要求 CURRENT 文档必须与磁盘现状一致，不得让读者读到与事实矛盾的断言。
-
-现状（可验证）：
-
-- `governance/REPOSITORY_CONSTITUTION.md` R1 仍然有效："前端（Web / Mobile）**不要求**迁为 Python，可继续使用 TypeScript / React / React Native。"迁入本仓库不等于要改写成 Python。
-- `MIGRATION_MANIFEST.yaml` 中 `frontend_mobile` 已由 project-owner override 改判为 **MIGRATE**，status = `MIGRATED_PENDING_BACKEND_INTEGRATION`。理由（原话）：34 个 UI 已经做得很好，要把整个 Mobile 迁移过来。
-- 实体已在 `frontend/mobile/`：411 个文件 / 35.62 MB，字节级校验与源一致；`app/ui/UI-02.tsx` … `UI-34.tsx` 均存在；35 个测试文件与设计基线图一并迁入。`node_modules`/`dist` 未迁（可重装的构建产物）。
-- 依赖缺口：**零**。全树搜索 `workspace:` 与 `@family/contracts` 无命中——该 app（`package.json` name: `app-template`）没有 monorepo 内部包依赖。
-- `lib/family/family-api-client.ts:101` 确认 base URL 由环境变量 `EXPO_PUBLIC_FAMILY_API_BASE_URL` 驱动，未配置时 fail-closed（`FAMILY_API_NOT_CONFIGURED`），无硬编码后端地址。
-- `frontend_web` 仍为 **REVIEW_REQUIRED / BLOCKED**（无组件框架、无 bundler，build 脚本只是 `tsc --noEmit`），未迁入。
-- 待修正的记录错误：manifest 证据文本写"202 张 PNG 设计基线"，实测为 87 PNG + 12 WEBP = 99 张图片。这是早期审计的引用错误，已记录在 `docs/11_delivery/migration/MOBILE_MIGRATION_NOTES.md`，待更正 manifest 证据文本。
-
-结论：Mobile 前端在本仓库内，但**其可运行性阻塞于 Python 后端**——它消费 ~40+ 后端路径 + 4 个 `/auth/*` 端点，其中 9+ 屏幕依赖源仓库的 `/dev/*` 合成路由。Python FastAPI 必须先满足端点清单，否则 34 个屏幕中最多 24 个会白屏。下一步对齐时机见 `docs/11_delivery/migration/MOBILE_MIGRATION_NOTES.md`（Batch 1 Assessment / Batch 2 SERVICE 上线后）。
-
-## 6. 当前技术基线小结
-
-| 项 | 状态 |
+| 项 | 状态（本次实测） |
 |---|---|
-| Python >= 3.12 + uv + pyproject.toml | 已建立 |
-| FastAPI / SQLAlchemy / Alembic / PostgreSQL | 不存在，Wave 1 建立 |
-| tests/architecture | 已建立目录，测试内容随每条规则的架构测试同 PR 补齐 |
-| node_modules / 前端代码 | 不存在，非本仓库范围 |
+| Python >= 3.12（.venv 实测 3.12.10）+ uv + pyproject.toml | 已建立 |
+| FastAPI（真实 app，98 openapi paths）| 已建立并挂载 |
+| SQLAlchemy（166 个引用文件）/ Alembic（79 个 migration 脚本）| 已建立 |
+| PostgreSQL（docker-compose 定义 + 8 个文件含 asyncpg/postgresql:// 连接）| 已建立，round-trip 全量未在本次重跑 |
+| OpenTelemetry（2 个文件，仅 observability sink）| 已接入，范围未验证是否覆盖全域 |
+| frontend/mobile（Expo 54 / RN 0.81 / React 19，508 文件）| 已入仓 |
+| frontend/web（Vite 7 / React 19 / vitest / playwright）| 已入仓，构建工具链真实存在 |
+| tests/architecture | 已建立目录，测试清单未重跑 |
+
+---
+
+## History（历史记录，不代表当前状态）
+
+以下内容是本文件较早版本对 **Wave 0 结束时（2026-08-29 前后）** 状态的记录，仅作历史参考，读者不应据此判断当前仓库状态：
+
+- 当时判断："FastAPI / SQLAlchemy / Alembic / PostgreSQL 在 AiFamily 当前不存在"，理由是全仓库零个 `FastAPI()`/`uvicorn.run()`/`include_router()` 首方调用，唯一 `APIRouter`（`product_intelligence/api/routes.py`）自述"Not mounted into any app yet"；数据库迁移工具链尚处于源仓库手写 SQL（`50_开发_dev/database/migrations/*.sql`，58 个文件）阶段，未生成 Alembic revision，且存在 4 组文件名重号阻塞项。这一判断在 Wave 1（AIFAMILY-001）落地后已不成立。
+- 当时判断："AiFamily 当前无前端代码"，后被 project-owner override 推翻：`frontend_mobile` 改判为 MIGRATE，34 个 UI 屏幕（411 个文件 / 35.62 MB）整体迁入 `frontend/mobile/`；当时记录 `frontend_web` 为 `REVIEW_REQUIRED / BLOCKED`（无组件框架、无 bundler）。本次核实确认 Web 侧此后也已建立真实 Vite/React 工具链，不再是 BLOCKED 状态（细节见上方第 4 节）。
+- 当时的架构故障教训（R12 无隐式路径耦合的来源）：源仓库 `backend/domains/*` 使用裸顶层导入 `from packages.contracts.evidence import Provenance`，依赖把 cwd 钉在 `50_开发_dev/backend` 才能运行；R14（架构测试必须在 CI 中运行）的教训来自 `FPAI_PROVIDER_REGISTRY.yaml` 声明与生成物不一致但 CI 从未真正跑过检查器的实测伤疤。这两条治理纪律本身仍然有效，只是其触发案例属于历史。

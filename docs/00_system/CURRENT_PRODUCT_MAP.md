@@ -6,7 +6,7 @@ status: current
 version: 1.0
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-09-04
+updated: 2026-09-10
 canonical: true
 supersedes: null
 superseded_by: null
@@ -23,16 +23,22 @@ superseded_by: null
 
 **本文件所有 UI 级状态词（`COMMERCIAL_SLICE_IMPLEMENTED_TESTED_DEV` / `E2E_READY` / `BACKEND_READY` / `READ_ONLY_READY` / `UI_READY_BACKEND_GAP` / `GATE_BOUNDARY`）都是在源仓库 `D:\family-ai` 的 NestJS 后端下测得的状态**，证据来源是 `docs/14_reference/legacy_audits/FAMILY_CONSUMER_UI_FRONTEND_BACKEND_CONSISTENCY_MATRIX_001.md`（下称"矩阵001"）。
 
-在 AiFamily 内：
+在 AiFamily 内，2026-09-10 本次核实的真实状态：
 
 ```text
-AiFamily 后端当前可用业务端点数 = 0
-（backend/apps/family_api 只有 /health 与 /ready，见 CURRENT_SYSTEM_BASELINE.md §1）
+AiFamily 后端（backend/apps/family_api）当前 app.openapi()['paths'] 实测
+（默认环境，无 AIFAMILY_ENV；`AIFAMILY_ENV=test` 会额外装载 dev/test 专属路由，
+见 CURRENT_SYSTEM_BASELINE.md §1.3 的 109/108 数字，两者都真实，差异来自环境）：
+  路径总数        = 98
+  业务路径数      = 96（剔除 /health、/ready）
+  业务 operations = 97（按 GET/POST/PUT/PATCH/DELETE 方法计数，剔除 /health、/ready）
+  覆盖域：family_need / FGCN / AI Coach / product_intelligence / assessment /
+          experience / growth 等（见 backend/domains 与 backend/intelligence 下的路由注册）
 
-Mobile 前端依赖端点数 ≈ 40+ 业务路径 + 4 个 /auth/* 端点
-（governance/MIGRATION_MANIFEST.yaml → frontend_mobile.evidence）
+即：后端已有 97 个真实业务 operations 可调用，不是"仅 /health /ready、零业务 API"。
 
-∴ 34 个 UI 屏幕在 AiFamily 内 100% 不可真正工作。
+但下方 §2 起的逐屏状态表（UI-01～UI-34）仍完全来自源仓库 NestJS 矩阵001的历史评审，
+尚未逐屏重新核实"这 97 个 AiFamily 业务 operation 中哪些真正对应哪个 UI 屏幕的调用"。
 ```
 
 因此每个屏幕的状态必须读作两列：
@@ -40,7 +46,7 @@ Mobile 前端依赖端点数 ≈ 40+ 业务路径 + 4 个 /auth/* 端点
 | 列 | 含义 |
 |---|---|
 | **Legacy Status** | 该屏幕在源仓库 NestJS 后端下的实测成熟度（矩阵001） |
-| **AiFamily Runnable** | 在 AiFamily 内是否真的能跑。当前**全部为 `NO — NO_BACKEND`**，无一例外 |
+| **AiFamily Runnable** | 该屏幕是否已被逐屏核实为"真的能调用 AiFamily 后端跑通"。当前**全部标注为 `NO — NO_BACKEND`**（历史评审遗留，尚未逐屏重新核实）。注意：后端已有 97 个业务 operation 存在（见 §0 与 §3），这里的 `NO` 不是"后端零业务能力"，而是"哪个 UI 屏幕对应哪个 operation、是否真的接上"这件事本身尚未逐屏核实 |
 
 把 Legacy Status 读成"AiFamily 已具备这个能力"是本文件要防止的第一号误读，也是 `SYSTEM_MANIFEST.md` §6（Current Truth ≠ Evidence）在产品层的具体应用。
 
@@ -50,14 +56,14 @@ Mobile 前端依赖端点数 ≈ 40+ 业务路径 + 4 个 /auth/* 端点
 
 | 产品 / 端 | 代码是否在 AiFamily | 位置 | 状态 |
 |---|---|---|---|
-| **Family App**（家长端，移动） | 是 | `frontend/mobile/` | 代码已迁入（411 文件 / 35.62MB，34 UI 屏幕 + 35 测试文件 + 99 张设计基线图），**Mobile 端能否真的消费下方后端端点尚未核实**（2026-09-04，见 `CURRENT_SYSTEM_BASELINE.md` §0.4） |
-| **Family API**（后端服务） | 是 | `backend/apps/family_api/` | 真实 FastAPI 实例，2026-09-04 实测 `app.openapi()['paths']` = **85 个真实业务 operations**（family_need/FGCN/AI Coach/product_intelligence/assessment/experience/growth 等），不是"仅 `/health` `/ready`、零业务 API"——本行下方 §2 起的逐屏状态表仍按原调研（源仓库 NestJS 后端下测得）保留，未逐屏重新核实 AiFamily 侧真实可用性 |
+| **Family App**（家长端，移动） | 是 | `frontend/mobile/` | 代码已迁入（411 文件 / 35.62MB，34 UI 屏幕 + 35 测试文件 + 99 张设计基线图，技术栈 Expo/React Native，见 §2）。**Mobile 端能否真的消费下方后端端点尚未逐屏核实** |
+| **Family API**（后端服务） | 是 | `backend/apps/family_api/` | 真实 FastAPI 实例，2026-09-10 实测 `app.openapi()['paths']` = 98 条路径，其中 **96 条业务路径 / 97 个业务 operations**（剔除 `/health`、`/ready`；覆盖 family_need / FGCN / AI Coach / product_intelligence / assessment / experience / growth 等域，见 §3） |
+| **Experience Studio Web**（Web 端） | 是 | `frontend/web/` | 代码已在库中，技术栈 Vite + React 19 + TypeScript（见 §2.4），有 Playwright e2e 与 Vitest 单测配置。**该端消费 AiFamily 后端的真实程度本次未核实**（"not verified this pass"） |
 | Teacher Workspace（教师工作台） | **否** | — | **PLANNED_NO_CODE** |
 | Institution Console（机构控制台，B2B2C） | **否** | — | **PLANNED_NO_CODE** |
 | Operations Console（运营控制台） | **否** | — | **PLANNED_NO_CODE** |
-| Web 消费端 | **否** | — | 源仓库 `apps/web` disposition = `REVIEW_REQUIRED / BLOCKED`，未迁入 |
 
-只有前两行是 AiFamily 内实际存在的产品资产。
+前三行是 AiFamily 内实际存在于代码库中的产品资产（后端 + 两个前端）。§5 记录的历史 `apps/web`/`apps/ops-web`/`apps/consumer-web` disposition 判断针对的是**源仓库**（`D:\family-ai`）里的旧目录，与本表 `frontend/web/` 是 AiFamily 仓库内的独立、已存在的代码，两者不是同一件事——这一点是本文件重写前的历史遗留混淆，见文末《历史 History》。
 
 ---
 
@@ -185,18 +191,36 @@ UI-26 的 `E2E_READY` 同样是"模板白名单 + 零外发"下成立。COMMUNIT
 
 源仓库中 `frontend/mobile` 的前身是唯一处于活跃 CI 的前端（`.github/workflows/family-35ui-alignment.yml`，且被 path filter 限定在 mobile/api/contracts 三处）。**在 AiFamily 中，CI workflow 文件已写但从未在远端运行过** —— GitHub 远端仓库尚未创建（`SYSTEM_MANIFEST.md` §1）。当前对 mobile 的验证只能在本地执行。
 
+### 2.4 Experience Studio Web（`frontend/web/`）—— 第二个已存在于代码库的前端
+
+2026-09-10 核实：`frontend/web/` 在 AiFamily 仓库内真实存在，不是空壳（对照 §5 中源仓库 `apps/web` 的历史判断，两者不是同一份代码）。
+
+```text
+位置          frontend/web/
+package name  aifamily-experience-studio-web
+技术栈        Vite 7 + React 19 + TypeScript 5.9（devDependencies 含 typescript-eslint、vitest、@playwright/test）
+构建          vite build（build 脚本先跑 tsc --noEmit）
+测试          vitest（单测）+ playwright（e2e，playwright.config.ts / vite.e2e.config.ts）
+源码目录      src/（含 api/ components/ familyGrowth/ productStudio/ state/ theme/ 等子目录，App.tsx 为入口）
+```
+
+**该端与 Mobile 端的关系、覆盖哪些业务场景、是否已消费上方 97 个后端 operation 中的任何一个，本次均未核实**（not verified this pass）。这是本文件在 Web 端上唯一如实能给出的结论。
+
 ---
 
 ## 3. Family API（后端服务）—— 唯一已存在的后端产品
 
 ```text
-位置      backend/apps/family_api/
-状态      真实可运行的 FastAPI 实例
-端点      GET /health, GET /ready  —— 仅此两个
-业务端点  0
+位置              backend/apps/family_api/
+状态              真实可运行的 FastAPI 实例
+2026-09-10 实测   app.openapi()['paths'] 总路径数 = 98
+业务路径数        = 96（剔除 /health、/ready）
+业务 operations   = 97（按 GET/POST/PUT/PATCH/DELETE 计数，剔除 /health、/ready）
+覆盖域            family_need / FGCN / AI Coach / product_intelligence /
+                  assessment / experience / growth 等
 ```
 
-它是一个**真实的进程**（不是骨架文件），但作为"产品"它当前只能回答"我活着吗"。所有 34 个屏幕需要的 ~40+ 业务端点与 4 个 `/auth/*` 端点均不存在。
+它是一个**真实的进程**，且已经不只是骨架：97 个业务 operation 是可通过 `app.openapi()` 实测到的真实数字，不是"仅回答我活着吗"。**本文件尚未逐屏核实**这 34 个 Mobile 屏幕（或 Web 端页面）分别调用的是这 97 个 operation 中的哪些、调用是否真的打通——这是当前唯一诚实的缺口陈述，不是"后端零业务能力"。
 
 ---
 
@@ -219,7 +243,7 @@ UI-26 的 `E2E_READY` 同样是"模板白名单 + 零外发"下成立。COMMUNIT
 | `apps/fes-api` | ARCHIVE | 声明 NestJS 依赖却无 `@Module`/`NestFactory`，运行即打印一行 JSON 后退出，从未监听端口 |
 | `apps/fes-web` | ARCHIVE | 11 行单函数，零网络调用，零 UI 框架 |
 | `apps/ai-runtime` | ARCHIVE / DELETE | git 从未跟踪；`.py` 源码已从磁盘删除只剩 `.pyc` |
-| `apps/web` | REVIEW_REQUIRED / BLOCKED | 无组件框架、无 bundler，build 脚本只是 `tsc --noEmit`；24 个 spec 更像后端路由契约参照而非可部署 UI |
+| `apps/web`（**源仓库** `D:\family-ai` 内） | REVIEW_REQUIRED / BLOCKED | 无组件框架、无 bundler，build 脚本只是 `tsc --noEmit`；24 个 spec 更像后端路由契约参照而非可部署 UI。**注意：这是源仓库的旧目录，与 AiFamily 仓库内 §2.4 描述的 `frontend/web/`（Vite+React+TS，已迁入的真实代码）不是同一份代码，不能互相代表** |
 | `legacy-system/`（FELS） | ARCHIVE | 自述 `REFERENCE_IMPLEMENTATION=TRUE / REAL_BANGYANG_SOURCE=FALSE`，零生产运行时引用。其否定语义已内嵌进宪章 R9 |
 | `products/we-are-family/apps/wf1-lab` | KEEP_NON_PYTHON | 零后端耦合的纯前端 React demo |
 
@@ -227,7 +251,7 @@ UI-26 的 `E2E_READY` 同样是"模板白名单 + 零外发"下成立。COMMUNIT
 
 ## 6. 一句话产品现状
 
-**AiFamily 目前有一个界面完整、后端为零的家长端 App，和一个只会回答"我活着"的后端。** 34 个屏幕的成熟度证据全部来自源仓库 NestJS，在 AiFamily 内尚未有任何一个屏幕被 Python 后端点亮过。
+**AiFamily 目前有两个前端（Mobile/Expo + Web/Vite）已在代码库中，一个真实 FastAPI 后端已具备 97 个业务 operation。** 34 个 Mobile 屏幕的成熟度证据全部来自源仓库 NestJS 矩阵001，尚未逐屏核实哪些屏幕已能真正调用这 97 个 operation；Web 端与后端的对接程度本次完全未核实。"后端零业务能力"已不成立，当前诚实的缺口是"逐屏/逐页面的真实打通状态未核实"，不是"后端只有健康检查"。
 
 ## 7. 上游依据
 
@@ -236,3 +260,14 @@ UI-26 的 `E2E_READY` 同样是"模板白名单 + 零外发"下成立。COMMUNIT
 - `governance/MIGRATION_MANIFEST.yaml`（`frontend_mobile` / `frontend_empty_scaffolds` / `family_dev_surface_services` 条目）
 - `governance/REPOSITORY_CONSTITUTION.md` R5（合成数据不得伪装为业务能力）、R9（AI 输出不得自动成为事实）
 - `docs/05_ai/AI_NATIVE_PRINCIPLES.md` §4（反面清单）
+- 2026-09-10 本次核实：`backend/apps/family_api` 下 `app.openapi()['paths']`（用 `.venv/Scripts/python.exe` 实测，需 Python 3.12+，因 `backend/intelligence/experience/pipeline.py` 使用 `type X = ...` 语法）；`frontend/mobile/package.json`、`frontend/web/package.json` 直接读取
+
+---
+
+## 历史（History）
+
+本节收纳早于本次（2026-09-10）重写、且已被上方核实数字取代的历史表述，仅供追溯文档漂移，不代表当前真相：
+
+- **2026-08-29～2026-09-04 版本的顶部声明**曾写"AiFamily 后端当前可用业务端点数 = 0（backend/apps/family_api 只有 /health 与 /ready）"，同时又在 §1 表格内联补充"2026-09-04 实测 85 个真实业务 operations"，二者互相矛盾且未消解，是本次重写的直接原因。
+- 上一版的口径是"85 个业务 operations"（2026-09-04 实测）；本版核实到 **97 个**（2026-09-10 实测）。差异来自后端在两次核实之间新增的路由，不代表此前的 85 是误算。
+- 上一版 §1 表格中没有 Web 端的独立行（只有一行写"Web 消费端 / 否 / 源仓库 apps/web disposition = REVIEW_REQUIRED / BLOCKED，未迁入"）。这混淆了"源仓库的旧 apps/web"与"AiFamily 仓库内已存在的 frontend/web/"，后者本次核实为真实存在的独立代码（Vite+React 19+TypeScript），已在 §1/§2.4 更正。
