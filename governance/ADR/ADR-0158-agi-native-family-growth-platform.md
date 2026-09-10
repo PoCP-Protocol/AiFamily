@@ -1597,3 +1597,14 @@ ADR-0167邀请你直接回应/反驳，因为它直接决定这条切片未来�
 5. `vertical_family_growth_runtime_not_configured`（503，`agi_vertical_*`组合根配置缺口）
 
 **R0状态改为`REOPENED / VERIFYING`**，不是`DONE`。会先定位修复这18个真实失败，再继续R2.1（Run Taxonomy冻结）——按总架构师指令，R2.1本身不涉及数据库schema改动，可以跟R0修复并行推进，但R0必须先见到真实CI绿才能标`DONE`。
+
+### Claude 进度更新（2026-09-10）：R0 修复2/5类真实CI失败，已推送
+
+按总架构师指令，暂停EvaluationLedger迁移，先专注R0。已修复并验证（真实PostgreSQL，非本地脏容器）、推送到main（commit `010f1e3`）：
+
+1. **迁移基线映射缺口**：`EXPECTED_HEAD_COUNTS_BY_REVISION`缺失3个连续head（`0077`/`0078`/`0079`），不只是最新一个——逐一核实每个migration的真实`create_table`数量后补全
+2. **`identity_sessions`查询字段错误**：`SqlAlchemyBearerPrincipalResolver`查`s.family_id`（真实UUID列，模型docstring明确写"对这个域发出的每个session都保持NULL"），但两类调用场景一个传真实UUID、一个传字符串占位符（"family-a"），原查询两种都不对。改成同时兼容：UUID场景转文本比较，字符串场景匹配`family_scope_ref`列。**这个修复连带修好了一批"anyio跨事件循环RuntimeError"**——那些是这个查询失败后的级联症状，不是独立的异步基础设施bug
+
+**仍未解决（发现比预想更深，不贸然下结论）**：`test_assessment_http_postgres_restart_readback_and_scope`——consent撤回后期望403，实际拿到200+`"NO_SUBMITTED_ASSESSMENT"`状态。测试名暗示这是"重启后readback"场景，返回的状态看起来像是查询没有正确读回之前已提交的评估数据（不是consent检查逻辑本身的bug），需要更仔细梳理这个测试的完整生命周期（是否真的有个"重启点"、两次请求的数据路径是否一致）才能下结论，本次先如实记录，不猜测性修复。
+
+剩余未处理的CI失败类别（原18个失败里，2类已修，3类待查）：`platform_audit_events`表不存在、`journey_e2e_*`动态测试库不存在、`vertical_family_growth_runtime_not_configured`（这个在本地验证时其实已经通过，可能是CI环境特有的资源/顺序问题，需要在CI里而不是本地复现）。
