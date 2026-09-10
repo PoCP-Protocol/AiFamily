@@ -122,3 +122,15 @@ SAFETY / GOVERNANCE / EVAL（Consent / Guardian / RBAC / Audit / Evals，已有�
 - 具体的代码迁移（把`agi_vertical_runtime.py`的通用部分真的搬进`agent_runtime/`）是下一个PR的工作，本次修订只锁定方向，不动代码
 - `VerticalFamilyProfile`的确切字段/接口设计需要在实施PR里定稿，本ADR只给出迁移边界的判断依据
 - status继续`Proposed`——这是架构级决策，需要codex/总控确认后才能`Accepted`，不由本次会话单方面拍板
+
+### Claude 补充发现（2026-09-10）：迁移比预想的更复杂，暂停代码动手，先记录
+
+尝试开始最小的迁移步骤（把`EvaluationLedger`搬到`agent_runtime`）时，发现两个此前判断不够精确的问题：
+
+1. **`EvaluationLedgerEntry`本身不是"跟family语义无关的通用infra"**——它内嵌`family_need_id`/`path_id`必填字段。真正通用的只是`EvaluationLedger.append/read/replay/delete`四个方法（这四个方法确实只依赖`entry.run_id`，是duck-typing式的通用）；`decision()`方法绑定`GuardianDecision`（同样family-specific），不能一起搬。
+
+2. **更重要的发现**：`backend/intelligence/agent_runtime/`下已经存在一套**真实SQL持久化**的`AgentRunPersistencePort`+`DurableAgentRuntime`（真实表`ai_agent_runs`，`create/start/succeed/fail/append_trace/replay`完整生命周期），跟`agi_vertical_runtime.py`自己发明的**内存版**`EvaluationLedger`在语义上高度重叠——都是"记录一次AI执行+支持重放"，只是一个持久化、一个不持久化。这本身就是本ADR想解决的"三套并行执行语义"问题的一个更深层子问题：**不只是执行入口重复，连持久化/记录机制也重复发明了一遍**。
+
+`AgentRunPersistencePort`目前没有`guardian_calibration`/`parent_run_id`链式追踪这类认知修正语义，跟`VerticalFamilyGrowthRuntime`要的"guardian校准→revise→reflect"链条不是同一层次的东西（一个是执行状态机，一个是认知修正链）。**是否能/该把两者合并，需要认真设计，不是简单的文件搬移**。
+
+**暂停这条代码迁移线**，不在没有设计评审的情况下继续写可能被推翻的迁移代码。这个发现补充进ADR-0167，等codex/总控一起判断：(a) 两套持久化机制要不要合并，(b) 如果合并，`AgentRunPersistencePort`需要加哪些字段/方法才能承载guardian calibration链，(c) 如果不合并，两者的边界该怎么正式划清楚（避免第三次有人再发明第三套）。
