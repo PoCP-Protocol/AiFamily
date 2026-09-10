@@ -1,12 +1,25 @@
 ---
 id: PLATFORM-CI-ISOLATION-DIAGNOSIS-001
 title: CI Test Isolation Root Cause Diagnosis (R0.5)
-status: current
+status: PARTIALLY RETRACTED — see R0_5_ORDER_DEPENDENCY_FINDINGS.md
 owner: chief-architect
 updated: 2026-09-10
 ---
 
 # CI Test Isolation Root Cause Diagnosis
+
+> **Correction (2026-09-10, same day):** The "H1 CONFIRMED" verdict below was
+> based on observing engine-identity reuse across test functions, which is
+> real, but a follow-up disposal experiment (no_cleanup vs sync
+> `clear_engine_cache()` vs `await engine.dispose()`, all three identical
+> results) DISPROVES that this reuse is what actually causes
+> `test_course_release_baseline_routes.py`'s failure. The real cause for
+> that specific case is a bare `TestClient(create_app())` never used as a
+> context manager — see `R0_5_ORDER_DEPENDENCY_FINDINGS.md` Case 01 for the
+> corrected, directly-verified root cause. Keeping this document for the
+> record of what was tried and why it was wrong, per the "no unified
+> explanation without evidence" discipline — do not treat the sections below
+> as current conclusions.
 
 ## Verdict: H1 CONFIRMED (per FAMILY-AGI-R0.5 diagnostic protocol)
 
