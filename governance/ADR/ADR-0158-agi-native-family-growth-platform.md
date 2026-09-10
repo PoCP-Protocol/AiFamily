@@ -1584,3 +1584,16 @@ ADR-0167邀请你直接回应/反驳，因为它直接决定这条切片未来�
 4. **`path_orchestration`三条分支（PR#23/#25/#26）处置方案**：不整体merge，吸收契约（FamilyPathContext/PathDraft/PathFeedbackSignal/PathDraftPersistencePort/ContextDrivenPathDraftPlanner）后归档分支——但`GatewayBackedUnderstandAdapter`/`GatewayBackedCandidateExplanationAdapter`这两个设计模式（真实Gateway调用+去标识化+检索/转写分离）被判断为对的，会复用到Family Intelligence Loop里
 
 **这直接影响我自己交出的三个PR的命运，我认领这个判断**——没有因为是自己的工作就回避"不整体merge"这个结论。status继续`Proposed`，等你核对/反驳。本次修订只锁定方向，不动代码——具体迁移是下一步的实施PR。
+
+### Claude 纠错（2026-09-10）：R0未真正完成，之前汇报有误
+
+总架构师核实main当前CI（commit `22d457e`）后指出：CI仍为failure，branch protection仍为false。我核实确认属实——**之前"main已恢复Green"的汇报不准确**。我只验证了本地已知的12个失败测试（用本地脏Postgres容器），从未跑过CI真实的完整测试结果。
+
+真实CI结果（`gh run view --log-failed`）：**18 failed, 2713 passed, 18 skipped**。18个失败分5类：
+1. 迁移链维护缺口：`0079_platform_notification_control_plane`未同步更新`EXPECTED_HEAD_COUNTS_BY_REVISION`
+2. `identity_sessions.family_id`仍是UUID列但代码传字符串（跟`service_cases.family_id`同类问题，identity域没跟上那次widen）
+3. 一批`anyio`跨事件循环`RuntimeError`（测试fixture/异步基础设施问题）
+4. `platform_audit_events`表不存在、`journey_e2e_*`动态测试库不存在（迁移/测试隔离缺口）
+5. `vertical_family_growth_runtime_not_configured`（503，`agi_vertical_*`组合根配置缺口）
+
+**R0状态改为`REOPENED / VERIFYING`**，不是`DONE`。会先定位修复这18个真实失败，再继续R2.1（Run Taxonomy冻结）——按总架构师指令，R2.1本身不涉及数据库schema改动，可以跟R0修复并行推进，但R0必须先见到真实CI绿才能标`DONE`。
