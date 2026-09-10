@@ -58,7 +58,10 @@ from backend.intelligence.experience.sql_contract_binding import (
 from backend.intelligence.experience.standard_asset_registration import (
     register_family_experience_assets,
 )
-from backend.intelligence.experience.standard_assets import build_family_experience_assets
+from backend.intelligence.experience.standard_assets import (
+    build_family_experience_assets,
+    family_experience_output_schema,
+)
 from backend.intelligence.model_gateway.attempt_persistence import (
     AttemptPersistenceBase,
     SessionPerCallAttemptSink,
@@ -142,6 +145,7 @@ async def production_runtime():
             "family_assistant_conversation": {
                 "understanding": "已生成",
                 "next_step": "请确认",
+                "path": ["先观察一天"],
                 "limitations": ["仍需人工判断"],
             }
         },
@@ -344,20 +348,10 @@ def _body(run_id: str) -> dict[str, object]:
         "prompt_version": "family-companion.v1",
         "schema_version": "family-experience-draft.v1",
         "payload": {"expression": "今天我们一起看这张图片。"},
-        "output_schema": {
-            "type": "object",
-            "required": ["understanding", "next_step", "limitations"],
-            "properties": {
-                "understanding": {"type": "string", "minLength": 1},
-                "next_step": {"type": "string", "minLength": 1},
-                "limitations": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": {"type": "string", "minLength": 1},
-                },
-            },
-            "additionalProperties": False,
-        },
+        # Must match the registry-published schema exactly (contract binding
+        # rejects any drift) — use the real builder instead of a hand-copied
+        # literal so this test can't silently fall behind a schema upgrade.
+        "output_schema": family_experience_output_schema(),
         "modalities": ["TEXT", "IMAGE"],
         "estimated_input_tokens": 64,
         "media_inputs": [
@@ -450,6 +444,7 @@ async def test_production_path_uses_independently_admitted_fallback_on_5xx_only(
             "family_assistant_conversation": {
                 "understanding": "备用模型已完成",
                 "next_step": "请确认",
+                "path": ["先观察一天"],
                 "limitations": ["仍需人工判断"],
             }
         },

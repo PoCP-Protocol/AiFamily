@@ -243,6 +243,13 @@ async def submit_assignment_proposal(
         draft = await _resolve_provenance_draft(provenance_resolver, body, case)
     except deps.DraftProvenanceNotFound as exc:
         raise HTTPException(status_code=422, detail="fgcn_provenance_not_found") from exc
+    except ValueError as exc:
+        # ModelDraft.__post_init__ rejects a non-DRAFT status at construction
+        # time (R9) — a resolver that tries to hand back an
+        # already-"promoted" draft fails here, before the isinstance/status
+        # checks below ever run. Same fail-closed outcome either way: a
+        # tampered or non-reviewable draft is never accepted.
+        raise HTTPException(status_code=422, detail="fgcn_model_draft_not_reviewable") from exc
     if not isinstance(draft, ModelDraft):
         raise HTTPException(status_code=422, detail="fgcn_provenance_not_a_model_draft")
     if draft.status != "DRAFT" or draft.may_mutate_business_state is not False:

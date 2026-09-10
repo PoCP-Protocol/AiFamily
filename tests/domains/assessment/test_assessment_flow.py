@@ -753,7 +753,7 @@ class TestAssessmentResultProjection:
                 session_id,
                 "FOCUS",
                 "SINGLE_CHOICE",
-                "COMMUNICATION",
+                "PARENT_CHILD_COMMUNICATION",
                 _meta("r2"),
             )
         )

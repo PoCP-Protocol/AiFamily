@@ -30,6 +30,15 @@ class _Port:
     async def delete_subject(self, *args, **kwargs):
         raise AssertionError("not called")
 
+    async def generate_structured(self, *args, **kwargs):
+        raise AssertionError("not called")
+
+    async def published(self, *args, **kwargs):
+        raise AssertionError("not called")
+
+    async def latest(self, *args, **kwargs):
+        raise AssertionError("not called")
+
 
 def _composition() -> ProductionVerticalFamilyGrowthComposition:
     runtime = VerticalFamilyGrowthRuntime(
