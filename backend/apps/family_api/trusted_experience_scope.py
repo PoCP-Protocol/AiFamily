@@ -99,7 +99,10 @@ class SqlAlchemyBearerPrincipalResolver:
             FROM identity_sessions AS s
             LEFT JOIN accounts AS a ON a.account_id = s.account_ref
             WHERE s.token_hash = :token_hash
-              AND s.family_id = :family_id
+              AND (
+                (s.family_id IS NOT NULL AND CAST(s.family_id AS TEXT) = :family_id)
+                OR s.family_scope_ref = :family_id
+              )
               AND s.revoked_at IS NULL
               AND s.expires_at > CURRENT_TIMESTAMP
               AND (a.status = 'ACTIVE' OR a.status IS NULL)

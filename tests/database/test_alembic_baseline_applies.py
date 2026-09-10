@@ -276,6 +276,21 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
+    "0077_journey_adopted_growth_plans": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 77,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    "0078_ai_feedback_regression_jobs": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 78,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    "0079_platform_notification_control_plane": {
+        "tables": EXPECTED_0008_COUNTS["tables"] + 80,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
 }
 
 _MODEL_DRAFTS_ADR = (
