@@ -418,6 +418,7 @@ async def test_daily_action_sql_lifecycle_is_restart_safe_and_audited(
             outcome=DecisionOutcome.ACCEPT,
             recorder=decision_audit,
             decision_id="decision:feedback-e2e",
+            now=NOW + timedelta(minutes=7),
         )
         assert action_request is not None
         await gate.flush_audit(decision_audit)

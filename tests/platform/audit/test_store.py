@@ -332,6 +332,7 @@ async def test_worm_trigger_blocks_update_and_delete() -> None:
     copy.
     """
     from backend.platform.persistence.session import resolve_test_database_url
+    from tests.support.postgres import postgres_schema_engine
 
     database_url = resolve_test_database_url()
     if not database_url:
@@ -342,15 +343,14 @@ async def test_worm_trigger_blocks_update_and_delete() -> None:
     trigger_ddl = _migration_trigger_statements()
     assert trigger_ddl, "migration 0002 no longer contains the WORM trigger DDL"
 
-    engine = get_engine(database_url)
-    schema = f"audit_worm_{uuid.uuid4().hex[:8]}"
-
-    async with engine.begin() as conn:
-        await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-    try:
+    # Uses a dedicated, disposable-schema engine (not the process-wide
+    # get_engine() cache) so this test's SET search_path / DROP SCHEMA
+    # lifecycle can never leak into a later caller's pooled connection — see
+    # R0.5 Case 03: a pooled connection that still had search_path pointed at
+    # an already-dropped schema was the actual cause of unrelated tests
+    # later reporting "relation platform_audit_events does not exist".
+    async with postgres_schema_engine(AuditBase.metadata) as engine:
         async with engine.begin() as conn:
-            await conn.execute(text(f'SET search_path TO "{schema}"'))
-            await conn.run_sync(AuditBase.metadata.create_all)
             for statement in trigger_ddl:
                 await conn.execute(text(statement))
             await conn.execute(AuditEventRow.__table__.insert(), [_row_values_for_raw_insert()])
@@ -362,12 +362,8 @@ async def test_worm_trigger_blocks_update_and_delete() -> None:
         ):
             with pytest.raises(Exception) as excinfo:
                 async with engine.begin() as conn:
-                    await conn.execute(text(f'SET search_path TO "{schema}"'))
                     await conn.execute(text(tampering))
             assert "append-only" in str(excinfo.value), tampering
-    finally:
-        async with engine.begin() as conn:
-            await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
 
 
 def _migration_path() -> Path:
