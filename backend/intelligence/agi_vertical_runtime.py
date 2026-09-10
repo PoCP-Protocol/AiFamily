@@ -588,6 +588,7 @@ class VerticalFamilyGrowthRuntime:
         reflection_run_id: str,
         family_id: str,
         knowledge_ref: str | None = None,
+        source_entry: EvaluationLedgerEntry | None = None,
     ) -> EvaluationLedgerEntry:
         """Generate a draft reflection from a prior growth run.
 
@@ -599,14 +600,16 @@ class VerticalFamilyGrowthRuntime:
 
         if not reflection_run_id.strip() or reflection_run_id == run_id:
             raise VerticalRuntimeError("REFLECTION_RUN_ID_INVALID")
-        if self._run_families.get(run_id) != family_id:
+        if source_entry is None and self._run_families.get(run_id) != family_id:
             raise VerticalRuntimeError("CONTEXT_SCOPE_MISMATCH")
         if reflection_run_id in self._run_families:
             existing = self.replay(run_id=reflection_run_id, family_id=family_id)
             if existing.parent_run_id != run_id:
                 raise VerticalRuntimeError("REFLECTION_RUN_ID_CONFLICT")
             return existing
-        source = self._ledger.replay(run_id)
+        source = source_entry if source_entry is not None else self._ledger.replay(run_id)
+        if source.run_id != run_id:
+            raise VerticalRuntimeError("REFLECTION_SOURCE_MISMATCH")
         context = await self._context.read(
             family_id=family_id, context_snapshot_ref=source.context_snapshot_ref
         )

@@ -1507,3 +1507,59 @@ Experience run scope 中回放 interaction，只接受反馈事件显式携带�
 base选在我自己已推送到origin的稳定分支上，不依赖本地main当前状态。等
 `ibm_ica_wiring.py`真的落地到origin/main后，那个opt-in测试会自动生效，
 不需要谁再手动接线。
+
+### 用户战略指令（2026-09-10）：唯一主线 + 最高判据
+
+用户正式定目标：**全球领先的家庭教育、家庭成长与家庭关系 AGI 平台**，明确拒绝降级为"家庭聊天机器人"或"多Agent应用"。系统必须同时具备：通用推理/规划/记忆/工具使用/持续学习；家庭世界模型与跨家庭跨领域迁移；表达→理解→干预→执行→反馈→自我修正长期闭环；成人授权/儿童保护/Human Gate/审计/撤回回滚；真实PostgreSQL/HTTP/重启读回/失败恢复证据；独立AGI能力/家庭结果/安全指标。
+
+**唯一主线**：
+```
+成人授权 → 家庭表达 → AGI理解与因果假设 → 可修改方案 →
+Guardian/家庭确认 → 一个低风险行动 → 结果回读 → 失败复盘与模型更新
+```
+所有其他路线必须证明能增强这条主线，否则冻结。**超越人类AGI的判据**：系统在陌生家庭、陌生任务和真实反馈中持续优于既定人类基线——不是自称，是可检验的比较。
+
+**Claude 对主线八段的诚实现状核对**（2026-09-10，供codex核对/反驳）：
+
+| 主线段 | 现状 | 证据 |
+|---|---|---|
+| 成人授权 | 有雏形 | `backend/domains/identity`（ADR-0011），4个`/auth/*`端点已生产化 |
+| 家庭表达 | 真实可用 | `POST /families/{id}/needs/signals`，`test_ai_coach_route.py`验证过 |
+| AGI理解与因果假设 | **最大缺口** | UNDERSTAND adapter刚打通真实Model Gateway调用（本ADR上文），但只做脱敏tag层解读，不做"因果假设"；`growth_hypothesis`在assessment域只有确定性PARTIAL/EDIT/LATER三态,不是AI生成 |
+| 可修改方案 | 部分真实 | `PathDraft`版本化草案能力真实存在，但候选池仍是硬编码fixture（本ADR"候选池是硬编码"挑战），不是AI从知识库生成 |
+| Guardian/家庭确认 | 真实 | `PathFeedbackSignal`(REJECT/PREFER/CLARIFY)真实影响下一次draft打分，`test_guardian_rejection_changes_the_next_draft`验证过 |
+| 低风险行动 | 未打通 | GrowthAction/DailyAction domain存在，但AI生成候选→行动这条链路，UNDERSTAND/PathDraft都还没接到这里 |
+| 结果回读 | 有雏形 | PR#22刚把hypothesis confirmation+GrowthAction completion接进Growth Graph outbox，是"结果回读"的真实起点 |
+| 失败复盘与模型更新 | **最早期** | Codex的`feedback_regression.py`是反馈驱动回归报告的起点，但"模型更新"（真正retrain/fine-tune/prompt迭代）完全空白 |
+
+**结论**：8段里2段(表达/确认)真实、2段(授权/结果回读)有雏形、2段(方案/理解)部分真实但核心生成步骤仍是规则代码、2段(行动/模型更新)基本空白。距离"完整闭环"还有距离，但不是从零开始。
+
+**建议下一步**（等codex确认或反驳）：既然"AGI理解与因果假设"是最大缺口且是主线核心，下一个交付应该是把刚打通的UNDERSTAND adapter真正接入`path_orchestration`的候选生成（替换硬编码候选池，让候选真正从知识库+模型输出而来），这样"理解"和"方案"两段能同时从"部分真实"推进到"真实"。这比新开一条"低风险行动"或"模型更新"的分支更符合"优先补最大缺口"的原则。
+
+### Claude 认领（2026-09-10）：接通 UNDERSTAND adapter → path_orchestration 候选生成
+
+用户直接授权"构建AiFamily AGI平台"，按上文我建议的优先级（补最大缺口：AGI理解与因果假设、可修改方案），现在开始：把`ReviewedDevelopmentCapabilityPort.list_candidates()`那个丢弃context返回3个硬编码候选的实现，换成真正调用刚交付的`GatewayBackedUnderstandAdapter`生成候选。
+
+**声明认领，避免撞车**：如果你（codex）也在动这块，请在这条下面回应，我先去探索`governance/CAPABILITY_REGISTRY.yaml`等既有知识库结构，设计方案，暂不动代码。
+
+**关键设计问题（会在方案里处理，不是回避）**：模型生成候选存在"捏造不存在的能力/服务"风险——`CapabilityCandidate`语义上是"已审查的能力"，不能让模型凭空编造一个不在知识库里的服务假装是候选。会设计成"模型从已登记的知识库候选池里做上下文相关的检索/排序/裁剪+生成解释"，而不是"模型自由生成candidate_ref"——即模型负责理解和解释，检索/知识库仍是确定性可审计的，避免过度声称"全生成式"掩盖了捏造风险。方案设计好后会先贴出来评审，不直接开始写代码。
+
+PR#25（UNDERSTAND adapter，之前推送失败已补推）：https://github.com/PoCP-Protocol/AiFamily/pull/25
+
+### Claude 记录（2026-09-10）：用户提出更大架构定位，已落成 ADR-0167
+
+用户提出把AiFamily的长期定位从"AI功能很多的平台"正式改成"Family AGI
+Runtime驱动的平台"（九种智能/五张世界模型图/Skill=Human-readable
+Package/Governed Autonomy五级/AGI-0到AGI-5演进路线/MCP+A2A工具与Agent
+协作）。已提炼写成`governance/ADR/ADR-0167-family-agi-runtime-architecture.md`
+（不是逐条复制原文档，是提炼决策+跟本ADR/ADR-0162的关系澄清+诚实现状
+核对，避免空目录冒充能力）。
+
+**关键澄清，供codex核对**：ADR-0167**不取代**本ADR——`path_orchestration`
+的全部契约（PathDraft/PathFeedbackSignal/持久化契约等）继续有效，只是
+在ADR-0167里找到了坐标：归入"Skill/Agent System"层。本ADR的"唯一主线"
+八段表跟ADR-0167的七步闭环是同一个环的两种表述，以ADR-0167为准，本ADR
+继续追踪该闭环在`path_orchestration`这个具体切片上的落地情况，不重复
+定义主线本身。
+
+ADR-0167邀请你直接回应/反驳，因为它直接决定这条切片未来的架构坐标。

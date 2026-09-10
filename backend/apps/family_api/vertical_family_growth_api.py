@@ -75,6 +75,13 @@ class VerticalGrowthDecisionRequest(BaseModel):
     next_run_id: str | None = Field(default=None, min_length=1, max_length=200)
 
 
+class VerticalGrowthReflectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reflection_run_id: str = Field(min_length=1, max_length=200)
+    knowledge_ref: str | None = Field(default=None, min_length=1, max_length=300)
+
+
 class GrowthPathProjectionResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -296,6 +303,38 @@ async def project_vertical_growth_path(
     return _growth_path_response(projection)
 
 
+@router.post(
+    "/ai-drafts/{run_id}/reflections",
+    response_model=VerticalGrowthDraftResponse,
+)
+async def reflect_vertical_growth_draft(
+    payload: VerticalGrowthReflectionRequest,
+    run_id: Annotated[str, Path(min_length=1, max_length=200)],
+    family_id: Annotated[str, Path(min_length=1, max_length=200)],
+    runtime: VerticalFamilyGrowthRuntime = Depends(get_vertical_family_growth_runtime),
+) -> VerticalGrowthDraftResponse:
+    """Create a durable child Reflection Draft from one growth run."""
+
+    reflect = getattr(runtime, "reflect", None)
+    if not callable(reflect):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="vertical_family_growth_reflection_unavailable",
+        )
+    try:
+        entry = await _await_if_needed(
+            reflect(
+                run_id=run_id,
+                reflection_run_id=payload.reflection_run_id,
+                family_id=family_id,
+                knowledge_ref=payload.knowledge_ref,
+            )
+        )
+    except (VerticalRuntimeError, RunHttpError, ContextContractError, ValueError) as error:
+        raise _map_runtime_error(error) from error
+    return _entry_response(entry)
+
+
 @router.post("/ai-drafts/{run_id}/decisions", response_model=VerticalGrowthDraftResponse)
 async def decide_vertical_growth_draft(
     payload: VerticalGrowthDecisionRequest,
@@ -354,6 +393,7 @@ __all__ = [
     "VerticalGrowthDraftResponse",
     "VerticalGrowthDecisionRequest",
     "GrowthPathProjectionResponse",
+    "VerticalGrowthReflectionRequest",
     "get_vertical_family_growth_runtime",
     "router",
 ]

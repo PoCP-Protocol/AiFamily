@@ -306,6 +306,42 @@ class DurableVerticalGrowthRuntime:
             run_id=run_id, scope=await self._scope(family_id)
         )
 
+    async def reflect(
+        self,
+        *,
+        run_id: str,
+        reflection_run_id: str,
+        family_id: str,
+        knowledge_ref: str | None = None,
+    ) -> EvaluationLedgerEntry:
+        """Generate a reflection child from a durable source replay."""
+
+        source = await self.replay(run_id=run_id, family_id=family_id)
+        existing = None
+        try:
+            existing = await self.replay(run_id=reflection_run_id, family_id=family_id)
+        except RunHttpError as error:
+            if error.code != "RUN_NOT_FOUND":
+                raise
+        except VerticalRuntimeError as error:
+            if str(error) != "EVALUATION_ENTRY_NOT_FOUND":
+                raise
+        if existing is not None:
+            if existing.parent_run_id != run_id:
+                raise VerticalRuntimeError("REFLECTION_RUN_ID_CONFLICT")
+            return existing
+        scope = await self._scope(family_id)
+        generated = await self._runtime.reflect(
+            run_id=run_id,
+            reflection_run_id=reflection_run_id,
+            family_id=family_id,
+            knowledge_ref=knowledge_ref or source.knowledge_ref,
+            source_entry=source,
+        )
+        generated = replace(generated, parent_run_id=run_id)
+        await self._ledger.save_entry(generated, scope=scope)
+        return await self.replay(run_id=reflection_run_id, family_id=family_id)
+
     async def decide(
         self, *, run_id: str, family_id: str, decision: GuardianDecision
     ) -> EvaluationLedgerEntry:

@@ -812,6 +812,21 @@ entries:
     known_gaps:
       - "生产 session factory、Alembic/runtime migration wiring 尚未接入"
 
+  - capability: platform_notification
+    canonical_path: backend/platform/notification
+    status: MIGRATED_TESTED
+    disposition: REIMPLEMENT
+    source_reference: "governance/ADR/ADR-0166-notification-control-plane.md"
+    scope: >
+      平台级通知总控契约：tenant/family/subject/purpose/consent scope、通知意图、
+      渠道端口、租户范围幂等身份、Consent/撤回/免打扰 fail-closed 裁决。
+      不拥有业务事实、不直接调用外部供应商、不创建第二套 Outbox/Audit。
+    tests: [tests/platform/notification/test_contracts.py]
+    known_gaps:
+      - "当前仅完成 provider-neutral contract；尚无 SQL durable intent/attempt store"
+      - "尚无 canonical outbox consumer、retry/lease/DLQ worker、生产组合根和真实 HTTP/PG evidence"
+      - "外部渠道 adapter 尚未接入；测试通过不代表生产通知能力"
+
   - capability: commerce_order_intent_dev
     canonical_path: backend/domains/commerce
     status: MIGRATED_TESTED

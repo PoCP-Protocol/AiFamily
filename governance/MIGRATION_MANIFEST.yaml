@@ -98,6 +98,17 @@ entries:
     evidence:
       - "membership/infrastructure/sqlalchemy_repository.py 的 commit()/_stage() 是手写约定，非正式 UnitOfWork 类"
 
+  - capability: platform_notification
+    disposition: REIMPLEMENT
+    target: [backend/platform/notification]
+    status: IMPLEMENTED_EXPERIMENT
+    evidence:
+      - "ADR-0166 冻结通知总控边界；已实现 scope、intent、幂等 identity、provider-neutral channel port 与 fail-closed policy contract"
+      - "tests/platform/notification/test_contracts.py：4 项契约测试通过"
+    known_gaps:
+      - "尚无 durable SQL intent/attempt、canonical outbox consumer、retry/lease/DLQ worker"
+      - "尚无真实 HTTP/PostgreSQL、生产 identity/consent wiring 或授权外发 adapter evidence"
+
   - capability: model_gateway
     disposition: REIMPLEMENT
     target:
