@@ -556,8 +556,8 @@ async def test_sql_identity_resolver_binds_bearer_to_active_guardian(dependencie
     ddl = (
         "CREATE TABLE accounts (account_id TEXT PRIMARY KEY, status TEXT NOT NULL)",
         "CREATE TABLE identity_sessions (session_id TEXT PRIMARY KEY, account_id TEXT, "
-        "account_ref TEXT, family_id TEXT, token_hash TEXT, revoked_at TIMESTAMP, "
-        "expires_at TIMESTAMP)",
+        "account_ref TEXT, family_id TEXT, family_scope_ref TEXT, token_hash TEXT, "
+        "revoked_at TIMESTAMP, expires_at TIMESTAMP)",
         "CREATE TABLE tenants (tenant_id TEXT PRIMARY KEY, status TEXT, region_ref TEXT)",
         "CREATE TABLE tenant_account_memberships (account_id TEXT, tenant_id TEXT, role TEXT, "
         "status TEXT, valid_from TIMESTAMP, valid_to TIMESTAMP)",
@@ -578,7 +578,7 @@ async def test_sql_identity_resolver_binds_bearer_to_active_guardian(dependencie
         await connection.execute(
             text(
                 "INSERT INTO identity_sessions VALUES "
-                "('session-1', 'account-1', 'account-1', 'family-1', :token_hash, NULL, "
+                "('session-1', 'account-1', 'account-1', NULL, 'family-1', :token_hash, NULL, "
                 "'2099-01-01 00:00:00')"
             ),
             {"token_hash": sha256(b"guardian-token").hexdigest()},

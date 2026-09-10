@@ -125,8 +125,8 @@ async def test_authenticated_engagement_scope_resolver_composes_sql_identity_and
         await connection.execute(
             text(
                 "CREATE TABLE identity_sessions (session_id TEXT, token_hash TEXT, "
-                "person_id TEXT, family_id TEXT, account_id TEXT, account_ref TEXT, "
-                "expires_at DATETIME, revoked_at DATETIME)"
+                "person_id TEXT, family_id TEXT, family_scope_ref TEXT, account_id TEXT, "
+                "account_ref TEXT, expires_at DATETIME, revoked_at DATETIME)"
             )
         )
         await connection.execute(
@@ -175,7 +175,7 @@ async def test_authenticated_engagement_scope_resolver_composes_sql_identity_and
         await connection.execute(
             text(
                 "INSERT INTO identity_sessions VALUES "
-                "('session-1', :token_hash, 'guardian-1', 'family-1', 'account-1', "
+                "('session-1', :token_hash, 'guardian-1', NULL, 'family-1', 'account-1', "
                 "'account-1', '2099-01-01 00:00:00', NULL)"
             ),
             {"token_hash": hashlib.sha256(token.encode()).hexdigest()},
