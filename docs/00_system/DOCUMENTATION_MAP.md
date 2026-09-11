@@ -20,14 +20,25 @@ superseded_by: null
 
 > 本表在 2026-08-29 有多个并发任务同时写入 `docs/`（T-07 合规设计、T-08 traceability、T-09 research）。计数按当时磁盘状态，可能落后于最新提交。
 
+> **2026-09-11 补记（部分更新，非全表重扫）**：`docs/00_system/` 与
+> `docs/01_strategy/` 两行的计数已手工补上 2026-09-11 新增的 3 份文档
+> （见下方对应行）。**表内其余行、以及 §1.1"不在 docs/ 下的关键文件"
+> 一节，仍是 2026-08-29 的磁盘快照，现在已知严重过时**——例如
+> `governance/ADR/` 当时"空目录尚无一份 ADR"，实测现有 188 份；
+> `tests/architecture/` 当时"6 个测试文件"，实测现有 140+。完整重新
+> 扫描是独立的、比本次改动大得多的工作（性质接近
+> `CURRENT_SYSTEM_BASELINE.md` 曾做过的 R1 Truth Reset），本次不做，
+> 已记录进 `docs/13_research/DOCUMENTATION_AUDIT_2026-09-11.md`
+> 作为待办，不在本次顺手补全。
+
 ---
 
 ## 1. 16 层速查表
 
 | 目录 | 层 | 职责 | 典型文档 | 当前内容 |
 |---|---|---|---|---|
-| `docs/00_system/` | L0 | 系统真相：系统是什么、现在到哪、哪些文档算真相 | `SYSTEM_MANIFEST.md`、`CURRENT_*.md`、本文件 | **8 份**：`SYSTEM_MANIFEST` / `CURRENT_SYSTEM_BASELINE` / `CURRENT_AI_MAP` / `CURRENT_TECHNOLOGY_BASELINE` / `CURRENT_DOMAIN_MAP` / `CURRENT_PRODUCT_MAP` / `TARGET_ARCHITECTURE` / 本文件。仍缺 Manifest §5.1 所列的 `CURRENT_PROGRAM_STATUS.md`；多出一份 Manifest 未列的 `TARGET_ARCHITECTURE.md`（Specification 类，非 Current Truth） |
-| `docs/01_strategy/` | L1 | 商业战略、价值定位、三区方法论 | `COMMERCIAL_VALUE_STRATEGY.md` | **1 份** + `source_materials/` 3 份原始材料（中文 `.txt`，例外保留原名） |
+| `docs/00_system/` | L0 | 系统真相：系统是什么、现在到哪、哪些文档算真相 | `SYSTEM_MANIFEST.md`、`CURRENT_*.md`、本文件 | 2026-08-29快照**8份**（见上）+ **2026-09-11新增2份非canonical草案**：`FAMILY_AGI_PLATFORM_TECHNICAL_ARCHITECTURE.md`（`status:draft canonical:false`，AGI内核技术架构，extends `TARGET_ARCHITECTURE.md`）/ `FAMILY_AGI_R2_R5_BUILD_BLUEPRINT.md`（`status:draft canonical:false`，R2-R5建设蓝图）。仍缺 Manifest §5.1 所列的 `CURRENT_PROGRAM_STATUS.md`；`TARGET_ARCHITECTURE.md`仍是Manifest未列但自称canonical:true的已知不一致（未裁决，见审计报告） |
+| `docs/01_strategy/` | L1 | 商业战略、价值定位、三区方法论 | `COMMERCIAL_VALUE_STRATEGY.md` | 2026-08-29快照**1份**+`source_materials/`3份原始材料 + **2026-09-11新增1份非canonical草案**：`FAMILY_AGI_PLATFORM_BLUEPRINT.md`（`status:draft canonical:false`，AGI-native品类重新定位战略蓝图，supersedes-positioning-of `docs/00_system/FAMILY_NEEDS_PLATFORM_TARGET_MODEL.md`） |
 | `docs/02_business/` | L1 | 业务架构、业务能力地图、业务场景与流程 | `BUSINESS_CAPABILITY_MAP.md` | **4 份**：`BUSINESS_ARCHITECTURE` / `BUSINESS_CAPABILITY_MAP` / `BUSINESS_SCENARIOS_AND_PROCESSES` / `BUSINESS_SCENARIO_CLOSURE_CATALOG`（draft，节点级输入/活动/输出/规则） |
 | `docs/03_product/` | L1 | 产品愿景、产品能力、页面清单 `PAGE-NNN-*` | `PRODUCT_VISION.md` | **1 份**：`PRODUCT_VISION`。页面清单尚未建立（34 个 UI 的真实状态目前只在 `14_reference/legacy_audits/` 的矩阵里） |
 | `docs/04_domains/` | L2 | 每个 Domain 一份：聚合、不变量、Command、Event、Port | `FAMILY.md`、`ASSESSMENT.md` | **空，且属"该写而没写"** —— `backend/domains/` 下已有 7 个域的真实 Python 代码（`product_intelligence` 50 个 `.py`、`membership` 20、`loyalty_points` 17、`product_strategy` 9、`market_intelligence` 4、`assessment` 3、`growth_plan` 3），但边界文档一份都没有。这是继 `06_platform` 之后**下一个最实质的文档缺口**（注：`DOMAIN_REGISTRY.yaml` 的 status 也仍全写 `NOT_STARTED`，与磁盘不符，见 `CURRENT_SYSTEM_BASELINE.md` §5 漂移表第 1 条） |

@@ -6,7 +6,7 @@ status: current
 version: 1.0
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-08-29
+updated: 2026-09-11
 canonical: true
 supersedes: null
 superseded_by: null
@@ -238,9 +238,10 @@ Research (Evidence)  →  Decision (ADR)  →  Canonical Document (Current Truth
 ## 9. 已知债务与待办（如实标注）
 
 1. **既有文档未使用 front matter**：`docs/00_system/` 三份 `CURRENT_*.md` 及 `docs/01_strategy` / `docs/07_data` / `docs/10_engineering` / `docs/11_delivery` 下多份文档仍用行内 `- **状态**: CURRENT` 标记，需一次性迁移到 front matter。
-2. **Manifest §5.1 清单与磁盘不符**：`SYSTEM_MANIFEST.md` §5.1 列出 8 份 L0 文档，实际只有 4 份存在（缺 `CURRENT_DOMAIN_MAP.md`、`CURRENT_PRODUCT_MAP.md`、`CURRENT_PROGRAM_STATUS.md`，`DOCUMENTATION_MAP.md` 本次补建）。
-3. **文档内路径引用陈旧**：多份文档仍引用 `docs/00_foundation/`、`docs/20_product/`、`docs/10_domain/` 等 16 层结构启用前的旧路径，需批量校正。
-4. **文档与代码同步的 CI 检查未实现**（第 7 节）。
-5. **Traceability 断链检查器未实现**（第 6 节），`tools/architecture/` 为空目录。
-6. **front matter 字段校验测试未实现**：`status` 五值约束、`type`/目录一致性、`canonical` 唯一性目前全靠人工。这三条都是可机械检验的，按 R14 应当补测试。
-7. **`governance/ADR/` 与 `governance/schemas/` 目前为空目录**，尚无一份 ADR。
+2. ~~**Manifest §5.1 清单与磁盘不符**：`SYSTEM_MANIFEST.md` §5.1 列出 8 份 L0 文档，实际只有 4 份存在（缺 `CURRENT_DOMAIN_MAP.md`、`CURRENT_PRODUCT_MAP.md`、`CURRENT_PROGRAM_STATUS.md`）。~~ **2026-09-11 复核：已解决**——三份文件均已存在于 `docs/00_system/`。`TARGET_ARCHITECTURE.md`（Specification 类，自称 `canonical:true` 但未被 §5.1 列入）仍是一条未裁决的不一致，见 `docs/13_research/DOCUMENTATION_AUDIT_2026-09-11.md`。
+3. **文档内路径引用陈旧**：多份文档仍引用 `docs/00_foundation/`、`docs/20_product/`、`docs/10_domain/` 等 16 层结构启用前的旧路径，需批量校正。（2026-09-11 未复核，如实保留原状）
+4. **文档与代码同步的 CI 检查未实现**（第 7 节）。（2026-09-11 未复核，如实保留原状）
+5. **Traceability 断链检查器未实现**（第 6 节），`tools/architecture/` 为空目录。（2026-09-11 未复核，如实保留原状）
+6. **front matter 字段校验测试未实现**：`status` 五值约束、`type`/目录一致性、`canonical` 唯一性目前全靠人工。这三条都是可机械检验的，按 R14 应当补测试。（2026-09-11 未复核，如实保留原状——但 2026-09-11 新增的 3 份文档已发现正是这类字段违规的真实案例，见审计报告，进一步证明这条债务是真实的，不是假设风险）
+7. ~~**`governance/ADR/` 与 `governance/schemas/` 目前为空目录**，尚无一份 ADR。~~ **2026-09-11 复核：部分已解决**——`governance/ADR/` 实测 188 份 ADR，早已不是空目录；`governance/schemas/` 复核后确认仍不存在（连空目录都没有），这半句原样保留。
+8. **归档流程未定义"如何处理被 ADR/registry 引用的文档"**（2026-09-11 新增，见审计报告）：本规范 §8.1 归档流程只规定"移动文件 + 加标记"，未规定被移动文档若已被历史 ADR 或 `governance/*.yaml` 按路径引用，归档后如何避免产生断链。这不是假设风险——2026-09-11 的文档复盘发现，仓库里几乎所有"看起来适合归档"的候选文档，实际都被 3-4 份已接受 ADR 按路径引用。建议归档前先建一次 ADR/registry 交叉引用地图，本条待后续排期解决，不是本次顺手修的范围。

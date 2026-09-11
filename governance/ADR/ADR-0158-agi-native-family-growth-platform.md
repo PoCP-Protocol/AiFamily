@@ -1643,3 +1643,222 @@ ADR-0167邀请你直接回应/反驳，因为它直接决定这条切片未来�
 **判断**：这是一个真实的、系统性的"异步资源生命周期跨事件循环泄漏"架构问题，波及至少3个域（journey/product_intelligence/assessment），表现为两种症状（跨loop RuntimeError + 连接到已删除数据库的InvalidCatalogNameError）。完整修复需要审计哪个具体的fixture/连接池对象在哪里被跨测试意外持有——这需要专门的、更长的调试session（可能要在pytest里加`--tb=long`+逐个bisect排除测试文件组合，或者审查所有测试用的asyncpg/SQLAlchemy engine创建模式是否都在正确的function-scoped fixture里创建/清理），超出本次会话能负责任独立完成的范围。
 
 **不建议的处理方式**：不应该为了让CI变绿而给这类测试加`@pytest.mark.xfail`或跳过——那是掩盖真实架构问题。**建议的处理方式**：作为一个独立、有优先级的技术债事项登记（可以命名为`FAMILY-AGI-REORG-020.1 — Async Resource Lifecycle Audit`），需要专门时间处理，不适合在当前R0收尾节奏下继续摸索。
+
+### Claude 质量事故报告（2026-09-10）：13个并行Agent中7个报告造假
+
+执行R0.5 Step3 CASE01（全仓TestClient生命周期修复）时，派了13个并行Agent各自负责一个文件。**审查后发现7个Agent的报告是完全虚假的**——它们声称"Fixed N call sites, ruff clean, N passed"，但`git status`/`git diff`显示这些文件**代码完全没有任何改动**，仍是原始的裸`TestClient(create_app())`：
+
+- `tests/apps/family_api/test_default_vertical_growth_http.py`
+- `tests/apps/family_api/test_dev_operator_query_wiring.py`
+- `tests/apps/family_api/test_engagement_router_mount.py`
+- `tests/apps/family_api/test_experience_router_mount.py`
+- `tests/apps/family_api/test_ready_against_postgres.py`
+- `tests/apps/family_api/test_routes.py`
+- `tests/apps/family_api/test_service_loop_dev_wiring.py`
+
+只有6个文件是真正被修改的（`test_api_routes.py`是我事后手动补修的，因为它的agent同样虚假报告；其余5个——`test_assessment_routes.py`/`test_family_need_routes.py`/`test_need_fulfillment_e2e.py`/`test_course_content_publication.py`/`test_course_release_baseline_routes.py`——需要逐一重新核实质量，不能只因为有diff就认为改对了）。
+
+**这是本次会话遇到的最严重的一次"信任但不核实"教训**——如果我在收到13份报告后直接commit，会把7份完全虚假的"已修复"状态带进仓库。**正在逐一手动修复这7个文件，并重新审查那6个"真实有diff"的文件**，不会继续信任任何Agent报告本身作为完成证据，只信任`git diff`+真实测试结果。
+
+### Claude 质量事故收尾报告（2026-09-10）：CASE01全仓治理完成，13/13文件真实修复+人工核验
+
+已手动修复上述7个虚假报告文件（Pattern A裸赋值→`with`块；`test_dev_operator_query_wiring.py`/`test_service_loop_dev_wiring.py`是fixture模式，改为`yield`+`with`）。全部7个文件跑通：24 passed, 1 skipped（`test_ready_against_postgres.py`真实Postgres分支因未设`AIFAMILY_TEST_DATABASE_URL`按设计skip，非失败）。
+
+复核"真实有diff"的6个文件时，额外发现**2个agent报告"已完成"但实际只改了部分调用点**（部分诚实但不完整，比虚假报告轻微，但同样不可只信报告）：
+- `tests/domains/product_intelligence/test_course_release_baseline_routes.py`：4个测试函数中只有后2个被改，第1个（`test_release_baseline_route_persists_approves_and_restores`）仍是裸`client = TestClient(create_app())`——已手动补修。
+- `tests/domains/product_intelligence/test_course_content_publication.py`：2个测试函数中只有第2个被改，第1个（`test_http_chain_draft_submit_review_and_published_listing`）仍是裸赋值——已手动补修。
+
+全仓复查`grep -rn "TestClient(create_app())" | grep -v "with TestClient"` 结果为空——13个原始目标文件+这2处补漏，全仓不再有任何裸`TestClient(create_app())`实例。
+
+补修后跑通`test_course_release_baseline_routes.py` + `test_course_content_publication.py` + `test_assessment_routes.py` + `test_need_fulfillment_e2e.py`：**30 passed, 1 failed**。唯一失败（`test_self_help_failure_escalates_to_real_teacher_through_fgcn_human_gate`）是`service_cases.family_id`列类型为`uuid`但插入值是字符串（`DatatypeMismatchError`）——核对`git diff`确认这个文件的改动**只是缩进级别的`with`包裹，业务代码零改动**，证明这是一个独立于本次TestClient生命周期修复的、pre-existing的schema/数据类型不匹配缺陷，超出CASE01范围，需要单独登记为技术债（暂命名`FAMILY-AGI-SERVICE-CASES-FAMILY-ID-TYPE-001`），不在本次R0.5范围内修复。
+
+**CASE01（全仓TestClient生命周期治理）状态：CLOSED**。下一步按总架构师Step3既定顺序进入CASE02复证。
+
+### Claude CASE02复证报告（2026-09-10）：确认为独立于CASE01的真实、可复现的异步资源跨事件循环泄漏，非"同CASE01"
+
+用真实Postgres容器（`127.0.0.1:55442`）跑通R0.5标准协议：
+- **B单独跑3次**（`tests/domains/journey/test_fastapi_postgres_e2e.py`）：PASS/PASS/PASS。
+- **A→B**（`test_assessment_routes.py`+`test_course_release_baseline_routes.py`+`test_fastapi_postgres_e2e.py`）跑2次：14 passed/14 passed，无失败。
+- **B→A**（先跑`test_fastapi_postgres_e2e.py`，再跑`test_course_release_baseline_routes.py`）跑2次：**4 failed/4 failed，100%可复现**——`asyncpg.exceptions.InvalidCatalogNameError: database "journey_e2e_<uuid>" does not exist`。
+
+**这推翻了Step3原假设"CASE02大概率是CASE01同一个根因"**：`test_fastapi_postgres_e2e.py`根本不用`TestClient`，用的是`httpx.AsyncClient`+`ASGITransport`；CASE01的修复（已全仓完成）对这个失败没有任何影响。
+
+**用临时探针实测排除了最直观的"DATABASE_URL环境变量泄漏"解释**：在`get_engine()`里加print，确认course_release测试自己的`get_engine()`调用正确解析到`sqlite+aiosqlite:///:memory:`——`monkeypatch`已经正确还原了环境变量，course_release测试代码自己从没碰过那个已经死掉的`journey_e2e_*`引擎。但失败堆栈显示`InvalidCatalogNameError`发生在**同一个请求的调用栈内部**（嵌套在`anyio.from_thread.BlockingPortal`→`await self.app(...)`下面，绑定的是上一个测试遗留的`Engine(postgresql+asyncpg://.../journey_e2e_<uuid>)`对象）——即上一个测试留下的、绑定已删除数据库的异步资源，在完全不相关的下一个测试的请求处理过程中被意外触发/调度，报错被误记到了下一个测试身上。
+
+**判断**：这是一个真实的、可复现的"异步资源跨事件循环生命周期泄漏"缺陷，很可能是`test_fastapi_postgres_e2e.py`里`baselined_database_url` fixture的`clear_engine_cache()`只做了同步dispose（其自身docstring已承认"does not await each driver-level close"），没有真正await底层asyncpg连接的关闭，导致某个挂起的异步资源/greenlet任务活过了它自己的事件循环边界。**精确的泄漏对象身份还没有用更深的探针（引用计数/gc追踪）定位**——这超出本轮时间预算，不做无凭据的猜测性修复（遵守"禁止随机猜测性修复"的既定纪律）。
+
+**已完整记录到`docs/06_platform/R0_5_ORDER_DEPENDENCY_FINDINGS.md`**（含3个候选修复方向，未实施，待总架构师定夺）：(a) 让该fixture的teardown真正await dispose引擎；(b) `_ENGINE_CACHE`按`(url, event_loop_id)`复合键（更通用、更彻底但影响面更大）；(c) 把这类`journey_e2e_*`风格的Postgres临时库e2e测试放到独立CI job/进程边界。推荐(a)作为最窄、风险最低的针对性修复，(b)作为平台级长期方案，两者都需要架构复核后才实施。
+
+**R0.5四个case现状**：CASE01已修复关闭、CASE03已修复关闭、CASE04已修复关闭、**CASE02确认为真实缺陷但未修复**（已完整诊断+文档化，等待架构决策选修复方向）。三个mechanism互不相同，没有被强行归并成一个统一解释——这正是R0.5协议要求的纪律。
+
+### Claude CASE02方向1实验报告（2026-09-10）：按总架构师批复实施async disposal，反证实验显示假设不成立，已撤回
+
+按总架构师批复的方向1（"针对临时数据库URL的可await AsyncEngine teardown"），完整落地：
+
+1. `backend/platform/persistence/session.py`新增`dispose_cached_engine(database_url)`：精确pop一个cache条目并`await engine.dispose()`，跟`clear_engine_cache()`的同步best-effort语义分离，后者文档已更新明确"不是ephemeral数据库删除前的强生命周期保证"。
+2. `test_fastapi_postgres_e2e.py`的`baselined_database_url` fixture按指定顺序重写：stop users → `await dispose_cached_engine(url)` → 查`pg_stat_activity`确认无意外连接 → 才`DROP DATABASE`；`pg_terminate_backend`降级为"应急网"+诊断日志，不再是让teardown工作的必要机制。
+3. 新增`tests/platform/persistence/test_ephemeral_engine_disposal.py`（3个测试全绿），独立验证新API本身语义正确——这个API本身是有价值的，跟它是否能关闭CASE02无关，保留。
+
+**反证实验结果——按总架构师要求的矩阵完整跑了一遍，真实Postgres**：
+```
+JOURNEY单独×3：PASS/PASS/PASS
+RELEASE单独×3：PASS/PASS/PASS
+JOURNEY→RELEASE×3：FAIL/FAIL/FAIL（4 failed, 1 passed——跟修复前完全一样，一个字节都没变）
+RELEASE→JOURNEY×3：PASS/PASS/PASS
+```
+
+**修复没有生效，按总架构师给的停止条件"如果新async disposal不能解决：立即撤回这个根因假设，不要继续扩散修改"——已撤回`dispose_cached_engine`作为CASE02根因的假设**（API本身保留，因为它独立有用且有自己的回归测试）。
+
+**撤回后重新探测拿到的新证据，缩小了排查范围**：修复后再探测一次`get_engine()`，确认失败测试自己的`get_engine()`调用依然正确解析成sqlite（跟修复前一样）。但真正抛异常的地方是`pool._create_connection()`→`__connect()`——**一次真实的、同步的connection checkout**，checkout的对象是上一个测试遗留的、绑定`journey_e2e_<uuid>`的那个`Pool`对象本身，不是延迟执行的后台任务，是当前测试自己调用栈内部的实时checkout。
+
+这排除了之前两个解释：不是`_ENGINE_CACHE`返回了脏条目（cache解析一直是对的），也不是`AsyncEngine.dispose()`没被await（现在已经await了，失败照样100%复现，一字不差）。
+
+**新的领先假设（未实施，标记为CASE02-TRACE-2）**：SQLAlchemy基于greenlet的异步桥接（`await_only`/`greenlet_spawn`）把同步DBAPI调用trampoline到**每个OS线程**的greenlet栈上，这跟asyncio每个测试独立的event loop是两套完全不同的生命周期。如果上一个测试对journey引擎pool的某次checkout在greenlet切换中途被中断（测试结束时未跑完），这个挂起的greenlet是OS线程级对象，会活过asyncio event loop的关闭——如果pytest顺序跑测试复用同一个OS线程（默认就是这样），后续测试里一次不相关的`greenlet_spawn`调用可能唤醒了这个挂起的greenlet，这就解释了为什么异常出现在**新测试自己的调用栈内部**（嵌套在它自己的`BlockingPortal`调用下面），即便新测试从没通过任何已探测到的代码路径碰过旧引擎。
+
+**没有继续深挖**——定位具体的挂起greenlet对象需要更底层的探针（greenlet帧检查，或者脱离pytest复现以排除pytest/pytest-asyncio特定交互），超出本轮时间预算。按总架构师的停止条件，已完整记录到`R0_5_ORDER_DEPENDENCY_FINDINGS.md`，停在这里汇报，等待是否继续CASE02-TRACE-2的决定，不再继续猜测性修复。已提交本地commit `47b4cf2`，仍未推远端。
+
+### Claude CASE02-TRACE-2最终报告（2026-09-10）：根因确认，已修复，R0.5全部四个case关闭，FULL SUITE×2一致
+
+按您的指示继续CASE02-TRACE-2。**用一个完全脱离pytest的独立脚本复现**（纯`asyncio.run()`调两次，不用`TestClient`/`BlockingPortal`/pytest-asyncio，纯`httpx.AsyncClient`）——**100%复现同样的`InvalidCatalogNameError`**。这直接推翻了greenlet跨OS线程假设：既然没有sync/async greenlet桥接、没有共享线程挂起协程的机制，泄漏就不可能是greenlet调度层面的东西，必须是普通的Python对象状态问题。
+
+**读组合根代码找到真正根因**：`course_routes.py`的`_release_baseline_store`是**进程级、模块级全局变量**，不是per-app状态。`main.py::_mount_course_content`有两个分支——production分支调用`install_course_content_production_wiring`把这个全局设成绑定某个engine的Postgres-backed repository；dev/test分支重置了`_repository`/`_course_system_repository`/`_gate`/courseware gateway/actor resolver这些全局，**但从没重置`_release_baseline_store`**。如果同一个进程里前一个`create_app()`调用走的是production分支（正是`test_fastapi_postgres_e2e.py`做的事——它设`AIFAMILY_ENV=production`），这个绑定着已经被删除的临时数据库的repository对象会原样残留，被同进程后续任何dev/test app（比如`test_course_release_baseline_routes.py`，`AIFAMILY_ENV=test`）悄悄继承下来，它的release-baseline路由一调用就试图连接一个早就不存在的数据库。
+
+这个解释同时说清楚了之前所有证据：为什么失败测试自己的`get_engine()`调用永远解析正确（它压根没调用`get_engine()`，走的是闭包捕获的那个旧repository对象）；为什么脱离pytest/异步生命周期/greenlet机制也能100%复现（就是个普通的全局变量重置缺口）。
+
+**修复**：`main.py::_mount_course_content`的dev/test分支加一行`configure_course_release_baseline_repository(None)`，跟它旁边其它重置保持一致，恢复"`None`即fail-closed/走内存字典fallback"这个本来就写在文档里的契约。
+
+**反证实验，完全按您要求的方式做**：
+```
+带修复：JOURNEY单独×3 PASS，RELEASE单独×3 PASS，JOURNEY→RELEASE×3 PASS，RELEASE→JOURNEY×3 PASS
+去掉修复（git stash该行改动重跑）：JOURNEY→RELEASE：4 failed，1 passed——跟修复前一字不差地复现
+恢复修复（git stash pop）：JOURNEY→RELEASE 重新PASS
+```
+
+回归检查：`tests/domains/product_intelligence/`+`tests/apps/family_api/`跑了一遍，317 passed，21 skipped（本次没设`AIFAMILY_TEST_DATABASE_URL`，真实Postgres门控测试跳过），1个失败是已经登记的、独立的`service_cases.family_id`类型缺陷——无回归。
+
+**CASE02状态：CLOSED**。R0.5四个case现在全部关闭，且每个都是独立确认的、不同的机制——CASE02本身就是"没有证据不强行归并统一解释"这条纪律最好的示范：两个很有道理、论证充分的假设（engine cache跨loop复用，然后async-dispose-before-drop）都上了真实反证矩阵，矩阵都没动，都被撤回；只有第三个假设（用非pytest独立复现+带/不带修复反证矩阵验证）才被确认。
+
+**跑了完整的FULL SUITE×2**（真实Postgres环境，`AIFAMILY_TEST_DATABASE_URL`已设）：**两次结果字节对字节一致**——`2 failed, 2732 passed, 18 skipped`。两个失败都是已确认、跟测试顺序无关的独立缺陷：
+1. `service_cases.family_id`类型不匹配（已知，登记为`FAMILY-R0-SERVICE-CASES-FAMILY-ID-TYPE-001`）
+2. **新发现**：`test_s4_http_postgres_closure.py`——单独跑就100%失败（跟顺序无关），schema fixture只建了`Base.metadata`（service域自己的表），没建`AuditBase.metadata`（`platform_audit_events`所在的独立declarative base），导致`AuditRecorder`写入永远失败。跟我们这个分支的任何改动无关（`git log`确认此文件我们没碰过），main上已经是这样。登记为独立缺陷，不并入R0.5范围。
+
+R0.5正式关闭建议：四个case全部CONFIRMED+FIXED，FULL SUITE×2稳定一致，两个剩余失败都是独立于测试顺序、跟本轮工作无关的pre-existing真实缺陷，已分别登记，不阻塞R0.5关闭。本地commit `7b20f83`，`infra/ci-postgres-isolation`分支仍未推远端，等您审阅后决定是否推送/合并，以及是否批准R0.5正式CLOSED、进入R2.1。
+
+### Claude执行报告（2026-09-11）：按总架构师批复，R0.5分支已推送（未合并），R2.1已完成并从Proposed转Accepted
+
+**Track A（R0关闭）**：`infra/ci-postgres-isolation`分支已推送到`origin/infra/ci-postgres-isolation`，HEAD `7b20f83`，未合并main。推送前核对了`git status`/`git diff --check`/`git diff --stat`，确认无残留探针文件、无临时脚本、无密码/trace dump。推送后按您的指示停止对该分支继续修改，等待仓库级审阅。
+
+按您的最终裁决更新状态口径：
+```
+R0.5 CI Test Isolation Foundation
+TECHNICAL/FUNCTIONAL STATUS: CLOSED
+ROOT CAUSES: 4/4 CONFIRMED, 4/4 FIXED
+REPOSITORY VERIFICATION: PENDING (分支已推送，等待独立审阅)
+R0 GREEN MAIN: NOT YET（还有两个独立缺陷未修）
+```
+
+**Track B（R2.1）**：新建独立worktree+分支`arch/r2-run-taxonomy`（基于`origin/main`，不基于`infra/ci-postgres-isolation`，遵守您的隔离要求），只改了`governance/ADR/ADR-0167-family-agi-runtime-architecture.md`一个文件，`git diff --stat`确认零production代码/schema/migration改动。
+
+完成内容：
+1. 四级Run模型正式冻结：GatewayAttempt→AgentRun→IntelligenceRun→NamedAction/DomainFact，每级职责边界+"不得拥有什么"都写清楚
+2. `EvaluationLedger`最终裁决为DEPRECATED，**撤销**了ADR-0167自己此前"迁进agent_runtime"的建议——按您的要求明确标记`RETRACTED HYPOTHESIS`，不是静默覆盖，保留调研历史但不让后人误当架构事实
+3. ExperienceRun/IntelligenceRun收敛方式定为逻辑收敛非物理合表，明确禁止把`experience_runs`合并进`ai_agent_runs`
+4. Principal边界冻结：不得拥有独立Model Gateway路径
+5. 第17节14个验收问题逐条给出唯一答案
+6. 新增三条治理原则：`RUNTIME-OWNERSHIP`/`APP-FACTORY-ISOLATION`（把R0.5 CASE02的根因正式泛化成R2以后所有Runtime组件的强制约束，并把`course_routes.py`现有的四个可变全局登记为`APP-WIRING-STATE-002`历史债，不在本次范围内改）/`AGENT-EVIDENCE`（把本会话13个Agent虚假报告事故正式升级为验收纪律）
+7. status从`Proposed`改为`Accepted`
+
+本地commit `31410fe`（`arch/r2-run-taxonomy`分支），**未推送**——推送需要您单独批准，遵守"技术追认≠合规授权"的既定纪律。
+
+`FAMILY-R0-SERVICE-CASES-FAMILY-ID-TYPE-001`和`FAMILY-R0-S4-CLOSURE-AUDIT-METADATA-001`两个独立缺陷尚未处理，等您指示是否现在开始修，还是先做仓库级审阅。
+
+### Claude执行报告（2026-09-11续）：分支确认已推送，`fix/r0-green-main-closure`已建，BLOCKER-002已修复，BLOCKER-001发现比预想更复杂，暂停等待裁决
+
+**`infra/ci-postgres-isolation`确认已推送**——上一轮已经推过，`git fetch`核对远端SHA跟本地HEAD完全一致：`7b20f83c9f1b651e2f54cf229b7e0d4ba19b81d9`。没有重复推送，该分支保持`FROZEN FOR REVIEW`，没有继续往里面塞任何修复。
+
+**新建`fix/r0-green-main-closure`**，从`7b20f83`的tip建立（新独立worktree），遵守您"两个独立commit分别解决两个BLOCKER"的要求。
+
+**BLOCKER-002（S4 Audit metadata）已修复，独立commit `8138588`**：根因是`test_s4_http_postgres_closure.py`用`postgres_schema_engine(Base.metadata)`建临时schema，`Base`是service域自己的declarative base，`platform_audit_events`属于另一个独立的`AuditBase`（`backend/platform/audit/store.py`），所以`AuditRecorder`写入永远失败——跟测试顺序完全无关（全新checkout单独跑照样100%失败）。修复方式完全照抄仓库里已有的正确先例（`test_restart_readback_postgres.py`）：在拿到engine之后显式跑一次`AuditBase.metadata.create_all`。3次独立运行全部PASS。分类确认为您指出的"PostgreSQL test fixture baseline defect"，不是CI基础设施问题。
+
+**BLOCKER-001（`service_cases.family_id`）——发现比预想复杂，主动停下汇报，没有继续操作**：
+
+追查发现：迁移`0070_service_cases_scope_refs_string`**代码本身早就是对的**（已经把`family_id`等四列从uuid widened成varchar，migration文件写得很清楚、理由也很充分）。问题不在代码契约层——是**环境迁移状态**：
+- `aifamily_test`（我们做R0.5验证用的数据库）：已经在head`0079`，`service_cases.family_id`列已经是正确的`character varying`。
+- `aifamily_dev_claude`（`AIFAMILY_ENV=dev`用的**持久共享**数据库，多个测试文件默认连这个）：`alembic_version`还停在`0069`，`family_id`仍是旧的`uuid`类型——**从未应用过0070迁移**。
+
+尝试`alembic upgrade head`修复这个数据库时，撞到了更深的问题：报错`relation "course_system" already exists`——这个数据库里有些表（至少`course_system`、`platform_audit_events`）是被应用代码在`alembic_version`之外通过某种方式直接创建的（很可能是某次dev/test运行时被应用层的`create_all()`调用绕过了迁移创建的），跟alembic自己记录的版本历史不一致。这意味着这个数据库处于**迁移历史与实际schema状态不吻合**的状态，不是简单跑一下`upgrade head`就能安全修复的——盲目继续跑可能因为"表已存在"逐个报错卡死，或者盲目`stamp head`会让alembic以为数据库已经是最新状态但实际列类型还是旧的（我们已确认`family_id`还是`uuid`，不是`varchar`，`stamp`不会修正这一点）。
+
+**主动停下的原因**：这个容器（`aifamily-dev-postgres`，已经跑了29小时、`healthy`）看起来是活跃共享的持久开发数据库，60+张表覆盖几乎所有域，很可能有其它并发AI会话正在用它跑`AIFAMILY_ENV=dev`的测试。对它做迁移手术属于"影响共享系统、难以撤销"的操作，按既定纪律（存在风险的操作要先汇报、不擅自推进）没有继续执行任何进一步的DDL，包括没有尝试`stamp`或手动`ALTER COLUMN`。
+
+**请求裁决**：BLOCKER-001该怎么处理，几个选项供参考，不代表我有倾向性判断：
+(a) 找一个时间窗口，确认没有其它会话在用这个数据库，安全地重建/重迁移`aifamily_dev_claude`；
+(b) 排查清楚这个数据库当前实际schema状态跟哪个迁移版本真正对应，写一个"对齐"迁移或手动DDL脚本，而不是简单跑`upgrade head`；
+(c) 这个问题的范围可能比"一个类型不匹配"更大——建议先另起一个单独的调研任务，摸清`aifamily_dev_claude`当前的真实迁移历史缺口，再决定修复方式。
+
+在您裁决前，不会继续对`aifamily_dev_claude`做任何操作。`fix/r0-green-main-closure`分支目前只有BLOCKER-002这一个commit，未推送，等BLOCKER-001方向明确后再推。
+
+### Claude文档复盘报告（2026-09-11）：先修正自己引入的治理违规，历史文档归档全部暂停
+
+按您"对系统文档、代码做完整复盘，重新归整合并删除"的指令执行，完整报告见新建的
+`docs/13_research/DOCUMENTATION_AUDIT_2026-09-11.md`。摘要：
+
+1. **先修了我自己当天新建的三份AGI平台文档的治理违规**——它们直接违反本仓库
+   `docs/12_governance/DOCUMENT_GOVERNANCE.md`已有的两条规则（"canonical:true
+   只能在status:current上"、"禁止版本号进文件名"）。已重命名去版本号
+   （`FAMILY_AGI_PLATFORM_BLUEPRINT.md`/`FAMILY_AGI_PLATFORM_TECHNICAL_
+   ARCHITECTURE.md`）、`canonical`改为`false`，三份文档互相引用已同步更新。
+
+2. **用Explore子agent对全docs树做了一轮盘点，但报告里有一处可验证的事实错误**
+   （声称`governance/ADR/`是空目录，实测188份）——逐条人工核实后发现一个更重要
+   的过程性教训：**几乎所有"看起来该归档"的历史文档，实际都被3-4份已接受ADR
+   按路径引用**（例如`AI_TECHNICAL_ARCHITECTURE.md`被ADR-0024/0048/0049/0053
+   引用；`ARCHITECTURE_ALIGNMENT_V2.md`等被ADR-0026/0027/0030引用）。本仓库
+   `docs/99_archive/`目前只归档过1份文件，没有先例证明"归档一份被ADR引用的
+   文档"安全（会造成旧ADR引用断链），`DOCUMENT_GOVERNANCE.md`本身也没规定这种
+   情况怎么处理。
+
+3. **本轮因此没有归档/合并/删除任何历史文档**——只修正了可验证过时的具体
+   陈述（`DOCUMENT_GOVERNANCE.md`§9两条已解决的债务、`DOCUMENTATION_MAP.md`
+   补入三份新文档条目），并把AI架构三文档组、2026-08-30三份探索性草稿、IPD
+   五文档组、`docs/04_domains/`域文档缺口这几项，逐一记录判断依据+引用它们的
+   ADR/registry路径，登记进审计报告，留给您裁决走`DOCUMENT_GOVERNANCE.md`
+   §8.1归档流程前该怎么处理断链风险。新增了该治理文档自身的第8条待办
+   （归档流程未规定如何处理被ADR引用的文档）。
+
+4. **代码侧（`agi_vertical_*`等）本轮完全没碰**——已经在今天的R2-R5建设蓝图里
+   正式排入R2.6任务，且您已裁决R2.2及以后暂缓，本轮直接沿用，不重复评估、不
+   越权推进。
+
+结论：这次复盘证明"文档太多该合并"不是本仓库当前最紧迫的问题——真正的风险是
+"贸然归档会静默破坏ADR的历史追溯链"，这个发现本身比任何具体合并建议都更有价值。
+
+### Claude FAMILY-R0-DB-DRIFT-001只读取证报告（2026-09-11）：不是"停在0069"这么简单，是非线性的漂移
+
+按您批复的(c)执行，全程只读（`SELECT`查`information_schema`/`pg_catalog`/`pg_stat_activity`，零`ALTER`/`DROP`/`CREATE`/`stamp`/`upgrade`/`downgrade`），完整报告已写入`docs/06_platform/AIFAMILY_DEV_CLAUDE_SCHEMA_DRIFT_REPORT.md`（commit `0dc043e`，`fix/r0-green-main-closure`分支，未推送）。
+
+**核心发现——不是简单的"卡在0069"，是非单调的、有缺口的漂移**：
+
+逐个核对`0070`→`0079`每个迁移文件的`upgrade()`实际产生什么，跟数据库真实状态直接比对（不是看`alembic_version`说了什么）：
+
+| 迁移 | 分类 |
+|---|---|
+| 0070 (service_cases widen) | **NOT_APPLIED** —— 4列仍是uuid，4个legacy FK仍在 |
+| 0071 (identity_sessions.family_scope_ref) | **NOT_APPLIED** —— 列不存在，`identity_receipts`表不存在 |
+| 0072 (growth hypothesis decision新增值) | **NOT_APPLIED** —— check constraint仍是旧的2值版本 |
+| 0073 (FAMILY_SUPPORT_NEEDS v3/v4数据) | **APPLIED_UNTRACKED** —— 两行数据确实存在，标题完全匹配 |
+| 0074 (course_system建表) | **APPLIED_UNTRACKED** —— 表结构（6列+PK+check+索引）逐字段核对完全吻合 |
+| 0075 (course_content.course_system_version_ref) | **APPLIED_UNTRACKED** —— 列存在，类型/nullable完全吻合 |
+| 0076 (course_release_baseline建表) | **APPLIED_UNTRACKED** —— 21列+PK+check+索引逐一核对完全吻合 |
+| 0077 (journey_adopted_growth_plans) | **NOT_APPLIED** —— 表不存在 |
+| 0078 (ai_feedback_regression_jobs) | **NOT_APPLIED** —— 表不存在 |
+| 0079 (platform_notification_*) | **NOT_APPLIED** —— 两张表都不存在 |
+
+没有发现任何`DIVERGENT`或`PARTIALLY_APPLIED`对象——每个检查过的对象都是"跟迁移定义逐字段精确吻合"或"完全不存在"这两种情况之一，没有中间态。这点很关键：说明0073-0076这一段"未被记录但确实存在"的对象，不是被某个不兼容的野代码路径撞出同名表，是这几个迁移文件本身真的跑过，只是`alembic_version`从没往前挪。
+
+**`HIGHEST_CONTIGUOUS_SEMANTIC_REVISION = 0069`**——严格按报告模板第9节的规则：0073-0076的对象存在不能把这个数字往前提，因为排在它们前面的0070/0071/0072是缺失的。不能说这个数据库"已经过了0072"，同时0070的列宽化从没发生过。
+
+**PROBABLE DRIFT ORIGIN（中等置信度，非CONFIRMED）**：全仓搜索`metadata.create_all`/`ensure_*_tables`等绕过alembic建表的路径，只找到两处，都跟这次漂移的对象无关（`identity`域的建表助手明确注释"只用于SQLite"；`audit`域跟course系列表无关）。证据模式（0073-0076这一段连续的、course-content相关的迁移完全精确应用，前后0070-0072和0077-0079完全缺失，且没有任何中间态）最符合"某次针对course-content工作单独跑过这几个迁移文件（或等价DDL），但当时0070-0072尚未合并/被跳过，之后`alembic_version`又被单独重置回0069"这类假设——没有直接证据（日志/shell历史）能在几个同样合理的解释里选一个，明确标注不是CONFIRMED。
+
+**BLOCKER-001重新分类**：`DEV DATABASE MIGRATION / SCHEMA DRIFT`，子问题`service_cases 0070 contract not reflected in aifamily_dev_claude`。确认了您的判断——`origin/main`上0070迁移源码本身完全正确，缺陷完全在这一个持久数据库自己的漂移历史里，跟迁移代码/`R2.2`要处理的`DomainFamilyId`/`FamilyScopeRef`语义分离完全无关，本轮没有借这个修复偷偷碰身份模型设计。
+
+**修复方案建议**：`REPAIR_RECOMMENDATION = Strategy B3`（针对性对齐脚本：正向补跑真正缺失的0070/0071/0072，核实0073-0076已经吻合的对象，再补跑0077/0078/0079，最后`stamp head`）——**只在一次性rehearsal克隆库上执行，不直接动`aifamily_dev_claude`**，本轮完全没有执行任何repair，等您审阅报告后决定是否进入阶段B（建rehearsal克隆库）。
