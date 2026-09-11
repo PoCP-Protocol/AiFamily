@@ -2031,6 +2031,9 @@ capabilities:
       - tests/intelligence/test_agi_vertical_durable.py
       - tests/intelligence/test_agi_vertical_composition.py
       - tests/apps/family_api/test_vertical_growth_composition.py
+      - tests/architecture/test_runtime_taxonomy.py
+    governance:
+      - governance/ADR/ADR-0167-family-agi-runtime-architecture.md
     consent:
       required: true
       note: >
@@ -2054,7 +2057,8 @@ capabilities:
     status: IMPLEMENTED_TESTED
     known_gaps:
       - "HTTP 路由已存在并覆盖 draft/replay/decision/delete；生产环境仍需显式 composition root 注入，未配置时 fail-closed"
-      - "durable 适配器依赖既有 Experience ledger，但垂直 draft 尚无独立 PostgreSQL 表/迁移"
+      - "ADR-0167：复用 Experience ledger；不新增认知账本表。IntelligenceRun adapter 尚未实现"
+      - "EvaluationLedger 已弃用，生产装配仍有旧 pipeline 参数依赖；R2.3/R2.6 消除后方可声明 zero production caller"
       - "已完成 durable adapter 的 PostgreSQL 隔离、幂等、重启读回测试；尚未完成同一 ref 的真实浏览器双家庭 V-01～V-10 全量验收"
       - "外部模型供应商准入仍受 model_gateway 合规审查阻断，当前测试使用 FakeProvider"
 
