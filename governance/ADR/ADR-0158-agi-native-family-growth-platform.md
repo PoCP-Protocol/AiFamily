@@ -1862,3 +1862,33 @@ R0 GREEN MAIN: NOT YET（还有两个独立缺陷未修）
 **BLOCKER-001重新分类**：`DEV DATABASE MIGRATION / SCHEMA DRIFT`，子问题`service_cases 0070 contract not reflected in aifamily_dev_claude`。确认了您的判断——`origin/main`上0070迁移源码本身完全正确，缺陷完全在这一个持久数据库自己的漂移历史里，跟迁移代码/`R2.2`要处理的`DomainFamilyId`/`FamilyScopeRef`语义分离完全无关，本轮没有借这个修复偷偷碰身份模型设计。
 
 **修复方案建议**：`REPAIR_RECOMMENDATION = Strategy B3`（针对性对齐脚本：正向补跑真正缺失的0070/0071/0072，核实0073-0076已经吻合的对象，再补跑0077/0078/0079，最后`stamp head`）——**只在一次性rehearsal克隆库上执行，不直接动`aifamily_dev_claude`**，本轮完全没有执行任何repair，等您审阅报告后决定是否进入阶段B（建rehearsal克隆库）。
+
+**BLOCKER-001重新分类**：`DEV DATABASE MIGRATION / SCHEMA DRIFT`，子问题`service_cases 0070 contract not reflected in aifamily_dev_claude`。确认了您的判断——`origin/main`上0070迁移源码本身完全正确，缺陷完全在这一个持久数据库自己的漂移历史里，跟迁移代码/`R2.2`要处理的`DomainFamilyId`/`FamilyScopeRef`语义分离完全无关，本轮没有借这个修复偷偷碰身份模型设计。
+
+**修复方案建议**：`REPAIR_RECOMMENDATION = Strategy B3`（针对性对齐脚本：正向补跑真正缺失的0070/0071/0072，核实0073-0076已经吻合的对象，再补跑0077/0078/0079，最后`stamp head`）——**只在一次性rehearsal克隆库上执行，不直接动`aifamily_dev_claude`**，本轮完全没有执行任何repair，等您审阅报告后决定是否进入阶段B（建rehearsal克隆库）。
+
+### Claude执行报告（2026-09-11续）：FAMILY-R0-CASE05确认+修复，`tests/apps/family_api/`全绿，已推送
+
+按总架构师裁决（Full Suite对照环境必须是"全新空库→alembic head"，不能克隆repaired rehearsal；rehearsal降级为独立的Recovery Compatibility Gate）重新搭了两组全新空库，逐一验证。
+
+**FAMILY-R0-CASE05确认为真实缺陷，根因跟event loop污染完全无关**：`_mount_identity()`和vertical-growth composition都是"只要`DATABASE_URL`是显式Postgres URL就切到真实Postgres wiring，不看`AIFAMILY_ENV`"（故意设计，为了能测试生产真实性）。三个测试文件从没显式声明自己的persistence seam，悄悄继承了外部环境的`DATABASE_URL`（CI的job-wide变量，或本地复现时手动export的），导致意外从"快速内存dev seam"切换成"真实Postgres seam"：
+- `test_assessment_routes.py`——合成非UUID标识符`family-a`打在真实`tenant_family_bindings`表上，报UUID类型错误
+- `test_journey_onboarding_mount.py`——真实asyncpg连接跨测试event loop边界泄漏，teardown时报`Event loop is closed`（表面像Case01，实际根因是CASE05；文件里3处裸`TestClient(app)`也顺手按既有规范修了，但不是这次失败的真正原因）
+- `test_default_vertical_growth_http.py`——意外触发真实Postgres的fail-closed路径，返回503而不是预期的合成composition
+
+**修复**：给每个受影响的fixture加`monkeypatch.delenv("DATABASE_URL", raising=False)`，让测试语义不再依赖未声明的外部环境状态。**完全没有改任何production代码**——真实Postgres身份/vertical-growth wiring本身是对的，只是这几个dev-seam测试需要显式声明自己的seam。`test_assessment_http_postgres_e2e.py`（真实PG集成测试）改动后重跑3/3确认未受影响。
+
+**验证**：`tests/apps/family_api/`整个目录，用两组独立全新建的、按CI同款流程迁移到head的数据库对分别跑——**316 passed, 0 failed**，两次结果字节对字节一致。ruff clean。`tests/architecture`：138 passed, 1 skipped。`PRODUCTION_FILES_CHANGED=0`。
+
+本地commit `3ffbee8`，已推送到远端`fix/r0-green-main-closure`分支（`89c6712f..3ffbee88`）。
+
+**CASE01/CASE05现状**：
+```
+CASE01: 本文件里的3处裸TestClient已修（非本次失败根因，属于既有规范补完）
+CASE05: CONFIRMED + FIXED（这三个文件），范围盘点显示不是系统性问题——
+        同类模式的另外2个候选文件（test_family_need_routes.py/
+        test_need_fulfillment_e2e.py）实测在真实Postgres下本来就能过，
+        不受影响，不需要修改
+```
+
+`tests/apps/family_api/`目录本身的CI-equivalent验证已经绿，还没扩大到全仓Full Suite（`tests/`全树）——那是下一步。等指示是否现在扩大范围，还是先处理Recovery Compatibility Gate（rehearsal数据库那条独立验证线）。
