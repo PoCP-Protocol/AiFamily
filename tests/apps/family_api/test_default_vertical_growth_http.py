@@ -72,6 +72,15 @@ def test_create_app_accepts_explicit_production_composition(monkeypatch) -> None
 def test_default_test_composition_supports_draft_replay_isolation_and_delete(
     monkeypatch,
 ) -> None:
+    # This test's whole point is the synthetic/dev vertical-growth
+    # composition (`test_postgres_test_environment_does_not_install_
+    # synthetic_vertical_runtime` below covers the opposite, explicit-
+    # Postgres case). An ambient real `DATABASE_URL` — e.g. CI's job-wide
+    # one — silently switches this composition to the postgres-required
+    # path and makes it fail closed with 503, same seam-declaration issue
+    # already fixed in test_assessment_routes.py and
+    # test_journey_onboarding_mount.py.
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setenv("AIFAMILY_ENV", "test")
     with TestClient(create_app()) as client:
         payload = {

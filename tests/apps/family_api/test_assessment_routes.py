@@ -36,6 +36,7 @@ from fastapi.testclient import TestClient
 
 from backend.apps.family_api.dev_wiring import reset_dev_state
 from backend.apps.family_api.main import create_app
+from backend.platform.persistence.session import DATABASE_URL_ENV_VAR
 
 FAMILY = "family-a"
 OTHER_FAMILY = "family-b"
@@ -47,8 +48,25 @@ def _dev_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
     Set before `create_app` is called, not after: the decision is made once at
     construction time.
+
+    This test's whole point is the fast, in-memory dev seam — it uses
+    non-UUID synthetic identifiers (`family-a`, `account-a`) and seeds
+    state directly into `dev_wiring._assessment_repository`, which only
+    exists on that seam. `_mount_identity()` switches to the real
+    PostgreSQL identity wiring whenever `DATABASE_URL` is an explicit
+    Postgres URL, regardless of `AIFAMILY_ENV` — by design, so production
+    realism can be tested when a caller asks for it. But that means this
+    test's execution semantics would silently change if the ambient
+    process/CI environment happens to have a real `DATABASE_URL` set for
+    unrelated reasons (exactly what CI's job-wide `DATABASE_URL` does),
+    producing `invalid UUID 'family-a'` failures against real Postgres
+    tables this test was never designed to touch. A test must declare its
+    own persistence seam, not inherit one from the ambient environment —
+    see `test_assessment_http_postgres_e2e.py` for this same domain's
+    explicit real-Postgres coverage.
     """
     monkeypatch.setenv("AIFAMILY_ENV", "dev")
+    monkeypatch.delenv(DATABASE_URL_ENV_VAR, raising=False)
     reset_dev_state()
 
 

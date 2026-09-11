@@ -48,6 +48,16 @@ def _intent() -> ConfirmedGrowthIntent:
 
 
 def _dev_app(monkeypatch: pytest.MonkeyPatch):
+    # Same seam-declaration fix as test_assessment_routes.py's `_dev_env`:
+    # this fixture builds a fake, in-memory growth-onboarding runtime and
+    # never intends to touch real Postgres, but `_mount_identity()`
+    # switches to real Postgres identity wiring whenever `DATABASE_URL`
+    # is an explicit Postgres URL regardless of `AIFAMILY_ENV` — so an
+    # ambient real `DATABASE_URL` (e.g. CI's job-wide one) silently
+    # changes this test's execution seam and leaks a real asyncpg
+    # connection that fails during teardown with `RuntimeError: Event
+    # loop is closed`.
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setenv("AIFAMILY_ENV", "test")
     intent = _intent()
     runtime = build_fake_growth_onboarding_runtime([intent])
@@ -106,21 +116,21 @@ def test_dev_mount_is_discoverable_callable_once_and_replays_without_duplicates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app, runtime = _dev_app(monkeypatch)
-    client = TestClient(app)
 
     assert PATH in app.openapi()["paths"]
     assert len(_mounted_routes(app)) == 1
 
-    first = client.post(
-        f"/families/{FAMILY_ID}/growth/onboardings",
-        headers=_headers("mount-start"),
-        json={"intent_id": INTENT_ID},
-    )
-    replay = client.post(
-        f"/families/{FAMILY_ID}/growth/onboardings",
-        headers=_headers("mount-start"),
-        json={"intent_id": INTENT_ID},
-    )
+    with TestClient(app) as client:
+        first = client.post(
+            f"/families/{FAMILY_ID}/growth/onboardings",
+            headers=_headers("mount-start"),
+            json={"intent_id": INTENT_ID},
+        )
+        replay = client.post(
+            f"/families/{FAMILY_ID}/growth/onboardings",
+            headers=_headers("mount-start"),
+            json={"intent_id": INTENT_ID},
+        )
 
     assert first.status_code == 200, first.text
     assert runtime.transaction.audit_log[0]["correlation_id"] == "correlation:mount-start"
@@ -137,21 +147,21 @@ def test_dev_mount_preserves_auth_scope_and_idempotency_header_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app, _runtime = _dev_app(monkeypatch)
-    client = TestClient(app)
     url = f"/families/{FAMILY_ID}/growth/onboardings"
     payload = {"intent_id": INTENT_ID}
 
-    missing_auth = client.post(url, json=payload)
-    missing_key = client.post(
-        url,
-        headers={"Authorization": "Bearer parent-token"},
-        json=payload,
-    )
-    cross_family = client.post(
-        "/families/00000000-0000-4000-8000-000000000099/growth/onboardings",
-        headers=_headers("cross-family"),
-        json=payload,
-    )
+    with TestClient(app) as client:
+        missing_auth = client.post(url, json=payload)
+        missing_key = client.post(
+            url,
+            headers={"Authorization": "Bearer parent-token"},
+            json=payload,
+        )
+        cross_family = client.post(
+            "/families/00000000-0000-4000-8000-000000000099/growth/onboardings",
+            headers=_headers("cross-family"),
+            json=payload,
+        )
 
     assert missing_auth.status_code == 401
     assert missing_auth.json() == {"detail": "authorization_required"}
@@ -171,11 +181,12 @@ def test_production_without_explicit_database_keeps_route_and_fails_closed(
     assert PATH in app.openapi()["paths"]
     assert len(_mounted_routes(app)) == 1
 
-    response = TestClient(app).post(
-        f"/families/{FAMILY_ID}/growth/onboardings",
-        headers=_headers("production-unconfigured"),
-        json={"intent_id": INTENT_ID},
-    )
+    with TestClient(app) as client:
+        response = client.post(
+            f"/families/{FAMILY_ID}/growth/onboardings",
+            headers=_headers("production-unconfigured"),
+            json={"intent_id": INTENT_ID},
+        )
 
     assert response.status_code == 503
     assert response.json() == {"detail": "growth_onboarding_identity_not_configured"}
