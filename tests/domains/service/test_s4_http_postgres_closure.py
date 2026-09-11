@@ -26,6 +26,7 @@ from backend.domains.service.infrastructure.sqlalchemy_repository import (
     SqlAlchemyServiceRepository,
 )
 from backend.platform.audit.recorder import AuditRecorder
+from backend.platform.audit.store import AuditBase
 from backend.platform.identity.context import ActorContext, ActorType, TenantStatus
 from backend.platform.identity.directory import InMemoryTenantDirectory
 from tests.domains.service.helpers import CHILD, CONSENT_REF, FAMILY, GUARDIAN, TENANT, granted
@@ -96,6 +97,14 @@ async def test_guardian_books_then_cancels_over_http_and_postgres_reconnects() -
         pytest.skip(SKIP_REASON)
 
     async with postgres_schema_engine(Base.metadata) as engine:
+        async with engine.begin() as connection:
+            # `AuditRecorder` writes to `platform_audit_events`, which lives
+            # under `AuditBase`'s own declarative base — a separate
+            # metadata from this domain's `Base`. `postgres_schema_engine`
+            # only creates the metadata it was given, so this schema needs
+            # its own copy of the audit table too (same pattern as
+            # `test_restart_readback_postgres.py`).
+            await connection.run_sync(AuditBase.metadata.create_all)
         sessions = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         async with sessions() as session:
             state = _HttpState(SqlAlchemyServiceRepository(session))
