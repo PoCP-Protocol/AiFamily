@@ -1,8 +1,9 @@
 ---
 id: ADR-0167
 title: Family AGI Runtime 架构定位（Family Domain AGI Platform）
-status: Proposed
+status: Accepted
 date: 2026-09-10
+updated: 2026-09-11
 owner: chief-architect
 ---
 
@@ -73,9 +74,12 @@ SAFETY / GOVERNANCE / EVAL（Consent / Guardian / RBAC / Audit / Evals，已有�
 - 不一次性搭建全部Runtime目录骨架（`family-intelligence-runtime/`下29个子目录）——空目录本身就是骨架冒充能力，是本ADR明确要避免的反面案例；目录结构按需在AGI-1目标驱动下逐个长出真实内容
 - MCP/A2A暂不接入——本ADR记录方向（工具/多Agent协作走标准协议，不自建私有集成），实际接入时机等有真实的第三方Agent协作需求出现
 
-## 下一步
+## 实施顺序
 
-邀请Codex在此ADR下回应/反驳——本ADR直接决定`path_orchestration`及其后续切片的架构坐标，不是单方面的技术决策。当前具体推进目标：把AGI-0→AGI-1的差距（Family World Model的最小雏形、跨会话Memory）列为下一个可验证增量，而不是继续在"回答变得更聪明"这个维度上打磨。
+用户于 2026-09-11 确认本次范围为 R0 检查与 R2.1 最小变更。先完成
+R0 Green Main → R2.1 Run Taxonomy → R2.2 Scope → R2.3 IntelligenceRun，
+再推进模型执行收敛；R2 EXIT 全部通过后才能进入 R3 World Model。
+Accepted 表示接受本 ADR 的架构边界，不表示 R0 或 R2 已通过验收。
 
 ## 修订（2026-09-10）：Runtime Convergence——从愿景架构到收敛决策
 
@@ -95,15 +99,19 @@ SAFETY / GOVERNANCE / EVAL（Consent / Guardian / RBAC / Audit / Evals，已有�
 
 - **`AgentRuntime`** = 单步、受权限约束的结构化执行原语（现状保留，不改语义）
 - **Family Intelligence Loop**（新增，位置待定为`agent_runtime/`下的模块，不是新package）= 长期目标/规划/执行/观察/反思/重规划——**目前不存在**，`VerticalFamilyGrowthRuntime`的`revise()`/`reflect()`是这个角色的唯一真实雏形，将被迁移改造为这个角色的实现，不是被推翻重写
-- **`Principal`** = 用户面对的统一人格/Supervisor Experience，只负责路由/解释/确认，不做Goal/Plan（现状已经符合这个定位，不用大改）
+- **`Principal`** = 用户面对的统一人格/Supervisor Experience，目标为只负责路由/解释/确认；当前仍有直接网关调用，须在 R2.4 接入 AgentRuntime，不能称为已收敛
 - **`ToolRuntime`** = 唯一行动与外部工具边界（现状保留）
 
-### 具体迁移方向（供后续实施ADR/PR细化，本次不动代码）
+### 具体迁移方向
 
-调研确认的可迁移边界：
+撤销旧版“EvaluationLedger 迁入 agent_runtime”的建议：它的 Guardian 修正与
+认知 lineage 属于 IntelligenceRun，不属于 AgentRun。旧建议以 Git 历史保留，
+不再作为实施指令。
 
-- **迁到`agent_runtime`成为通用能力**：`EvaluationLedger`（append/decision/read/replay/delete，跟family语义无关，是纯粹的日志/重放基础设施）；`revise()`/`reflect()`的框架逻辑（除payload构造外都通用）；`_lineage_ref()`（内容无关的稳定ID生成）
-- **留在家庭特定层，降级为`VerticalFamilyProfile`配置对象**：`family_need_id`/`path_id`/`family_id`/`context_snapshot_ref`/`guardian_calibration`/capability grounding检查——这些字段在`agi_vertical_runtime.py`里出现86次，是真正的家庭业务语义，不该被抽象掉
+- 复用 AgentRuntime 的技术执行状态机、权限、trace 与 Model Gateway port。
+- 将 revise/reflect 的认知生命周期适配到 IntelligenceRun；家庭 payload 与
+  capability grounding 留在 VerticalFamilyGrowthProfile。
+- Guardian calibration、parent/revision/reflection lineage 归 IntelligenceRun。
 
 ### `path_orchestration` feature branch 处置
 
@@ -112,25 +120,111 @@ SAFETY / GOVERNANCE / EVAL（Consent / Guardian / RBAC / Audit / Evals，已有�
 - `FamilyPathContext` → 并入 Family World Model的context契约
 - `PathDraft` → 并入 Plan/GrowthPath契约
 - `PathFeedbackSignal` → 并入 Guardian Calibration（`VerticalFamilyGrowthRuntime.decide()`已有的机制）
-- `PathDraftPersistencePort` → 改造成`EvaluationLedger`的adapter，不是独立持久化层
+- `PathDraftPersistencePort` → 提取可复用语义，经 IntelligenceRun persistence port
+  适配已有 Experience ledger；不适配到已弃用的 EvaluationLedger
 - `ContextDrivenPathDraftPlanner` → 降级为Candidate Pre-selector（确定性过滤层，不冒充Planner）
 
 这不代表三个PR的工作被浪费——`GatewayBackedUnderstandAdapter`/`GatewayBackedCandidateExplanationAdapter`（真实Model Gateway调用+去标识化+知识检索/模型转写分离）这两个设计模式本身是对的，会被复用到Family Intelligence Loop的实现里，只是不再作为独立的`path_orchestration`package存在。
 
-### 本次未决事项（诚实标注，非本次会话解决范围）
+## R2.1：四级 Run Taxonomy（FAMILY-AGI-REORG-021）
 
-- 具体的代码迁移（把`agi_vertical_runtime.py`的通用部分真的搬进`agent_runtime/`）是下一个PR的工作，本次修订只锁定方向，不动代码
-- `VerticalFamilyProfile`的确切字段/接口设计需要在实施PR里定稿，本ADR只给出迁移边界的判断依据
-- status继续`Proposed`——这是架构级决策，需要codex/总控确认后才能`Accepted`，不由本次会话单方面拍板
+本节参考已有定稿提交 `arch/r2-run-taxonomy@31410fe7`，结合当前代码补充可执行
+护栏与未完成边界；未修改该协作者分支。基线为
+`origin/main@7e3041b53b98f7fd847810ad2d87d590af753080`。
 
-### Claude 补充发现（2026-09-10）：迁移比预想的更复杂，暂停代码动手，先记录
+### CURRENT CODE TO REUSE
 
-尝试开始最小的迁移步骤（把`EvaluationLedger`搬到`agent_runtime`）时，发现两个此前判断不够精确的问题：
+- `agent_runtime/contracts.py::AgentRun` 与 `persistence.py::AgentRunRecord`、
+  `AgentRunRow`：技术执行记录，复用 `ai_agent_runs` 与 trace 表。
+- `experience/runs.py`、`experience/run_store.py::SqlAlchemyExperienceRunStore`：
+  已有 run/event/checkpoint 状态与持久化，复用 `experience_runs`、
+  `experience_run_events`、`experience_run_checkpoints`。
+- `agi_vertical_durable.py` 与生产装配中的 durable adapter 检查：已有迁移接缝，
+  不能把“仍带内存 pipeline 的 durable wrapper”误报成“旧 runtime 已删除”。
+- 现有 ToolRuntime、Human Gate、Domain Named Action：业务事实写入边界。
 
-1. **`EvaluationLedgerEntry`本身不是"跟family语义无关的通用infra"**——它内嵌`family_need_id`/`path_id`必填字段。真正通用的只是`EvaluationLedger.append/read/replay/delete`四个方法（这四个方法确实只依赖`entry.run_id`，是duck-typing式的通用）；`decision()`方法绑定`GuardianDecision`（同样family-specific），不能一起搬。
+### CODE TO RETIRE
 
-2. **更重要的发现**：`backend/intelligence/agent_runtime/`下已经存在一套**真实SQL持久化**的`AgentRunPersistencePort`+`DurableAgentRuntime`（真实表`ai_agent_runs`，`create/start/succeed/fail/append_trace/replay`完整生命周期），跟`agi_vertical_runtime.py`自己发明的**内存版**`EvaluationLedger`在语义上高度重叠——都是"记录一次AI执行+支持重放"，只是一个持久化、一个不持久化。这本身就是本ADR想解决的"三套并行执行语义"问题的一个更深层子问题：**不只是执行入口重复，连持久化/记录机制也重复发明了一遍**。
+`backend/intelligence/agi_vertical_runtime.py::EvaluationLedger` = **DEPRECATED**。
+不迁入 AgentRuntime，不升级为生产 canonical persistence。先适配、切换调用者、
+验证，再删除；本次不删除仍被调用的实现。`experience/multimodal_eval.py` 的同名
+EvaluationLedger Protocol 是评测接口，不是这个旧认知 ledger，不能按同名一并删除。
 
-`AgentRunPersistencePort`目前没有`guardian_calibration`/`parent_run_id`链式追踪这类认知修正语义，跟`VerticalFamilyGrowthRuntime`要的"guardian校准→revise→reflect"链条不是同一层次的东西（一个是执行状态机，一个是认知修正链）。**是否能/该把两者合并，需要认真设计，不是简单的文件搬移**。
+### NEW CODE
 
-**暂停这条代码迁移线**，不在没有设计评审的情况下继续写可能被推翻的迁移代码。这个发现补充进ADR-0167，等codex/总控一起判断：(a) 两套持久化机制要不要合并，(b) 如果合并，`AgentRunPersistencePort`需要加哪些字段/方法才能承载guardian calibration链，(c) 如果不合并，两者的边界该怎么正式划清楚（避免第三次有人再发明第三套）。
+本次只新增 `tests/architecture/test_runtime_taxonomy.py`；不创建运行时模块。
+R2.3 才实现 `agent_runtime/intelligence_runs.py` 与
+`experience/intelligence_run_adapter.py`。**NO MIGRATION / NO NEW TABLE**。
+
+### 四级职责
+
+```text
+GatewayAttempt → AgentRun → IntelligenceRun → NamedAction / DomainFact
+```
+
+箭头表示记录与治理层次，不表示自动写入；一次 IntelligenceRun 可关联 0..N 次
+AgentRun，一次 AgentRun 可关联多次 GatewayAttempt（例如重试）。
+
+- **GatewayAttempt**：provider/model、网络延迟、token accounting、retry/timeout、
+  provider response/error metadata。原始供应商响应不是认知状态。
+- **AgentRun**：有边界的技术执行，拥有 request/agent/use-case、生命周期、trace、
+  ModelDraft 与技术错误。可以保留 draft provenance 中已有的 usage 元数据，
+  但不能拥有 guardian_calibration、认知 parent、plan_revision 或 reflection lineage。
+- **IntelligenceRun**：认知事件，拥有 scope/subject refs、world-state/evidence/unknown
+  refs、Guardian decisions/calibration、goal/plan refs、reflection refs、parent 与
+  revision lineage。不得拥有 provider token accounting、provider retry 或 raw response。
+  记录业务对象引用不等于拥有业务对象；接受后的 Plan 仍由 canonical Domain 保存。
+- **NamedAction / DomainFact**：事实归 Domain；AI 现实动作经 ToolRuntime、Policy、
+  所需 Human Gate 与 Named Action，审计随业务事务写入。认知结果不能自动成为事实。
+
+### IntelligenceRun 持久化与重放
+
+```text
+IntelligenceRunPersistencePort
+  → ExperienceIntelligenceRunAdapter
+  → SqlAlchemyExperienceRunStore
+  → existing experience run/event/checkpoint tables
+```
+
+保留现有 caller-owned transaction 与完整 scope 校验，不复制另一套 ledger。
+R2.3 的 replay 必须 ZERO MODEL CALL / ZERO TOOL CALL / ZERO DOMAIN MUTATION，
+并证明 Guardian edit/resume/reflection/replan lineage、跨 scope 拒绝及重启恢复。
+本次仅冻结这些要求，未实现或验证 IntelligenceRun replay。
+
+### 已落护栏与迁移债务
+
+架构测试检查 AgentRun 的实际 dataclass 字段和 ORM 列，禁止认知字段混入技术记录；
+检查现有认知载体的字段，并扫描今后新增的 IntelligenceRun 类型，禁止独立持有
+provider accounting。ModelDraft 内原有 provenance 不属于新增的认知 accounting 字段。
+扫描器的反例测试覆盖禁止字段与 import alias，避免只在当前文件上得到空的绿灯。
+
+EvaluationLedger 禁止新增生产依赖；当前生产装配的一个 import + 参数类型仍是
+显式迁移债务，护栏按基线冻结这两处引用，任何新增引用失败。另一个行为测试
+要求生产装配拒绝把 EvaluationLedger 当作 durable ledger。
+**这不等于 zero production caller**：旧 Vertical pipeline 仍使用它。
+R2.3/R2.6 必须删除剩余依赖及护栏内的对应债务项后，才能通过 R2 EXIT。
+
+字段扫描与依赖扫描不是任意动态 Python 行为的证明，也不证明 JSON payload 的
+完整隔离、授权、真实 PostgreSQL、重启或生产路由可用；这些由后续集成验证覆盖。
+
+### R0 检查与验收边界
+
+2026-09-11 查询 main 的 CI run `34467544915`，对应上述基线：迁移、lint、
+architecture steps 成功；全量测试 **17 failed, 2714 passed, 18 skipped**，
+product_intelligence 域内测试步骤未执行。证据：
+https://github.com/PoCP-Protocol/AiFamily/actions/runs/34467544915 。
+
+失败包括跨 event loop 资源、失效数据库引用、family UUID、缺审计表及过期 Human
+Task 等表现；仅凭 CI 摘要不能归为同一根因。已有 `fix/r0-green-main-closure`
+与 `infra/ci-postgres-isolation` 工作线，本次不混入其修复，不声称它们已合入。
+**R0 = BLOCKED；R2 整体验收未通过。**
+
+Accepted 仅冻结 taxonomy 与退役方向。R2.1 最小变更不运行数据库迁移，
+真实 PostgreSQL 与 Golden E2E 本次未运行；不得用本次架构测试替代 R2 EXIT。
+
+### 后续实施纪律
+
+每个任务先写 CURRENT CODE TO REUSE、CODE TO RETIRE，再写 NEW CODE。
+状态资源必须有显式 owner；新 runtime 依赖按 app/composition 实例持有，不能新增
+mutable module-global dependency singleton。应用装配不能依赖上一次 create_app()
+留下的配置。执行证据优先于 Agent 叙述。
