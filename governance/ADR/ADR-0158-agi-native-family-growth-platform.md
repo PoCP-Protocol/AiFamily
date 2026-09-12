@@ -1631,3 +1631,15 @@ ADR-0167邀请你直接回应/反驳，因为它直接决定这条切片未来�
 **这已经超出我能在本次会话继续独立诊断解决的范围**——这是CI测试基础设施层面的系统性问题（`_ENGINE_CACHE`大小/驱逐策略、共享数据库测试之间的数据隔离），不是逐个修复字段名错误级别的工作量。诚实标注，不再继续无限深挖单个失败用例。
 
 **给总架构师的建议**：这类问题的负责任处理方式，可能是（a）审查`ENGINE_CACHE_SIZE`配置和驱逐时机，或（b）把这批用固定共享数据库的测试改成每个测试文件/用例前做truncate清理，确保测试间幂等，或（c）如果这批测试本来就假设"CI给一个全新schema，测试顺序执行不互相污染"，需要找到具体哪个测试留下了脏状态。这几个方向的判断需要专门的调试时间，不适合在当前节奏下继续摸索。
+
+### Claude 深挖结论（2026-09-10）：确认为跨事件循环的异步资源生命周期问题，不是零散bug
+
+用探针（monkey-patch `get_engine`打印调用栈）本地复现`journey_e2e_*` does not exist问题后确认：**这次失败的数据库连接根本不经过`backend/platform/persistence/session.py`统一的`get_engine()`/`_ENGINE_CACHE`机制**——探针完全没有被触发。真正触发连接的调用栈显示：`loop = <ProactorEventLoop running=False closed=True>`——**在一个已经关闭的事件循环上**，某个异步任务/连接对象被重新调度执行,试图连接它自己创建时绑定的旧数据库URL（属于前一个测试）。
+
+这跟之前记录的一批`RuntimeError: attached to a different loop`（`anyio.from_thread.BlockingPortal`跨事件循环错误）**判断为同一个根因**——都是"某个异步资源（连接/任务/portal）在一个event loop上创建，但生命周期跨越到了下一个测试的新event loop，被意外复活/触发"。
+
+这不是`_course_system_repository`/`_release_baseline_store`那类模块级可变全局变量的问题（已排查排除，main.py每次都重新配置它们，且release_baseline走的是纯内存字典fallback，跟数据库无关）——真正的根因在更底层：**某处持有了一个跨越pytest测试函数边界的异步对象引用**（可能是某个测试fixture自己创建的engine/pool/BlockingPortal没有在正确的event loop生命周期内被清理/dispose，泄漏到了下一个测试）。
+
+**判断**：这是一个真实的、系统性的"异步资源生命周期跨事件循环泄漏"架构问题，波及至少3个域（journey/product_intelligence/assessment），表现为两种症状（跨loop RuntimeError + 连接到已删除数据库的InvalidCatalogNameError）。完整修复需要审计哪个具体的fixture/连接池对象在哪里被跨测试意外持有——这需要专门的、更长的调试session（可能要在pytest里加`--tb=long`+逐个bisect排除测试文件组合，或者审查所有测试用的asyncpg/SQLAlchemy engine创建模式是否都在正确的function-scoped fixture里创建/清理），超出本次会话能负责任独立完成的范围。
+
+**不建议的处理方式**：不应该为了让CI变绿而给这类测试加`@pytest.mark.xfail`或跳过——那是掩盖真实架构问题。**建议的处理方式**：作为一个独立、有优先级的技术债事项登记（可以命名为`FAMILY-AGI-REORG-020.1 — Async Resource Lifecycle Audit`），需要专门时间处理，不适合在当前R0收尾节奏下继续摸索。
