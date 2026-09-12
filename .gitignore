@@ -26,6 +26,11 @@ Thumbs.db
 .cursor/
 .codex-tmp/
 
+# AI agent tool state — local to a session/machine, not repository content.
+.claude/settings.json
+.claude/worktrees/
+.codex/
+
 # Local scratch
 *.log
 tmp/
