@@ -291,6 +291,26 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
+    "0080_ai_family_world_atoms": {
+        # +1 table: ai_family_world_atoms (AIFAMILY-WM-001 Atom Store).
+        "tables": EXPECTED_0008_COUNTS["tables"] + 81,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    "0081_ai_family_world_conflicts": {
+        # +1 table: ai_family_world_conflicts (AIFAMILY-WM-004A Conflict Engine).
+        "tables": EXPECTED_0008_COUNTS["tables"] + 82,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
+    "0082_ai_family_world_atoms_projection_identity": {
+        # +0 tables: adds projection_key/semantic_fingerprint/projection_version
+        # columns (+ UNIQUE constraint) to the existing ai_family_world_atoms
+        # table (AIFAMILY-WM-003.6 source idempotency) — no new table.
+        "tables": EXPECTED_0008_COUNTS["tables"] + 82,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
 }
 
 _MODEL_DRAFTS_ADR = (
