@@ -31,6 +31,14 @@ from backend.intelligence.context_engine.belief_engine import generate_hypothesi
 from backend.intelligence.context_engine.belief_state import assemble_belief_state
 from backend.intelligence.context_engine.conflict_engine import ConflictType, detect_conflicts
 from backend.intelligence.context_engine.contracts import ContextScope, DataClass
+from backend.intelligence.context_engine.goal_proposal import (
+    GOAL_PROPOSAL_USE_CASE,
+    generate_goal_proposal,
+)
+from backend.intelligence.context_engine.guardian_goal_decision import (
+    GuardianGoalDecisionType,
+    record_guardian_decision,
+)
 from backend.intelligence.context_engine.postgres_unknown_repository import (
     PostgresUnknownRepository,
 )
@@ -38,6 +46,10 @@ from backend.intelligence.context_engine.postgres_world_state_repository import 
     PostgresWorldStateRepository,
 )
 from backend.intelligence.context_engine.predicate_registry import PredicateRegistry
+from backend.intelligence.context_engine.primary_contradiction import (
+    PRIMARY_CONTRADICTION_USE_CASE,
+    generate_primary_contradiction,
+)
 from backend.intelligence.context_engine.task_context_projector import (
     TaskContextSpec,
     project_task_context,
@@ -465,3 +477,116 @@ async def test_family_scene_001_conflict_to_hypothesis_to_unknown() -> None:
         )
         assert {i.item_ref for i in exact_fit.items} == {mother.atom_id, child.atom_id}
         assert len(exact_fit.conflicts) == 1
+
+        # --- Checkpoint 6: PrimaryContradictionProposal (AIFAMILY-FIL-001) -
+        # The next cognition stage after Hypothesis/Unknown: what is this
+        # family's most decision-relevant current tension right now — never
+        # a fact, structurally required to carry alternatives + uncertainty.
+        contradiction_runtime, contradiction_authorization = _fake_runtime(
+            {
+                PRIMARY_CONTRADICTION_USE_CASE: {
+                    "statement": (
+                        "当前更值得优先处理的可能不是孩子整体不愿交流，"
+                        "而是学习话题中的控制感与自主需求冲突"
+                    ),
+                    "alternatives": ["孩子整体社交回避", "单纯青春期阶段性疏离"],
+                    "uncertainty": "MEDIUM",
+                    "why_priority_now": "学习话题的冲突已经扩散到影响日常晚间交流",
+                    "evidence_atom_ids": [mother.atom_id, child.atom_id, father.atom_id],
+                    "supporting_hypothesis_ids": [hypothesis.atom_id],
+                    "contradiction_ids": [c.conflict_id for c in conflicts],
+                }
+            },
+            use_case=PRIMARY_CONTRADICTION_USE_CASE,
+        )
+        primary_contradiction = await generate_primary_contradiction(
+            contradiction_runtime,
+            agent_id=_AGENT_ID,
+            authorization=contradiction_authorization,
+            request_id="request-scene-contradiction-1",
+            evidence_atoms=(mother, child, father),
+            hypotheses=(hypothesis,),
+            conflicts=conflicts,
+            scope=scene_scope(),
+            subject_ids=("child-1", "mother-1", "father-1"),
+            context_snapshot_ref="family-scene-001-snapshot",
+            proposal_id="scene-contradiction-1",
+            now=NOW,
+        )
+
+        assert primary_contradiction.alternatives  # never presents as the only reading
+        assert primary_contradiction.uncertainty is not None
+        assert set(primary_contradiction.supporting_hypothesis_refs) <= {hypothesis.atom_id}
+
+        # --- Checkpoint 7: GoalProposal (AIFAMILY-FIL-001) ------------------
+        # AI-authored, not-yet-decided candidate goal — carries a full
+        # Learning Contract as structurally required fields, not decoration.
+        goal_runtime, goal_authorization = _fake_runtime(
+            {
+                GOAL_PROPOSAL_USE_CASE: {
+                    "statement": "未来7天内，在非说教条件下建立至少2次持续10分钟以上的平稳双向交流",
+                    "desired_change": "降低学习话题触发的对抗，恢复可持续的交流方式",
+                    "success_criteria": ["至少完成2次平稳交流", "过程中没有升级为争吵"],
+                    "non_goals": ["不要求孩子立刻转变对学习的态度"],
+                    "expected_observation": "孩子是否愿意在非学习话题上主动延续对话",
+                    "measurement_window": "7 days",
+                    "failure_criteria": ["连续2次尝试都迅速升级为冲突"],
+                    "stop_criteria": ["孩子明确拒绝继续尝试"],
+                    "escalation_criteria": ["出现明显情绪危机或安全风险迹象"],
+                    "evidence_atom_ids": [mother.atom_id, child.atom_id, father.atom_id],
+                }
+            },
+            use_case=GOAL_PROPOSAL_USE_CASE,
+        )
+        goal_proposal = await generate_goal_proposal(
+            goal_runtime,
+            agent_id=_AGENT_ID,
+            authorization=goal_authorization,
+            request_id="request-scene-goal-1",
+            evidence_atoms=(mother, child, father),
+            primary_contradiction_statement=primary_contradiction.statement,
+            scope=scene_scope(),
+            subject_ids=("child-1", "mother-1", "father-1"),
+            context_snapshot_ref="family-scene-001-snapshot",
+            goal_proposal_id="scene-goal-1",
+            family_need_ref=None,
+            reasoning_ref=primary_contradiction.proposal_id,
+            now=NOW,
+        )
+
+        assert goal_proposal.success_criteria
+        assert goal_proposal.failure_criteria
+        assert goal_proposal.stop_criteria
+        assert goal_proposal.escalation_criteria
+
+        # --- Checkpoint 8: GuardianGoalDecision (AIFAMILY-FIL-001) ----------
+        # A real human guardian decides — the AI can never accept its own
+        # proposal; the authority chain from AI-proposed to human-decided
+        # is a structural property, not a convention.
+        guardian_decision = record_guardian_decision(
+            decision_id="scene-guardian-decision-1",
+            goal_proposal_ref=goal_proposal.goal_proposal_id,
+            decision=GuardianGoalDecisionType.EDIT,
+            final_goal_text=(
+                "未来7天内，在非说教条件下建立至少2次持续10分钟以上的平稳双向交流，"
+                "妈妈主动先聊孩子感兴趣的话题"
+            ),
+            reason="目标方向合理，补充了妈妈的具体行动方式",
+            guardian_actor_ref="mother-1",
+            decided_at=NOW,
+        )
+
+        assert guardian_decision.decision is GuardianGoalDecisionType.EDIT
+        assert guardian_decision.final_goal_text is not None
+        assert guardian_decision.guardian_actor_ref == "mother-1"
+
+        with pytest.raises(Exception, match="AI_CANNOT_ACCEPT_GOAL"):
+            record_guardian_decision(
+                decision_id="scene-guardian-decision-invalid",
+                goal_proposal_ref=goal_proposal.goal_proposal_id,
+                decision=GuardianGoalDecisionType.ACCEPT,
+                final_goal_text="AI 不能自己批准目标",
+                reason="AI 尝试自我批准",
+                guardian_actor_ref="ai:family-principal",
+                decided_at=NOW,
+            )
