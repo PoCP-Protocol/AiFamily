@@ -231,8 +231,28 @@ class UnknownState:
     subject_ids: tuple[str, ...]
     question: str
     why_it_matters: str
+    #: AIFAMILY-WM-004C — the predicate this cognitive gap is *about*,
+    #: supplied by the caller from a governed allowlist (never invented by
+    #: the model). This is what makes `unknown_key` (see `unknown_identity.py`)
+    #: a canonical identity rather than a hash of the question's wording.
+    target_predicate: str | None = None
+    decision_impact: str | None = None
+    answerability: str | None = None
+    urgency: str | None = None
+    #: A hint (e.g. "PARENT_INTERVIEW", "TEACHER_REPORT") for what kind of
+    #: evidence would resolve this — free text, not a governed enum in V1.
+    preferred_source: str | None = None
+    #: The hypothesis/conflict atom_ids this Unknown is blocking on —
+    #: canonicalized (sorted, deduped) as part of `unknown_key` so that two
+    #: proposals blocking on the same evidence set collapse to one Unknown
+    #: regardless of the order the model happened to list them in.
+    blocking_refs: tuple[str, ...] = ()
+    #: AIFAMILY-WM-004C canonical identity — see `unknown_identity.py`.
+    #: `None` only for Unknowns constructed before this field existed in
+    #: tests that do not exercise persistence; the repository always
+    #: requires a real value.
+    unknown_key: str | None = None
     source_refs: tuple[str, ...] = ()
-    blocking_ref: str | None = None
     priority: str = "NORMAL"
     status: UnknownStatus = UnknownStatus.OPEN
     resolution_refs: tuple[str, ...] = ()

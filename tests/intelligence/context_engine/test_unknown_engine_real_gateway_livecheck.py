@@ -90,6 +90,9 @@ def _synthetic_hypothesis() -> WorldStateAtom:
     )
 
 
+LIVECHECK_ALLOWED_PREDICATES = ("child.school_engagement", "child.parent_communication")
+
+
 def _livecheck_request(hypothesis: WorldStateAtom) -> StructuredRequest:
     base = StructuredRequest(
         use_case=UNKNOWN_USE_CASE,
@@ -102,9 +105,10 @@ def _livecheck_request(hypothesis: WorldStateAtom) -> StructuredRequest:
                     "atom_id": hypothesis.atom_id,
                     "statement": hypothesis.value_ref,
                 }
-            ]
+            ],
+            "allowed_target_predicates": list(LIVECHECK_ALLOWED_PREDICATES),
         },
-        output_schema=unknown_output_schema(),
+        output_schema=unknown_output_schema(LIVECHECK_ALLOWED_PREDICATES),
         context_snapshot_ref="unknown-engine-livecheck-ctx",
         input_refs=(hypothesis.atom_id,),
         request_id="unknown-engine-livecheck-req",
@@ -118,6 +122,8 @@ def _livecheck_request(hypothesis: WorldStateAtom) -> StructuredRequest:
             "hypothesis list, propose exactly one clarifying question a "
             "family could be asked to reduce uncertainty. Return JSON with "
             "keys: question (string), why_it_matters (string), "
+            "target_predicate (must be exactly one of: "
+            f"{', '.join(LIVECHECK_ALLOWED_PREDICATES)}), "
             "decision_impact (one of LOW/MEDIUM/HIGH), "
             "answerability (one of LOW/MEDIUM/HIGH), "
             "urgency (one of LOW/MEDIUM/HIGH), "
@@ -175,6 +181,7 @@ async def test_unknown_engine_real_ibm_ica_livecheck() -> None:
         scope=_scope(),
         subject_ids=("synthetic-child-1",),
         hypotheses=(hypothesis,),
+        allowed_target_predicates=LIVECHECK_ALLOWED_PREDICATES,
         existing_unknowns=(),
         created_at=NOW,
     )

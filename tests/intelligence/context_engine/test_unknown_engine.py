@@ -1,8 +1,8 @@
 """AIFAMILY-WM-004C acceptance tests: Unknown Engine.
 
-Same discipline as `test_belief_engine.py`: deterministic scoring/ranking
-has no model dependency at all; the generative half is gated behind
-`ModelGateway` + `FakeProvider`, no real LLM API call anywhere here.
+Same discipline as `test_belief_engine.py`: deterministic scoring/ranking/
+priority has no model dependency at all; the generative half is gated
+behind `ModelGateway` + `FakeProvider`, no real LLM API call anywhere here.
 """
 
 from __future__ import annotations
@@ -20,13 +20,16 @@ from backend.intelligence.context_engine.unknown_engine import (
     AnswerabilityBand,
     ImpactBand,
     InformationValueInputs,
+    UnknownPriority,
     UrgencyBand,
     build_unknown_request,
     compute_information_value,
+    compute_priority,
     generate_unknown,
     rank_unknowns,
     validate_and_build_unknown,
 )
+from backend.intelligence.context_engine.unknown_identity import build_unknown_key
 from backend.intelligence.context_engine.world_state import (
     BeliefBand,
     UncertaintyBand,
@@ -43,6 +46,8 @@ from backend.intelligence.model_gateway.providers.fake import FakeProvider
 from backend.intelligence.safety.runtime import SafetyRuntime
 
 NOW = datetime(2026, 9, 13, tzinfo=UTC)
+
+ALLOWED_PREDICATES = ("child.school_engagement", "child.parent_communication")
 
 
 def scope(**overrides: object) -> ContextScope:
@@ -103,7 +108,7 @@ def _draft(output: dict[str, object]) -> ModelDraft:
     return ModelDraft(output=output, provenance=provenance)
 
 
-# --- Deterministic scoring/ranking (no model at all) -----------------------
+# --- Deterministic scoring/ranking/priority (no model at all) --------------
 
 
 def test_information_value_is_deterministic() -> None:
@@ -131,6 +136,24 @@ def test_higher_bands_yield_higher_information_value() -> None:
         )
     )
     assert high > low
+
+
+def test_compute_priority_is_deterministic_not_model_supplied() -> None:
+    critical = compute_priority(
+        decision_impact=ImpactBand.HIGH,
+        answerability=AnswerabilityBand.HIGH,
+        urgency=UrgencyBand.HIGH,
+    )
+    low = compute_priority(
+        decision_impact=ImpactBand.LOW, answerability=AnswerabilityBand.LOW, urgency=UrgencyBand.LOW
+    )
+    assert critical is UnknownPriority.CRITICAL
+    assert low is UnknownPriority.LOW
+    assert critical == compute_priority(
+        decision_impact=ImpactBand.HIGH,
+        answerability=AnswerabilityBand.HIGH,
+        urgency=UrgencyBand.HIGH,
+    )
 
 
 def test_rank_unknowns_orders_by_information_value_descending() -> None:
@@ -182,6 +205,21 @@ def test_unknown_request_requires_at_least_one_hypothesis() -> None:
     with pytest.raises(ContextContractError, match="UNKNOWN_REQUEST_REQUIRES_HYPOTHESES"):
         build_unknown_request(
             (),
+            allowed_target_predicates=ALLOWED_PREDICATES,
+            context_snapshot_ref="snapshot-1",
+            tenant_id="tenant-1",
+            family_id="family-1",
+            data_class="FAMILY_PRIVATE_TEXT",
+        )
+
+
+def test_unknown_request_requires_allowed_target_predicates() -> None:
+    with pytest.raises(
+        ContextContractError, match="UNKNOWN_REQUEST_REQUIRES_ALLOWED_TARGET_PREDICATES"
+    ):
+        build_unknown_request(
+            (hypothesis_atom(),),
+            allowed_target_predicates=(),
             context_snapshot_ref="snapshot-1",
             tenant_id="tenant-1",
             family_id="family-1",
@@ -193,6 +231,7 @@ def test_validate_rejects_missing_question() -> None:
     draft = _draft(
         {
             "why_it_matters": "重要",
+            "target_predicate": "child.school_engagement",
             "decision_impact": "HIGH",
             "answerability": "HIGH",
             "urgency": "MEDIUM",
@@ -206,47 +245,90 @@ def test_validate_rejects_missing_question() -> None:
             scope=scope(),
             subject_ids=("child-1",),
             hypotheses=(hypothesis_atom(),),
+            allowed_target_predicates=ALLOWED_PREDICATES,
             existing_unknowns=(),
             created_at=NOW,
         )
 
 
-def test_validate_rejects_hallucinated_hypothesis_reference() -> None:
+def test_validate_rejects_target_predicate_not_in_allowlist() -> None:
     draft = _draft(
         {
             "question": "学校最近有没有变化？",
             "why_it_matters": "区分学校适应和其他原因",
+            "target_predicate": "child_is_lazy_unregistered",
             "decision_impact": "HIGH",
             "answerability": "HIGH",
             "urgency": "MEDIUM",
-            "blocking_hypothesis_ids": ["hyp-1", "hyp-999-never-existed"],
+            "blocking_hypothesis_ids": ["hyp-1"],
         }
     )
-    with pytest.raises(ContextContractError, match="UNKNOWN_CITES_UNKNOWN_HYPOTHESIS"):
+    with pytest.raises(ContextContractError, match="UNKNOWN_TARGET_PREDICATE_NOT_ALLOWED"):
         validate_and_build_unknown(
             draft,
             unknown_id="unk-1",
             scope=scope(),
             subject_ids=("child-1",),
             hypotheses=(hypothesis_atom(),),
+            allowed_target_predicates=ALLOWED_PREDICATES,
             existing_unknowns=(),
             created_at=NOW,
         )
 
 
-def test_validate_returns_none_for_duplicate_open_question() -> None:
+def test_validate_rejects_hallucinated_blocking_reference() -> None:
+    draft = _draft(
+        {
+            "question": "学校最近有没有变化？",
+            "why_it_matters": "区分学校适应和其他原因",
+            "target_predicate": "child.school_engagement",
+            "decision_impact": "HIGH",
+            "answerability": "HIGH",
+            "urgency": "MEDIUM",
+            "blocking_hypothesis_ids": ["hyp-1", "hyp-999-never-existed"],
+        }
+    )
+    with pytest.raises(ContextContractError, match="UNKNOWN_CITES_HALLUCINATED_BLOCKING_REF"):
+        validate_and_build_unknown(
+            draft,
+            unknown_id="unk-1",
+            scope=scope(),
+            subject_ids=("child-1",),
+            hypotheses=(hypothesis_atom(),),
+            allowed_target_predicates=ALLOWED_PREDICATES,
+            existing_unknowns=(),
+            created_at=NOW,
+        )
+
+
+def test_validate_returns_none_for_duplicate_unknown_key_even_with_different_wording() -> None:
+    """AIFAMILY-WM-004C B9: dedup is by canonical identity, not question
+    text — a different phrasing of the same gap must still be recognized."""
+
+    existing_key = build_unknown_key(
+        tenant_id="tenant-1",
+        family_id="family-1",
+        subject_ids=("child-1",),
+        target_predicate="child.school_engagement",
+        blocking_refs=["hyp-1"],
+        unknown_contract_version="world-model-unknown-engine/v1",
+    )
     existing = UnknownState(
         unknown_id="unk-existing",
         scope=scope(),
         subject_ids=("child-1",),
         question="学校最近有没有变化？",
         why_it_matters="已经问过",
+        target_predicate="child.school_engagement",
+        blocking_refs=("hyp-1",),
+        unknown_key=existing_key,
         status=UnknownStatus.OPEN,
     )
     draft = _draft(
         {
-            "question": "学校最近有没有变化？",
+            "question": "最近学校方面是不是出了什么状况？",  # different wording
             "why_it_matters": "区分学校适应和其他原因",
+            "target_predicate": "child.school_engagement",
             "decision_impact": "HIGH",
             "answerability": "HIGH",
             "urgency": "MEDIUM",
@@ -259,17 +341,19 @@ def test_validate_returns_none_for_duplicate_open_question() -> None:
         scope=scope(),
         subject_ids=("child-1",),
         hypotheses=(hypothesis_atom(),),
+        allowed_target_predicates=ALLOWED_PREDICATES,
         existing_unknowns=(existing,),
         created_at=NOW,
     )
     assert result is None
 
 
-def test_validate_produces_open_unknown() -> None:
+def test_validate_produces_open_unknown_with_canonical_identity() -> None:
     draft = _draft(
         {
             "question": "孩子自己认为最主要原因是什么？",
             "why_it_matters": "直接来源比第三方转述更可靠",
+            "target_predicate": "child.parent_communication",
             "decision_impact": "HIGH",
             "answerability": "HIGH",
             "urgency": "HIGH",
@@ -282,12 +366,23 @@ def test_validate_produces_open_unknown() -> None:
         scope=scope(),
         subject_ids=("child-1",),
         hypotheses=(hypothesis_atom(),),
+        allowed_target_predicates=ALLOWED_PREDICATES,
         existing_unknowns=(),
         created_at=NOW,
     )
     assert unknown is not None
     assert unknown.status is UnknownStatus.OPEN
-    assert unknown.source_refs == ("hyp-1",)
+    assert unknown.target_predicate == "child.parent_communication"
+    assert unknown.blocking_refs == ("hyp-1",)
+    assert unknown.priority == UnknownPriority.CRITICAL.value
+    assert unknown.unknown_key == build_unknown_key(
+        tenant_id="tenant-1",
+        family_id="family-1",
+        subject_ids=("child-1",),
+        target_predicate="child.parent_communication",
+        blocking_refs=["hyp-1"],
+        unknown_contract_version="world-model-unknown-engine/v1",
+    )
 
 
 # --- Full pipeline test using FakeProvider (no real LLM call) --------------
@@ -327,6 +422,7 @@ async def test_generate_unknown_end_to_end_with_fake_provider() -> None:
         {
             "question": "学校最近有没有发生明显变化？",
             "why_it_matters": "区分学校适应问题和其他原因",
+            "target_predicate": "child.school_engagement",
             "decision_impact": "HIGH",
             "answerability": "MEDIUM",
             "urgency": "MEDIUM",
@@ -338,6 +434,7 @@ async def test_generate_unknown_end_to_end_with_fake_provider() -> None:
         gateway,
         provider_id=provider_id,
         hypotheses=(hypothesis_atom(),),
+        allowed_target_predicates=ALLOWED_PREDICATES,
         existing_unknowns=(),
         scope=scope(),
         subject_ids=("child-1",),
@@ -349,3 +446,33 @@ async def test_generate_unknown_end_to_end_with_fake_provider() -> None:
     assert unknown is not None
     assert unknown.question == "学校最近有没有发生明显变化？"
     assert unknown.status is UnknownStatus.OPEN
+    assert unknown.target_predicate == "child.school_engagement"
+
+
+@pytest.mark.asyncio
+async def test_generate_unknown_rejects_target_predicate_outside_allowlist_end_to_end() -> None:
+    gateway, provider_id = _fake_gateway(
+        {
+            "question": "学校最近有没有发生明显变化？",
+            "why_it_matters": "区分学校适应问题和其他原因",
+            "target_predicate": "not_a_real_predicate",
+            "decision_impact": "HIGH",
+            "answerability": "MEDIUM",
+            "urgency": "MEDIUM",
+            "blocking_hypothesis_ids": ["hyp-1"],
+        }
+    )
+
+    with pytest.raises(Exception, match="UNKNOWN_TARGET_PREDICATE_NOT_ALLOWED|schema"):
+        await generate_unknown(
+            gateway,
+            provider_id=provider_id,
+            hypotheses=(hypothesis_atom(),),
+            allowed_target_predicates=ALLOWED_PREDICATES,
+            existing_unknowns=(),
+            scope=scope(),
+            subject_ids=("child-1",),
+            context_snapshot_ref="snapshot-1",
+            unknown_id="unk-e2e-2",
+            now=NOW,
+        )

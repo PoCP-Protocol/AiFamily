@@ -320,6 +320,13 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
+    "0084_ai_family_world_unknowns": {
+        # +1 table: ai_family_world_unknowns (AIFAMILY-WM-004C durable
+        # Unknown store).
+        "tables": EXPECTED_0008_COUNTS["tables"] + 83,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
 }
 
 _MODEL_DRAFTS_ADR = (
