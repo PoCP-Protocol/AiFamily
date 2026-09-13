@@ -1,6 +1,6 @@
 # CLAUDE.md — AiFamily Agent 操作手册
 
-AiFamily = AI 原生家庭成长平台的 **canonical 仓库**（Python 3.12 / FastAPI / PostgreSQL 后端 + Expo/React Native 前端）。
+AiFamily = **AGI-native Family Intelligence Platform** 的 **canonical 仓库**（Python 3.12 / FastAPI / PostgreSQL 后端 + Expo/React Native 前端）。系统边界是 `Child + Family + Society`，不是"家庭教育平台"——教育/孩子成长只是 First Wedge（第一验证场景），不是平台边界，见 `docs/00_system/AIFAMILY_STRATEGIC_CONSTITUTION_V1.md`（`ADR-0169`）。
 系统身份、边界、canonical 文档清单以 `docs/00_system/SYSTEM_MANIFEST.md` 为唯一真相。本文件只讲**怎么干活**。
 
 ## 强制阅读顺序（开工前，不可跳）
@@ -8,9 +8,10 @@ AiFamily = AI 原生家庭成长平台的 **canonical 仓库**（Python 3.12 / F
 | # | 文件 | 读它是为了 |
 |---|---|---|
 | 1 | `docs/00_system/SYSTEM_MANIFEST.md` | 哪些文档算真相、系统边界在哪 |
-| 2 | `docs/00_system/CURRENT_SYSTEM_BASELINE.md` | 系统**现在**是什么（含未完成项，别从别处推断） |
-| 3 | `governance/REPOSITORY_CONSTITUTION.md` | 14 条工程宪章 R1–R14 + 第2节"强制执行状态"表 |
-| 4 | 按任务类型加读 | 见下 |
+| 2 | `docs/00_system/AIFAMILY_STRATEGIC_CONSTITUTION_V1.md` | 什么绝对不能变——六条原则、Family/Person本体、FamilyNeed优先级、Vertical Pack机制、"当前不做"清单（`ADR-0169`）。**别把新功能默认写死进教育叙事** |
+| 3 | `docs/00_system/CURRENT_SYSTEM_BASELINE.md` | 系统**现在**是什么（含未完成项，别从别处推断） |
+| 4 | `governance/REPOSITORY_CONSTITUTION.md` | 14 条工程宪章 R1–R14 + 第2节"强制执行状态"表 |
+| 5 | 按任务类型加读 | 见下 |
 
 按任务类型追加：
 - 涉及 AI 行为 → `docs/05_ai/AI_NATIVE_PRINCIPLES.md`（5 条判据 + 反面清单）

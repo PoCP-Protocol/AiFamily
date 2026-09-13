@@ -148,6 +148,28 @@ class EvidenceKind(StrEnum):
     TEXT_EVIDENCE = "TEXT_EVIDENCE"
 
 
+class EpistemicStatus(StrEnum):
+    """What kind of claim this evidence actually is (ADR-0169 §4).
+
+    Deliberately distinct from `EvidenceKind`: `EvidenceKind` is the media
+    format (audio/image/text); `EpistemicStatus` is what the content asserts.
+    R9 requires AI-authored content to never be silently promoted to a
+    family-authoritative fact — this field is what makes that distinction
+    inspectable rather than implicit. Defaults to `SELF_REPORT` because every
+    caller of this constructor predating this field is a family-submitted
+    signal, never an AI inference.
+    """
+
+    FACT = "FACT"
+    SIGNAL = "SIGNAL"
+    SELF_REPORT = "SELF_REPORT"
+    OTHER_REPORT = "OTHER_REPORT"
+    HYPOTHESIS = "HYPOTHESIS"
+    UNKNOWN = "UNKNOWN"
+    INFERENCE = "INFERENCE"
+    PROFESSIONAL_OPINION = "PROFESSIONAL_OPINION"
+
+
 class ActorType(StrEnum):
     FAMILY_MEMBER = "FAMILY_MEMBER"
     FAMILY_GUARDIAN = "FAMILY_GUARDIAN"
@@ -186,6 +208,7 @@ class EvidenceRef:
     data_class: DataClass
     authorized: bool = True
     expires_at: datetime | None = None
+    epistemic_status: EpistemicStatus = EpistemicStatus.SELF_REPORT
 
     def __post_init__(self) -> None:
         for name, value in {
