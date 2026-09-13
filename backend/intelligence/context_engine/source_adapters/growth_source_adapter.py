@@ -1,13 +1,25 @@
-"""Growth (confirmed intent) → WorldStateAtom adapter (AIFAMILY-WM-003).
+"""Growth (confirmed intent) → WorldStateAtom adapter (AIFAMILY-WM-003,
+semantics corrected in WM-003.5).
 
 `backend.domains.growth.application.growth_intent_confirmation
 .ValidatedConfirmationBinding` is the authoritative source — it is the
 immutable record of a Growth Intent *after* Assessment's same-UoW human-gate
 checks (`growth_intents.boundary = 'HUMAN_CONFIRMED_INTENT_NOT_OUTCOME'`).
-This adapter projects it as `family.active_goal`, not `family.confirmed_need`
-— a confirmed growth intent is a goal the family has committed to work on,
-not the need itself (`family_need_source_adapter.py` already covers the
-need side).
+
+**WM-003.5 correction**: this adapter projects `family.confirmed_growth_intent`,
+not `family.active_goal`. `ValidatedConfirmationBinding` only proves that a
+human confirmed this intent *at creation time* — it carries no
+`growth_intents.status` (`OPEN`/`CLOSED`/`CANCELLED`/`SUPERSEDED`), so it
+cannot prove the intent is still current. Projecting it as `active_goal`
+would have let a Belief Engine built on top of this kernel believe a Goal is
+still open long after it was closed/cancelled/superseded, with no lifecycle
+signal to ever correct that belief — exactly the kind of silent drift the
+World State Kernel exists to prevent. `family.confirmed_growth_intent` is
+honest about what is actually proven: a family confirmed this intent at
+`confirmed_at`. Whether it is *currently* active requires projecting
+`growth_intents.status` too, which is out of scope for this adapter (no
+lifecycle-status source is wired yet) — see `KNOWN_GAPS` in the WM-003.5
+completion report, not silently assumed here.
 
 `confirmed_at` is not a field on `ValidatedConfirmationBinding` itself (it is
 assigned at write time by the SQLAlchemy adapter, see
@@ -31,7 +43,7 @@ from backend.intelligence.context_engine.world_state import (
 _HUMAN_CONFIRMED_BOUNDARY = "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME"
 
 
-def growth_intent_atom(
+def confirmed_growth_intent_atom(
     binding: object,
     *,
     scope: ContextScope,
@@ -40,7 +52,10 @@ def growth_intent_atom(
     confirmer_actor_type: WorldStateActorType,
 ) -> WorldStateAtom:
     """Project one confirmed `ValidatedConfirmationBinding` into a
-    `family.active_goal` FACT atom.
+    `family.confirmed_growth_intent` FACT atom.
+
+    This is a permanent historical fact ("this family confirmed this intent
+    at this time"), not a claim about current status — see module docstring.
 
     `confirmer_actor_type` is a required parameter, not a default guess:
     `ValidatedConfirmationBinding` carries only `actor_id` (a string), not
@@ -67,7 +82,7 @@ def growth_intent_atom(
         scope=scope,
         subject_ids=(binding.subject_person_id,),
         epistemic_kind=WorldStateEpistemicKind.FACT,
-        predicate="family.active_goal",
+        predicate="family.confirmed_growth_intent",
         value_ref=binding.goal_text,
         asserted_by=binding.actor_id,
         attributed_actor_type=confirmer_actor_type,
@@ -80,4 +95,4 @@ def growth_intent_atom(
     )
 
 
-__all__ = ["growth_intent_atom"]
+__all__ = ["confirmed_growth_intent_atom"]

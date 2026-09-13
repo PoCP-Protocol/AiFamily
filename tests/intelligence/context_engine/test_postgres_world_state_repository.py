@@ -395,3 +395,32 @@ async def test_criterion_10_revoked_consent_scope_cannot_even_be_constructed() -
 
     with pytest.raises(ContextContractError, match="CONSENT_REVOKED"):
         scope(consent_granted=False)
+
+
+@pytest.mark.skipif(postgres_test_url() is None, reason=SKIP_REASON)
+async def test_live_consent_gate_denies_read_after_consent_version_changes() -> None:
+    """WM-003.5 §5 (Live Consent): an atom persisted under `consent_version=v1`
+    must NOT remain readable forever just because that string is stored on
+    the row. If the family's live consent moves to `v2` (a real re-grant, a
+    withdrawal-and-regrant, or any version bump), a caller reading with the
+    *current* live scope must be denied — the atom's stored consent_version
+    is a historical fact about when it was written, not a standing grant."""
+
+    async with postgres_schema_engine(MetaData()) as engine:
+        await _apply_world_state_migration(engine)
+        async with engine.begin() as connection:
+            repository = PostgresWorldStateRepository(connection)
+            granted_at_v1_scope = scope(consent_version="consent.v1")
+            await repository.append_atom(atom(atom_id="live-consent-1", scope=granted_at_v1_scope))
+
+            # T1->T2: read with the same live consent version still works.
+            still_v1 = await repository.get_atom("live-consent-1", scope=granted_at_v1_scope)
+            assert still_v1 is not None
+
+            # T3: consent version changes (e.g. withdrawn and re-granted under
+            # a new policy version). T4: a read with the *current* live scope
+            # must be denied — the old stored consent_version does not carry
+            # forward automatically.
+            current_live_scope = scope(consent_version="consent.v2")
+            with pytest.raises(ContextContractError, match="WORLD_STATE_CONSENT_VERSION_MISMATCH"):
+                await repository.get_atom("live-consent-1", scope=current_live_scope)

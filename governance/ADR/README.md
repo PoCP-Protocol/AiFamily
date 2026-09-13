@@ -30,6 +30,7 @@
 | [0169](ADR-0169-family-agi-species-change-and-strategic-constitution.md) | "物种变化"定案 + AIFAMILY_STRATEGIC_CONSTITUTION_V1 | Accepted | 2026-09-13 | 扩展ADR-0168：战略边界/技术底座/第一阶段产品范围三分离；六条冻结原则；Family一级对象/Person二级；FamilyNeed提升为首要业务对象且Expression≠Need；四Brain模型(新增Action Brain)；Vertical Pack机制；北极星=Family Outcome非DAU；同时冻结明确的"当前不做"清单防范围失控 |
 | [0170](ADR-0170-runtime-convergence-acceptance.md) | Runtime收敛裁决：Accept ADR-0025+ADR-0167 | Accepted | 2026-09-13 | 逐行核实三条Runtime路径；growth_plan_ai_wiring.py的Principal路由→agent_runtime执行模式确认无bug并冻结为参照实现；agi_vertical_runtime.py(第257-268/480/684行)绕过Principal直连Model Gateway确认为唯一真实违规,登记为下阶段整改项,本次不重写以免打断已验证闭环 |
 | [0171](ADR-0171-platform-core-six-gate-admission-test.md) | Platform Core六门准入测试 | Accepted | 2026-09-13 | 任何进Core代码须证明增强World Model/Memory/Goal-Planning/Action-Tool/Outcome Learning/Safety-Evaluation六项之一,否则归Vertical Pack;不批准同批研究材料的其余具体技术方案(Temporal Belief State/五层Memory/MCP-A2A/FIC-002~006排期)为已授权任务,留待逐项单独确认 |
+| [0172](ADR-0172-fact-adapter-generative-vs-deterministic-request.md) | Deterministic Truth Projection + Generative Cognition | Accepted | 2026-09-13 | 项目负责人正式裁决：Option A(FACT永远确定性)冻结为强制原则,Option C(生成式摘要/解释)仅作为WM-004独立派生层允许(不得进FACT Adapter),Option B(收窄R9)正式否决;World Model分层=Truth Layer(FACT/OBSERVATION)≠Cognition Layer(HYPOTHESIS/UNKNOWN/SYSTEM_INFERENCE);新增4项架构测试防回归 |
 
 ### 决定之间的关系
 
@@ -68,7 +69,7 @@ ADR-0005 (AI 原生)      ◀──实质张力──▶  ADR-0006 (合规：能
 ## 编号规则
 
 - 格式：`ADR-NNNN-kebab-case-slug.md`，`NNNN` 为四位零填充十进制序号。
-- **严格顺序分配，永不复用。** 下一个可用编号 = 本目录现有最大编号 + 1（当前为 **0172**；此前本行长期未同步实际目录最大编号，下次分配前请以 `ls governance/ADR/` 实测结果核对，不要直接沿用本行数字）。
+- **严格顺序分配，永不复用。** 下一个可用编号 = 本目录现有最大编号 + 1（当前为 **0173**；此前本行长期未同步实际目录最大编号，下次分配前请以 `ls governance/ADR/` 实测结果核对，不要直接沿用本行数字）。
 - 编号一经分配即永久绑定该决定，**即使 ADR 后来被 Superseded 也不回收、不删除文件**。被取代的 ADR 保留在原位，改 `Status: Superseded` 并填 `Superseded By`——历史决定的存在本身是信息。
 - slug 描述决定的对象，不描述结论的方向（`python-only-backend` 而非 `dont-use-nestjs`）。
 - 并发写作时若两人取到同号，后合并者改号。**不允许 `ADR-0007a` 之类的分号形式。**

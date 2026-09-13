@@ -28,7 +28,7 @@ from backend.intelligence.context_engine.source_adapters.family_need_outcome_sou
     family_confirmed_outcome_atom,
 )
 from backend.intelligence.context_engine.source_adapters.growth_source_adapter import (
-    growth_intent_atom,
+    confirmed_growth_intent_atom,
 )
 from backend.intelligence.context_engine.world_state import (
     WorldStateActorType,
@@ -122,9 +122,9 @@ def _confirmed_outcome(**overrides: object) -> FamilyConfirmedOutcome:
 # --- Growth Intent adapter --------------------------------------------------
 
 
-def test_growth_intent_atom_is_a_fact_atom_on_active_goal() -> None:
+def test_confirmed_growth_intent_atom_is_a_fact_atom_on_active_goal() -> None:
     binding = _confirmed_binding()
-    atom = growth_intent_atom(
+    atom = confirmed_growth_intent_atom(
         binding,
         scope=scope(subject_ids=(UUID_A,)),
         atom_id="goal-atom-1",
@@ -132,15 +132,15 @@ def test_growth_intent_atom_is_a_fact_atom_on_active_goal() -> None:
         confirmer_actor_type=WorldStateActorType.FAMILY_GUARDIAN,
     )
     assert atom.epistemic_kind is WorldStateEpistemicKind.FACT
-    assert atom.predicate == "family.active_goal"
+    assert atom.predicate == "family.confirmed_growth_intent"
     assert atom.value_ref == "改善晚间沟通方式"
     assert atom.evidence_refs == (UUID_D,)
 
 
-def test_growth_intent_atom_refuses_ai_confirmer() -> None:
+def test_confirmed_growth_intent_atom_refuses_ai_confirmer() -> None:
     binding = _confirmed_binding()
     with pytest.raises(ValueError, match="GROWTH_INTENT_ATOM_CONFIRMER_CANNOT_BE_AI"):
-        growth_intent_atom(
+        confirmed_growth_intent_atom(
             binding,
             scope=scope(subject_ids=(UUID_A,)),
             atom_id="goal-atom-2",
@@ -149,7 +149,7 @@ def test_growth_intent_atom_refuses_ai_confirmer() -> None:
         )
 
 
-def test_growth_intent_atom_refuses_wrong_boundary() -> None:
+def test_confirmed_growth_intent_atom_refuses_wrong_boundary() -> None:
     binding = _confirmed_binding()
     tampered = object.__new__(type(binding))
     for field in binding.__dataclass_fields__:
@@ -157,7 +157,7 @@ def test_growth_intent_atom_refuses_wrong_boundary() -> None:
     object.__setattr__(tampered, "boundary", "SOMETHING_ELSE")
 
     with pytest.raises(ValueError, match="GROWTH_INTENT_ATOM_REQUIRES_HUMAN_CONFIRMED_BOUNDARY"):
-        growth_intent_atom(
+        confirmed_growth_intent_atom(
             tampered,
             scope=scope(subject_ids=(UUID_A,)),
             atom_id="goal-atom-3",
@@ -173,7 +173,7 @@ def test_family_confirmed_outcome_atom_is_a_fact_atom() -> None:
     outcome = _confirmed_outcome()
     atom = family_confirmed_outcome_atom(outcome, atom_id="outcome-atom-1")
     assert atom.epistemic_kind is WorldStateEpistemicKind.FACT
-    assert atom.predicate == "family.outcome"
+    assert atom.predicate == "family.confirmed_outcome"
     assert atom.value_ref == "HELPED"
     assert atom.attributed_actor_type is WorldStateActorType.FAMILY_GUARDIAN
     assert "booking-service-record:booking-1" in atom.source_refs
@@ -193,3 +193,61 @@ def test_family_confirmed_outcome_atom_maps_data_class() -> None:
     outcome = _confirmed_outcome(context=_need_context(data_class=NeedDataClass.FAMILY_PRIVATE))
     atom = family_confirmed_outcome_atom(outcome, atom_id="outcome-atom-3")
     assert atom.scope.data_class is DataClass.FAMILY_PRIVATE_TEXT
+
+
+def test_family_confirmed_outcome_atom_does_not_imply_state_change() -> None:
+    """WM-003.5 §4: a HELPED verdict is a FAMILY_CONFIRMED_FULFILLMENT_VERDICT,
+    not an Observed State Change, a Goal Achievement, or a Causal Effect. This
+    test exists to keep that boundary honest as a regression, not just a
+    docstring claim: the atom this adapter produces carries no field, no
+    value, and no predicate that could be mistaken for any of those three
+    stronger claims."""
+
+    outcome = _confirmed_outcome(decision=FamilyOutcomeDecision.HELPED)
+    atom = family_confirmed_outcome_atom(outcome, atom_id="outcome-atom-4")
+    assert atom.predicate == "family.confirmed_outcome"
+    assert atom.value_ref == "HELPED"
+    forbidden_predicates = {
+        "family.relationship_improved",
+        "family.goal_achieved",
+        "family.intervention_caused_improvement",
+        "child.communication_frequency",
+    }
+    assert atom.predicate not in forbidden_predicates
+
+
+@pytest.mark.parametrize(
+    ("need_data_class", "expected_world_state_data_class"),
+    [
+        (NeedDataClass.PUBLIC, DataClass.SYNTHETIC),
+        (NeedDataClass.INTERNAL, DataClass.OPERATIONAL_TEXT),
+        (NeedDataClass.FAMILY_PRIVATE, DataClass.FAMILY_PRIVATE_TEXT),
+        (NeedDataClass.SENSITIVE_PERSONAL_DATA, DataClass.FAMILY_PRIVATE_TEXT),
+        (NeedDataClass.MINOR_PERSONAL_DATA, DataClass.MINOR_PERSONAL_DATA),
+    ],
+)
+def test_data_class_mapping_covers_every_family_need_value(
+    need_data_class: NeedDataClass, expected_world_state_data_class: DataClass
+) -> None:
+    """WM-003.5 §3: every FamilyNeed DataClass value must have an explicit,
+    reviewed mapping — no fallback, no string-coincidence coercion."""
+
+    outcome = _confirmed_outcome(context=_need_context(data_class=need_data_class))
+    atom = family_confirmed_outcome_atom(outcome, atom_id=f"outcome-atom-dc-{need_data_class}")
+    assert atom.scope.data_class is expected_world_state_data_class
+
+
+def test_unmapped_data_class_fails_closed() -> None:
+    """A DataClass value with no entry in `_DATA_CLASS_MAP` must raise, never
+    silently fall through to a default."""
+
+    import enum
+
+    class _RogueDataClass(enum.StrEnum):
+        UNMAPPED = "UNMAPPED"
+
+    context_with_rogue_data_class = _need_context()
+    object.__setattr__(context_with_rogue_data_class, "data_class", _RogueDataClass.UNMAPPED)
+    outcome_with_rogue_context = _confirmed_outcome(context=context_with_rogue_data_class)
+    with pytest.raises(ValueError, match="FAMILY_OUTCOME_ATOM_UNMAPPED_DATA_CLASS"):
+        family_confirmed_outcome_atom(outcome_with_rogue_context, atom_id="outcome-atom-rogue")
