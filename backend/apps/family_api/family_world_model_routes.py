@@ -179,36 +179,35 @@ def build_real_agent_runtime(*, use_case: str) -> AgentRuntime:
     `tests/apps/family_api/test_family_world_model_routes.py`.
     """
 
-    base_url = os.environ.get(WORLD_MODEL_BASE_URL_ENV_VAR, "").strip()
-    api_key = os.environ.get(WORLD_MODEL_API_KEY_ENV_VAR, "").strip()
-    if not base_url or not api_key:
-        missing = [
-            name
-            for name, value in (
-                (WORLD_MODEL_BASE_URL_ENV_VAR, base_url),
-                (WORLD_MODEL_API_KEY_ENV_VAR, api_key),
-            )
-            if not value
-        ]
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "world_model_no_real_model_provider_configured: missing environment "
-                f"variable(s) {missing}. This endpoint refuses to fall back to a fake "
-                "provider for real cognition output; configure a real, §16-assessed "
-                "provider to use this endpoint."
-            ),
-        )
     model_name = os.environ.get(WORLD_MODEL_MODEL_NAME_ENV_VAR, "").strip() or (
         DEFAULT_WORLD_MODEL_MODEL_NAME
     )
 
-    provider = build_openai_compatible_provider(
-        provider_id=WORLD_MODEL_PROVIDER_ID,
-        model=model_name,
-        base_url_env_var=WORLD_MODEL_BASE_URL_ENV_VAR,
-        credential_env_var=WORLD_MODEL_API_KEY_ENV_VAR,
-    )
+    # R7: the credential itself is read exactly once, inside
+    # `build_openai_compatible_provider` (under
+    # backend/intelligence/model_gateway/providers/, the one sanctioned
+    # credential-read point) — this function must not pre-check
+    # os.environ for the API key/base URL itself, only react to the
+    # ModelGatewayError that function already raises when they're absent.
+    try:
+        provider = build_openai_compatible_provider(
+            provider_id=WORLD_MODEL_PROVIDER_ID,
+            model=model_name,
+            base_url_env_var=WORLD_MODEL_BASE_URL_ENV_VAR,
+            credential_env_var=WORLD_MODEL_API_KEY_ENV_VAR,
+        )
+    except ModelGatewayError as error:
+        if error.kind == "CREDENTIAL_MISSING":
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "world_model_no_real_model_provider_configured: "
+                    f"{error}. This endpoint refuses to fall back to a fake "
+                    "provider for real cognition output; configure a real, "
+                    "§16-assessed provider to use this endpoint."
+                ),
+            ) from error
+        raise
     registry = ProviderRegistry(
         (
             ProviderRecord(
