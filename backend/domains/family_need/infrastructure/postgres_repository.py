@@ -41,6 +41,7 @@ from ..domain.value_objects import (
     ActorType,
     DataClass,
     EmotionalGate,
+    EpistemicStatus,
     EvidenceKind,
     EvidenceRef,
     FamilyOutcomeDecision,
@@ -71,6 +72,7 @@ def _evidence_refs_to_json(refs: tuple[EvidenceRef, ...]) -> list[dict]:
         item["kind"] = ref.kind.value
         item["data_class"] = ref.data_class.value
         item["expires_at"] = ref.expires_at.isoformat() if ref.expires_at else None
+        item["epistemic_status"] = ref.epistemic_status.value
         payload.append(item)
     return payload
 
@@ -92,6 +94,12 @@ def _evidence_refs_from_json(rows: list[dict] | None) -> tuple[EvidenceRef, ...]
                 data_class=DataClass(row["data_class"]),
                 authorized=row.get("authorized", True),
                 expires_at=datetime.fromisoformat(expires_at) if expires_at else None,
+                # Rows written before ADR-0169 §4 lack this key; every such row
+                # is a family-submitted signal, never an AI inference, so the
+                # dataclass default (SELF_REPORT) is the correct backfill.
+                epistemic_status=EpistemicStatus(row["epistemic_status"])
+                if "epistemic_status" in row
+                else EpistemicStatus.SELF_REPORT,
             )
         )
     return tuple(result)

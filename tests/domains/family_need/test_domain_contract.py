@@ -31,6 +31,7 @@ from backend.domains.family_need.domain.value_objects import (
     ActorType,
     DataClass,
     EmotionalGate,
+    EpistemicStatus,
     EvidenceKind,
     EvidenceRef,
     NeedCategory,
@@ -104,6 +105,34 @@ def profile_for(need: FamilyNeed) -> NeedProfile:
         confirmed_by_actor_id="guardian-a",
         profile_id="profile-1",
     )
+
+
+def test_evidence_ref_epistemic_status_defaults_to_self_report() -> None:
+    """ADR-0169 §4: undeclared evidence must never silently read as FACT."""
+    evidence = EvidenceRef(
+        media_ref="media-1",
+        kind=EvidenceKind.TEXT_EVIDENCE,
+        tenant_id="tenant-a",
+        family_id="family-a",
+        provenance_ref="text-upload-1",
+        consent_version="consent-v1",
+        data_class=DataClass.MINOR_PERSONAL_DATA,
+    )
+    assert evidence.epistemic_status is EpistemicStatus.SELF_REPORT
+
+
+def test_evidence_ref_accepts_explicit_epistemic_status() -> None:
+    evidence = EvidenceRef(
+        media_ref="media-2",
+        kind=EvidenceKind.TEXT_EVIDENCE,
+        tenant_id="tenant-a",
+        family_id="family-a",
+        provenance_ref="text-upload-2",
+        consent_version="consent-v1",
+        data_class=DataClass.MINOR_PERSONAL_DATA,
+        epistemic_status=EpistemicStatus.HYPOTHESIS,
+    )
+    assert evidence.epistemic_status is EpistemicStatus.HYPOTHESIS
 
 
 def test_successfully_captures_confirms_profiles_and_drafts_solution() -> None:
