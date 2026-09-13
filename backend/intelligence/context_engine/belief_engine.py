@@ -36,6 +36,7 @@ from backend.intelligence.model_gateway.contracts import ModelDraft, StructuredR
 from backend.intelligence.model_gateway.gateway import ModelGateway
 
 from .contracts import ContextContractError, ContextScope
+from .predicate_registry import PredicateRegistry
 from .world_state import (
     BeliefBand,
     UncertaintyBand,
@@ -169,6 +170,8 @@ def validate_and_build_proposal(
     scope: ContextScope,
     subject_ids: tuple[str, ...],
     evidence_atoms: Sequence[WorldStateAtom],
+    target_predicate: str,
+    predicate_registry: PredicateRegistry | None = None,
 ) -> WorldStateProposal:
     """Turn a schema-validated `ModelDraft` into a `WorldStateProposal`.
 
@@ -176,7 +179,14 @@ def validate_and_build_proposal(
     (not just "is this a string") — a model citing an `atom_id` that was
     never in its own input would be a hallucinated reference, and must be
     rejected here rather than silently accepted into the world state.
+
+    `target_predicate` is supplied by the *caller*, never invented by the
+    model (the model's structured output schema has no predicate field at
+    all — see `hypothesis_output_schema()`), and is validated against the
+    governed `PredicateRegistry` before a proposal can even be constructed.
     """
+
+    (predicate_registry or PredicateRegistry.from_yaml()).validate(target_predicate)
 
     output = draft.output
     statement = output.get("statement")
@@ -209,6 +219,7 @@ def validate_and_build_proposal(
         scope=scope,
         subject_ids=subject_ids,
         proposed_kind=WorldStateEpistemicKind.HYPOTHESIS,
+        target_predicate=target_predicate,
         statement=statement,
         evidence_refs=tuple(cited_ids),
         confidence=confidence,
@@ -228,12 +239,22 @@ async def generate_hypothesis(
     context_snapshot_ref: str,
     proposal_id: str,
     atom_id: str,
+    target_predicate: str,
     now: datetime,
+    predicate_registry: PredicateRegistry | None = None,
 ) -> WorldStateAtom:
     """The full WM-004B pipeline: evidence -> model call -> validated
     HYPOTHESIS atom. This is the only function in this module that calls
     the model; every other function here is a pure, deterministic step
-    around it."""
+    around it.
+
+    `target_predicate` is validated against the governed registry *before*
+    the model is called — there is no point spending a real model call on
+    a request whose target predicate would be rejected at promotion time
+    anyway."""
+
+    registry = predicate_registry or PredicateRegistry.from_yaml()
+    registry.validate(target_predicate)
 
     request = build_hypothesis_request(
         evidence_atoms,
@@ -249,6 +270,8 @@ async def generate_hypothesis(
         scope=scope,
         subject_ids=subject_ids,
         evidence_atoms=evidence_atoms,
+        target_predicate=target_predicate,
+        predicate_registry=registry,
     )
     return promote_proposal_to_atom(
         proposal,

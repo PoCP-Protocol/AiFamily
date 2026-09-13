@@ -159,6 +159,7 @@ def test_validate_rejects_missing_statement() -> None:
             scope=scope(),
             subject_ids=("child-1",),
             evidence_atoms=(evidence,),
+            target_predicate="family.member_statement",
         )
 
 
@@ -180,6 +181,7 @@ def test_validate_rejects_invalid_band_value() -> None:
             scope=scope(),
             subject_ids=("child-1",),
             evidence_atoms=(evidence,),
+            target_predicate="family.member_statement",
         )
 
 
@@ -204,6 +206,7 @@ def test_validate_rejects_hallucinated_evidence_reference() -> None:
             scope=scope(),
             subject_ids=("child-1",),
             evidence_atoms=(evidence,),
+            target_predicate="family.member_statement",
         )
 
 
@@ -224,6 +227,7 @@ def test_validate_produces_hypothesis_proposal_never_fact() -> None:
         scope=scope(),
         subject_ids=("child-1",),
         evidence_atoms=(evidence,),
+        target_predicate="family.member_statement",
     )
     assert proposal.proposed_kind is WorldStateEpistemicKind.HYPOTHESIS
     assert proposal.support_level is BeliefBand.MODERATE
@@ -298,6 +302,7 @@ async def test_generate_hypothesis_end_to_end_with_fake_provider() -> None:
         context_snapshot_ref="snapshot-1",
         proposal_id="proposal-e2e-1",
         atom_id="hypothesis-e2e-1",
+        target_predicate="family.member_statement",
         now=NOW,
     )
 
@@ -330,5 +335,67 @@ async def test_generate_hypothesis_rejects_hallucinated_evidence_end_to_end() ->
             context_snapshot_ref="snapshot-1",
             proposal_id="proposal-e2e-2",
             atom_id="hypothesis-e2e-2",
+            target_predicate="family.member_statement",
             now=NOW,
         )
+
+
+# --- Target predicate governance (AIFAMILY-WM-004B.1) -----------------------
+
+
+def test_validate_rejects_unregistered_target_predicate() -> None:
+    evidence = atom(atom_id="obs-1")
+    draft = _draft(
+        {
+            "statement": "近期不愿上学可能与学习压力相关",
+            "support_level": "MODERATE",
+            "contradiction_level": "NONE",
+            "uncertainty": "HIGH",
+            "evidence_atom_ids": ["obs-1"],
+        }
+    )
+    with pytest.raises(Exception, match="PREDICATE_NOT_REGISTERED"):
+        validate_and_build_proposal(
+            draft,
+            proposal_id="proposal-predicate-1",
+            scope=scope(),
+            subject_ids=("child-1",),
+            evidence_atoms=(evidence,),
+            target_predicate="child_is_lazy_unregistered",
+        )
+
+
+def test_promoted_hypothesis_atom_uses_target_predicate_not_generic_placeholder() -> None:
+    evidence = atom(atom_id="obs-1")
+    draft = _draft(
+        {
+            "statement": "近期不愿上学可能与学习压力相关",
+            "support_level": "MODERATE",
+            "contradiction_level": "NONE",
+            "uncertainty": "HIGH",
+            "evidence_atom_ids": ["obs-1"],
+        }
+    )
+    proposal = validate_and_build_proposal(
+        draft,
+        proposal_id="proposal-predicate-2",
+        scope=scope(),
+        subject_ids=("child-1",),
+        evidence_atoms=(evidence,),
+        target_predicate="child.parent_communication",
+    )
+    from backend.intelligence.context_engine.world_state import promote_proposal_to_atom
+
+    promoted = promote_proposal_to_atom(
+        proposal,
+        atom_id="hyp-predicate-1",
+        provenance="test",
+        observed_at=NOW,
+        recorded_at=NOW,
+        valid_from=NOW,
+    )
+    assert promoted.predicate == "child.parent_communication"
+    assert promoted.predicate != "ai_proposed_state"
+    assert promoted.support_level is BeliefBand.MODERATE
+    assert promoted.contradiction_level is BeliefBand.NONE
+    assert promoted.uncertainty is UncertaintyBand.HIGH

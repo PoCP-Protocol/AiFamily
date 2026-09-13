@@ -29,6 +29,8 @@ from backend.intelligence.context_engine.unknown_engine import (
     validate_and_build_unknown,
 )
 from backend.intelligence.context_engine.world_state import (
+    BeliefBand,
+    UncertaintyBand,
     WorldStateActorType,
     WorldStateAtom,
     WorldStateEpistemicKind,
@@ -82,6 +84,9 @@ def _synthetic_hypothesis() -> WorldStateAtom:
         valid_from=NOW,
         source_refs=("synthetic-obs-1",),
         evidence_refs=("synthetic-obs-1",),
+        support_level=BeliefBand.MODERATE,
+        contradiction_level=BeliefBand.NONE,
+        uncertainty=UncertaintyBand.HIGH,
     )
 
 

@@ -152,6 +152,15 @@ class WorldStateAtom:
     evidence_refs: tuple[str, ...] = ()
     status: WorldStateAtomStatus = WorldStateAtomStatus.ACTIVE
     supersedes: str | None = None
+    #: AIFAMILY-WM-004B.1 — belief metadata. REQUIRED (non-None) when
+    #: `epistemic_kind is HYPOTHESIS`; left `None` ("not applicable", never
+    #: a fabricated NONE/LOW default) for every other kind. Losing these on
+    #: promotion was the exact gap this freeze closes: a HYPOTHESIS atom
+    #: with no support/contradiction/uncertainty on it is indistinguishable
+    #: from a FACT to anything reading the Atom Store later.
+    support_level: BeliefBand | None = None
+    contradiction_level: BeliefBand | None = None
+    uncertainty: UncertaintyBand | None = None
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -166,6 +175,12 @@ class WorldStateAtom:
             raise ContextContractError("subject_ids must be a non-empty tuple")
         if any(sid not in self.scope.subject_ids for sid in self.subject_ids):
             raise ContextScopeError("WORLD_STATE_SUBJECT_OUT_OF_SCOPE")
+        if self.epistemic_kind is WorldStateEpistemicKind.HYPOTHESIS and (
+            self.support_level is None
+            or self.contradiction_level is None
+            or self.uncertainty is None
+        ):
+            raise ContextContractError("HYPOTHESIS_REQUIRES_BELIEF_METADATA")
         for name, value in (
             ("observed_at", self.observed_at),
             ("recorded_at", self.recorded_at),
@@ -253,6 +268,12 @@ class WorldStateProposal:
     scope: ContextScope
     subject_ids: tuple[str, ...]
     proposed_kind: WorldStateEpistemicKind
+    #: AIFAMILY-WM-004B.1 — the predicate this proposal is *about*, supplied
+    #: by the caller (never invented by the model). Governance (is this
+    #: predicate actually registered?) is enforced at the persistence
+    #: boundary by `PredicateRegistry`, same as every other predicate in
+    #: this kernel — see `predicate_registry.py`'s module docstring.
+    target_predicate: str
     statement: str
     evidence_refs: tuple[str, ...]
     confidence: float
@@ -264,6 +285,7 @@ class WorldStateProposal:
     uncertainty: UncertaintyBand = UncertaintyBand.HIGH
 
     def __post_init__(self) -> None:
+        _require_text("target_predicate", self.target_predicate)
         _require_text("statement", self.statement)
         if self.proposed_kind in _NON_AI_ASSERTABLE_KINDS:
             raise ContextContractError("AI_PROPOSAL_CANNOT_TARGET_THIS_KIND")
@@ -293,12 +315,13 @@ def promote_proposal_to_atom(
     that can smuggle an AI-asserted FACT past this kernel.
     """
 
+    is_hypothesis = proposal.proposed_kind is WorldStateEpistemicKind.HYPOTHESIS
     return WorldStateAtom(
         atom_id=atom_id,
         scope=proposal.scope,
         subject_ids=proposal.subject_ids,
         epistemic_kind=proposal.proposed_kind,
-        predicate="ai_proposed_state",
+        predicate=proposal.target_predicate,
         value_ref=proposal.statement,
         asserted_by=proposal.proposed_by,
         attributed_actor_type=WorldStateActorType.AI,
@@ -310,6 +333,12 @@ def promote_proposal_to_atom(
         source_refs=proposal.evidence_refs,
         evidence_refs=proposal.evidence_refs,
         supersedes=supersedes,
+        # AIFAMILY-WM-004B.1: belief metadata only travels onto the atom for
+        # HYPOTHESIS — other AI-proposable kinds (UNKNOWN etc.) leave these
+        # None rather than carrying meaningless NONE/HIGH defaults forward.
+        support_level=proposal.support_level if is_hypothesis else None,
+        contradiction_level=proposal.contradiction_level if is_hypothesis else None,
+        uncertainty=proposal.uncertainty if is_hypothesis else None,
     )
 
 

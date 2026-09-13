@@ -29,6 +29,8 @@ from .contracts import ContextContractError, ContextScope, ContextScopeError, Da
 from .predicate_registry import PredicateRegistry
 from .projection_identity import build_projection_key, build_semantic_fingerprint
 from .world_state import (
+    BeliefBand,
+    UncertaintyBand,
     WorldStateActorType,
     WorldStateAtom,
     WorldStateAtomStatus,
@@ -43,14 +45,14 @@ _INSERT_ATOM_SQL = text(
         provenance, source_refs, evidence_refs, observed_at, valid_from,
         valid_until, recorded_at, status, supersedes, purpose,
         consent_version, data_class, projection_key, semantic_fingerprint,
-        projection_version
+        projection_version, support_level, contradiction_level, uncertainty
     ) VALUES (
         :atom_id, :tenant_id, :family_id, :subject_ids, :epistemic_kind,
         :predicate, :value_ref, :asserted_by, :attributed_actor_type,
         :provenance, :source_refs, :evidence_refs, :observed_at, :valid_from,
         :valid_until, :recorded_at, :status, :supersedes, :purpose,
         :consent_version, :data_class, :projection_key, :semantic_fingerprint,
-        :projection_version
+        :projection_version, :support_level, :contradiction_level, :uncertainty
     )
     ON CONFLICT (projection_key) DO NOTHING
     RETURNING atom_id
@@ -161,6 +163,11 @@ class PostgresWorldStateRepository:
             evidence_refs=atom.evidence_refs,
             data_class=atom.scope.data_class.value,
             projection_version=projection_version,
+            support_level=atom.support_level.value if atom.support_level else None,
+            contradiction_level=(
+                atom.contradiction_level.value if atom.contradiction_level else None
+            ),
+            uncertainty=atom.uncertainty.value if atom.uncertainty else None,
         )
 
         params = {
@@ -188,6 +195,11 @@ class PostgresWorldStateRepository:
             "projection_key": projection_key,
             "semantic_fingerprint": semantic_fingerprint,
             "projection_version": projection_version,
+            "support_level": atom.support_level.value if atom.support_level else None,
+            "contradiction_level": (
+                atom.contradiction_level.value if atom.contradiction_level else None
+            ),
+            "uncertainty": atom.uncertainty.value if atom.uncertainty else None,
         }
 
         try:
@@ -368,6 +380,17 @@ def _row_to_atom(mapping: dict, scope: ContextScope) -> WorldStateAtom:
         evidence_refs=_load(mapping["evidence_refs"]),
         status=WorldStateAtomStatus(mapping["status"]),
         supersedes=mapping["supersedes"],
+        support_level=BeliefBand(mapping["support_level"])
+        if mapping.get("support_level")
+        else None,
+        contradiction_level=(
+            BeliefBand(mapping["contradiction_level"])
+            if mapping.get("contradiction_level")
+            else None
+        ),
+        uncertainty=(
+            UncertaintyBand(mapping["uncertainty"]) if mapping.get("uncertainty") else None
+        ),
     )
 
 

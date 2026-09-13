@@ -89,12 +89,21 @@ def build_semantic_fingerprint(
     evidence_refs: Sequence[str],
     data_class: str,
     projection_version: str,
+    support_level: str | None = None,
+    contradiction_level: str | None = None,
+    uncertainty: str | None = None,
 ) -> str:
     """What this projection identity currently claims. Two projections of
     the same source at two points in time must produce the same fingerprint
     if and only if the asserted content is unchanged — this is what lets
     `append_atom` distinguish IDEMPOTENT_REPLAY from
     PROJECTION_IDENTITY_CONFLICT (see `postgres_world_state_repository.py`).
+
+    `support_level`/`contradiction_level`/`uncertainty` (AIFAMILY-WM-004B.1)
+    are included so that a re-projection of the same source whose belief
+    metadata has actually changed (e.g. the Belief Engine revised its
+    assessment) is correctly treated as a semantic change, not silently
+    accepted as an identical replay.
     """
 
     payload = {
@@ -110,6 +119,9 @@ def build_semantic_fingerprint(
         "evidence_refs": sorted(evidence_refs),
         "data_class": data_class,
         "projection_version": projection_version,
+        "support_level": support_level,
+        "contradiction_level": contradiction_level,
+        "uncertainty": uncertainty,
     }
     return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
 

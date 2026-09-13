@@ -15,7 +15,9 @@ from backend.intelligence.context_engine.contracts import (
     DataClass,
 )
 from backend.intelligence.context_engine.world_state import (
+    BeliefBand,
     FamilyWorldStateSnapshot,
+    UncertaintyBand,
     UnknownState,
     UnknownStatus,
     WorldStateActorType,
@@ -138,6 +140,9 @@ def test_hypothesis_without_evidence_is_rejected_not_silently_upgraded() -> None
             attributed_actor_type=WorldStateActorType.AI,
             source_refs=(),
             evidence_refs=(),
+            support_level=BeliefBand.MODERATE,
+            contradiction_level=BeliefBand.NONE,
+            uncertainty=UncertaintyBand.HIGH,
         )
 
 
@@ -149,6 +154,9 @@ def test_hypothesis_with_evidence_remains_a_hypothesis_never_a_fact() -> None:
         asserted_by="ai:family-principal",
         attributed_actor_type=WorldStateActorType.AI,
         evidence_refs=("obs-child-1", "obs-father-1"),
+        support_level=BeliefBand.MODERATE,
+        contradiction_level=BeliefBand.NONE,
+        uncertainty=UncertaintyBand.HIGH,
     )
     assert hypothesis.epistemic_kind is WorldStateEpistemicKind.HYPOTHESIS
     # There is no method on WorldStateAtom that mutates epistemic_kind — the
@@ -181,6 +189,7 @@ def test_ai_proposal_cannot_target_fact_or_report_kinds() -> None:
                 scope=scope(),
                 subject_ids=("child-1",),
                 proposed_kind=forbidden_kind,
+                target_predicate="family.member_statement",
                 statement="孩子完全没有自律",
                 evidence_refs=("obs-1",),
                 confidence=0.9,
@@ -193,6 +202,7 @@ def test_promoting_a_valid_proposal_yields_a_hypothesis_atom_not_a_fact() -> Non
         scope=scope(),
         subject_ids=("child-1",),
         proposed_kind=WorldStateEpistemicKind.HYPOTHESIS,
+        target_predicate="family.member_statement",
         statement="近期冲突可能与学习压力相关",
         evidence_refs=("obs-child-1", "obs-father-1"),
         confidence=0.58,

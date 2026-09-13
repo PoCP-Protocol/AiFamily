@@ -26,6 +26,8 @@ from backend.intelligence.context_engine.predicate_registry import (
     PredicateRegistryError,
 )
 from backend.intelligence.context_engine.world_state import (
+    BeliefBand,
+    UncertaintyBand,
     WorldStateActorType,
     WorldStateAtom,
     WorldStateEpistemicKind,
@@ -96,11 +98,17 @@ async def _apply_world_state_migration(engine) -> None:
     projection_identity_migration = importlib.import_module(
         "database.migrations.versions.0082_ai_family_world_atoms_projection_identity"
     )
+    belief_metadata_migration = importlib.import_module(
+        "database.migrations.versions.0083_ai_family_world_atoms_belief_metadata"
+    )
 
     async with engine.begin() as connection:
         await connection.run_sync(lambda sync_conn: _run_upgrade(sync_conn, atoms_migration))
         await connection.run_sync(
             lambda sync_conn: _run_upgrade(sync_conn, projection_identity_migration)
+        )
+        await connection.run_sync(
+            lambda sync_conn: _run_upgrade(sync_conn, belief_metadata_migration)
         )
 
 
@@ -398,6 +406,44 @@ async def test_criterion_8_persists_across_a_fresh_connection() -> None:
             loaded = await reader.get_atom("durable-1", scope=family_scope)
             assert loaded is not None
             assert loaded.atom_id == "durable-1"
+
+
+@pytest.mark.skipif(postgres_test_url() is None, reason=SKIP_REASON)
+async def test_hypothesis_target_predicate_and_belief_metadata_survive_restart_readback() -> None:
+    """AIFAMILY-WM-004B.1 A6: a HYPOTHESIS atom's `predicate` (the caller's
+    real `target_predicate`, never the old `"ai_proposed_state"` placeholder)
+    and its `support_level`/`contradiction_level`/`uncertainty` bands must
+    come back unchanged from a fresh connection — not just from the writer's
+    own in-memory object."""
+
+    async with postgres_schema_engine(MetaData()) as engine:
+        await _apply_world_state_migration(engine)
+        family_scope = scope()
+        hypothesis = atom(
+            atom_id="durable-hyp-1",
+            scope=family_scope,
+            epistemic_kind=WorldStateEpistemicKind.HYPOTHESIS,
+            predicate="child.parent_communication",
+            asserted_by="ai:family-principal",
+            attributed_actor_type=WorldStateActorType.AI,
+            evidence_refs=("obs-1",),
+            support_level=BeliefBand.MODERATE,
+            contradiction_level=BeliefBand.WEAK,
+            uncertainty=UncertaintyBand.HIGH,
+        )
+        async with engine.begin() as write_connection:
+            writer = PostgresWorldStateRepository(write_connection)
+            await _append(writer, hypothesis)
+
+        async with engine.begin() as fresh_connection:
+            reader = PostgresWorldStateRepository(fresh_connection)
+            loaded = await reader.get_atom("durable-hyp-1", scope=family_scope)
+            assert loaded is not None
+            assert loaded.predicate == "child.parent_communication"
+            assert loaded.predicate != "ai_proposed_state"
+            assert loaded.support_level is BeliefBand.MODERATE
+            assert loaded.contradiction_level is BeliefBand.WEAK
+            assert loaded.uncertainty is UncertaintyBand.HIGH
 
 
 @pytest.mark.skipif(postgres_test_url() is None, reason=SKIP_REASON)

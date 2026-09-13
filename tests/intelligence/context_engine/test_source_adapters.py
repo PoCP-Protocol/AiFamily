@@ -174,6 +174,9 @@ async def test_adapted_family_need_atom_persists_through_real_postgres() -> None
     projection_identity_migration = importlib.import_module(
         "database.migrations.versions.0082_ai_family_world_atoms_projection_identity"
     )
+    belief_metadata_migration = importlib.import_module(
+        "database.migrations.versions.0083_ai_family_world_atoms_belief_metadata"
+    )
 
     def _run_upgrade(sync_connection, migration_module) -> None:
         context = MigrationContext.configure(sync_connection, opts={"target_metadata": None})
@@ -184,6 +187,7 @@ async def test_adapted_family_need_atom_persists_through_real_postgres() -> None
         async with engine.begin() as connection:
             await connection.run_sync(lambda c: _run_upgrade(c, atoms_migration))
             await connection.run_sync(lambda c: _run_upgrade(c, projection_identity_migration))
+            await connection.run_sync(lambda c: _run_upgrade(c, belief_metadata_migration))
 
         async with engine.begin() as connection:
             repository = PostgresWorldStateRepository(connection)

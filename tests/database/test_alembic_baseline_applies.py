@@ -311,6 +311,15 @@ EXPECTED_HEAD_COUNTS_BY_REVISION = {
         "views": EXPECTED_VIEWS,
         "enums": EXPECTED_ENUM_TYPES,
     },
+    "0083_ai_family_world_atoms_belief_metadata": {
+        # +0 tables: adds support_level/contradiction_level/uncertainty
+        # columns (+ CHECK constraints) to the existing ai_family_world_atoms
+        # table (AIFAMILY-WM-004B.1 hypothesis semantic persistence) — no new
+        # table.
+        "tables": EXPECTED_0008_COUNTS["tables"] + 82,
+        "views": EXPECTED_VIEWS,
+        "enums": EXPECTED_ENUM_TYPES,
+    },
 }
 
 _MODEL_DRAFTS_ADR = (
