@@ -9,15 +9,20 @@ fixed:
     World State (evidence atoms + conflicts)
         -> Evidence Selection (caller's job, not this module's)
         -> build_hypothesis_request()          [deterministic]
-        -> ModelGateway.generate_structured()  [the only model call]
+        -> AgentRuntime.execute()              [the only model call]
         -> validate_and_promote_hypothesis()   [deterministic validation]
         -> WorldStateAtom(epistemic_kind=HYPOTHESIS, status=... )
 
-No step here imports a provider SDK directly — only
-`backend.intelligence.model_gateway`, matching R7. The caller supplies an
-already-constructed `ModelGateway` and `provider_id` (this module does not
-wire admission/registry/safety runtime itself, mirroring the Router/
-Executor separation established in `growth_plan_ai_wiring.py`).
+AIFAMILY-FIL-001 correction: earlier versions of `generate_hypothesis()`
+called `ModelGateway.generate_structured()` directly. Per the platform's
+INV-02 invariant ("all production model calls go through
+AgentRuntime -> Model Gateway, never a parallel cognition-specific
+execution path"), this module now calls `AgentRuntime.execute()` — the
+same governed entry point Principal/Planner use — instead of holding a
+`ModelGateway` reference itself. `build_hypothesis_request()` stays a pure
+function producing the payload/schema `_build_agent_task()` needs;
+`validate_and_build_proposal()` is unchanged and works on `AgentRun.draft`
+(a `ModelDraft`) exactly as it worked on a gateway-returned one.
 
 Belief signal is categorical (`BeliefBand`/`UncertaintyBand`), not a fake
 float probability — see `world_state.py`'s `BeliefBand` docstring for why.
@@ -31,9 +36,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Protocol
 
+from backend.intelligence.agent_runtime.contracts import AgentAuthorization, AgentRun, AgentTask
 from backend.intelligence.model_gateway.contracts import ModelDraft, StructuredRequest
-from backend.intelligence.model_gateway.gateway import ModelGateway
 
 from .contracts import ContextContractError, ContextScope
 from .predicate_registry import PredicateRegistry
@@ -45,6 +51,18 @@ from .world_state import (
     WorldStateProposal,
     promote_proposal_to_atom,
 )
+
+
+class _AgentRuntimeExecutor(Protocol):
+    """Structural interface for `AgentRuntime`/`DurableAgentRuntime` — this
+    module never imports the concrete runtime class, only the shape it
+    needs, so a caller can inject either the plain or the durable/
+    idempotent variant without this module caring which."""
+
+    async def execute(
+        self, task: AgentTask, authorization: AgentAuthorization | None
+    ) -> AgentRun: ...
+
 
 HYPOTHESIS_USE_CASE = "family_world_state.hypothesis_generation"
 HYPOTHESIS_PROMPT_VERSION = "world-model-belief-engine/v1"
@@ -230,9 +248,11 @@ def validate_and_build_proposal(
 
 
 async def generate_hypothesis(
-    gateway: ModelGateway,
+    runtime: _AgentRuntimeExecutor,
     *,
-    provider_id: str,
+    agent_id: str,
+    authorization: AgentAuthorization | None,
+    request_id: str,
     evidence_atoms: Sequence[WorldStateAtom],
     scope: ContextScope,
     subject_ids: tuple[str, ...],
@@ -243,10 +263,12 @@ async def generate_hypothesis(
     now: datetime,
     predicate_registry: PredicateRegistry | None = None,
 ) -> WorldStateAtom:
-    """The full WM-004B pipeline: evidence -> model call -> validated
-    HYPOTHESIS atom. This is the only function in this module that calls
-    the model; every other function here is a pure, deterministic step
-    around it.
+    """The full WM-004B pipeline: evidence -> AgentRuntime call -> validated
+    HYPOTHESIS atom. This is the only function in this module that triggers
+    a model execution; every other function here is a pure, deterministic
+    step around it. AIFAMILY-FIL-001: the execution boundary is
+    `AgentRuntime.execute()`, not a direct `ModelGateway` call — see module
+    docstring.
 
     `target_predicate` is validated against the governed registry *before*
     the model is called — there is no point spending a real model call on
@@ -256,14 +278,17 @@ async def generate_hypothesis(
     registry = predicate_registry or PredicateRegistry.from_yaml()
     registry.validate(target_predicate)
 
-    request = build_hypothesis_request(
+    task = _build_hypothesis_agent_task(
         evidence_atoms,
+        agent_id=agent_id,
+        request_id=request_id,
         context_snapshot_ref=context_snapshot_ref,
         tenant_id=scope.tenant_id,
         family_id=scope.family_id,
         data_class=scope.data_class.value,
     )
-    draft = await gateway.generate_structured(request, provider_id=provider_id)
+    run = await runtime.execute(task, authorization)
+    draft = run.draft
     proposal = validate_and_build_proposal(
         draft,
         proposal_id=proposal_id,
@@ -280,6 +305,47 @@ async def generate_hypothesis(
         observed_at=now,
         recorded_at=now,
         valid_from=now,
+    )
+
+
+def _build_hypothesis_agent_task(
+    evidence_atoms: Sequence[WorldStateAtom],
+    *,
+    agent_id: str,
+    request_id: str,
+    context_snapshot_ref: str,
+    tenant_id: str,
+    family_id: str,
+    data_class: str,
+) -> AgentTask:
+    """Same ingredients as `build_hypothesis_request()`, repackaged as an
+    `AgentTask` — the shape `AgentRuntime.execute()` requires. Kept separate
+    from `build_hypothesis_request()` because that function's `StructuredRequest`
+    output is also used directly by the gated real-model livecheck tests,
+    which call the gateway themselves rather than through AgentRuntime
+    (see `tests/family_journeys/test_family_scene_001_real_gateway_livecheck.py`)."""
+
+    request = build_hypothesis_request(
+        evidence_atoms,
+        context_snapshot_ref=context_snapshot_ref,
+        tenant_id=tenant_id,
+        family_id=family_id,
+        data_class=data_class,
+        request_id=request_id,
+    )
+    return AgentTask(
+        request_id=request_id,
+        agent_id=agent_id,
+        tenant_id=tenant_id,
+        family_id=family_id,
+        use_case=HYPOTHESIS_USE_CASE,
+        context_snapshot_ref=context_snapshot_ref,
+        prompt_version=HYPOTHESIS_PROMPT_VERSION,
+        schema_version=HYPOTHESIS_SCHEMA_VERSION,
+        data_class=data_class,
+        payload=dict(request.payload),
+        output_schema=request.output_schema,
+        input_refs=request.input_refs,
     )
 
 

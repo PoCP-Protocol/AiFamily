@@ -256,3 +256,82 @@ def test_credentials_are_read_only_inside_the_model_gateway(repo_root: Path) -> 
         "《儿童个人信息网络保护规定》第16条 delegated-processing assessment to mean "
         "anything).\n" + "\n".join(offenders)
     )
+
+
+COGNITION_MODULE_DIRS = ("backend/intelligence/context_engine",)
+"""Directories holding "cognition" modules — code that decides *what to ask
+a model for* and *how to validate what it returns*, as opposed to the
+Model Gateway/Agent Runtime infrastructure that actually executes a
+request. AIFAMILY-FIL-001 (INV-02): every generative call in production
+must go through `AgentRuntime.execute()`, never a directly-held
+`ModelGateway` — otherwise cognition modules quietly grow into a second,
+parallel execution path alongside Agent Runtime, which is exactly the
+architecture drift this test exists to catch before it compounds. As more
+cognition modules are added (primary contradiction, goal proposal,
+reflection, ...), add their directory here rather than special-casing each
+one.
+"""
+
+MODEL_GATEWAY_IMPORT_EXEMPT_PREFIXES = (
+    "backend/intelligence/model_gateway/",
+    "backend/intelligence/agent_runtime/",
+)
+"""Infrastructure that is *allowed* to import the concrete `ModelGateway`
+class: the gateway module itself, and Agent Runtime's
+`gateway_port.ModelGatewayExecutionPort` adapter (the one sanctioned place
+that binds a gateway+provider_id to the `AgentExecutionPort` protocol
+Agent Runtime depends on structurally)."""
+
+
+def _cognition_module_files(repo_root: Path) -> list[Path]:
+    files: list[Path] = []
+    for rel_dir in COGNITION_MODULE_DIRS:
+        root = repo_root / rel_dir
+        if not root.exists():
+            continue
+        files.extend(p for p in root.rglob("*.py") if "__pycache__" not in p.parts)
+    return files
+
+
+def test_cognition_modules_do_not_import_model_gateway_directly(repo_root: Path) -> None:
+    """AIFAMILY-FIL-001 INV-02: a cognition module may build a request and
+    validate a response, but it may never hold a `ModelGateway` reference
+    and call it directly — that execution boundary belongs solely to
+    `AgentRuntime.execute()`. Gated real-model livecheck tests are exempt
+    (they live under `tests/`, not `backend/`, and are explicitly documented
+    as the one sanctioned exception that calls the gateway itself to prove
+    a real round trip — see `test_family_scene_001_real_gateway_livecheck.py`).
+    """
+
+    files = _cognition_module_files(repo_root)
+    assert files, "no cognition module files found — this check would vacuously pass"
+
+    violations: list[str] = []
+    for path in files:
+        rel = path.relative_to(repo_root).as_posix()
+        if rel.startswith(MODEL_GATEWAY_IMPORT_EXEMPT_PREFIXES):
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.Import):
+                module = ""
+                names = [alias.name for alias in node.names]
+            else:
+                continue
+            if module.endswith("model_gateway.gateway") and "ModelGateway" in names:
+                violations.append(f"{rel}:{node.lineno} imports ModelGateway directly")
+            for name in names:
+                if name == "ModelGateway" or name.endswith(".ModelGateway"):
+                    violations.append(f"{rel}:{node.lineno} imports {name}")
+
+    assert not violations, (
+        "Single Model Execution Path violated (AIFAMILY-FIL-001 INV-02): a cognition "
+        "module under backend/intelligence/context_engine/ imports the concrete "
+        "ModelGateway class instead of executing through AgentRuntime. Route the call "
+        "through AgentRuntime.execute() (see belief_engine.generate_hypothesis / "
+        "unknown_engine.generate_unknown for the pattern) instead of holding a gateway "
+        "reference.\n" + "\n".join(violations)
+    )

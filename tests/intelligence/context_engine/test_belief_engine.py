@@ -12,7 +12,15 @@ from datetime import UTC, datetime
 
 import pytest
 
+from backend.intelligence.agent_runtime.contracts import (
+    AgentAuthorization,
+    AgentDefinition,
+    AuthorizationBudget,
+)
+from backend.intelligence.agent_runtime.gateway_port import ModelGatewayExecutionPort
+from backend.intelligence.agent_runtime.runtime import AgentRuntime
 from backend.intelligence.context_engine.belief_engine import (
+    HYPOTHESIS_USE_CASE,
     build_hypothesis_request,
     derive_confidence,
     generate_hypothesis,
@@ -239,7 +247,15 @@ def test_validate_produces_hypothesis_proposal_never_fact() -> None:
 # --- Full pipeline test using FakeProvider (no real LLM call) --------------
 
 
-def _fake_gateway(response: dict[str, object]) -> tuple[ModelGateway, str]:
+_AGENT_ID = "family_world_model_cognition"
+
+
+def _fake_runtime(response: dict[str, object]) -> tuple[AgentRuntime, AgentAuthorization]:
+    """AIFAMILY-FIL-001: `generate_hypothesis()` now executes through
+    `AgentRuntime`, not a directly-held `ModelGateway` — this builds a
+    minimal real `AgentRuntime` (still backed by `FakeProvider`, still no
+    real LLM API call) instead of handing the engine a bare gateway."""
+
     provider = FakeProvider({"family_world_state.hypothesis_generation": response})
     gateway = ModelGateway(
         {provider.provider_id: provider},
@@ -264,7 +280,36 @@ def _fake_gateway(response: dict[str, object]) -> tuple[ModelGateway, str]:
         ),
         safety_runtime=SafetyRuntime(),
     )
-    return gateway, provider.provider_id
+    definition = AgentDefinition(
+        agent_id=_AGENT_ID,
+        name="Family World Model Cognition",
+        allowed_use_cases=frozenset({HYPOTHESIS_USE_CASE}),
+        context_policy="test-context-policy",
+        safety_policy="test-safety-policy",
+        human_handoff_policy="test-handoff-policy",
+        budget_policy="test-budget-policy",
+    )
+    runtime = AgentRuntime(
+        ModelGatewayExecutionPort(gateway, provider.provider_id),
+        [definition],
+    )
+    authorization = AgentAuthorization(
+        authorization_id="auth-test-1",
+        agent_id=_AGENT_ID,
+        tenant_id="tenant-1",
+        family_id="family-1",
+        allowed_use_cases=frozenset({HYPOTHESIS_USE_CASE}),
+        allowed_tools=frozenset(),
+        issued_by="test-suite",
+        issued_at=NOW,
+        expires_at=NOW.replace(year=NOW.year + 1),
+        revoked_at=None,
+        budget=AuthorizationBudget(max_steps=1),
+        policy_version="test-policy-v1",
+        reason="test",
+        audit_ref="audit-test-1",
+    )
+    return runtime, authorization
 
 
 @pytest.mark.asyncio
@@ -283,7 +328,7 @@ async def test_generate_hypothesis_end_to_end_with_fake_provider() -> None:
             asserted_by="father-1",
         ),
     )
-    gateway, provider_id = _fake_gateway(
+    runtime, authorization = _fake_runtime(
         {
             "statement": "近期回避学校话题可能与学习压力上升相关",
             "support_level": "MODERATE",
@@ -294,8 +339,10 @@ async def test_generate_hypothesis_end_to_end_with_fake_provider() -> None:
     )
 
     hypothesis_atom = await generate_hypothesis(
-        gateway,
-        provider_id=provider_id,
+        runtime,
+        agent_id=_AGENT_ID,
+        authorization=authorization,
+        request_id="request-e2e-1",
         evidence_atoms=evidence,
         scope=scope(),
         subject_ids=("child-1",),
@@ -315,7 +362,7 @@ async def test_generate_hypothesis_end_to_end_with_fake_provider() -> None:
 @pytest.mark.asyncio
 async def test_generate_hypothesis_rejects_hallucinated_evidence_end_to_end() -> None:
     evidence = (atom(atom_id="only-real-evidence"),)
-    gateway, provider_id = _fake_gateway(
+    runtime, authorization = _fake_runtime(
         {
             "statement": "捏造的假设",
             "support_level": "STRONG",
@@ -327,8 +374,10 @@ async def test_generate_hypothesis_rejects_hallucinated_evidence_end_to_end() ->
 
     with pytest.raises(ContextContractError, match="HYPOTHESIS_CITES_UNKNOWN_EVIDENCE"):
         await generate_hypothesis(
-            gateway,
-            provider_id=provider_id,
+            runtime,
+            agent_id=_AGENT_ID,
+            authorization=authorization,
+            request_id="request-e2e-2",
             evidence_atoms=evidence,
             scope=scope(),
             subject_ids=("child-1",),

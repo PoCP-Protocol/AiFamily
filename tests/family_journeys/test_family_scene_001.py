@@ -20,6 +20,13 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import MetaData
 
+from backend.intelligence.agent_runtime.contracts import (
+    AgentAuthorization,
+    AgentDefinition,
+    AuthorizationBudget,
+)
+from backend.intelligence.agent_runtime.gateway_port import ModelGatewayExecutionPort
+from backend.intelligence.agent_runtime.runtime import AgentRuntime
 from backend.intelligence.context_engine.belief_engine import generate_hypothesis
 from backend.intelligence.context_engine.belief_state import assemble_belief_state
 from backend.intelligence.context_engine.conflict_engine import ConflictType, detect_conflicts
@@ -129,7 +136,16 @@ def _father_observation() -> WorldStateAtom:
     )
 
 
-def _fake_gateway(responses: dict[str, dict[str, object]]) -> tuple[ModelGateway, str]:
+_AGENT_ID = "family_world_model_cognition"
+
+
+def _fake_runtime(
+    responses: dict[str, dict[str, object]], *, use_case: str
+) -> tuple[AgentRuntime, AgentAuthorization]:
+    """AIFAMILY-FIL-001: belief/unknown generation now executes through
+    `AgentRuntime`, not a directly-held `ModelGateway` — see
+    `test_belief_engine._fake_runtime` for the same pattern."""
+
     provider = FakeProvider(responses)
     gateway = ModelGateway(
         {provider.provider_id: provider},
@@ -154,7 +170,36 @@ def _fake_gateway(responses: dict[str, dict[str, object]]) -> tuple[ModelGateway
         ),
         safety_runtime=SafetyRuntime(),
     )
-    return gateway, provider.provider_id
+    definition = AgentDefinition(
+        agent_id=_AGENT_ID,
+        name="Family World Model Cognition",
+        allowed_use_cases=frozenset({use_case}),
+        context_policy="test-context-policy",
+        safety_policy="test-safety-policy",
+        human_handoff_policy="test-handoff-policy",
+        budget_policy="test-budget-policy",
+    )
+    runtime = AgentRuntime(
+        ModelGatewayExecutionPort(gateway, provider.provider_id),
+        [definition],
+    )
+    authorization = AgentAuthorization(
+        authorization_id="auth-scene-1",
+        agent_id=_AGENT_ID,
+        tenant_id=scene_scope().tenant_id,
+        family_id=scene_scope().family_id,
+        allowed_use_cases=frozenset({use_case}),
+        allowed_tools=frozenset(),
+        issued_by="test-suite",
+        issued_at=NOW,
+        expires_at=NOW.replace(year=NOW.year + 1),
+        revoked_at=None,
+        budget=AuthorizationBudget(max_steps=1),
+        policy_version="test-policy-v1",
+        reason="test",
+        audit_ref="audit-scene-1",
+    )
+    return runtime, authorization
 
 
 async def _apply_unknown_migration(engine) -> None:
@@ -202,7 +247,7 @@ async def test_family_scene_001_conflict_to_hypothesis_to_unknown() -> None:
     registry = PredicateRegistry.from_yaml()
     registry.validate(SCENE_TARGET_PREDICATE)  # sanity: predicate is governed
 
-    belief_gateway, belief_provider_id = _fake_gateway(
+    belief_runtime, belief_authorization = _fake_runtime(
         {
             "family_world_state.hypothesis_generation": {
                 "statement": "母子沟通模式的分歧可能源于批评先于倾听的互动习惯",
@@ -211,11 +256,14 @@ async def test_family_scene_001_conflict_to_hypothesis_to_unknown() -> None:
                 "uncertainty": "HIGH",
                 "evidence_atom_ids": [mother.atom_id, child.atom_id, father.atom_id],
             }
-        }
+        },
+        use_case="family_world_state.hypothesis_generation",
     )
     hypothesis = await generate_hypothesis(
-        belief_gateway,
-        provider_id=belief_provider_id,
+        belief_runtime,
+        agent_id=_AGENT_ID,
+        authorization=belief_authorization,
+        request_id="request-scene-belief-1",
         evidence_atoms=(mother, child, father),
         scope=scene_scope(),
         subject_ids=("child-1", "mother-1", "father-1"),
@@ -238,7 +286,7 @@ async def test_family_scene_001_conflict_to_hypothesis_to_unknown() -> None:
     assert set(hypothesis.evidence_refs)  # non-empty: a real grounded hypothesis
 
     # --- Step 4: Unknown Engine (gated generative -> information gap) ------
-    unknown_gateway, unknown_provider_id = _fake_gateway(
+    unknown_runtime, unknown_authorization = _fake_runtime(
         {
             "family_world_state.unknown_generation": {
                 "question": "孩子自己认为改善沟通最需要从哪一步开始？",
@@ -250,11 +298,14 @@ async def test_family_scene_001_conflict_to_hypothesis_to_unknown() -> None:
                 "preferred_source": "PARENT_CHILD_INTERVIEW",
                 "blocking_hypothesis_ids": [hypothesis.atom_id],
             }
-        }
+        },
+        use_case="family_world_state.unknown_generation",
     )
     gap = await generate_unknown(
-        unknown_gateway,
-        provider_id=unknown_provider_id,
+        unknown_runtime,
+        agent_id=_AGENT_ID,
+        authorization=unknown_authorization,
+        request_id="request-scene-unknown-1",
         hypotheses=(hypothesis,),
         allowed_target_predicates=SCENE_ALLOWED_PREDICATES,
         existing_unknowns=(),

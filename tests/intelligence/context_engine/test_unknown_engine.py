@@ -11,12 +11,20 @@ from datetime import UTC, datetime
 
 import pytest
 
+from backend.intelligence.agent_runtime.contracts import (
+    AgentAuthorization,
+    AgentDefinition,
+    AuthorizationBudget,
+)
+from backend.intelligence.agent_runtime.gateway_port import ModelGatewayExecutionPort
+from backend.intelligence.agent_runtime.runtime import AgentRuntime
 from backend.intelligence.context_engine.contracts import (
     ContextContractError,
     ContextScope,
     DataClass,
 )
 from backend.intelligence.context_engine.unknown_engine import (
+    UNKNOWN_USE_CASE,
     AnswerabilityBand,
     ImpactBand,
     InformationValueInputs,
@@ -388,7 +396,14 @@ def test_validate_produces_open_unknown_with_canonical_identity() -> None:
 # --- Full pipeline test using FakeProvider (no real LLM call) --------------
 
 
-def _fake_gateway(response: dict[str, object]) -> tuple[ModelGateway, str]:
+_AGENT_ID = "family_world_model_cognition"
+
+
+def _fake_runtime(response: dict[str, object]) -> tuple[AgentRuntime, AgentAuthorization]:
+    """AIFAMILY-FIL-001: `generate_unknown()` now executes through
+    `AgentRuntime`, not a directly-held `ModelGateway` — see
+    `test_belief_engine._fake_runtime` for the same pattern."""
+
     provider = FakeProvider({"family_world_state.unknown_generation": response})
     gateway = ModelGateway(
         {provider.provider_id: provider},
@@ -413,12 +428,41 @@ def _fake_gateway(response: dict[str, object]) -> tuple[ModelGateway, str]:
         ),
         safety_runtime=SafetyRuntime(),
     )
-    return gateway, provider.provider_id
+    definition = AgentDefinition(
+        agent_id=_AGENT_ID,
+        name="Family World Model Cognition",
+        allowed_use_cases=frozenset({UNKNOWN_USE_CASE}),
+        context_policy="test-context-policy",
+        safety_policy="test-safety-policy",
+        human_handoff_policy="test-handoff-policy",
+        budget_policy="test-budget-policy",
+    )
+    runtime = AgentRuntime(
+        ModelGatewayExecutionPort(gateway, provider.provider_id),
+        [definition],
+    )
+    authorization = AgentAuthorization(
+        authorization_id="auth-test-1",
+        agent_id=_AGENT_ID,
+        tenant_id="tenant-1",
+        family_id="family-1",
+        allowed_use_cases=frozenset({UNKNOWN_USE_CASE}),
+        allowed_tools=frozenset(),
+        issued_by="test-suite",
+        issued_at=NOW,
+        expires_at=NOW.replace(year=NOW.year + 1),
+        revoked_at=None,
+        budget=AuthorizationBudget(max_steps=1),
+        policy_version="test-policy-v1",
+        reason="test",
+        audit_ref="audit-test-1",
+    )
+    return runtime, authorization
 
 
 @pytest.mark.asyncio
 async def test_generate_unknown_end_to_end_with_fake_provider() -> None:
-    gateway, provider_id = _fake_gateway(
+    runtime, authorization = _fake_runtime(
         {
             "question": "学校最近有没有发生明显变化？",
             "why_it_matters": "区分学校适应问题和其他原因",
@@ -431,8 +475,10 @@ async def test_generate_unknown_end_to_end_with_fake_provider() -> None:
     )
 
     unknown = await generate_unknown(
-        gateway,
-        provider_id=provider_id,
+        runtime,
+        agent_id=_AGENT_ID,
+        authorization=authorization,
+        request_id="request-e2e-1",
         hypotheses=(hypothesis_atom(),),
         allowed_target_predicates=ALLOWED_PREDICATES,
         existing_unknowns=(),
@@ -451,7 +497,7 @@ async def test_generate_unknown_end_to_end_with_fake_provider() -> None:
 
 @pytest.mark.asyncio
 async def test_generate_unknown_rejects_target_predicate_outside_allowlist_end_to_end() -> None:
-    gateway, provider_id = _fake_gateway(
+    runtime, authorization = _fake_runtime(
         {
             "question": "学校最近有没有发生明显变化？",
             "why_it_matters": "区分学校适应问题和其他原因",
@@ -465,8 +511,10 @@ async def test_generate_unknown_rejects_target_predicate_outside_allowlist_end_t
 
     with pytest.raises(Exception, match="UNKNOWN_TARGET_PREDICATE_NOT_ALLOWED|schema"):
         await generate_unknown(
-            gateway,
-            provider_id=provider_id,
+            runtime,
+            agent_id=_AGENT_ID,
+            authorization=authorization,
+            request_id="request-e2e-2",
             hypotheses=(hypothesis_atom(),),
             allowed_target_predicates=ALLOWED_PREDICATES,
             existing_unknowns=(),

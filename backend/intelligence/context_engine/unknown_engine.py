@@ -37,13 +37,25 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from typing import Protocol
 
+from backend.intelligence.agent_runtime.contracts import AgentAuthorization, AgentRun, AgentTask
 from backend.intelligence.model_gateway.contracts import ModelDraft, StructuredRequest
-from backend.intelligence.model_gateway.gateway import ModelGateway
 
 from .contracts import ContextContractError, ContextScope
 from .unknown_identity import build_unknown_key
 from .world_state import UncertaintyBand, UnknownState, UnknownStatus, WorldStateAtom
+
+
+class _AgentRuntimeExecutor(Protocol):
+    """Structural interface for `AgentRuntime`/`DurableAgentRuntime` — see
+    `belief_engine._AgentRuntimeExecutor` for why this module depends on the
+    shape, not the concrete class."""
+
+    async def execute(
+        self, task: AgentTask, authorization: AgentAuthorization | None
+    ) -> AgentRun: ...
+
 
 UNKNOWN_USE_CASE = "family_world_state.unknown_generation"
 UNKNOWN_PROMPT_VERSION = "world-model-unknown-engine/v1"
@@ -313,9 +325,11 @@ def validate_and_build_unknown(
 
 
 async def generate_unknown(
-    gateway: ModelGateway,
+    runtime: _AgentRuntimeExecutor,
     *,
-    provider_id: str,
+    agent_id: str,
+    authorization: AgentAuthorization | None,
+    request_id: str,
     hypotheses: Sequence[WorldStateAtom],
     allowed_target_predicates: Sequence[str],
     existing_unknowns: Sequence[UnknownState],
@@ -325,23 +339,27 @@ async def generate_unknown(
     unknown_id: str,
     now: datetime,
 ) -> UnknownState | None:
-    """Full WM-004C pipeline: hypotheses -> model call -> validated
+    """Full WM-004C pipeline: hypotheses -> AgentRuntime call -> validated
     UnknownState (or `None` if the model's proposal's canonical identity
     duplicates an existing open Unknown). Mirrors
-    `belief_engine.generate_hypothesis`. This is the only function in this
-    module that calls the model."""
+    `belief_engine.generate_hypothesis`. AIFAMILY-FIL-001: this is the only
+    function in this module that triggers a model execution, and it does so
+    through `AgentRuntime.execute()`, never a directly-held `ModelGateway`
+    — see module docstring."""
 
-    request = build_unknown_request(
+    task = _build_unknown_agent_task(
         hypotheses,
+        agent_id=agent_id,
+        request_id=request_id,
         allowed_target_predicates=allowed_target_predicates,
         context_snapshot_ref=context_snapshot_ref,
         tenant_id=scope.tenant_id,
         family_id=scope.family_id,
         data_class=scope.data_class.value,
     )
-    draft = await gateway.generate_structured(request, provider_id=provider_id)
+    run = await runtime.execute(task, authorization)
     return validate_and_build_unknown(
-        draft,
+        run.draft,
         unknown_id=unknown_id,
         scope=scope,
         subject_ids=subject_ids,
@@ -349,6 +367,47 @@ async def generate_unknown(
         allowed_target_predicates=allowed_target_predicates,
         existing_unknowns=existing_unknowns,
         created_at=now,
+    )
+
+
+def _build_unknown_agent_task(
+    hypotheses: Sequence[WorldStateAtom],
+    *,
+    agent_id: str,
+    request_id: str,
+    allowed_target_predicates: Sequence[str],
+    context_snapshot_ref: str,
+    tenant_id: str,
+    family_id: str,
+    data_class: str,
+) -> AgentTask:
+    """Same ingredients as `build_unknown_request()`, repackaged as an
+    `AgentTask` — see `belief_engine._build_hypothesis_agent_task` for why
+    the pure `StructuredRequest` builder stays separate (the gated real-model
+    livecheck tests use it directly against the gateway)."""
+
+    request = build_unknown_request(
+        hypotheses,
+        allowed_target_predicates=allowed_target_predicates,
+        context_snapshot_ref=context_snapshot_ref,
+        tenant_id=tenant_id,
+        family_id=family_id,
+        data_class=data_class,
+        request_id=request_id,
+    )
+    return AgentTask(
+        request_id=request_id,
+        agent_id=agent_id,
+        tenant_id=tenant_id,
+        family_id=family_id,
+        use_case=UNKNOWN_USE_CASE,
+        context_snapshot_ref=context_snapshot_ref,
+        prompt_version=UNKNOWN_PROMPT_VERSION,
+        schema_version=UNKNOWN_SCHEMA_VERSION,
+        data_class=data_class,
+        payload=dict(request.payload),
+        output_schema=request.output_schema,
+        input_refs=request.input_refs,
     )
 
 
