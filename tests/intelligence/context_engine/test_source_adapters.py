@@ -168,16 +168,22 @@ async def test_adapted_family_need_atom_persists_through_real_postgres() -> None
     from alembic.migration import MigrationContext
     from alembic.operations import Operations
 
-    migration = importlib.import_module("database.migrations.versions.0080_ai_family_world_atoms")
+    atoms_migration = importlib.import_module(
+        "database.migrations.versions.0080_ai_family_world_atoms"
+    )
+    projection_identity_migration = importlib.import_module(
+        "database.migrations.versions.0082_ai_family_world_atoms_projection_identity"
+    )
 
-    def _run_upgrade(sync_connection) -> None:
+    def _run_upgrade(sync_connection, migration_module) -> None:
         context = MigrationContext.configure(sync_connection, opts={"target_metadata": None})
         with Operations.context(context):
-            migration.upgrade()
+            migration_module.upgrade()
 
     async with postgres_schema_engine(MetaData()) as engine:
         async with engine.begin() as connection:
-            await connection.run_sync(_run_upgrade)
+            await connection.run_sync(lambda c: _run_upgrade(c, atoms_migration))
+            await connection.run_sync(lambda c: _run_upgrade(c, projection_identity_migration))
 
         async with engine.begin() as connection:
             repository = PostgresWorldStateRepository(connection)
@@ -185,7 +191,12 @@ async def test_adapted_family_need_atom_persists_through_real_postgres() -> None
             need = _family_need()
             atom = family_need_atom(need, scope=family_scope, atom_id="need-atom-e2e-1")
 
-            await repository.append_atom(atom)
+            await repository.append_atom(
+                atom,
+                source_ref=f"family-need-domain:family_needs:{need.need_id}",
+                source_version="1",
+                projection_version="test-fixture/v1",
+            )
             loaded = await repository.get_atom("need-atom-e2e-1", scope=family_scope)
             assert loaded is not None
             assert loaded.predicate == "family.active_need"

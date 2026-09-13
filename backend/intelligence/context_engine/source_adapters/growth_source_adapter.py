@@ -27,6 +27,18 @@ assigned at write time by the SQLAlchemy adapter, see
 .py:222`) — this adapter takes it as an explicit parameter rather than
 guessing `datetime.now()`, so a caller replaying a historical row can supply
 the real value instead of silently getting "now".
+
+**WM-003.6 source identity**: `growth_intent_source_identity()` below gives
+the stable `(source_ref, source_version)` pair for `append_atom`'s
+idempotency contract. It reuses `binding.idempotency_key` — the field
+Growth's own persistence layer (`sqlalchemy_growth_intent_confirmation.py`)
+already uses to guarantee exactly-once confirmation — rather than inventing
+a second identity scheme. `source_version` is fixed at `"1"`: a
+`ValidatedConfirmationBinding` is immutable once validated (frozen
+dataclass, see `growth_intent_confirmation.py`), so the same
+`idempotency_key` can never legitimately carry two different confirmations
+— there is no "v2" of one confirmation event, only a new confirmation with
+a new `idempotency_key`.
 """
 
 from __future__ import annotations
@@ -41,6 +53,20 @@ from backend.intelligence.context_engine.world_state import (
 )
 
 _HUMAN_CONFIRMED_BOUNDARY = "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME"
+
+#: Adapter contract version — bump when this function's mapping from
+#: ValidatedConfirmationBinding to WorldStateAtom semantics changes, so a
+#: reprojection under a changed contract gets a new projection_key instead
+#: of silently colliding with atoms from the old contract.
+GROWTH_INTENT_PROJECTION_VERSION = "world-fact-adapter/growth-intent/v1"
+
+
+def growth_intent_source_identity(binding: object) -> tuple[str, str]:
+    """`(source_ref, source_version)` for `append_atom`'s idempotency
+    contract — see module docstring for why `idempotency_key` and the fixed
+    version `"1"` are the correct, non-guessed choice."""
+
+    return f"growth-intent-confirmation:{binding.idempotency_key}", "1"
 
 
 def confirmed_growth_intent_atom(
@@ -95,4 +121,8 @@ def confirmed_growth_intent_atom(
     )
 
 
-__all__ = ["confirmed_growth_intent_atom"]
+__all__ = [
+    "GROWTH_INTENT_PROJECTION_VERSION",
+    "confirmed_growth_intent_atom",
+    "growth_intent_source_identity",
+]

@@ -27,6 +27,14 @@ No `evidence_refs` field exists on `FamilyConfirmedOutcome` (see the audit at
 (a completed booking or course), carried here as a source ref rather than an
 evidence ref, since it is not evidence *for* a claim but the delivered thing
 the claim is *about*.
+
+**WM-003.6 source identity**: `family_confirmed_outcome_source_identity()`
+below uses `outcome.outcome_id` as `source_ref` with a fixed
+`source_version = "1"`. `FamilyConfirmedOutcome` is an append-only verdict
+(module docstring: "the *only* place a service/course's helpfulness verdict
+exists") with no update method in `backend.domains.family_need.domain
+.entities` — once a family confirms an outcome, that specific `outcome_id`
+never represents a different verdict, so there is no "v2" to version.
 """
 
 from __future__ import annotations
@@ -46,6 +54,19 @@ _ACTOR_TYPE_MAP = {
     ActorType.FAMILY_GUARDIAN: WorldStateActorType.FAMILY_GUARDIAN,
     ActorType.FAMILY_MEMBER: WorldStateActorType.FAMILY_MEMBER,
 }
+
+#: Adapter contract version — see growth_source_adapter.py's equivalent
+#: constant for why this exists.
+FAMILY_CONFIRMED_OUTCOME_PROJECTION_VERSION = "world-fact-adapter/family-outcome/v1"
+
+
+def family_confirmed_outcome_source_identity(outcome: object) -> tuple[str, str]:
+    """`(source_ref, source_version)` for `append_atom`'s idempotency
+    contract — see module docstring for why `outcome_id` + fixed version
+    `"1"` is the correct, non-guessed choice."""
+
+    return f"family-confirmed-outcome:{outcome.outcome_id}", "1"
+
 
 # FamilyNeed's DataClass vocabulary (PUBLIC/INTERNAL/FAMILY_PRIVATE/
 # SENSITIVE_PERSONAL_DATA/MINOR_PERSONAL_DATA) does not line up 1:1 with the
@@ -120,4 +141,8 @@ def family_confirmed_outcome_atom(outcome: object, *, atom_id: str) -> WorldStat
     )
 
 
-__all__ = ["family_confirmed_outcome_atom"]
+__all__ = [
+    "FAMILY_CONFIRMED_OUTCOME_PROJECTION_VERSION",
+    "family_confirmed_outcome_atom",
+    "family_confirmed_outcome_source_identity",
+]

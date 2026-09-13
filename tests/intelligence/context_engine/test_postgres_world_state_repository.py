@@ -73,13 +73,35 @@ def atom(**overrides: object) -> WorldStateAtom:
     return WorldStateAtom(**values)  # type: ignore[arg-type]
 
 
+async def _append(repository: PostgresWorldStateRepository, atom_obj: WorldStateAtom):
+    """Test-only default projection identity — these pre-WM-003.6 tests
+    exercise other invariants (scope/bitemporal/supersession), not
+    idempotency itself, so each gets a trivially unique identity derived
+    from its own atom_id rather than testing real source replay."""
+
+    return await repository.append_atom(
+        atom_obj,
+        source_ref=f"test-source:{atom_obj.atom_id}",
+        source_version="1",
+        projection_version="test-fixture/v1",
+    )
+
+
 async def _apply_world_state_migration(engine) -> None:
     import importlib
 
-    migration = importlib.import_module("database.migrations.versions.0080_ai_family_world_atoms")
+    atoms_migration = importlib.import_module(
+        "database.migrations.versions.0080_ai_family_world_atoms"
+    )
+    projection_identity_migration = importlib.import_module(
+        "database.migrations.versions.0082_ai_family_world_atoms_projection_identity"
+    )
 
     async with engine.begin() as connection:
-        await connection.run_sync(lambda sync_conn: _run_upgrade(sync_conn, migration))
+        await connection.run_sync(lambda sync_conn: _run_upgrade(sync_conn, atoms_migration))
+        await connection.run_sync(
+            lambda sync_conn: _run_upgrade(sync_conn, projection_identity_migration)
+        )
 
 
 def _run_upgrade(sync_connection, migration_module) -> None:
@@ -99,7 +121,7 @@ async def test_append_and_get_atom_round_trips_through_real_postgres() -> None:
             repository = PostgresWorldStateRepository(connection)
             family_scope = scope()
             original = atom(scope=family_scope)
-            await repository.append_atom(original)
+            await _append(repository, original)
 
             loaded = await repository.get_atom(original.atom_id, scope=family_scope)
             assert loaded is not None
@@ -117,7 +139,7 @@ async def test_append_rejects_ungoverned_predicate() -> None:
             repository = PostgresWorldStateRepository(connection)
             rogue = atom(atom_id="rogue-1", predicate="child_is_lazy")
             with pytest.raises(PredicateRegistryError, match="PREDICATE_NOT_REGISTERED"):
-                await repository.append_atom(rogue)
+                await _append(repository, rogue)
 
 
 @pytest.mark.skipif(postgres_test_url() is None, reason=SKIP_REASON)
@@ -153,6 +175,9 @@ async def test_ai_asserted_fact_is_rejected_at_the_database_check_constraint() -
                 "purpose": "family_growth_support",
                 "consent_version": "consent.v1",
                 "data_class": "FAMILY_PRIVATE_TEXT",
+                "projection_key": "test-projection-key-smuggled-fact-1",
+                "semantic_fingerprint": "test-fingerprint-smuggled-fact-1",
+                "projection_version": "test-fixture/v1",
             }
             from sqlalchemy import text
 
@@ -165,13 +190,15 @@ async def test_ai_asserted_fact_is_rejected_at_the_database_check_constraint() -
                             predicate, value_ref, asserted_by, attributed_actor_type,
                             provenance, source_refs, evidence_refs, observed_at,
                             valid_from, valid_until, recorded_at, status, supersedes,
-                            purpose, consent_version, data_class
+                            purpose, consent_version, data_class, projection_key,
+                            semantic_fingerprint, projection_version
                         ) VALUES (
                             :atom_id, :tenant_id, :family_id, :subject_ids, :epistemic_kind,
                             :predicate, :value_ref, :asserted_by, :attributed_actor_type,
                             :provenance, :source_refs, :evidence_refs, :observed_at,
                             :valid_from, :valid_until, :recorded_at, :status, :supersedes,
-                            :purpose, :consent_version, :data_class
+                            :purpose, :consent_version, :data_class, :projection_key,
+                            :semantic_fingerprint, :projection_version
                         )
                         """
                     ),
@@ -199,7 +226,7 @@ async def test_get_state_is_bitemporal_valid_at_vs_known_at() -> None:
                 observed_at=datetime(2026, 8, 28, tzinfo=UTC),
                 recorded_at=datetime(2026, 9, 10, tzinfo=UTC),
             )
-            await repository.append_atom(late_reported)
+            await _append(repository, late_reported)
 
             # known_at before the report existed: invisible.
             before_known = await repository.get_state(
@@ -232,7 +259,7 @@ async def test_get_state_excludes_atoms_outside_subject_scope() -> None:
                 subject_ids=("mother-1",),
                 predicate="family.member_statement",
             )
-            await repository.append_atom(about_mother_only)
+            await _append(repository, about_mother_only)
 
             child_only_scope = scope(subject_ids=("child-1",))
             visible = await repository.get_state(scope=child_only_scope)
@@ -264,7 +291,7 @@ async def test_criterion_1_non_ai_actor_can_create_a_fact() -> None:
                 asserted_by="system:family-domain",
                 attributed_actor_type=WorldStateActorType.SYSTEM,
             )
-            await repository.append_atom(fact)
+            await _append(repository, fact)
             loaded = await repository.get_atom("fact-1", scope=family_scope)
             assert loaded is not None
             assert loaded.epistemic_kind is WorldStateEpistemicKind.FACT
@@ -299,8 +326,8 @@ async def test_criterion_5_opposing_perspectives_both_persist() -> None:
                 attributed_actor_type=WorldStateActorType.FAMILY_MEMBER,
                 source_refs=("conversation:child-1",),
             )
-            await repository.append_atom(mother_view)
-            await repository.append_atom(child_view)
+            await _append(repository, mother_view)
+            await _append(repository, child_view)
 
             state = await repository.get_state(scope=family_scope)
             ids = {a.atom_id for a in state}
@@ -336,8 +363,8 @@ async def test_criterion_7_superseded_atom_still_readable_at_its_own_known_at() 
                 recorded_at=datetime(2026, 9, 1, tzinfo=UTC),
                 supersedes=original.atom_id,
             )
-            await repository.append_atom(original)
-            await repository.append_atom(updated)
+            await _append(repository, original)
+            await _append(repository, updated)
 
             # Historical query: what was true in July? The old version.
             july_state = await repository.get_state(
@@ -364,7 +391,7 @@ async def test_criterion_8_persists_across_a_fresh_connection() -> None:
         family_scope = scope()
         async with engine.begin() as write_connection:
             writer = PostgresWorldStateRepository(write_connection)
-            await writer.append_atom(atom(atom_id="durable-1", scope=family_scope))
+            await _append(writer, atom(atom_id="durable-1", scope=family_scope))
 
         async with engine.begin() as fresh_connection:
             reader = PostgresWorldStateRepository(fresh_connection)
@@ -380,7 +407,7 @@ async def test_criterion_9_cross_family_read_denied_at_repository_level() -> Non
         async with engine.begin() as connection:
             repository = PostgresWorldStateRepository(connection)
             family_a_scope = scope(family_id="family-1")
-            await repository.append_atom(atom(atom_id="a-only-1", scope=family_a_scope))
+            await _append(repository, atom(atom_id="a-only-1", scope=family_a_scope))
 
             family_b_scope = scope(family_id="family-2", subject_ids=("child-9",))
             with pytest.raises(ContextScopeError, match="CROSS_FAMILY_WORLD_STATE_READ"):
@@ -411,7 +438,7 @@ async def test_live_consent_gate_denies_read_after_consent_version_changes() -> 
         async with engine.begin() as connection:
             repository = PostgresWorldStateRepository(connection)
             granted_at_v1_scope = scope(consent_version="consent.v1")
-            await repository.append_atom(atom(atom_id="live-consent-1", scope=granted_at_v1_scope))
+            await _append(repository, atom(atom_id="live-consent-1", scope=granted_at_v1_scope))
 
             # T1->T2: read with the same live consent version still works.
             still_v1 = await repository.get_atom("live-consent-1", scope=granted_at_v1_scope)
