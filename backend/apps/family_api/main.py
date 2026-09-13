@@ -33,6 +33,9 @@ from backend.apps.family_api.experience_wiring import (
     install_feedback_runtime_resolver,
     mount_experience_router,
 )
+from backend.apps.family_api.family_world_model_routes import (
+    router as family_world_model_router,
+)
 from backend.apps.family_api.growth_onboarding_wiring import (
     FakeGrowthOnboardingRuntime,
     InMemoryGrowthOnboardingActorResolver,
@@ -593,6 +596,14 @@ def create_app(
             )
         )
     application.include_router(vertical_family_growth_router)
+    # Family World Model demo wiring (AIFAMILY-FIC-002A/WM-004A~005):
+    # exposes the already-built context_engine cognition pipeline
+    # (statements -> conflicts -> hypothesis -> unknown -> resolution ->
+    # belief state) as a small set of real HTTP endpoints. Uses its own
+    # `AsyncConnection` dependency (see `family_world_model_routes.py`); no
+    # environment gating is needed here since each endpoint fails closed on
+    # its own (missing real model provider -> 503, missing evidence -> 404).
+    application.include_router(family_world_model_router)
     if production_vertical_family_growth_composition is not None:
         production_vertical_family_growth_composition.install(application)
     elif production_ai_platform_wiring is None and vertical_family_growth_runtime is not None:
