@@ -1,0 +1,81 @@
+# AiFamily World Model Predicate Registry (AIFAMILY-WM-001)
+#
+# 目的：防止 Family World State Kernel（backend/intelligence/context_engine/
+# world_state.py）变成任意字符串垃圾场。任何写入 `WorldStateAtom.predicate`
+# 的调用点，在持久化前必须经过本 registry 校验（见
+# `backend/intelligence/context_engine/predicate_registry.py`
+# `PredicateRegistry.validate()`）——校验点在持久化边界，不在
+# `WorldStateAtom.__post_init__` 本身，让内核对象保持无 I/O、纯语义、可单测。
+#
+# 分两层：
+#   core       — Platform Core 通用谓词，任何 Vertical Pack 都可能用到
+#   verticals  — 每个 Vertical Pack 注册自己的谓词，owner 必须写明
+#
+# 新增一条谓词前必须回答：这个谓词描述的是 Platform Core 通用语义，还是某个
+# Vertical 的领域知识？后者归入 verticals.<pack_name>，不得混入 core。
+#
+# 参见 `governance/ADR/ADR-0169-family-agi-species-change-and-strategic-
+# constitution.md` §11（Vertical Pack 机制）与
+# `docs/00_system/AIFAMILY_STRATEGIC_CONSTITUTION_V1.md` §11。
+
+schema_version: "1.0"
+updated: "2026-09-13"
+
+core:
+  family.member_of:
+    object_type: PERSON_TO_FAMILY
+    owner: FAMILY_CORE
+    description: "该主体是这个家庭的成员"
+
+  family.relationship:
+    object_type: PERSON_TO_PERSON
+    owner: FAMILY_CORE
+    description: "两个家庭成员之间的关系类型"
+
+  family.active_need:
+    object_type: NEED_REF
+    owner: FAMILY_NEED
+    description: "家庭当前活跃的 FamilyNeed"
+
+  family.confirmed_need:
+    object_type: NEED_REF
+    owner: FAMILY_NEED
+    description: "已经家庭确认的 FamilyNeed"
+
+  family.active_goal:
+    object_type: GOAL_REF
+    owner: FAMILY_INTELLIGENCE
+    description: "家庭当前的活跃目标"
+
+  family.action:
+    object_type: ACTION_REF
+    owner: ACTION
+    description: "已发起或已完成的家庭行动"
+
+  family.outcome:
+    object_type: OUTCOME_REF
+    owner: OUTCOME
+    description: "家庭确认的行动结果（HELPED/PARTIALLY_HELPED/DID_NOT_HELP）"
+
+  family.member_statement:
+    object_type: FREE_TEXT
+    owner: FAMILY_CORE
+    description: "某个家庭成员对自己或他人的原始陈述（SELF_REPORT/OTHER_REPORT 载体）"
+
+verticals:
+  child_growth:
+    owner: CHILD_GROWTH_VERTICAL
+    predicates:
+      child.sleep_pattern:
+        object_type: FREE_TEXT
+        description: "孩子的睡眠模式相关观察或陈述"
+      child.school_engagement:
+        object_type: FREE_TEXT
+        description: "孩子的在校参与度相关观察或陈述"
+      child.parent_communication:
+        object_type: FREE_TEXT
+        description: "亲子沟通相关观察或陈述"
+      child.self_regulation:
+        object_type: FREE_TEXT
+        description: "孩子自我调节/自律相关观察、陈述或假设——绝不能以 FACT 写入,
+          见 world_state.py 的 AI_CANNOT_ASSERT_THIS_EPISTEMIC_KIND 不变量"
