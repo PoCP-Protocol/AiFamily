@@ -375,3 +375,42 @@ async def test_family_scene_001_conflict_to_hypothesis_to_unknown() -> None:
 
         # The now-RESOLVED Unknown must not appear in the task context.
         assert task_context.unknowns == ()
+
+        # --- Checkpoint 5b: budget boundary must never split the conflict --
+        # (AIFAMILY-WM-005C PART J/K) — isolate just the mother-vs-child
+        # disagreement so the budget math is unambiguous.
+        pair_snapshot = FamilyWorldStateSnapshot(
+            snapshot_ref="family-scene-001-belief-snapshot-pair",
+            scope=scene_scope(),
+            as_of=NOW,
+            generated_at=NOW,
+            atoms=(mother, child),
+        )
+        pair_conflicts = detect_conflicts((mother, child), detected_at=NOW)
+        pair_belief_state = assemble_belief_state(pair_snapshot, conflicts=pair_conflicts)
+
+        too_small = project_task_context(
+            pair_belief_state,
+            TaskContextSpec(
+                use_case="family.communication_understanding",
+                allowed_predicates=(SCENE_TARGET_PREDICATE,),
+                max_items=1,
+            ),
+            context_ref="family-scene-001-task-context-toosmall",
+            provenance="family-scene-001:checkpoint-5b",
+        )
+        assert too_small.items == ()
+        assert too_small.conflicts == ()
+
+        exact_fit = project_task_context(
+            pair_belief_state,
+            TaskContextSpec(
+                use_case="family.communication_understanding",
+                allowed_predicates=(SCENE_TARGET_PREDICATE,),
+                max_items=2,
+            ),
+            context_ref="family-scene-001-task-context-exact",
+            provenance="family-scene-001:checkpoint-5b",
+        )
+        assert {i.item_ref for i in exact_fit.items} == {mother.atom_id, child.atom_id}
+        assert len(exact_fit.conflicts) == 1

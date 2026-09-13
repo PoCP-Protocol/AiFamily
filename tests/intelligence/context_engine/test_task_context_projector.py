@@ -180,7 +180,8 @@ def test_conflict_pair_included_only_when_both_atoms_selected() -> None:
 
 
 def test_conflict_pair_excluded_wholesale_when_max_items_truncates_one_side() -> None:
-    """PART G: never include only one side of a conflict pair."""
+    """AIFAMILY-WM-005C: never include only one side of a conflict pair —
+    a budget too small for the whole pair excludes BOTH atoms, not one."""
 
     atom_a = atom(atom_id="atom-a", predicate="child.parent_communication", recorded_at=NOW)
     atom_b = atom(
@@ -198,7 +199,7 @@ def test_conflict_pair_excluded_wholesale_when_max_items_truncates_one_side() ->
         belief_state, default_spec(max_items=1), context_ref="ctx-4", provenance="test"
     )
 
-    assert len(context.items) == 1
+    assert context.items == ()
     assert context.conflicts == ()
 
 
@@ -290,3 +291,99 @@ def test_consent_revoked_scope_cannot_reach_projection() -> None:
 
     with pytest.raises(ContextContractError, match="CONSENT_REVOKED"):
         scope(consent_granted=False)
+
+
+# --- AIFAMILY-WM-005C: connected conflict component atomicity --------------
+
+
+def test_overlapping_conflicts_form_one_connected_component() -> None:
+    """A-B and B-C must be treated as one indivisible component {A, B, C},
+    not two independent pairs — otherwise B could be kept for the A-B edge
+    while C's disagreement with B stays hidden."""
+
+    atom_a = atom(atom_id="atom-a", predicate="child.parent_communication")
+    atom_b = atom(atom_id="atom-b", predicate="child.parent_communication", asserted_by="mother-1")
+    atom_c = atom(atom_id="atom-c", predicate="child.parent_communication", asserted_by="father-1")
+    conflict_ab = conflict(conflict_id="c-ab", atom_ids=("atom-a", "atom-b"))
+    conflict_bc = conflict(conflict_id="c-bc", atom_ids=("atom-b", "atom-c"))
+
+    belief_state = assemble_belief_state(
+        snapshot(atoms=(atom_a, atom_b, atom_c)), conflicts=(conflict_ab, conflict_bc)
+    )
+
+    # Budget too small for the 3-atom component: ALL excluded.
+    too_small = project_task_context(
+        belief_state, default_spec(max_items=2), context_ref="ctx-overlap-1", provenance="test"
+    )
+    assert too_small.items == ()
+    assert too_small.conflicts == ()
+
+    # Budget exactly large enough: ALL included, both conflicts present.
+    exact_fit = project_task_context(
+        belief_state, default_spec(max_items=3), context_ref="ctx-overlap-2", provenance="test"
+    )
+    assert {i.item_ref for i in exact_fit.items} == {"atom-a", "atom-b", "atom-c"}
+    assert {c.conflict_ref for c in exact_fit.conflicts} == {"c-ab", "c-bc"}
+
+
+def test_policy_filter_excludes_whole_component_not_just_disallowed_atom() -> None:
+    """If B (in an A-B conflict) fails the predicate/kind allowlist, A must
+    not be admitted alone either — a caller must never see a one-sided
+    claim while the AI itself knows a rebuttal exists but withholds it."""
+
+    atom_a = atom(atom_id="atom-a", predicate="child.parent_communication")
+    atom_b = atom(atom_id="atom-b", predicate="child.sleep_pattern", asserted_by="mother-1")
+    pair_conflict = conflict(
+        conflict_id="c-policy",
+        predicate="child.parent_communication",
+        atom_ids=("atom-a", "atom-b"),
+    )
+
+    belief_state = assemble_belief_state(
+        snapshot(atoms=(atom_a, atom_b)), conflicts=(pair_conflict,)
+    )
+    context = project_task_context(
+        belief_state,
+        default_spec(allowed_predicates=("child.parent_communication",)),
+        context_ref="ctx-policy-1",
+        provenance="test",
+    )
+
+    assert context.items == ()
+    assert context.conflicts == ()
+
+
+def test_conflict_component_item_selection_reason_names_conflict_ids() -> None:
+    atom_a = atom(atom_id="atom-a", predicate="child.parent_communication")
+    atom_b = atom(atom_id="atom-b", predicate="child.parent_communication", asserted_by="mother-1")
+    pair_conflict = conflict(conflict_id="c-reason", atom_ids=("atom-a", "atom-b"))
+
+    belief_state = assemble_belief_state(
+        snapshot(atoms=(atom_a, atom_b)), conflicts=(pair_conflict,)
+    )
+    context = project_task_context(
+        belief_state, default_spec(), context_ref="ctx-reason-1", provenance="test"
+    )
+
+    item_a = next(i for i in context.items if i.item_ref == "atom-a")
+    assert item_a.selection_reason == "conflict_component_preserved:c-reason"
+
+
+def test_same_belief_state_and_spec_yields_identical_bundle_selection() -> None:
+    atom_a = atom(atom_id="atom-a", predicate="child.parent_communication")
+    atom_b = atom(atom_id="atom-b", predicate="child.parent_communication", asserted_by="mother-1")
+    singleton = atom(
+        atom_id="atom-singleton", predicate="child.parent_communication", asserted_by="father-1"
+    )
+    pair_conflict = conflict(conflict_id="c-repeat", atom_ids=("atom-a", "atom-b"))
+
+    belief_state = assemble_belief_state(
+        snapshot(atoms=(atom_a, atom_b, singleton)), conflicts=(pair_conflict,)
+    )
+    spec = default_spec(max_items=3)
+
+    first = project_task_context(belief_state, spec, context_ref="ctx-r1", provenance="test")
+    second = project_task_context(belief_state, spec, context_ref="ctx-r2", provenance="test")
+
+    assert [i.item_ref for i in first.items] == [i.item_ref for i in second.items]
+    assert [c.conflict_ref for c in first.conflicts] == [c.conflict_ref for c in second.conflicts]
