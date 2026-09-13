@@ -21,6 +21,7 @@ import pytest
 from sqlalchemy import MetaData
 
 from backend.intelligence.context_engine.belief_engine import generate_hypothesis
+from backend.intelligence.context_engine.belief_state import assemble_belief_state
 from backend.intelligence.context_engine.conflict_engine import ConflictType, detect_conflicts
 from backend.intelligence.context_engine.contracts import ContextScope, DataClass
 from backend.intelligence.context_engine.postgres_unknown_repository import (
@@ -30,9 +31,14 @@ from backend.intelligence.context_engine.postgres_world_state_repository import 
     PostgresWorldStateRepository,
 )
 from backend.intelligence.context_engine.predicate_registry import PredicateRegistry
+from backend.intelligence.context_engine.task_context_projector import (
+    TaskContextSpec,
+    project_task_context,
+)
 from backend.intelligence.context_engine.unknown_engine import generate_unknown
 from backend.intelligence.context_engine.unknown_resolution import resolve_unknown
 from backend.intelligence.context_engine.world_state import (
+    FamilyWorldStateSnapshot,
     UnknownStatus,
     WorldStateActorType,
     WorldStateAtom,
@@ -326,3 +332,46 @@ async def test_family_scene_001_conflict_to_hypothesis_to_unknown() -> None:
             )
             assert resolved.status is UnknownStatus.RESOLVED
             assert resolved.resolution_refs == (mother_clarification.atom_id,)
+
+        # --- Checkpoint 5: FamilyBeliefState -> TaskContextProjector -------
+        # (AIFAMILY-WM-005B PART J)
+        belief_snapshot = FamilyWorldStateSnapshot(
+            snapshot_ref="family-scene-001-belief-snapshot",
+            scope=scene_scope(),
+            as_of=NOW + timedelta(days=1, hours=1),
+            generated_at=NOW + timedelta(days=1, hours=1),
+            atoms=(mother, child, father, hypothesis, mother_clarification),
+            unknowns=(resolved,),
+        )
+        belief_state = assemble_belief_state(belief_snapshot, conflicts=conflicts)
+
+        task_spec = TaskContextSpec(
+            use_case="family.communication_understanding",
+            allowed_predicates=(SCENE_TARGET_PREDICATE,),
+        )
+        task_context = project_task_context(
+            belief_state,
+            task_spec,
+            context_ref="family-scene-001-task-context-1",
+            provenance="family-scene-001:checkpoint-5",
+        )
+
+        item_refs = {item.item_ref for item in task_context.items}
+        assert mother.atom_id in item_refs  # mother's PERSPECTIVE retained
+        assert child.atom_id in item_refs  # child's SELF_REPORT retained
+        assert father.atom_id in item_refs  # father's OBSERVATION retained
+        assert hypothesis.atom_id in item_refs  # AI HYPOTHESIS retained
+
+        hypothesis_item = next(i for i in task_context.items if i.item_ref == hypothesis.atom_id)
+        assert hypothesis_item.epistemic_kind is WorldStateEpistemicKind.HYPOTHESIS
+        assert hypothesis_item.epistemic_kind is not WorldStateEpistemicKind.FACT
+        assert hypothesis_item.support_level is not None
+
+        # The original mother-vs-child conflict survived into the task
+        # context as a whole pair, never split.
+        assert any(
+            set(c.atom_item_refs) == {mother.atom_id, child.atom_id} for c in task_context.conflicts
+        )
+
+        # The now-RESOLVED Unknown must not appear in the task context.
+        assert task_context.unknowns == ()
