@@ -3,10 +3,10 @@ id: DEL-PROGRAM-001
 title: 当前 Wave 计划
 type: delivery
 status: current
-version: 1.1
+version: 1.2
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-09-04
+updated: 2026-09-13
 canonical: true
 supersedes: null
 superseded_by: null
@@ -127,11 +127,11 @@ assessment signal→Perspective/Hypothesis→家庭确认→Action/Review 切片
 | P0 门 | owner 角色与文件边界 | 依赖 | 正向/反向测试 | 退出证据 |
 |---|---|---|---|---|
 | ENV-01 | APLT + 原 `dev_wiring.py` WIP owner；`main.py`/`dev_wiring.py`/production composition/Actor/Session/Consent resolver，不覆盖并发 WIP | ADR-0069、trusted auth port | unset/非法 env fail-closed；无 token 401；跨 tenant 403；撤回 CONSENT_REQUIRED；三环境 route/error parity | TestClient/OpenAPI/启动日志+owner sign-off；当前 unset acceptance 仍 expected-red，BLOCKED |
-| DATA-01 | ADOM/ARCH；migration 0011-0029、ORM、Manifest/ADR、对象清单 | DB-01、Fresh PG | up→down→up、重启、并发、unknown head fail；未设 `AIFAMILY_TEST_DATABASE_URL` 的 skip 不算通过 | Docker healthy 真实 PG：`test_full_chain_up_0016_down_and_rebuild` 154s，1 failed；0016→0025 升降通过，0025→0026 写入 40 字符 revision 时触发 `alembic_version VARCHAR(32)` `StringDataRightTruncationError`，0027/0029 同类；FULL_CHAIN 结构测试仍旧于 0024-0029；BLOCKED |
+| DATA-01 | ADOM/ARCH；migration 0011-0079、ORM、Manifest/ADR、对象清单 | DB-01、Fresh PG | up→down→up、重启、并发、unknown head fail；未设 `AIFAMILY_TEST_DATABASE_URL` 的 skip 不算通过 | 本次（2026-09-13）复核：`alembic_version VARCHAR(32)` 截断问题已在 `0026_experience_outbox_delivery_attempts.py` 修复（列宽扩至 `VARCHAR(128)`），非本次新修。Docker healthy 真实 PG 复测：`uv run alembic upgrade head` 从空库直达 `0079_platform_notification_control_plane`；`downgrade 0016_growth_onboarding` → 重新 `upgrade head`（贯穿 0025-0029 危险区）成功；`tests/database/test_growth_onboarding_migration.py::test_full_chain_upgrade_downgrade_and_rebuild` 首次因数据库连接 `TimeoutError`（瞬时，pg 连接数复核仅 6，非资源耗尽）失败，立即重跑 **1 passed in 397s**；`tests/architecture` 138 passed/1 skipped 保持不变。**DATA-01 从 BLOCKED 更新为 PASS**（revision 截断这一具体缺口已解决）；该测试对瞬时连接超时无重试，仍是已知脆弱点，未在本次范围内修复，需单独排期 |
 | IDP-01 | Platform/API；trusted ActorContext、ConsentResolver、tenant-scoped IdempotencyStore | ENV-01、DATA-01 | 同 key 跨 tenant 隔离；同输入 replay 同结果；冲突拒绝；撤回/过期/跨主体拒绝 | Fake/PG 同契约、删除后 replay 负向；当前 IdempotencyStore 仍 InMemory/无生产接线，BLOCKED |
 | LEDGER-01 | Platform/AAIR；canonical AuditEvent、Outbox、worker/lease/DLQ/restart ports | IDP-01、DATA-01 | 命令与 audit/outbox 同事务；crash/retry 不重复；DLQ/补偿/重启可恢复 | PG 事务和 receipt；目前仅切片局部 evidence，跨域 composition 缺，BLOCKED |
 | AI-01 | AAIR/GOV；唯一 `AiReleaseGate`、EvalReport registry、Principal/Context/Memory/Delete，冻结第二 gate | ENV-01、IDP-01、DATA-01 | benchmark unknown/revoked/deleted/mismatch、跨 tenant/locale；AI draft-only，Named Action 才写事实 | 单 gate architecture test、registry/version/provenance；当前双 gate/lookup 缺，BLOCKED |
-| CLIENT-01 | AFE/APLT；Web clientFactory、mobile contracts、OpenAPI/error/locale/session；不改后端 WIP | ENV-01、IDP-01 | `DEV:false + fake` fail-closed；token/session/locale/idempotency；四端错误/重放一致 | `766c164` clientFactory 定向验收通过；生产 build 缺 `index.html`，lint 未配置且未进入默认检查，mobile 五失败归零、parity 未闭合，BLOCKED |
+| CLIENT-01 | AFE/APLT；Web clientFactory、mobile contracts、OpenAPI/error/locale/session；不改后端 WIP | ENV-01、IDP-01 | `DEV:false + fake` fail-closed；token/session/locale/idempotency；四端错误/重放一致 | `766c164` clientFactory 定向验收通过；生产 build 缺 `index.html`，lint 未配置且未进入默认检查，mobile 五失败归零、parity 未闭合，BLOCKED。**新发现（2026-09-13）**：真实运行 `frontend/web/e2e/family-growth-golden-path.spec.ts`（`AIFAMILY_ENV=development` 起真实后端+真实浏览器，非 mock），当前**红**——后端 dev 环境启动时对 SQLite 种子账号写入 `INSERT INTO accounts (...) VALUES (..., 'dev-parent:family-a', ...)` 触发 `UNIQUE constraint failed: accounts.external_ref`，页面因此 500，首屏标题不可见；未在本次会话修复（不是环境琐事，是 dev 种子写入缺 get-or-create 幂等，需要定位 `dev_wiring.py` 或等价的 dev 账号播种逻辑），登记为独立缺口 |
 
 真实 PG URL 缺失、`skip`/`create_all`/disposable probe、Web lint 未配置、远端 push 443 失败均须写入证据表并保持阻断；不能以“本地测试绿”代替 Fresh PG/HTTP/remote 证据。
 

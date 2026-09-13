@@ -1,7 +1,9 @@
 ---
 id: ADR-0167
 title: Family AGI Runtime 架构定位（Family Domain AGI Platform）
-status: Proposed
+status: Accepted
+accepted-by: ADR-0170
+accepted-date: 2026-09-13
 date: 2026-09-10
 owner: chief-architect
 ---

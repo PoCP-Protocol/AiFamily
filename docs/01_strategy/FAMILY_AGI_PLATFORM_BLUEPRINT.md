@@ -3,15 +3,16 @@ id: FAMILY-AGI-PLATFORM-BLUEPRINT-001
 title: FAMILY AGI PLATFORM 总体蓝图
 type: strategy
 status: draft
-version: 1.1
+version: 1.2
 owner: chief-architect
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-13
 canonical: false
 supersedes: null
 superseded_by: null
 supersedes-positioning-of: docs/00_system/FAMILY_NEEDS_PLATFORM_TARGET_MODEL.md
-relates-to: governance/ADR/ADR-0167-family-agi-runtime-architecture.md, governance/ADR/ADR-0158-agi-native-family-growth-platform.md
+relates-to: governance/ADR/ADR-0167-family-agi-runtime-architecture.md, governance/ADR/ADR-0158-agi-native-family-growth-platform.md, governance/ADR/ADR-0168-child-family-society-boundary.md
+authorized-by-adr: ADR-0168（仅第零/一/二/六/三十七节的定位性论断——即本文件V1.2新增的"V1.2修订"框——已由ADR-0168正式冻结为canonical决定；本文件其余技术细节仍在draft→canonical晋升流程中，未走完前canonical字段保持false）
 ---
 
 # FAMILY AGI PLATFORM 总体蓝图
@@ -30,6 +31,40 @@ relates-to: governance/ADR/ADR-0167-family-agi-runtime-architecture.md, governan
 > Platform：智能本身是平台的运行机制，不是外挂能力**。第十二至二十三节是这次
 > 修订新增的Learning Architecture + Evolution Engine + AGI Governance三层，
 > 是V1.0与"普通AI家庭平台"之间的核心架构分水岭，不是V1.0的可选附录。
+
+> **V1.2修订（2026-09-13，`ADR-0168`正式冻结）**：项目负责人指出，V1.1虽然方向
+> 正确，但叙述比例仍然过多围绕"教育切入"展开（第二节"教育切入的原因"、第六节
+> 标题"从孩子切入"），容易让研发团队继续把系统理解成"家庭教育平台升级成AGI"。
+> 逻辑必须反过来讲，以`ADR-0168`第1-10条为准，本文档第一至十一节、第三十七节
+> 与之矛盾或叙述比例失衡处，以`ADR-0168`为唯一权威，不以本文档原文措辞为准：
+>
+> 1. **平台基本单位是Family，不是"有孩子的教育家庭"**——孩子是最好的入口，
+>    不是边界（对应ADR-0168第1、4条）。
+> 2. **系统边界是`Child + Family + Society`，不是`Child + Education`**——
+>    第二节的三个同心圆图仍然成立，但读者不应把"社会资源网络"这个外圈默认
+>    收窄成"老师/专家/学校"，它长期覆盖医疗/心理/职业/金融/养老/公共服务
+>    （对应ADR-0168第2、8条）。
+> 3. **课程/教师/专家/直播是Capability/Resource，不是Platform Core**——
+>    第五节"从用户搜索服务到家庭需求驱动资源"的反转逻辑保留，但需要补一条
+>    更明确的判据：任何新品类接入如果要求修改Family/Need/World Model/Goal/Plan
+>    这条主链的schema，说明设计违反了这条（对应ADR-0168第5条，是本次修订新增
+>    的可执行判据，V1.1原文没有这条）。
+> 4. **Family World Model长期覆盖Health/Work/Financial/Living/Social等全部
+>    家庭语境**，第四节现有描述需要在下次内容修订时按ADR-0168第6条的
+>    `FamilyWorldState`维度清单扩展，本次只记录决定，不在V1.2这次改写第四节
+>    的详细字段设计。
+> 5. **"法咪莉校长"IP的长期定位是Family Principal**，不是教育专家人格
+>    ——她需要能够诚实说"这个问题需要老师/心理专业人员/医生，或这件事必须
+>    由家庭自己决定"，不伪装全知全能（对应ADR-0168第9条，本文档此前未涉及
+>    IP层定位，本次新增）。
+> 6. **商业终局是Family Intelligence Membership**，不是"教育会员+课程收入+
+>    专家佣金"——第八节"四层收入结构"仍然成立，但读者不应把它读成"教育为主、
+>    其他为辅"，应读成"长期家庭关系信任为主，教育/健康/专家/生活服务是这份
+>    信任之上产生的具体交易"（对应ADR-0168第10条）。
+>
+> 本框只做**纠偏与索引**，不重写下游各节的详细文字——避免同一份文档内出现
+> "本框说A，下方原文仍说A的窄化版本"的自我矛盾风险，任何人下次修订本文档
+> 具体章节时，必须对照本框逐条核实，不能只改标题不改论证逻辑。
 
 ## 零、这次重新定位解决的问题
 

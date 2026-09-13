@@ -2,7 +2,9 @@
 
 ```yaml
 id: ADR-0025
-status: proposed
+status: Accepted
+accepted-by: ADR-0170
+accepted-date: 2026-09-13
 date: 2026-08-30
 owners: [chief-architect, ai-product-and-governance]
 scope: [business, process, data, application, ai-technical]

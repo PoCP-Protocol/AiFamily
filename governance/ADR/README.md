@@ -26,6 +26,10 @@
 | [0161](ADR-0161-growth-intent-confirmation-boundary.md) | GrowthIntent 确认写入的 canonical owner 与原子边界 | Accepted | 2026-09-01 | 本 ADR 原取号 0019，与 realtime-avatar-provider（main 独立分支同期同号）撞号，`integrate/growth-plan-adoption` 对齐 main 合并时按本 README 的改号规则重编为 0161（原空号，来自已废弃并删除的 ai_run_ledger 重复实现 ADR） |
 | [0164](ADR-0164-growth-plan-read-audit-boundary.md) | Growth Plan 读取审计边界 | Proposed | 2026-09-10 | Adoption 读取复用 AuditRecorder READ 事件，覆盖未成年人访问留痕；真实 PostgreSQL HTTP/重启证据待补 |
 | [0165](ADR-0165-test-postgres-vertical-composition-parity.md) | Test PostgreSQL 与生产 Vertical Composition 同构 | Proposed | 2026-09-10 | test 配置 PostgreSQL 时禁止自动安装合成 runtime；无显式 durable composition 则 canonical route 503 |
+| [0168](ADR-0168-child-family-society-boundary.md) | Family AGI Platform 战略边界重定位：Child+Family+Society | Accepted | 2026-09-13 | 项目负责人正式冻结：平台基本单位=Family（非"有孩子的教育家庭"）；系统边界=Child+Family+Society，非Child+Education；教育降级为First Wedge；课程/教师/专家降为Capability/Resource，不是Platform Core；SYSTEM_MANIFEST §2/§3同步改写 |
+| [0169](ADR-0169-family-agi-species-change-and-strategic-constitution.md) | "物种变化"定案 + AIFAMILY_STRATEGIC_CONSTITUTION_V1 | Accepted | 2026-09-13 | 扩展ADR-0168：战略边界/技术底座/第一阶段产品范围三分离；六条冻结原则；Family一级对象/Person二级；FamilyNeed提升为首要业务对象且Expression≠Need；四Brain模型(新增Action Brain)；Vertical Pack机制；北极星=Family Outcome非DAU；同时冻结明确的"当前不做"清单防范围失控 |
+| [0170](ADR-0170-runtime-convergence-acceptance.md) | Runtime收敛裁决：Accept ADR-0025+ADR-0167 | Accepted | 2026-09-13 | 逐行核实三条Runtime路径；growth_plan_ai_wiring.py的Principal路由→agent_runtime执行模式确认无bug并冻结为参照实现；agi_vertical_runtime.py(第257-268/480/684行)绕过Principal直连Model Gateway确认为唯一真实违规,登记为下阶段整改项,本次不重写以免打断已验证闭环 |
+| [0171](ADR-0171-platform-core-six-gate-admission-test.md) | Platform Core六门准入测试 | Accepted | 2026-09-13 | 任何进Core代码须证明增强World Model/Memory/Goal-Planning/Action-Tool/Outcome Learning/Safety-Evaluation六项之一,否则归Vertical Pack;不批准同批研究材料的其余具体技术方案(Temporal Belief State/五层Memory/MCP-A2A/FIC-002~006排期)为已授权任务,留待逐项单独确认 |
 
 ### 决定之间的关系
 
@@ -64,7 +68,7 @@ ADR-0005 (AI 原生)      ◀──实质张力──▶  ADR-0006 (合规：能
 ## 编号规则
 
 - 格式：`ADR-NNNN-kebab-case-slug.md`，`NNNN` 为四位零填充十进制序号。
-- **严格顺序分配，永不复用。** 下一个可用编号 = 本目录现有最大编号 + 1（当前为 **0020**）。
+- **严格顺序分配，永不复用。** 下一个可用编号 = 本目录现有最大编号 + 1（当前为 **0172**；此前本行长期未同步实际目录最大编号，下次分配前请以 `ls governance/ADR/` 实测结果核对，不要直接沿用本行数字）。
 - 编号一经分配即永久绑定该决定，**即使 ADR 后来被 Superseded 也不回收、不删除文件**。被取代的 ADR 保留在原位，改 `Status: Superseded` 并填 `Superseded By`——历史决定的存在本身是信息。
 - slug 描述决定的对象，不描述结论的方向（`python-only-backend` 而非 `dont-use-nestjs`）。
 - 并发写作时若两人取到同号，后合并者改号。**不允许 `ADR-0007a` 之类的分号形式。**

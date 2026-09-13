@@ -3,10 +3,10 @@ id: SYS-MANIFEST-001
 title: AiFamily System Manifest
 type: system
 status: current
-version: 1.0
+version: 1.1
 owner: chief-architect
 created: 2026-08-29
-updated: 2026-09-04
+updated: 2026-09-13
 canonical: true
 supersedes: null
 superseded_by: null
@@ -38,11 +38,57 @@ Dependency Toolchain uv + pyproject.toml (唯一)
 
 ## 2. 服务谁，解决什么问题
 
-**服务对象**：中国家庭 —— 家长（商业主体）、孩子（成长主体）、以及为家庭提供服务的教师/专家/机构。
+> **本节按 `governance/ADR/ADR-0168-child-family-society-boundary.md`（2026-09-13，
+> 项目负责人决定）改写。此前版本把边界锚定在"孩子成长/教育"，容易被读成"家庭
+> 教育平台+AI"——这是叙述范围错误，已纠正。**
+>
+> **本节是摘要。完整版（六条不可破坏原则、四Brain模型、Family/Person本体、
+> FamilyNeed优先级、Vertical Pack机制、R2-R10、"当前不做"清单、北极星与商业
+> 模式）见 `docs/00_system/AIFAMILY_STRATEGIC_CONSTITUTION_V1.md`（由
+> `ADR-0169` 授权，与本文件冲突时以宪法文件为准）。**
 
-**解决的问题**：家庭在孩子成长过程中反复出现的真实困境（亲子沟通、学习习惯、手机管理、自驱力不足），不是"卖课程"。
+**平台基本单位**：Family（家庭）——最基本的需求、决策、关系和资源协同单位。
+Family **不等于**"有孩子的教育家庭"；孩子是家庭中非常重要的核心成员，也是现阶段
+最好的进入点，但不是边界本身。
 
-**价值定位**（来自 `docs/01_strategy/COMMERCIAL_VALUE_STRATEGY.md` §0.1，项目负责人确认）：
+**服务对象与边界**：`Child + Family + Society`，不是 `Child + Education`。
+
+```text
+FAMILY
+  ├── CHILD    孩子成长（学习/情绪/社交/兴趣/能力/未来）
+  ├── PARENTS  父母发展（工作/压力/健康/成长/养老/生活）
+  └── FAMILY   家庭系统（关系/资源/决策/财务/生活/风险）
+```
+
+向外连接社会资源网络：家庭 → AI 能力 → 学校/教师 → 专家 → 医疗健康 → 社区 →
+生活服务 → 职业资源 → 金融保险 → 养老 → 社会公共资源。
+
+**系统定义**：
+
+> AiFamily 是一个以孩子和家庭为中心、以 Family 为基本需求单位的 AGI-native
+> Family Intelligence Platform。孩子成长与教育是第一切入口，而不是平台边界；
+> 平台长期服务家庭在人生不同阶段不断变化的需求，并通过 AI、家庭成员与社会资源
+> 网络共同形成行动和结果。
+
+简版：**AiFamily 是家庭的智能操作系统**——
+`Understand My Family → Understand What We Need → Help Us Decide → Help Us Act
+→ Connect the Right Resources → Learn From What Happened`。
+
+**教育的地位**：降级为 **First Vertical / First Wedge**——理由不是"要做教育
+公司"，而是孩子天然连接整个家庭系统（一个孩子的问题几乎总涉及 Parenting/
+夫妻关系/家庭规则/学校/同伴/健康/时间/家庭资源），是训练系统"不要把表面需求
+直接映射成商品"这条纪律的最佳入口场景。**课程/教师/专家/直播是 Capability /
+Resource，不是 Platform Core**——平台核心链路固定为
+`Family → Family Need → Family World Model → Goal → Plan → Capability/Resource
+→ Action → Outcome`；新增任何服务品类（健康/职业/金融/养老）都通过在
+Capability/Resource 层挂载新实现，不应要求重构这条主链的 schema。
+
+**战略边界要宽，第一阶段产品边界要窄**：架构上允许上述维度存在，不代表现在
+要一次性建出全部数据结构（那是 R14 警告的"空目录骨架冒充能力"）；业务上仍按
+既定 Wave 顺序从"孩子成长"纵切进入，其余维度按真实家庭需求出现时再长出来。
+
+**价值定位**（来自 `docs/01_strategy/COMMERCIAL_VALUE_STRATEGY.md` §0.1，项目负责人确认，
+在新边界下依然成立，不因本次重定位而改变）：
 
 > 家是港湾，孩子是希望。We are family.
 >
@@ -54,9 +100,18 @@ Dependency Toolchain uv + pyproject.toml (唯一)
 
 ### 3.1 在边界内
 
-- 家庭档案与成员关系（Family Domain）
-- 成长评估、洞察、规划、行动、复盘（Growth / Assessment Domain）
-- 服务供给网络：教师、专家、机构、预约、履约（Service / Teacher / Institution Domain）
+> 按 ADR-0168：以下列表当前多数条目仍集中在"孩子成长/教育"这条第一纵切场景，
+> 这是**当前产品边界（窄）**，不是**战略边界（宽，见 §2）**。Family World Model
+> 覆盖健康/工作/财务/生活/社会等语境的战略允许项，不在本清单逐条列出前，不代表
+> 被排除在外——按"战略边界宽，产品边界窄"原则，新增条目在真实家庭需求出现时
+> 补入本节，不预先建空壳。
+
+- 家庭档案与成员关系（Family Domain）——覆盖孩子/父母/其他监护人，不限于"孩子档案"
+- 成长评估、洞察、规划、行动、复盘（Growth / Assessment Domain）——当前纵切场景为孩子成长，
+  按 §2 战略边界，长期不限于教育维度
+- 服务供给网络：教师、专家、机构、预约、履约（Service / Capability / Resource Domain）——
+  按 ADR-0168，教师/课程/专家在架构上是 Capability/Resource 的一种具体实现，不是平台核心，
+  长期可挂载健康/职业/金融/养老等其他 Capability 而不改动 Family/Need/Goal/Plan 主链 schema
 - 商品、订单、会员、权益（Commerce / Entitlement Domain）
 - 社区与家庭间互助（Community Domain）
 - AI 运行时：Model Gateway / Context / Memory / Agent / Tool / Safety / Human Gate / Eval
@@ -96,6 +151,7 @@ Program Status    docs/00_system/CURRENT_PROGRAM_STATUS.md
 | 文档 | 回答什么 |
 |---|---|
 | `docs/00_system/SYSTEM_MANIFEST.md` | 本文件：系统是什么、哪些文档算真相 |
+| `docs/00_system/AIFAMILY_STRATEGIC_CONSTITUTION_V1.md` | 什么绝对不能变（六条原则/本体/北极星），`ADR-0169`授权 |
 | `docs/00_system/CURRENT_SYSTEM_BASELINE.md` | 系统**现在**到底是什么（含未完成项） |
 | `docs/00_system/CURRENT_DOMAIN_MAP.md` | 业务真相由哪些 Domain 管理 |
 | `docs/00_system/CURRENT_AI_MAP.md` | AI 能力版图与各能力真实成熟度 |
@@ -172,9 +228,10 @@ Current Truth  ≠  Decision  ≠  Specification  ≠  Evidence  ≠  History
 
 ```text
 1. 读 docs/00_system/SYSTEM_MANIFEST.md          (本文件)
-2. 读 docs/00_system/CURRENT_SYSTEM_BASELINE.md  (系统现状, 含未完成项)
-3. 读 governance/REPOSITORY_CONSTITUTION.md      (14条工程宪章)
-4. 按任务类型读对应约束:
+2. 读 docs/00_system/AIFAMILY_STRATEGIC_CONSTITUTION_V1.md (什么绝对不能变)
+3. 读 docs/00_system/CURRENT_SYSTEM_BASELINE.md  (系统现状, 含未完成项)
+4. 读 governance/REPOSITORY_CONSTITUTION.md      (14条工程宪章)
+5. 按任务类型读对应约束:
    - 涉及 AI    → docs/05_ai/AI_NATIVE_PRINCIPLES.md
    - 涉及数据   → docs/12_governance/COMPLIANCE_HARD_CONSTRAINTS.md
    - 涉及新 Domain → governance/DOMAIN_REGISTRY.yaml
