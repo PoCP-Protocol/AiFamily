@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { FamilyGrowthExperience } from "./familyGrowth/FamilyGrowthExperience";
+import { FamilyWorldModelDemo } from "./familyWorldModel/FamilyWorldModelDemo";
 import { ProductStudioWorkspace } from "./productStudio/ProductStudioWorkspace";
 import { ThemeProvider } from "./theme/ThemeProvider";
 import { ColorSchemeToggle } from "./theme/ColorSchemeToggle";
@@ -16,6 +17,8 @@ export function WebRoot() {
         <main>
           <ProductStudioWorkspace />
         </main>
+      ) : path === "/world-model-demo" ? (
+        <FamilyWorldModelDemo />
       ) : path === "/family-growth" || path === "/" ? (
         <FamilyGrowthExperience />
       ) : (
