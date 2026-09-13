@@ -176,3 +176,44 @@ def test_rejects_conflict_from_a_different_tenant() -> None:
 
     with pytest.raises(ContextScopeError, match="CROSS_TENANT_WORLD_STATE_READ"):
         assemble_belief_state(snapshot(), conflicts=(foreign_conflict,))
+
+
+# --- AIFAMILY-WM-005B PART B: current cognitive relevance -------------------
+
+
+def test_effective_open_conflicts_excludes_conflicts_referencing_stale_atoms() -> None:
+    """A conflict whose referenced atoms are no longer in the current
+    snapshot is a stale_conflict_candidate, not something the Agent
+    should see as a live disagreement."""
+
+    current_atom = atom(atom_id="a-current")
+    live_conflict = conflict(conflict_id="c-live", atom_ids=("a-current", "a-current-2"))
+    stale_conflict = conflict(conflict_id="c-stale", atom_ids=("a-gone-1", "a-gone-2"))
+
+    state = assemble_belief_state(
+        snapshot(atoms=(current_atom, atom(atom_id="a-current-2"))),
+        conflicts=(live_conflict, stale_conflict),
+    )
+
+    assert state.effective_open_conflicts == (live_conflict,)
+    assert state.stale_conflict_candidates == (stale_conflict,)
+
+
+def test_effective_open_unknowns_excludes_unknowns_with_all_blocking_refs_stale() -> None:
+    current_hyp = atom(atom_id="a-hyp-current")
+    grounded_unknown = unknown(unknown_id="unk-grounded", blocking_refs=("a-hyp-current",))
+    stale_unknown = unknown(unknown_id="unk-stale", blocking_refs=("a-hyp-gone",))
+    unblocked_unknown = unknown(unknown_id="unk-unblocked", blocking_refs=())
+
+    state = assemble_belief_state(
+        snapshot(
+            atoms=(current_hyp,),
+            unknowns=(grounded_unknown, stale_unknown, unblocked_unknown),
+        )
+    )
+
+    assert {u.unknown_id for u in state.effective_open_unknowns} == {
+        "unk-grounded",
+        "unk-unblocked",
+    }
+    assert {u.unknown_id for u in state.stale_unknown_candidates} == {"unk-stale"}

@@ -30,7 +30,7 @@ from backend.intelligence.context_engine.postgres_world_state_repository import 
     PostgresWorldStateRepository,
 )
 from backend.intelligence.context_engine.source_adapters.family_need_source_adapter import (
-    family_need_atom,
+    family_active_need_atom,
 )
 from backend.intelligence.context_engine.source_adapters.family_source_adapter import (
     family_member_atom,
@@ -138,16 +138,51 @@ def test_family_relationship_adapter_produces_a_fact_atom() -> None:
 
 def test_family_need_adapter_projects_active_need_before_confirmation() -> None:
     need = _family_need()
-    atom = family_need_atom(need, scope=scope(subject_ids=("child-1",)), atom_id="need-atom-1")
+    atom = family_active_need_atom(
+        need, scope=scope(subject_ids=("child-1",)), atom_id="need-atom-1"
+    )
+    assert atom is not None
     assert atom.predicate == "family.active_need"
     assert atom.epistemic_kind is WorldStateEpistemicKind.FACT
     assert atom.value_ref == "孩子最近不愿意上学"
 
 
-def test_family_need_adapter_projects_confirmed_need_after_confirmation() -> None:
+def test_family_need_adapter_still_projects_active_after_confirmation() -> None:
+    """AIFAMILY-WM-005B: CONFIRMED is still active work (the family
+    confirming a need does not by itself mean AiFamily is done acting on
+    it) — `family.confirmed_need` is a separate, historical fact this
+    adapter no longer manufactures at all (see module docstring)."""
+
     need = _family_need().start_clarification().confirm("mother-1")
-    atom = family_need_atom(need, scope=scope(subject_ids=("child-1",)), atom_id="need-atom-2")
-    assert atom.predicate == "family.confirmed_need"
+    atom = family_active_need_atom(
+        need, scope=scope(subject_ids=("child-1",)), atom_id="need-atom-2"
+    )
+    assert atom is not None
+    assert atom.predicate == "family.active_need"
+
+
+def test_family_need_adapter_returns_none_for_rejected_need() -> None:
+    need = _family_need().reject("家庭认为暂不需要处理")
+    atom = family_active_need_atom(
+        need, scope=scope(subject_ids=("child-1",)), atom_id="need-atom-rejected"
+    )
+    assert atom is None
+
+
+def test_family_need_adapter_returns_none_for_paused_need() -> None:
+    need = _family_need().pause("家庭暂时无法处理")
+    atom = family_active_need_atom(
+        need, scope=scope(subject_ids=("child-1",)), atom_id="need-atom-paused"
+    )
+    assert atom is None
+
+
+def test_family_need_adapter_returns_none_for_closed_need() -> None:
+    need = _family_need().reject("家庭认为暂不需要处理").close()
+    atom = family_active_need_atom(
+        need, scope=scope(subject_ids=("child-1",)), atom_id="need-atom-closed"
+    )
+    assert atom is None
 
 
 def test_adapter_never_produces_ai_attribution() -> None:
@@ -193,7 +228,7 @@ async def test_adapted_family_need_atom_persists_through_real_postgres() -> None
             repository = PostgresWorldStateRepository(connection)
             family_scope = scope(subject_ids=("child-1",))
             need = _family_need()
-            atom = family_need_atom(need, scope=family_scope, atom_id="need-atom-e2e-1")
+            atom = family_active_need_atom(need, scope=family_scope, atom_id="need-atom-e2e-1")
 
             await repository.append_atom(
                 atom,

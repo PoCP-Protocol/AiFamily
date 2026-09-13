@@ -74,18 +74,25 @@ class BeliefStateQueryService:
         *,
         scope: ContextScope,
         snapshot_ref: str,
-        valid_at: datetime | None = None,
-        known_at: datetime | None = None,
-        generated_at: datetime,
+        read_at: datetime,
     ) -> FamilyBeliefState:
-        """`valid_at`/`known_at` default to "now" inside `get_state()` when
-        omitted — see its own docstring for the bitemporal distinction. This
-        method does not resolve that default itself so both repository and
-        caller stay in agreement about what "now" means for a given call.
+        """AIFAMILY-WM-005B, PART A: `FamilyBeliefState` is *always* the
+        CURRENT belief state — one `read_at` resolves both the Atom Store's
+        `valid_at` and `known_at` (never two independently-defaulted
+        `datetime.now()` calls) and the snapshot's `as_of`/`generated_at`.
+
+        There is deliberately no `valid_at`/`known_at` parameter here: the
+        Conflict Store and Unknown Store only track *current* status, not a
+        full bitemporal history, so a caller requesting historical atoms
+        together with today's conflicts/unknowns would get an incoherent
+        mixed-time belief state. Historical `FamilyBeliefState`
+        reconstruction is deferred to WM-006, once Conflict/Unknown gain
+        real event history — this method must not pretend to support it in
+        the meantime.
         """
 
         atoms = await self._world_state_repository.get_state(
-            scope=scope, valid_at=valid_at, known_at=known_at
+            scope=scope, valid_at=read_at, known_at=read_at
         )
         conflicts = await self._conflict_repository.list_conflicts(scope=scope)
         open_unknowns = await self._unknown_repository.list_open(scope=scope)
@@ -93,8 +100,8 @@ class BeliefStateQueryService:
         snapshot = FamilyWorldStateSnapshot(
             snapshot_ref=snapshot_ref,
             scope=scope,
-            as_of=valid_at or generated_at,
-            generated_at=generated_at,
+            as_of=read_at,
+            generated_at=read_at,
             atoms=atoms,
             unknowns=open_unknowns,
         )

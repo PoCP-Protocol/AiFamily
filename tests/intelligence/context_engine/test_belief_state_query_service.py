@@ -7,7 +7,7 @@ Store, Conflict Store, Unknown Store), not just against in-memory objects.
 from __future__ import annotations
 
 import importlib
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import MetaData
@@ -189,7 +189,7 @@ async def test_belief_state_assembled_from_three_real_stores() -> None:
             belief_state = await service.get_current_belief_state(
                 scope=family_scope,
                 snapshot_ref="qs-snapshot-1",
-                generated_at=NOW,
+                read_at=NOW,
             )
 
         assert {a.atom_id for a in belief_state.perspectives} == {mother.atom_id}
@@ -237,8 +237,72 @@ async def test_belief_state_isolates_cross_family_data() -> None:
             belief_state = await service.get_current_belief_state(
                 scope=family_a_scope,
                 snapshot_ref="qs-snapshot-2",
-                generated_at=NOW,
+                read_at=NOW,
             )
 
         assert belief_state.self_reports == ()
         assert belief_state.snapshot.atoms == ()
+
+
+async def test_future_atom_excluded_from_current_read() -> None:
+    """AIFAMILY-WM-005B PART A/O: an atom whose valid_from is after read_at
+    must not appear in a current belief-state read — a single read_at
+    resolves both valid_at and known_at, so this also proves the two are
+    not independently defaulted to different `datetime.now()` calls."""
+
+    async with postgres_schema_engine(MetaData()) as engine:
+        await _apply_migrations(engine)
+        family_scope = scope()
+        future_moment = NOW + timedelta(days=1)
+
+        future_atom = WorldStateAtom(
+            atom_id="qs-future-atom-1",
+            scope=family_scope,
+            subject_ids=("child-1",),
+            epistemic_kind=WorldStateEpistemicKind.SELF_REPORT,
+            predicate="child.parent_communication",
+            value_ref="not yet valid",
+            asserted_by="child-1",
+            attributed_actor_type=WorldStateActorType.FAMILY_MEMBER,
+            provenance="conversation:future",
+            observed_at=future_moment,
+            recorded_at=future_moment,
+            valid_from=future_moment,
+        )
+
+        async with engine.begin() as connection:
+            world_repo = PostgresWorldStateRepository(connection)
+            await world_repo.append_atom(
+                future_atom,
+                source_ref="conversation:future",
+                source_version="v1",
+                projection_version="qs-v1",
+            )
+
+        async with engine.begin() as fresh_connection:
+            service = BeliefStateQueryService(
+                world_state_repository=PostgresWorldStateRepository(fresh_connection),
+                conflict_repository=PostgresConflictRepository(fresh_connection),
+                unknown_repository=PostgresUnknownRepository(fresh_connection),
+            )
+            belief_state = await service.get_current_belief_state(
+                scope=family_scope,
+                snapshot_ref="qs-snapshot-future",
+                read_at=NOW,
+            )
+
+        assert belief_state.snapshot.atoms == ()
+
+        async with engine.begin() as later_connection:
+            service = BeliefStateQueryService(
+                world_state_repository=PostgresWorldStateRepository(later_connection),
+                conflict_repository=PostgresConflictRepository(later_connection),
+                unknown_repository=PostgresUnknownRepository(later_connection),
+            )
+            later_belief_state = await service.get_current_belief_state(
+                scope=family_scope,
+                snapshot_ref="qs-snapshot-later",
+                read_at=future_moment + timedelta(minutes=1),
+            )
+
+        assert {a.atom_id for a in later_belief_state.snapshot.atoms} == {future_atom.atom_id}

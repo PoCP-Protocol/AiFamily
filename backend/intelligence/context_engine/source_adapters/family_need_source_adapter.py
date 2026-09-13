@@ -1,18 +1,29 @@
-"""FamilyNeed → WorldStateAtom adapter (AIFAMILY-WM-002).
+"""FamilyNeed → WorldStateAtom adapter (AIFAMILY-WM-002, corrected WM-005B).
 
 `backend.domains.family_need.domain.entities.FamilyNeed` is the authoritative
-source. This adapter projects a need's *confirmation status*, not the raw
-family expression — `NeedSignal.raw_text` (the family's original words) is a
-`SELF_REPORT`/`OTHER_REPORT` concern for a future WM-002 increment, not this
-one; this file only handles the confirmed/unconfirmed FamilyNeed aggregate,
-kept deliberately narrow so the "no new engines this task" boundary holds.
+source. This adapter projects a need's *current lifecycle status*, not the
+raw family expression — `NeedSignal.raw_text` (the family's original words)
+is a `SELF_REPORT`/`OTHER_REPORT` concern for a future WM-002 increment, not
+this one.
 
-`family.confirmed_need` vs `family.active_need` is chosen from `need.status`:
-anything at or past `CONFIRMED` in the N1-N8 lifecycle is a confirmed need;
-everything before that (including `REJECTED`/`PAUSED`, which are still part
-of what the family is currently working through) is projected as active. This
-is a v1 simplification, not a claim that rejected needs are "confirmed" —
-see the module docstring on scope.
+AIFAMILY-WM-005B correction: the WM-002 version of this adapter conflated
+two different things under `need.status`:
+
+1. "is AiFamily currently working through this need" (a *current* fact) —
+   REJECTED/PAUSED were wrongly included here, which is what this file now
+   fixes. A rejected or paused need is not something the family is currently
+   working through; projecting it as `family.active_need` told a Task
+   Context consumer the opposite of the truth.
+2. "did the family confirm this need" (a *historical* fact) — the WM-002
+   version derived this from "status >= confirmed-like", which is an
+   inference from current aggregate state, not a real confirmation event.
+   `family.confirmed_need` stays registered in
+   `governance/WORLD_MODEL_PREDICATE_REGISTRY.yaml`, but this adapter no
+   longer manufactures it. There is currently no authoritative confirmation
+   event/record for FamilyNeed (unlike growth intent, which has a real
+   confirmation binding — see `growth_source_adapter.py`) to project it
+   from. `CONFIRMED_NEED_EVENT_SOURCE = GAP` until one exists; see the
+   AIFAMILY-WM-005B completion report.
 """
 
 from __future__ import annotations
@@ -29,14 +40,20 @@ from backend.intelligence.context_engine.world_state import (
 
 _SYSTEM_ASSERTED_BY = "system:family-need-domain"
 
-_CONFIRMED_OR_LATER = frozenset(
+#: "AiFamily currently has an unfinished lifecycle for this need" — not
+#: "the family confirmed this need". CONFIRMED is included: a
+#: confirmed-but-not-yet-profiled need is still active work, and "active"
+#: here must not be conflated with "family confirmed" — a need can be
+#: actively worked through (CAPTURED/CLARIFYING) before any confirmation
+#: exists at all.
+_ACTIVE_NEED_STATUSES = frozenset(
     {
+        NeedStatus.CAPTURED,
+        NeedStatus.CLARIFYING,
         NeedStatus.CONFIRMED,
         NeedStatus.PROFILED,
         NeedStatus.SOLUTIONING,
         NeedStatus.FULFILLING,
-        NeedStatus.FULFILLED,
-        NeedStatus.CLOSED,
     }
 )
 
@@ -47,18 +64,25 @@ def _aware(moment: datetime | None) -> datetime:
     return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
 
 
-def family_need_atom(need: object, *, scope: ContextScope, atom_id: str) -> WorldStateAtom:
-    """Project one `FamilyNeed` aggregate into a Platform Core FACT atom."""
+def family_active_need_atom(
+    need: object, *, scope: ContextScope, atom_id: str
+) -> WorldStateAtom | None:
+    """Project one `FamilyNeed` aggregate into a `family.active_need` FACT
+    atom — or `None` if its current status is not "still being worked
+    through" (REJECTED/PAUSED/FULFILLED/CLOSED). Returning `None` rather
+    than an atom with a misleading predicate is deliberate: a caller that
+    forgets to check the return value gets no atom at all, not a wrong one.
+    """
 
-    predicate = (
-        "family.confirmed_need" if need.status in _CONFIRMED_OR_LATER else "family.active_need"
-    )
+    if need.status not in _ACTIVE_NEED_STATUSES:
+        return None
+
     return WorldStateAtom(
         atom_id=atom_id,
         scope=scope,
         subject_ids=tuple(need.subject_person_ids),
         epistemic_kind=WorldStateEpistemicKind.FACT,
-        predicate=predicate,
+        predicate="family.active_need",
         value_ref=need.statement,
         asserted_by=_SYSTEM_ASSERTED_BY,
         attributed_actor_type=WorldStateActorType.SYSTEM,
@@ -70,4 +94,4 @@ def family_need_atom(need: object, *, scope: ContextScope, atom_id: str) -> Worl
     )
 
 
-__all__ = ["family_need_atom"]
+__all__ = ["family_active_need_atom"]

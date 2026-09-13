@@ -74,6 +74,59 @@ class FamilyBeliefState:
     def open_conflicts(self):
         return tuple(c for c in self.conflicts if c.status is ConflictStatus.OPEN)
 
+    @property
+    def _current_atom_ids(self) -> frozenset[str]:
+        return frozenset(a.atom_id for a in self.snapshot.atoms)
+
+    @property
+    def effective_open_conflicts(self):
+        """AIFAMILY-WM-005B, PART B: `status == OPEN` alone does not prove a
+        conflict is *current* — the durable Conflict Store can outlive the
+        atoms it references (e.g. after a later projection supersedes one).
+        Effective means both atoms it cites are still in this belief
+        state's own current atom snapshot; conflicts that fail this are
+        `stale_conflict_candidates`, not silently dropped."""
+
+        current_ids = self._current_atom_ids
+        return tuple(
+            c for c in self.open_conflicts if set(c.atom_ids).issubset(current_ids)
+        )
+
+    @property
+    def stale_conflict_candidates(self):
+        """OPEN conflicts whose referenced atoms are no longer part of the
+        current snapshot — exposed for a future WM-006 reconciler, never
+        auto-resolved or mutated here."""
+
+        current_ids = self._current_atom_ids
+        return tuple(
+            c for c in self.open_conflicts if not set(c.atom_ids).issubset(current_ids)
+        )
+
+    @property
+    def effective_open_unknowns(self):
+        """An OPEN Unknown whose `blocking_refs` are *all* gone from the
+        current atom snapshot is no longer grounded in anything the Agent
+        can currently see — it must not be handed over to keep asking about
+        evidence that no longer exists. An Unknown with no `blocking_refs`
+        at all is not blocked on anything and stays effective."""
+
+        current_ids = self._current_atom_ids
+        return tuple(u for u in self.open_unknowns if self._unknown_is_effective(u, current_ids))
+
+    @property
+    def stale_unknown_candidates(self):
+        current_ids = self._current_atom_ids
+        return tuple(
+            u for u in self.open_unknowns if not self._unknown_is_effective(u, current_ids)
+        )
+
+    @staticmethod
+    def _unknown_is_effective(unknown, current_ids: frozenset[str]) -> bool:
+        if not unknown.blocking_refs:
+            return True
+        return bool(set(unknown.blocking_refs) & current_ids)
+
     def _by_kind(self, kind: WorldStateEpistemicKind):
         return tuple(a for a in self.snapshot.atoms if a.epistemic_kind is kind)
 
