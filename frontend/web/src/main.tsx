@@ -3,17 +3,26 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { FamilyGrowthExperience } from "./familyGrowth/FamilyGrowthExperience";
 import { ProductStudioWorkspace } from "./productStudio/ProductStudioWorkspace";
+import { ThemeProvider } from "./theme/ThemeProvider";
+import { ColorSchemeToggle } from "./theme/ColorSchemeToggle";
 import "./styles.css";
 
 export function WebRoot() {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
-  if (path === "/product-studio") {
-    return <main><ProductStudioWorkspace /></main>;
-  }
-  if (path === "/family-growth" || path === "/") {
-    return <FamilyGrowthExperience />;
-  }
-  return <App />;
+  return (
+    <ThemeProvider>
+      <ColorSchemeToggle />
+      {path === "/product-studio" ? (
+        <main>
+          <ProductStudioWorkspace />
+        </main>
+      ) : path === "/family-growth" || path === "/" ? (
+        <FamilyGrowthExperience />
+      ) : (
+        <App />
+      )}
+    </ThemeProvider>
+  );
 }
 
 const root = document.getElementById("root");

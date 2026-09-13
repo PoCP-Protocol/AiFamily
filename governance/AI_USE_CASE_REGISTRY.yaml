@@ -208,6 +208,9 @@ tools:
     status: PLANNED
     evidence_refs: [docs/02_business/BUSINESS_SCENARIO_CLOSURE_CATALOG.md#s06]
 
+  # `draft_family_path` tool entry removed alongside the `family_path_drafting`
+  # use case (see note below) — same reason, re-add together.
+
   - id: draft_daily_action
     purpose: 生成今日行动、难度和适用成员的候选方案
     mutates_business_state: false
@@ -475,6 +478,22 @@ use_cases:
       - docs/03_product/AGI_FAMILY_GROWTH_PLATFORM_BLUEPRINT.md
       - docs/11_delivery/AGI_VERTICAL_EVALUATION_SPEC.md
       - governance/ADR/ADR-0158-agi-native-family-growth-platform.md
+
+  # NOTE (2026-09-09, Claude): a `family_path_drafting` entry describing
+  # `agent: growth_planner` / `prompt_ref: family_path_drafting_v1` was
+  # removed from this push. governance/ADR/ADR-0158-agi-native-family-growth-platform.md's
+  # red-team review confirmed the actual Slice C-01 implementation makes
+  # zero Model Gateway calls (deterministic tag-intersection scoring over a
+  # hardcoded candidate pool) — registering it here with an `agent`/
+  # `prompt_ref` would over-claim generative capability that does not exist
+  # yet, and `family_path_drafting` is also not a registered
+  # `PrincipalCapability` enum value (backend/intelligence/principal/contracts.py),
+  # which `tests/architecture/test_principal_integration_architecture.py`
+  # correctly rejects. Re-add this entry once (a) a real Model-Gateway-backed
+  # generative adapter exists for at least one path_orchestration primitive,
+  # and (b) the capability_route has a matching PrincipalCapability enum
+  # value — both decisions belong to whoever owns the Principal routing
+  # layer, not to this cherry-pick.
 
   - id: daily_action_proposal
     name: 今日行动建议
