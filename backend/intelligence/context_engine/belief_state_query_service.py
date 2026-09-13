@@ -22,13 +22,18 @@ isolation guard (`tests/architecture/test_ai_runtime_isolation.py`) — see
 
 from __future__ import annotations
 
-from datetime import datetime
+from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Protocol
 
 from .belief_state import FamilyBeliefState, assemble_belief_state
 from .conflict_engine import WorldStateConflict
-from .contracts import ContextScope
+from .contracts import ContextContractError, ContextScope
 from .world_state import FamilyWorldStateSnapshot, UnknownState, WorldStateAtom
+
+
+def _default_clock() -> datetime:
+    return datetime.now(UTC)
 
 
 class _WorldStateReader(Protocol):
@@ -64,32 +69,38 @@ class BeliefStateQueryService:
         world_state_repository: _WorldStateReader,
         conflict_repository: _ConflictReader,
         unknown_repository: _UnknownReader,
+        clock: Callable[[], datetime] = _default_clock,
     ) -> None:
         self._world_state_repository = world_state_repository
         self._conflict_repository = conflict_repository
         self._unknown_repository = unknown_repository
+        self._clock = clock
 
     async def get_current_belief_state(
         self,
         *,
         scope: ContextScope,
         snapshot_ref: str,
-        read_at: datetime,
     ) -> FamilyBeliefState:
-        """AIFAMILY-WM-005B, PART A: `FamilyBeliefState` is *always* the
-        CURRENT belief state — one `read_at` resolves both the Atom Store's
-        `valid_at` and `known_at` (never two independently-defaulted
-        `datetime.now()` calls) and the snapshot's `as_of`/`generated_at`.
+        """AIFAMILY-WM-005B/C: `FamilyBeliefState` is *always* the CURRENT
+        belief state. There is deliberately no `read_at`/`valid_at`/
+        `known_at` parameter here at all (AIFAMILY-WM-005C PART G/I) — a
+        caller-supplied timestamp is exactly what let WM-005B's version of
+        this method be asked for "yesterday's atoms" while still getting
+        today's conflicts/unknowns (which have no bitemporal history to
+        answer a historical query with). `self._clock()` is called exactly
+        once per call and resolves both the Atom Store's `valid_at`/
+        `known_at` and the snapshot's `as_of`/`generated_at`.
 
-        There is deliberately no `valid_at`/`known_at` parameter here: the
-        Conflict Store and Unknown Store only track *current* status, not a
-        full bitemporal history, so a caller requesting historical atoms
-        together with today's conflicts/unknowns would get an incoherent
-        mixed-time belief state. Historical `FamilyBeliefState`
-        reconstruction is deferred to WM-006, once Conflict/Unknown gain
-        real event history — this method must not pretend to support it in
-        the meantime.
+        Historical `FamilyBeliefState` reconstruction is deferred to
+        WM-006, once Conflict/Unknown gain real event history, and must
+        arrive through a new, explicitly historical entry point — never by
+        re-opening a `read_at`-shaped parameter on this method.
         """
+
+        read_at = self._clock()
+        if read_at.tzinfo is None:
+            raise ContextContractError("CURRENT_BELIEF_CLOCK_REQUIRES_TIMEZONE")
 
         atoms = await self._world_state_repository.get_state(
             scope=scope, valid_at=read_at, known_at=read_at

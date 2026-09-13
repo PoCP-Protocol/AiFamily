@@ -16,7 +16,11 @@ from backend.intelligence.context_engine.belief_state_query_service import (
     BeliefStateQueryService,
 )
 from backend.intelligence.context_engine.conflict_engine import detect_conflicts
-from backend.intelligence.context_engine.contracts import ContextScope, DataClass
+from backend.intelligence.context_engine.contracts import (
+    ContextContractError,
+    ContextScope,
+    DataClass,
+)
 from backend.intelligence.context_engine.postgres_conflict_repository import (
     PostgresConflictRepository,
 )
@@ -185,11 +189,11 @@ async def test_belief_state_assembled_from_three_real_stores() -> None:
                 world_state_repository=PostgresWorldStateRepository(fresh_connection),
                 conflict_repository=PostgresConflictRepository(fresh_connection),
                 unknown_repository=PostgresUnknownRepository(fresh_connection),
+                clock=lambda: NOW,
             )
             belief_state = await service.get_current_belief_state(
                 scope=family_scope,
                 snapshot_ref="qs-snapshot-1",
-                read_at=NOW,
             )
 
         assert {a.atom_id for a in belief_state.perspectives} == {mother.atom_id}
@@ -233,11 +237,11 @@ async def test_belief_state_isolates_cross_family_data() -> None:
                 world_state_repository=PostgresWorldStateRepository(fresh_connection),
                 conflict_repository=PostgresConflictRepository(fresh_connection),
                 unknown_repository=PostgresUnknownRepository(fresh_connection),
+                clock=lambda: NOW,
             )
             belief_state = await service.get_current_belief_state(
                 scope=family_a_scope,
                 snapshot_ref="qs-snapshot-2",
-                read_at=NOW,
             )
 
         assert belief_state.self_reports == ()
@@ -284,25 +288,83 @@ async def test_future_atom_excluded_from_current_read() -> None:
                 world_state_repository=PostgresWorldStateRepository(fresh_connection),
                 conflict_repository=PostgresConflictRepository(fresh_connection),
                 unknown_repository=PostgresUnknownRepository(fresh_connection),
+                clock=lambda: NOW,
             )
             belief_state = await service.get_current_belief_state(
                 scope=family_scope,
                 snapshot_ref="qs-snapshot-future",
-                read_at=NOW,
             )
 
         assert belief_state.snapshot.atoms == ()
 
+        later_read_at = future_moment + timedelta(minutes=1)
         async with engine.begin() as later_connection:
             service = BeliefStateQueryService(
                 world_state_repository=PostgresWorldStateRepository(later_connection),
                 conflict_repository=PostgresConflictRepository(later_connection),
                 unknown_repository=PostgresUnknownRepository(later_connection),
+                clock=lambda: later_read_at,
             )
             later_belief_state = await service.get_current_belief_state(
                 scope=family_scope,
                 snapshot_ref="qs-snapshot-later",
-                read_at=future_moment + timedelta(minutes=1),
             )
 
         assert {a.atom_id for a in later_belief_state.snapshot.atoms} == {future_atom.atom_id}
+
+
+async def test_clock_is_called_exactly_once_per_read() -> None:
+    async with postgres_schema_engine(MetaData()) as engine:
+        await _apply_migrations(engine)
+        family_scope = scope()
+        call_count = 0
+
+        def counting_clock() -> datetime:
+            nonlocal call_count
+            call_count += 1
+            return NOW
+
+        async with engine.begin() as connection:
+            service = BeliefStateQueryService(
+                world_state_repository=PostgresWorldStateRepository(connection),
+                conflict_repository=PostgresConflictRepository(connection),
+                unknown_repository=PostgresUnknownRepository(connection),
+                clock=counting_clock,
+            )
+            await service.get_current_belief_state(
+                scope=family_scope, snapshot_ref="qs-snapshot-clock-count"
+            )
+
+        assert call_count == 1
+
+
+async def test_naive_clock_rejected() -> None:
+    async with postgres_schema_engine(MetaData()) as engine:
+        await _apply_migrations(engine)
+        family_scope = scope()
+
+        async with engine.begin() as connection:
+            service = BeliefStateQueryService(
+                world_state_repository=PostgresWorldStateRepository(connection),
+                conflict_repository=PostgresConflictRepository(connection),
+                unknown_repository=PostgresUnknownRepository(connection),
+                clock=lambda: datetime(2026, 9, 13),  # naive, no tzinfo
+            )
+            with pytest.raises(
+                ContextContractError, match="CURRENT_BELIEF_CLOCK_REQUIRES_TIMEZONE"
+            ):
+                await service.get_current_belief_state(
+                    scope=family_scope, snapshot_ref="qs-snapshot-naive-clock"
+                )
+
+
+def test_get_current_belief_state_no_longer_accepts_caller_read_at() -> None:
+    """AIFAMILY-WM-005C PART I: the CURRENT belief read path must not expose
+    read_at/valid_at/known_at/historical parameters at all — structural
+    proof, not just a docstring promise."""
+
+    import inspect
+
+    signature = inspect.signature(BeliefStateQueryService.get_current_belief_state)
+    forbidden_params = {"read_at", "valid_at", "known_at", "historical"}
+    assert forbidden_params.isdisjoint(signature.parameters)

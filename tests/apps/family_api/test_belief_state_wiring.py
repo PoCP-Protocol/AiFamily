@@ -100,7 +100,7 @@ async def test_wired_query_service_reads_atoms_within_single_connection() -> Non
             build_belief_state_query_service(connection) as service,
         ):
             belief_state = await service.get_current_belief_state(
-                scope=family_scope, snapshot_ref="wiring-snapshot-1", read_at=NOW
+                scope=family_scope, snapshot_ref="wiring-snapshot-1"
             )
 
         assert {a.atom_id for a in belief_state.self_reports} == {atom.atom_id}
