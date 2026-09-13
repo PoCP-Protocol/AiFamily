@@ -94,6 +94,28 @@ class UnknownStatus(StrEnum):
     STALE = "STALE"
 
 
+class BeliefBand(StrEnum):
+    """Three-tier categorical belief signal (AIFAMILY-WM-004B).
+
+    Deliberately not a float probability: V1 has no calibration data to back
+    a number like "support=0.73" — that would be fake precision. A model
+    asked for a float will produce one regardless of whether it means
+    anything; asked for one of four bands, it cannot manufacture false
+    precision it doesn't have.
+    """
+
+    NONE = "NONE"
+    WEAK = "WEAK"
+    MODERATE = "MODERATE"
+    STRONG = "STRONG"
+
+
+class UncertaintyBand(StrEnum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+
 def _require_text(name: str, value: str) -> None:
     if not isinstance(value, str) or not value.strip():
         raise ContextContractError(f"{name}_required")
@@ -237,6 +259,9 @@ class WorldStateProposal:
     proposed_by: str = "AI"
     requires_confirmation: bool = True
     missing_evidence: tuple[str, ...] = ()
+    support_level: BeliefBand = BeliefBand.NONE
+    contradiction_level: BeliefBand = BeliefBand.NONE
+    uncertainty: UncertaintyBand = UncertaintyBand.HIGH
 
     def __post_init__(self) -> None:
         _require_text("statement", self.statement)
@@ -328,7 +353,9 @@ class FamilyWorldStateSnapshot:
 
 
 __all__ = [
+    "BeliefBand",
     "FamilyWorldStateSnapshot",
+    "UncertaintyBand",
     "UnknownState",
     "UnknownStatus",
     "WorldStateActorType",
