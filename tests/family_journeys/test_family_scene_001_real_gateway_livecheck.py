@@ -277,6 +277,8 @@ async def test_family_scene_001_real_ibm_ica_end_to_end() -> None:
         provider_id=IBM_ICA_PROVIDER_ID,
     )
     assert belief_draft.provenance.provider_id == IBM_ICA_PROVIDER_ID
+    assert belief_draft.provenance.provider_id != "fake-deterministic"
+    assert "gpt-5.6" in (belief_draft.provenance.model or "")
 
     proposal = validate_and_build_proposal(
         belief_draft,
@@ -301,6 +303,9 @@ async def test_family_scene_001_real_ibm_ica_end_to_end() -> None:
         _unknown_request_with_plan(hypothesis),
         provider_id=IBM_ICA_PROVIDER_ID,
     )
+    assert unknown_draft.provenance.provider_id == IBM_ICA_PROVIDER_ID
+    assert unknown_draft.provenance.provider_id != "fake-deterministic"
+    assert "gpt-5.6" in (unknown_draft.provenance.model or "")
     gap = validate_and_build_unknown(
         unknown_draft,
         unknown_id="family-scene-001-livecheck-unknown",
@@ -311,13 +316,11 @@ async def test_family_scene_001_real_ibm_ica_end_to_end() -> None:
         existing_unknowns=(),
         created_at=NOW,
     )
-    # A real model may legitimately produce a question that happens to
-    # duplicate a prior one within this same run (returning None) — the
-    # meaningful assertion is that validation ran against a real response
-    # without raising on a well-formed one.
-    if gap is None:
-        return
-
+    # existing_unknowns=() above, so a well-formed real response must
+    # produce a new Unknown, not a dedup no-op — proves the full chain
+    # (Conflict -> real IBM ICA Hypothesis -> real IBM ICA Unknown)
+    # actually completes end to end.
+    assert gap is not None
     assert gap.status is UnknownStatus.OPEN
     assert gap.target_predicate in SCENE_ALLOWED_PREDICATES
 

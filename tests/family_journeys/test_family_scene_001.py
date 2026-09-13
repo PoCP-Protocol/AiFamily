@@ -15,7 +15,7 @@ dialogue, not the thing under test.
 from __future__ import annotations
 
 import importlib
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import MetaData
@@ -26,8 +26,12 @@ from backend.intelligence.context_engine.contracts import ContextScope, DataClas
 from backend.intelligence.context_engine.postgres_unknown_repository import (
     PostgresUnknownRepository,
 )
+from backend.intelligence.context_engine.postgres_world_state_repository import (
+    PostgresWorldStateRepository,
+)
 from backend.intelligence.context_engine.predicate_registry import PredicateRegistry
 from backend.intelligence.context_engine.unknown_engine import generate_unknown
+from backend.intelligence.context_engine.unknown_resolution import resolve_unknown
 from backend.intelligence.context_engine.world_state import (
     UnknownStatus,
     WorldStateActorType,
@@ -156,15 +160,15 @@ async def _apply_unknown_migration(engine) -> None:
         with Operations.context(context):
             migration_module.upgrade()
 
-    atoms_migration = importlib.import_module(
-        "database.migrations.versions.0080_ai_family_world_atoms"
-    )
-    unknowns_migration = importlib.import_module(
-        "database.migrations.versions.0084_ai_family_world_unknowns"
-    )
-    async with engine.begin() as connection:
-        await connection.run_sync(lambda c: _run_upgrade(c, atoms_migration))
-        await connection.run_sync(lambda c: _run_upgrade(c, unknowns_migration))
+    for name in (
+        "0080_ai_family_world_atoms",
+        "0082_ai_family_world_atoms_projection_identity",
+        "0083_ai_family_world_atoms_belief_metadata",
+        "0084_ai_family_world_unknowns",
+    ):
+        module = importlib.import_module(f"database.migrations.versions.{name}")
+        async with engine.begin() as connection:
+            await connection.run_sync(lambda c, m=module: _run_upgrade(c, m))
 
 
 @pytest.mark.asyncio
@@ -268,8 +272,8 @@ async def test_family_scene_001_conflict_to_hypothesis_to_unknown() -> None:
     async with postgres_schema_engine(MetaData()) as engine:
         await _apply_unknown_migration(engine)
         async with engine.begin() as write_connection:
-            repository = PostgresUnknownRepository(write_connection)
-            await repository.create(gap)
+            unknown_repo = PostgresUnknownRepository(write_connection)
+            await unknown_repo.create(gap)
 
         async with engine.begin() as fresh_connection:
             reader = PostgresUnknownRepository(fresh_connection)
@@ -278,3 +282,47 @@ async def test_family_scene_001_conflict_to_hypothesis_to_unknown() -> None:
             assert reloaded.unknown_key == gap.unknown_key
             assert reloaded.target_predicate == SCENE_TARGET_PREDICATE
             assert hypothesis.atom_id in reloaded.blocking_refs
+
+        # --- Checkpoint 4: Clarification -> Resolution (AIFAMILY-WM-004C.1)
+        # "I don't know" -> asks -> family answers -> "I now know more."
+        # The mother's new answer is projected as a real OTHER_REPORT atom
+        # (recorded strictly after the Unknown was created) before it is
+        # ever accepted as resolution evidence.
+        mother_clarification = WorldStateAtom(
+            atom_id="scene-mother-clarification-1",
+            scope=scene_scope(),
+            subject_ids=("child-1", "mother-1"),
+            epistemic_kind=WorldStateEpistemicKind.OTHER_REPORT,
+            predicate=SCENE_TARGET_PREDICATE,
+            value_ref="妈妈说其他话题其实还会说，主要是一谈学习就不愿聊",
+            asserted_by="mother-1",
+            attributed_actor_type=WorldStateActorType.FAMILY_MEMBER,
+            provenance="conversation:mother:2026-09-14",
+            observed_at=NOW + timedelta(days=1),
+            recorded_at=NOW + timedelta(days=1),
+            valid_from=NOW + timedelta(days=1),
+            source_refs=("conversation:mother:2026-09-14",),
+        )
+
+        async with engine.begin() as write_connection:
+            world_repo = PostgresWorldStateRepository(write_connection)
+            await world_repo.append_atom(
+                mother_clarification,
+                source_ref="conversation:mother:2026-09-14",
+                source_version="v1",
+                projection_version="family-scene-001-checkpoint-4",
+            )
+
+        async with engine.begin() as resolve_connection:
+            unknown_repo = PostgresUnknownRepository(resolve_connection)
+            world_repo = PostgresWorldStateRepository(resolve_connection)
+            resolved = await resolve_unknown(
+                unknown_repository=unknown_repo,
+                world_state_repository=world_repo,
+                unknown_id=gap.unknown_id,
+                scope=scene_scope(),
+                resolution_atom_ids=(mother_clarification.atom_id,),
+                resolved_at=NOW + timedelta(days=1, hours=1),
+            )
+            assert resolved.status is UnknownStatus.RESOLVED
+            assert resolved.resolution_refs == (mother_clarification.atom_id,)

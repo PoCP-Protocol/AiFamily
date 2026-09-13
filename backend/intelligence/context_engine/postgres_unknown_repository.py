@@ -80,12 +80,6 @@ class UnknownIdentityConflictError(UnknownPersistenceError):
     a fail-closed guard rather than a silent overwrite."""
 
 
-class AiSelfResolutionRejectedError(UnknownPersistenceError):
-    """B11: an Unknown cannot be resolved using only the evidence that was
-    already insufficient to answer it (its own `blocking_refs`) — resolution
-    requires genuinely new evidence refs."""
-
-
 class PostgresUnknownRepository:
     """Async Unknown Store adapter, scoped to one connection per instance."""
 
@@ -166,7 +160,7 @@ class PostgresUnknownRepository:
             unknowns.append(_row_to_unknown(mapping, _storage_scope_for_row(mapping)))
         return tuple(unknowns)
 
-    async def resolve(
+    async def mark_resolved(
         self,
         unknown_id: str,
         *,
@@ -174,10 +168,14 @@ class PostgresUnknownRepository:
         resolution_refs: tuple[str, ...],
         resolved_at: datetime,
     ) -> UnknownState:
-        """B11: `resolution_refs` must be non-empty and must not be a subset
-        of the Unknown's own `blocking_refs` — citing only the evidence that
-        was already there when the question was raised is not resolution,
-        it is the AI closing its own gap without new information."""
+        """AIFAMILY-WM-004C.1: a pure persistence primitive — deliberately
+        policy-free. This method does NOT verify that `resolution_refs` are
+        real, new, non-AI-authored evidence that actually addresses the
+        Unknown's `target_predicate`; that whole Evidence Gate lives in
+        `unknown_resolution.resolve_unknown()`, which is the only path
+        application code should call to resolve an Unknown. Calling this
+        method directly with unvalidated refs re-opens the exact hole this
+        increment closes — do not do that."""
 
         if not resolution_refs:
             raise ContextContractError("RESOLVED_UNKNOWN_REQUIRES_RESOLUTION_REFS")
@@ -185,12 +183,6 @@ class PostgresUnknownRepository:
         current = await self.get(unknown_id, scope=scope)
         if current is None:
             raise UnknownPersistenceError(f"unknown_id {unknown_id} not found")
-
-        if set(resolution_refs) <= set(current.blocking_refs):
-            raise AiSelfResolutionRejectedError(
-                "UNKNOWN_SELF_RESOLUTION_REJECTED: resolution_refs must include "
-                "evidence beyond the Unknown's own blocking_refs"
-            )
 
         await self._connection.execute(
             _UPDATE_STATUS_SQL,
@@ -309,7 +301,6 @@ def _row_to_unknown(mapping: dict, scope: ContextScope) -> UnknownState:
 
 
 __all__ = [
-    "AiSelfResolutionRejectedError",
     "PostgresUnknownRepository",
     "UnknownIdentityConflictError",
     "UnknownPersistenceError",

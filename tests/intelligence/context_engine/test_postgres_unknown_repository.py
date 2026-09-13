@@ -20,7 +20,6 @@ from backend.intelligence.context_engine.contracts import (
     DataClass,
 )
 from backend.intelligence.context_engine.postgres_unknown_repository import (
-    AiSelfResolutionRejectedError,
     PostgresUnknownRepository,
 )
 from backend.intelligence.context_engine.unknown_identity import build_unknown_key
@@ -222,27 +221,13 @@ async def test_live_consent_gate_denies_read_after_consent_version_changes() -> 
                 await repository.get("unk-1", scope=withdrawn_scope)
 
 
-async def test_ai_cannot_self_resolve_using_only_blocking_refs() -> None:
-    """B11: citing the very evidence that was already insufficient to
-    answer the question is not new information."""
+async def test_mark_resolved_is_a_policy_free_persistence_primitive() -> None:
+    """AIFAMILY-WM-004C.1: `mark_resolved()` itself does not validate
+    evidence authenticity/recency/authorship — that whole Evidence Gate
+    lives in `unknown_resolution.resolve_unknown()` (see
+    `test_unknown_resolution.py`). This test only proves the primitive
+    performs the state transition once called."""
 
-    async with postgres_schema_engine(MetaData()) as engine:
-        await _apply_unknown_migration(engine)
-        family_scope = scope()
-        async with engine.begin() as connection:
-            repository = PostgresUnknownRepository(connection)
-            await repository.create(unknown(blocking_refs=("hyp-1", "hyp-2")))
-
-            with pytest.raises(AiSelfResolutionRejectedError):
-                await repository.resolve(
-                    "unk-1",
-                    scope=family_scope,
-                    resolution_refs=("hyp-1",),
-                    resolved_at=NOW,
-                )
-
-
-async def test_resolution_requires_new_evidence_beyond_blocking_refs() -> None:
     async with postgres_schema_engine(MetaData()) as engine:
         await _apply_unknown_migration(engine)
         family_scope = scope()
@@ -250,17 +235,17 @@ async def test_resolution_requires_new_evidence_beyond_blocking_refs() -> None:
             repository = PostgresUnknownRepository(connection)
             await repository.create(unknown(blocking_refs=("hyp-1",)))
 
-            resolved = await repository.resolve(
+            resolved = await repository.mark_resolved(
                 "unk-1",
                 scope=family_scope,
-                resolution_refs=("parent-interview-2026-09-14",),
+                resolution_refs=("some-atom-id",),
                 resolved_at=NOW,
             )
             assert resolved.status is UnknownStatus.RESOLVED
-            assert resolved.resolution_refs == ("parent-interview-2026-09-14",)
+            assert resolved.resolution_refs == ("some-atom-id",)
 
 
-async def test_resolution_requires_non_empty_refs() -> None:
+async def test_mark_resolved_requires_non_empty_refs() -> None:
     async with postgres_schema_engine(MetaData()) as engine:
         await _apply_unknown_migration(engine)
         family_scope = scope()
@@ -271,6 +256,6 @@ async def test_resolution_requires_non_empty_refs() -> None:
             with pytest.raises(
                 ContextContractError, match="RESOLVED_UNKNOWN_REQUIRES_RESOLUTION_REFS"
             ):
-                await repository.resolve(
+                await repository.mark_resolved(
                     "unk-1", scope=family_scope, resolution_refs=(), resolved_at=NOW
                 )
