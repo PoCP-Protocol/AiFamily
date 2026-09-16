@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AssessmentApiContractError,
   parseUi03GrowthHypothesisProjection,
   type AssessmentHumanTaskDecisionBody,
   type AssessmentHumanTaskDecisionReceipt,
@@ -14,6 +15,7 @@ import {
   Ui03FlowPartialSuccessError,
   Ui03FlowStaleError,
   Ui03HumanTaskFlow,
+  isRetryableUi03FlowError,
   type Ui03HumanTaskApi,
 } from "../lib/family/ui03-human-task-flow";
 
@@ -62,7 +64,7 @@ describe("UI-03 two-step HumanTask flow", () => {
     });
   });
 
-  it("allows an optional REJECT explanation and never invents one", async () => {
+  it("sends a reason-free REJECT and never invents an explanation", async () => {
     const api = new RecordingApi();
     const flow = new Ui03HumanTaskFlow(api);
 
@@ -130,7 +132,7 @@ describe("UI-03 two-step HumanTask flow", () => {
     expect(humanCalls[0]).toEqual(humanCalls[1]);
   });
 
-  it("retries a timed-out non-adoption with the same optional explanation", async () => {
+  it("retries a timed-out non-adoption with the same reason-free body", async () => {
     const api = new RecordingApi();
     api.humanError = new FamilyApiError(
       "timeout",
@@ -143,7 +145,6 @@ describe("UI-03 two-step HumanTask flow", () => {
       token: "token-1",
       projection: projection(),
       outcome: "REJECT" as const,
-      reason: "这与我们的观察不一致",
     };
 
     await expect(flow.decide(input)).rejects.toMatchObject({
@@ -216,37 +217,86 @@ describe("UI-03 two-step HumanTask flow", () => {
     expect(api.calls.map((call) => call.kind)).toEqual(["human"]);
   });
 
-  it("preserves the HumanTask receipt when GrowthIntent creation fails", async () => {
+  it.each(["FAMILY_API_TIMEOUT", "FAMILY_API_NETWORK_ERROR"] as const)(
+    "preserves the HumanTask receipt for retryable %s GrowthIntent failures",
+    async (code) => {
+      const api = new RecordingApi();
+      api.growthError = new FamilyApiError("network failure", 0, code, null);
+      const flow = new Ui03HumanTaskFlow(api);
+      const input = {
+        token: "token-1",
+        projection: projection(),
+        outcome: "ACCEPT" as const,
+      };
+
+      const failure = await flow.decide(input).catch((error) => error);
+      expect(failure).toBeInstanceOf(Ui03FlowPartialSuccessError);
+      expect(failure).toMatchObject({
+        stage: "HUMAN_ACCEPTED",
+        humanReceipt: { task_id: "task-1", outcome: "ACCEPT" },
+        growthReceipt: null,
+        recovery: "RETRY_NETWORK",
+      });
+      expect(isRetryableUi03FlowError(failure)).toBe(true);
+
+      api.growthError = null;
+      await expect(flow.decide(input)).resolves.toMatchObject({
+        status: "ONBOARDING_STARTED",
+      });
+      const humanCalls = api.calls.filter((call) => call.kind === "human");
+      const growthCalls = api.calls.filter((call) => call.kind === "growth");
+      expect(humanCalls[0]).toEqual(humanCalls[1]);
+      expect(growthCalls[0]).toEqual(growthCalls[1]);
+    },
+  );
+
+  it.each([
+    [403, "HTTP_403", "PERMISSION_DENIED"],
+    [404, "HTTP_404", "NOT_FOUND"],
+    [409, "HTTP_409", "STATE_CHANGED"],
+  ] as const)(
+    "classifies a partial HTTP %i failure as non-retryable %s",
+    async (status, code, recovery) => {
+      const api = new RecordingApi();
+      api.growthError = new FamilyApiError("blocked", status, code, null);
+
+      const failure = await new Ui03HumanTaskFlow(api)
+        .decide({
+          token: "token-1",
+          projection: projection(),
+          outcome: "ACCEPT",
+        })
+        .catch((error) => error);
+
+      expect(failure).toMatchObject({
+        stage: "HUMAN_ACCEPTED",
+        recovery,
+      });
+      expect(isRetryableUi03FlowError(failure)).toBe(false);
+      expect(api.calls.map((call) => call.kind)).toEqual(["human", "growth"]);
+    },
+  );
+
+  it("classifies a partial response contract mismatch as non-retryable", async () => {
     const api = new RecordingApi();
-    api.growthError = new FamilyApiError(
-      "timeout",
-      0,
-      "FAMILY_API_TIMEOUT",
+    api.growthError = new AssessmentApiContractError(
+      "invalid growth receipt",
       null,
     );
-    const flow = new Ui03HumanTaskFlow(api);
-    const input = {
-      token: "token-1",
-      projection: projection(),
-      outcome: "ACCEPT" as const,
-    };
 
-    const failure = await flow.decide(input).catch((error) => error);
-    expect(failure).toBeInstanceOf(Ui03FlowPartialSuccessError);
+    const failure = await new Ui03HumanTaskFlow(api)
+      .decide({
+        token: "token-1",
+        projection: projection(),
+        outcome: "ACCEPT",
+      })
+      .catch((error) => error);
+
     expect(failure).toMatchObject({
       stage: "HUMAN_ACCEPTED",
-      humanReceipt: { task_id: "task-1", outcome: "ACCEPT" },
-      growthReceipt: null,
+      recovery: "CONTRACT_MISMATCH",
     });
-
-    api.growthError = null;
-    await expect(flow.decide(input)).resolves.toMatchObject({
-      status: "ONBOARDING_STARTED",
-    });
-    const humanCalls = api.calls.filter((call) => call.kind === "human");
-    const growthCalls = api.calls.filter((call) => call.kind === "growth");
-    expect(humanCalls[0]).toEqual(humanCalls[1]);
-    expect(growthCalls[0]).toEqual(growthCalls[1]);
+    expect(isRetryableUi03FlowError(failure)).toBe(false);
   });
 
   it("preserves the GrowthIntent receipt when onboarding fails", async () => {
@@ -285,22 +335,30 @@ describe("UI-03 two-step HumanTask flow", () => {
     expect(onboardingCalls[0]).toEqual(onboardingCalls[1]);
   });
 
-  it("derives identical bounded keys after a new flow instance is created", async () => {
+  it("derives the same reason-free REJECT body and bounded key in new flow instances", async () => {
     const firstApi = new RecordingApi();
     const secondApi = new RecordingApi();
 
     await new Ui03HumanTaskFlow(firstApi).decide({
       token: "token-1",
       projection: projection(),
-      outcome: "ACCEPT",
+      outcome: "REJECT",
     });
     await new Ui03HumanTaskFlow(secondApi).decide({
       token: "token-1",
       projection: projection(),
-      outcome: "ACCEPT",
+      outcome: "REJECT",
     });
 
     expect(firstApi.calls).toEqual(secondApi.calls);
+    expect(firstApi.calls).toHaveLength(1);
+    expect(firstApi.calls[0]).toMatchObject({
+      kind: "human",
+      body: { outcome: "REJECT" },
+    });
+    expect(
+      (firstApi.calls[0] as { body: AssessmentHumanTaskDecisionBody }).body,
+    ).not.toHaveProperty("reason");
     expect(firstApi.calls.every((call) => call.key.length <= 128)).toBe(true);
   });
 
@@ -368,7 +426,7 @@ class RecordingApi implements Ui03HumanTaskApi {
     });
     if (this.humanError) throw this.humanError;
     if (this.pendingHuman) return this.pendingHuman;
-    return this.humanReceipt(familyId, taskId, body.outcome, body.reason);
+    return this.humanReceipt(familyId, taskId, body.outcome);
   }
 
   async decideGrowthHypothesis(
@@ -420,14 +478,13 @@ class RecordingApi implements Ui03HumanTaskApi {
     familyId: string,
     taskId: string,
     outcome: "ACCEPT" | "REJECT",
-    reason?: string,
   ): AssessmentHumanTaskDecisionReceipt {
     return {
       task_id: taskId,
       decision_id: `decision-${taskId}`,
       status: "DECIDED",
       outcome,
-      reason: outcome === "REJECT" ? (reason ?? null) : null,
+      reason: null,
       decided_at: "2026-09-17T00:00:00Z",
       binding:
         outcome === "ACCEPT" && !this.omitAcceptedBinding
@@ -480,9 +537,17 @@ function projection(
           assessment_evidence_id: `evidence-${familyId}`,
           tool_ref: "tool-1",
           tool_version: 3,
+          assessment_submitted_at: null,
         },
         limitations: ["不是诊断"],
         generator: "FAMILY_EDUCATION_ASSESSMENT_MODEL_V0_1",
+        model_draft_ref: `draft-${familyId}`,
+        model_generator: "MODEL_GATEWAY",
+        model_component_ref: "assessment-interpretation",
+        model_boundary_labels: ["DRAFT_ONLY"],
+        need_refs: [],
+        construct_refs: [],
+        action_candidate_refs: [],
         fact_boundary: "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS",
         scorecard: {
           generator: "MODEL_GATEWAY",

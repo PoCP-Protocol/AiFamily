@@ -7,6 +7,7 @@ import {
   type ConfirmGrowthHypothesisBody,
   type GrowthHypothesisDecisionReceipt,
   type Ui03GrowthHypothesisProjection,
+  type Ui03ReviewOpenHypothesis,
 } from "./assessment-api-contracts";
 import { FamilyApiError } from "./family-api-client";
 
@@ -74,6 +75,13 @@ export class Ui03FlowContractBlockedError extends Error {
 }
 
 export type Ui03PartialSuccessStage = "HUMAN_ACCEPTED" | "INTENT_CREATED";
+export type Ui03PartialRecovery =
+  | "RETRY_NETWORK"
+  | "PERMISSION_DENIED"
+  | "NOT_FOUND"
+  | "STATE_CHANGED"
+  | "CONTRACT_MISMATCH"
+  | "UNAVAILABLE";
 
 export class Ui03FlowPartialSuccessError extends Error {
   readonly code = "UI03_PARTIAL_SUCCESS";
@@ -83,6 +91,9 @@ export class Ui03FlowPartialSuccessError extends Error {
     readonly humanReceipt: AssessmentHumanTaskDecisionReceipt,
     readonly growthReceipt: GrowthHypothesisDecisionReceipt | null,
     readonly causeValue: unknown,
+    readonly recovery: Ui03PartialRecovery = classifyUi03PartialRecovery(
+      causeValue,
+    ),
   ) {
     super(
       stage === "HUMAN_ACCEPTED"
@@ -121,7 +132,6 @@ export class Ui03HumanTaskFlow {
     token: string;
     projection: Ui03GrowthHypothesisProjection;
     outcome: "ACCEPT" | "REJECT";
-    reason?: string;
   }): Promise<Ui03HumanDecisionResult> {
     this.bind(input.projection);
     const hypothesis = readyHypothesis(input.projection);
@@ -129,17 +139,13 @@ export class Ui03HumanTaskFlow {
     const taskId = hypothesis.scorecard.human_task_ref;
     const scopeKey = projectionScopeKey(input.projection);
     const operationRevision = this.revision;
-    const reason = input.reason?.trim();
 
     const decisionBody: AssessmentHumanTaskDecisionBody = Object.freeze({
       outcome: input.outcome,
-      ...(reason ? { reason } : {}),
     });
-    const humanDecisionFingerprint = [
-      scopeKey,
-      input.outcome,
-      reason ?? "",
-    ].join(":");
+    const humanDecisionFingerprint = [familyId, taskId, input.outcome].join(
+      ":",
+    );
     const humanDecisionKey = createUi03IdempotencyKey(
       "ui03-human-task-decision",
       humanDecisionFingerprint,
@@ -304,7 +310,7 @@ export class Ui03HumanTaskFlow {
 
 export function isRetryableUi03FlowError(error: unknown): boolean {
   if (error instanceof Ui03FlowPartialSuccessError) {
-    return isRetryableUi03FlowError(error.causeValue);
+    return error.recovery === "RETRY_NETWORK";
   }
   return (
     error instanceof FamilyApiError &&
@@ -312,6 +318,31 @@ export function isRetryableUi03FlowError(error: unknown): boolean {
     (error.code === "FAMILY_API_TIMEOUT" ||
       error.code === "FAMILY_API_NETWORK_ERROR")
   );
+}
+
+export function classifyUi03PartialRecovery(
+  error: unknown,
+): Ui03PartialRecovery {
+  if (error instanceof FamilyApiError) {
+    if (
+      error.status === 0 &&
+      (error.code === "FAMILY_API_TIMEOUT" ||
+        error.code === "FAMILY_API_NETWORK_ERROR")
+    ) {
+      return "RETRY_NETWORK";
+    }
+    if (error.status === 403) return "PERMISSION_DENIED";
+    if (error.status === 404) return "NOT_FOUND";
+    if (error.status === 409) return "STATE_CHANGED";
+    return "UNAVAILABLE";
+  }
+  if (
+    error instanceof AssessmentApiContractError ||
+    error instanceof Ui03FlowContractBlockedError
+  ) {
+    return "CONTRACT_MISMATCH";
+  }
+  return "UNAVAILABLE";
 }
 
 export function createUi03IdempotencyKey(
@@ -349,21 +380,26 @@ function projectionScopeKey(
 
 function readyHypothesis(
   projection: Ui03GrowthHypothesisProjection,
-): NonNullable<Ui03GrowthHypothesisProjection["hypothesis"]> {
+): Ui03ReviewOpenHypothesis {
   if (projection.availability !== "READY" || !projection.hypothesis) {
     throw new Ui03FlowContractBlockedError(
       "UI-03 has no reviewable hypothesis",
       projection,
     );
   }
-  const taskId = projection.hypothesis.scorecard?.human_task_ref;
-  if (typeof taskId !== "string" || !taskId.trim()) {
+  const scorecard = projection.hypothesis.scorecard;
+  if (
+    scorecard.generator !== "MODEL_GATEWAY" ||
+    scorecard.review_status !== "REVIEW_REQUIRED" ||
+    typeof scorecard.human_task_ref !== "string" ||
+    !scorecard.human_task_ref.trim()
+  ) {
     throw new Ui03FlowContractBlockedError(
-      "UI-03 is missing scorecard.human_task_ref",
+      "UI-03 is not open for Model Gateway human review",
       projection,
     );
   }
-  return projection.hypothesis;
+  return projection.hypothesis as Ui03ReviewOpenHypothesis;
 }
 
 function readOnboardingId(payload: unknown): string {

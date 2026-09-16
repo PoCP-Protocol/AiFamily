@@ -33,7 +33,8 @@ describe("UI-03 family growth explanation baseline contract", () => {
     expect(source).not.toContain("overall_score");
     expect(source).not.toContain("peer_reference");
     expect(source).toContain("家庭支持理解");
-    expect(source).toContain("等待家长确认");
+    expect(source).toContain("REVIEW_OPEN · 等待家长确认");
+    expect(source).toContain("DRAFT_ONLY · 不可确认");
     expect(source).toContain("证据与支持方向");
     expect(source).toContain("待验证的支持方向");
     expect(source).not.toContain("核心问题");
@@ -70,6 +71,7 @@ describe("UI-03 family growth explanation baseline contract", () => {
     expect(flow).not.toContain('decision_type: "DISMISS"');
     expect(source).toContain('remoteState === "empty"');
     expect(source).toContain('remoteState === "denied"');
+    expect(source).toContain('remoteState === "draft_only"');
     expect(source).toContain('remoteState === "contract_blocked"');
     expect(source).toContain("只有服务端同时返回人工任务凭据时，才能继续确认");
   });
@@ -106,7 +108,9 @@ describe("UI-03 family growth explanation baseline contract", () => {
   it("keeps non-adoption distinct from defer without forcing an explanation", () => {
     expect(source).toContain('onPress={() => void decide("REJECT")}');
     expect(source).not.toContain("!rejectionReason.trim()");
-    expect(source).toContain("不采纳说明（可选）");
+    expect(source).not.toContain("不采纳说明（可选）");
+    expect(source).not.toContain("TextInput");
+    expect(source).toContain("本步骤不要求填写理由，也不会替家长生成理由");
     expect(source).toContain("记录家长不采纳");
     expect(source).not.toContain("提交拒绝并终止");
     expect(source).toContain("先放一放，不提交决定");
@@ -115,15 +119,15 @@ describe("UI-03 family growth explanation baseline contract", () => {
 
   it("states that the parent confirms support while the child keeps an independent choice", () => {
     expect(source).toContain("家长确认支持方向");
-    expect(source).toContain("不代表孩子已经同意");
-    expect(source).toContain("孩子在行动开始前拥有独立选择权");
-    expect(source).toContain("可以接受、暂停或不参与");
+    expect(source).toContain("不代表孩子已经同意任何具体行动");
+    expect(source).toContain("当前页未记录孩子决定");
+    expect(source).toContain("具体行动开始前，必须另行征求孩子的选择");
   });
 
   it("offers real load retries and honest resumable partial-success actions", () => {
     expect(source).toContain("onPress={() => void loadProjection()}");
     expect(source).toContain("重新加载确认凭据");
-    expect(source).toContain("retryDecision.outcome");
+    expect(source).toContain("void decide(retryDecision)");
     expect(source).toContain("重试家长采纳");
     expect(source).toContain("重试家长不采纳");
     expect(source).toContain("家长确认回执已保存，但成长意向尚未创建");
@@ -134,5 +138,21 @@ describe("UI-03 family growth explanation baseline contract", () => {
     expect(flow).toContain("Ui03FlowPartialSuccessError");
     expect(flow).toContain("createUi03IdempotencyKey");
     expect(flow).not.toContain("new Map");
+  });
+
+  it("never offers a continuation action after non-network partial success", () => {
+    const blocked = source.indexOf('error.recovery !== "RETRY_NETWORK"');
+    const retryableContinuation = source.indexOf(
+      'setDecisionState("human_accepted")',
+    );
+
+    expect(blocked).toBeGreaterThan(-1);
+    expect(retryableContinuation).toBeGreaterThan(blocked);
+    expect(source.slice(blocked, retryableContinuation)).toContain("return;");
+    expect(source).toContain('error.recovery === "PERMISSION_DENIED"');
+    expect(source).toContain('error.recovery === "NOT_FOUND"');
+    expect(source).toContain('error.recovery === "STATE_CHANGED"');
+    expect(source).toContain('error.recovery === "CONTRACT_MISMATCH"');
+    expect(source).toContain('decisionState === "partial_blocked"');
   });
 });

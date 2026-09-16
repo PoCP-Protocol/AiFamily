@@ -7,7 +7,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 
@@ -16,6 +15,7 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import {
   AssessmentApiContractError,
+  isUi03ReviewOpen,
   type Ui03GrowthHypothesisProjection,
 } from "@/lib/family/assessment-api-contracts";
 import { familyApi, FamilyApiError } from "@/lib/family/family-api-client";
@@ -32,7 +32,8 @@ import {
 type RemoteState =
   | "idle"
   | "loading"
-  | "ready"
+  | "review_open"
+  | "draft_only"
   | "empty"
   | "denied"
   | "contract_blocked"
@@ -43,6 +44,7 @@ type DecisionState =
   | "retryable"
   | "human_accepted"
   | "intent_created"
+  | "partial_blocked"
   | "contract_blocked"
   | "success"
   | "rejected";
@@ -56,19 +58,20 @@ export default function GrowthExplanationScreen() {
   );
   const [remoteState, setRemoteState] = useState<RemoteState>("idle");
   const [decisionState, setDecisionState] = useState<DecisionState>("idle");
-  const [retryDecision, setRetryDecision] = useState<{
-    outcome: "ACCEPT" | "REJECT";
-    reason?: string;
-  } | null>(null);
+  const [retryDecision, setRetryDecision] = useState<
+    "ACCEPT" | "REJECT" | null
+  >(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [rejectionReason, setRejectionReason] = useState("");
   const flowRef = useRef<Ui03HumanTaskFlow | null>(null);
   const loadRevisionRef = useRef(0);
   flowRef.current ??= new Ui03HumanTaskFlow(familyApi);
 
   const familyId = session.selectedFamily?.family_id ?? null;
   const hypothesis = remote?.hypothesis ?? null;
-  const humanTaskId = hypothesis?.scorecard.human_task_ref ?? null;
+  const humanTaskId =
+    hypothesis?.scorecard.generator === "MODEL_GATEWAY"
+      ? hypothesis.scorecard.human_task_ref
+      : null;
   const activeContext = ui03FlowContextForFamily(ui03FlowContext, familyId);
   const confirmed = Boolean(
     activeContext &&
@@ -84,7 +87,6 @@ export default function GrowthExplanationScreen() {
     setDecisionState("idle");
     setRetryDecision(null);
     setMessage(null);
-    setRejectionReason("");
     if (session.status !== "connected" || !session.token || !familyId) {
       setRemoteState("idle");
       return;
@@ -104,8 +106,18 @@ export default function GrowthExplanationScreen() {
         setRemoteState("empty");
         return;
       }
+      if (!isUi03ReviewOpen(result)) {
+        setRemoteState("draft_only");
+        setMessage(
+          result.hypothesis?.scorecard.generator ===
+            "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC"
+            ? "当前仅有确定性 DRAFT_ONLY 草稿，没有 Model Gateway 人工任务，不能在这里确认。"
+            : "当前 Model Gateway 草稿仍是 DRAFT_ONLY，尚未开放家长审阅。",
+        );
+        return;
+      }
       flow?.bind(result);
-      setRemoteState("ready");
+      setRemoteState("review_open");
     } catch (error) {
       if (revision !== loadRevisionRef.current) return;
       if (
@@ -136,7 +148,7 @@ export default function GrowthExplanationScreen() {
     };
   }, [loadProjection]);
 
-  const decide = async (outcome: "ACCEPT" | "REJECT", fixedReason?: string) => {
+  const decide = async (outcome: "ACCEPT" | "REJECT") => {
     if (confirmed && outcome === "ACCEPT") {
       router.push("/ui/UI-04" as Href);
       return;
@@ -147,7 +159,7 @@ export default function GrowthExplanationScreen() {
       !familyId ||
       !remote ||
       !hypothesis ||
-      remoteState !== "ready"
+      remoteState !== "review_open"
     ) {
       setDecisionState("contract_blocked");
       setMessage(
@@ -155,30 +167,20 @@ export default function GrowthExplanationScreen() {
       );
       return;
     }
-    const reason =
-      outcome === "REJECT"
-        ? (fixedReason ?? rejectionReason).trim() || undefined
-        : undefined;
-    const attempt = {
-      outcome,
-      ...(reason ? { reason } : {}),
-    } as const;
     setDecisionState("saving");
-    setRetryDecision(attempt);
+    setRetryDecision(outcome);
     setMessage(null);
     try {
       const result = await flowRef.current!.decide({
         token: session.token,
         projection: remote,
-        ...attempt,
+        outcome,
       });
       if (result.status === "REJECTED") {
         setDecisionState("rejected");
         setRetryDecision(null);
         setMessage(
-          reason
-            ? "已记录家长不采纳这份支持方向及补充说明，不会创建成长意向或启动方案。"
-            : "已记录家长不采纳这份支持方向，不会创建成长意向或启动方案。",
+          "已记录家长不采纳这份支持方向，不会创建成长意向或启动方案。",
         );
         return;
       }
@@ -189,6 +191,12 @@ export default function GrowthExplanationScreen() {
     } catch (error) {
       if (error instanceof Ui03FlowStaleError) return;
       if (error instanceof Ui03FlowPartialSuccessError) {
+        if (error.recovery !== "RETRY_NETWORK") {
+          setRetryDecision(null);
+          setDecisionState("partial_blocked");
+          setMessage(partialBlockedMessage(error));
+          return;
+        }
         if (error.stage === "HUMAN_ACCEPTED") {
           setDecisionState("human_accepted");
           setMessage(
@@ -207,7 +215,7 @@ export default function GrowthExplanationScreen() {
         setMessage(
           outcome === "ACCEPT"
             ? "尚未确认家长采纳是否已保存。可以安全重试，系统会复用同一请求内容和幂等标识。"
-            : "尚未确认家长不采纳是否已保存。可以安全重试，系统会复用同一请求内容和可选说明。",
+            : "尚未确认家长不采纳是否已保存。可以安全重试，系统会复用同一请求内容和幂等标识。",
         );
         return;
       }
@@ -248,7 +256,7 @@ export default function GrowthExplanationScreen() {
     );
   }
 
-  const unavailable = remoteState !== "ready" || !hypothesis;
+  const unavailable = remoteState !== "review_open" || !hypothesis;
   const loadFailed = ["denied", "contract_blocked", "error"].includes(
     remoteState,
   );
@@ -307,9 +315,11 @@ export default function GrowthExplanationScreen() {
                 ? "还没有提交的家庭测评"
                 : remoteState === "denied"
                   ? "暂时不能展示这次解读"
-                  : remoteState === "contract_blocked"
-                    ? "确认契约已阻断"
-                    : "读取失败"}
+                  : remoteState === "draft_only"
+                    ? "当前草稿不可确认"
+                    : remoteState === "contract_blocked"
+                      ? "确认契约已阻断"
+                      : "读取失败"}
             </Text>
             <Text
               style={
@@ -343,7 +353,11 @@ export default function GrowthExplanationScreen() {
           </View>
           <View style={styles.summaryCopy}>
             <Text style={styles.summaryBadge}>
-              {hypothesis ? "等待家长确认" : "测评后生成"}
+              {remoteState === "review_open"
+                ? "REVIEW_OPEN · 等待家长确认"
+                : remoteState === "draft_only"
+                  ? "DRAFT_ONLY · 不可确认"
+                  : "测评后生成"}
             </Text>
             <Text style={styles.summaryTitle}>
               {hypothesis?.title ?? "家庭支持理解"}
@@ -392,11 +406,22 @@ export default function GrowthExplanationScreen() {
 
         {hypothesis ? (
           <View style={styles.safetyNotice}>
-            <Text style={styles.safetyNoticeTitle}>请由家长确认支持方向</Text>
-            <Text style={styles.safetyNoticeText}>
-              这是家长对支持方向的选择，不代表孩子已经同意，也不能代替孩子作出行动决定。
-              孩子在行动开始前拥有独立选择权，可以接受、暂停或不参与。家长采纳且两段回执成功后，系统才会生成个性化方案。
+            <Text style={styles.safetyNoticeTitle}>
+              {remoteState === "review_open"
+                ? "请由家长确认支持方向"
+                : "DRAFT_ONLY 边界"}
             </Text>
+            {remoteState === "review_open" ? (
+              <Text style={styles.safetyNoticeText}>
+                本步骤只记录家长是否采纳 AI
+                支持方向，不代表孩子已经同意任何具体行动。当前页未记录孩子决定；具体行动开始前，必须另行征求孩子的选择。家长采纳且两段回执成功后，系统才会生成个性化方案。
+              </Text>
+            ) : (
+              <Text style={styles.safetyNoticeText}>
+                此草稿只供理解，不含可核验的 HumanTask，不能创建 GrowthIntent
+                或进入后续方案。
+              </Text>
+            )}
           </View>
         ) : null}
 
@@ -421,7 +446,7 @@ export default function GrowthExplanationScreen() {
             >
               {message}
             </Text>
-            {decisionState === "contract_blocked" ? (
+            {["contract_blocked", "partial_blocked"].includes(decisionState) ? (
               <Pressable
                 accessibilityRole="button"
                 onPress={() => void loadProjection()}
@@ -433,13 +458,11 @@ export default function GrowthExplanationScreen() {
             {decisionState === "retryable" && retryDecision ? (
               <Pressable
                 accessibilityRole="button"
-                onPress={() =>
-                  void decide(retryDecision.outcome, retryDecision.reason)
-                }
+                onPress={() => void decide(retryDecision)}
                 style={styles.retryButton}
               >
                 <Text style={styles.retryButtonText}>
-                  {retryDecision.outcome === "ACCEPT"
+                  {retryDecision === "ACCEPT"
                     ? "重试家长采纳"
                     : "重试家长不采纳"}
                 </Text>
@@ -454,6 +477,7 @@ export default function GrowthExplanationScreen() {
             unavailable ||
             decisionState === "saving" ||
             decisionState === "retryable" ||
+            decisionState === "partial_blocked" ||
             decisionState === "contract_blocked" ||
             decisionState === "rejected"
           }
@@ -465,6 +489,7 @@ export default function GrowthExplanationScreen() {
               unavailable ||
               decisionState === "saving" ||
               decisionState === "retryable" ||
+              decisionState === "partial_blocked" ||
               decisionState === "contract_blocked" ||
               decisionState === "rejected") &&
               styles.disabledButton,
@@ -474,13 +499,15 @@ export default function GrowthExplanationScreen() {
           <Text style={styles.primaryButtonText}>
             {decisionState === "saving"
               ? "正在核验并确认"
-              : confirmed
-                ? "继续查看成长方案"
-                : decisionState === "human_accepted"
-                  ? "继续创建成长意向"
-                  : decisionState === "intent_created"
-                    ? "继续启动成长方案"
-                    : "家长采纳这份支持方向并继续"}
+              : remoteState === "draft_only"
+                ? "当前草稿不可确认"
+                : confirmed
+                  ? "继续查看成长方案"
+                  : decisionState === "human_accepted"
+                    ? "继续创建成长意向"
+                    : decisionState === "intent_created"
+                      ? "继续启动成长方案"
+                      : "家长采纳这份支持方向并继续"}
           </Text>
         </Pressable>
 
@@ -490,19 +517,14 @@ export default function GrowthExplanationScreen() {
           "retryable",
           "human_accepted",
           "intent_created",
+          "partial_blocked",
           "contract_blocked",
         ].includes(decisionState) ? (
           <View style={styles.rejectCard}>
             <Text style={styles.rejectTitle}>家长不采纳这份支持方向</Text>
-            <TextInput
-              accessibilityLabel="不采纳说明（可选）"
-              multiline
-              maxLength={1000}
-              onChangeText={setRejectionReason}
-              placeholder="补充说明（可选）"
-              style={styles.reasonInput}
-              value={rejectionReason}
-            />
+            <Text style={styles.rejectCopy}>
+              本步骤不要求填写理由，也不会替家长生成理由。
+            </Text>
             <Pressable
               accessibilityRole="button"
               disabled={decisionState === "saving"}
@@ -532,6 +554,26 @@ export default function GrowthExplanationScreen() {
       </ScrollView>
     </ScreenContainer>
   );
+}
+
+function partialBlockedMessage(error: Ui03FlowPartialSuccessError): string {
+  const completed =
+    error.stage === "HUMAN_ACCEPTED"
+      ? "家长确认回执已保存，但成长意向尚未创建"
+      : "成长意向已创建，但成长方案尚未启动";
+  if (error.recovery === "PERMISSION_DENIED") {
+    return `${completed}。当前授权不允许继续，请返回或刷新家庭授权状态。`;
+  }
+  if (error.recovery === "NOT_FOUND") {
+    return `${completed}。后续资源不存在，请重新加载当前状态；若仍不可用，请返回。`;
+  }
+  if (error.recovery === "STATE_CHANGED") {
+    return `${completed}。服务端状态已经变化，请重新加载，不要重复提交。`;
+  }
+  if (error.recovery === "CONTRACT_MISMATCH") {
+    return `${completed}。后续响应不符合安全契约，已停止写入；请重新加载或返回。`;
+  }
+  return `${completed}。后续服务当前不可用，请重新加载或返回。`;
 }
 
 function formatDate(value?: string | null) {
@@ -782,14 +824,11 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: "900",
   },
-  reasonInput: {
-    minHeight: 82,
-    borderWidth: 1,
-    borderColor: "#CDD5DF",
-    borderRadius: 12,
-    padding: 12,
-    color: "#1F2937",
-    textAlignVertical: "top",
+  rejectCopy: {
+    color: "#68727D",
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
   },
   rejectButton: {
     minHeight: 52,

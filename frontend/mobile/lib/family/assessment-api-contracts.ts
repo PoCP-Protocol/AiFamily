@@ -83,13 +83,11 @@ export interface AssessmentMutationReceipt {
   boundary: "FAMILY_PERSPECTIVE_NOT_SCORE_OR_DIAGNOSIS";
 }
 
-/**
- * The runtime UI-03 scorecard is an execution/review envelope, not a score.
- * The similarly named legacy OpenAPI hint still contains family scoring
- * fields; those fields are intentionally not represented in the mobile
- * contract and are rejected by the parser below.
- */
-export interface Ui03ReviewEnvelope {
+export interface Ui03DeterministicScorecard {
+  generator: "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC";
+}
+
+export interface Ui03ModelGatewayScorecard {
   generator: "MODEL_GATEWAY";
   agent_run_ref: string;
   provider_ref: string;
@@ -100,9 +98,56 @@ export interface Ui03ReviewEnvelope {
   context_snapshot_ref: string;
   input_refs: string[];
   draft_status: "DRAFT";
-  human_task_ref: string;
-  review_status: "REVIEW_REQUIRED";
+  human_task_ref: string | null;
+  review_status: "REVIEW_REQUIRED" | "DRAFT_ONLY";
 }
+
+export type Ui03Scorecard =
+  | Ui03DeterministicScorecard
+  | Ui03ModelGatewayScorecard;
+
+interface Ui03GrowthHypothesisCommon {
+  hypothesis_ref: string;
+  subject_person_id: string;
+  subject_display_name: string;
+  focus_ref: string;
+  need_type_ref: string;
+  need_type_version: number;
+  title: string;
+  statement: string;
+  required_capability_keys: string[];
+  source_refs: {
+    assessment_session_id: string;
+    assessment_response_id: string;
+    assessment_evidence_id: string;
+    tool_ref: string;
+    tool_version: number;
+    assessment_submitted_at: string | null;
+  };
+  limitations: string[];
+  generator:
+    | "DETERMINISTIC_CATALOG_POLICY_NOT_MODEL"
+    | "FAMILY_EDUCATION_ASSESSMENT_MODEL_V0_1";
+  model_draft_ref: string;
+  model_component_ref: string;
+  model_boundary_labels: string[];
+  need_refs: string[];
+  construct_refs: string[];
+  action_candidate_refs: string[];
+  fact_boundary: "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS";
+}
+
+export type Ui03GrowthHypothesis = Ui03GrowthHypothesisCommon &
+  (
+    | {
+        model_generator: "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC";
+        scorecard: Ui03DeterministicScorecard;
+      }
+    | {
+        model_generator: "MODEL_GATEWAY";
+        scorecard: Ui03ModelGatewayScorecard;
+      }
+  );
 
 export interface Ui03GrowthHypothesisProjection {
   projection_version: "UI03_GROWTH_HYPOTHESIS_V1";
@@ -110,47 +155,26 @@ export interface Ui03GrowthHypothesisProjection {
   family_id: string;
   availability: "READY" | "NO_SUBMITTED_ASSESSMENT" | "POLICY_BLOCKED";
   ai_state: "NOT_INVOKED" | "MODEL_DRAFT_READY" | "MODEL_GATEWAY_BLOCKED";
-  latest_assessment_session_id?: string | null;
+  latest_assessment_session_id: string | null;
   named_actions: {
     confirm: "CONFIRM_GROWTH_HYPOTHESIS";
     dismiss: "DISMISS_GROWTH_HYPOTHESIS";
   };
-  hypothesis: null | {
-    hypothesis_ref: string;
-    subject_person_id: string;
-    subject_display_name: string;
-    focus_ref: string;
-    need_type_ref: string;
-    need_type_version: number;
-    title: string;
-    statement: string;
-    required_capability_keys: string[];
-    source_refs: {
-      assessment_session_id: string;
-      assessment_response_id: string;
-      assessment_evidence_id: string;
-      tool_ref: string;
-      tool_version: number;
-      assessment_submitted_at?: string | null;
-    };
-    limitations: string[];
-    generator:
-      | "DETERMINISTIC_CATALOG_POLICY_NOT_MODEL"
-      | "FAMILY_EDUCATION_ASSESSMENT_MODEL_V0_1";
-    model_draft_ref?: string | null;
-    model_generator?:
-      | "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC"
-      | "FAMILY_EDUCATION_MODEL_RUNTIME_GATEWAY"
-      | null;
-    model_component_ref?: string | null;
-    model_boundary_labels?: string[] | null;
-    need_refs?: string[] | null;
-    construct_refs?: string[] | null;
-    action_candidate_refs?: string[] | null;
-    fact_boundary: "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS";
-    scorecard: Ui03ReviewEnvelope;
-  };
+  hypothesis: Ui03GrowthHypothesis | null;
 }
+
+export type Ui03ReviewOpenHypothesis = Ui03GrowthHypothesis & {
+  model_generator: "MODEL_GATEWAY";
+  scorecard: Ui03ModelGatewayScorecard & {
+    human_task_ref: string;
+    review_status: "REVIEW_REQUIRED";
+  };
+};
+
+export type Ui03ReviewOpenProjection = Ui03GrowthHypothesisProjection & {
+  availability: "READY";
+  hypothesis: Ui03ReviewOpenHypothesis;
+};
 
 export interface AssessmentHumanTaskDecisionBody {
   outcome: "ACCEPT" | "REJECT";
@@ -222,6 +246,21 @@ export function parseUi03GrowthHypothesisProjection(
   expectedFamilyId: string,
 ): Ui03GrowthHypothesisProjection {
   const projection = record(payload, "UI-03 projection");
+  assertExactKeys(
+    projection,
+    [
+      "projection_version",
+      "tenant_id",
+      "family_id",
+      "availability",
+      "latest_assessment_session_id",
+      "hypothesis",
+      "named_actions",
+      "ai_state",
+    ],
+    "UI-03 projection",
+    payload,
+  );
   assertEqual(
     projection.projection_version,
     "UI03_GROWTH_HYPOTHESIS_V1",
@@ -239,69 +278,190 @@ export function parseUi03GrowthHypothesisProjection(
     ["NOT_INVOKED", "MODEL_DRAFT_READY", "MODEL_GATEWAY_BLOCKED"],
     payload,
   );
+  assertNullableText(
+    projection.latest_assessment_session_id,
+    "latest_assessment_session_id",
+    payload,
+  );
 
   const actions = record(projection.named_actions, "named_actions");
+  assertExactKeys(actions, ["confirm", "dismiss"], "named_actions", payload);
   assertEqual(actions.confirm, "CONFIRM_GROWTH_HYPOTHESIS", payload);
   assertEqual(actions.dismiss, "DISMISS_GROWTH_HYPOTHESIS", payload);
 
   if (projection.availability !== "READY") {
+    if (
+      projection.latest_assessment_session_id !== null ||
+      projection.hypothesis !== null
+    ) {
+      fail(
+        "unavailable UI-03 projection must not expose a hypothesis",
+        payload,
+      );
+    }
     return projection as unknown as Ui03GrowthHypothesisProjection;
   }
 
+  assertText(
+    projection.latest_assessment_session_id,
+    "latest_assessment_session_id",
+    payload,
+  );
   const hypothesis = record(projection.hypothesis, "hypothesis");
+  assertExactKeys(
+    hypothesis,
+    [
+      "hypothesis_ref",
+      "subject_person_id",
+      "subject_display_name",
+      "focus_ref",
+      "need_type_ref",
+      "need_type_version",
+      "title",
+      "statement",
+      "required_capability_keys",
+      "source_refs",
+      "limitations",
+      "generator",
+      "model_draft_ref",
+      "model_generator",
+      "model_component_ref",
+      "model_boundary_labels",
+      "need_refs",
+      "construct_refs",
+      "action_candidate_refs",
+      "fact_boundary",
+      "scorecard",
+    ],
+    "hypothesis",
+    payload,
+  );
   for (const field of [
     "hypothesis_ref",
     "subject_person_id",
+    "subject_display_name",
+    "focus_ref",
+    "need_type_ref",
     "title",
     "statement",
+    "model_draft_ref",
+    "model_component_ref",
   ] as const) {
     assertText(hypothesis[field], field, payload);
   }
+  assertPositiveInteger(
+    hypothesis.need_type_version,
+    "need_type_version",
+    payload,
+  );
+  assertOneOf(
+    hypothesis.generator,
+    [
+      "DETERMINISTIC_CATALOG_POLICY_NOT_MODEL",
+      "FAMILY_EDUCATION_ASSESSMENT_MODEL_V0_1",
+    ],
+    payload,
+  );
+  assertOneOf(
+    hypothesis.model_generator,
+    ["FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC", "MODEL_GATEWAY"],
+    payload,
+  );
   assertEqual(
     hypothesis.fact_boundary,
     "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS",
     payload,
   );
   const sourceRefs = record(hypothesis.source_refs, "source_refs");
-  assertText(
-    sourceRefs.assessment_session_id,
-    "assessment_session_id",
+  assertExactKeys(
+    sourceRefs,
+    [
+      "assessment_session_id",
+      "assessment_response_id",
+      "assessment_evidence_id",
+      "tool_ref",
+      "tool_version",
+      "assessment_submitted_at",
+    ],
+    "source_refs",
     payload,
   );
+  for (const field of [
+    "assessment_session_id",
+    "assessment_response_id",
+    "assessment_evidence_id",
+    "tool_ref",
+  ] as const) {
+    assertText(sourceRefs[field], field, payload);
+  }
   assertPositiveInteger(sourceRefs.tool_version, "tool_version", payload);
+  assertNullableText(
+    sourceRefs.assessment_submitted_at,
+    "assessment_submitted_at",
+    payload,
+  );
+  if (
+    sourceRefs.assessment_session_id !== projection.latest_assessment_session_id
+  ) {
+    fail("latest assessment session does not match hypothesis source", payload);
+  }
   assertStringArray(
     hypothesis.required_capability_keys,
     "required_capability_keys",
     payload,
   );
   assertStringArray(hypothesis.limitations, "limitations", payload);
-  for (const optionalRefs of [
+  for (const requiredRefs of [
     "model_boundary_labels",
     "need_refs",
     "construct_refs",
     "action_candidate_refs",
   ] as const) {
-    const value = hypothesis[optionalRefs];
-    if (value !== undefined && value !== null) {
-      assertStringArray(value, optionalRefs, payload);
-    }
+    assertStringArray(hypothesis[requiredRefs], requiredRefs, payload);
   }
 
   const scorecard = record(hypothesis.scorecard, "scorecard");
-  for (const forbidden of [
-    "overall_score",
-    "overall_band",
-    "dimensions",
-    "peer_reference",
-    "score_boundary",
-  ]) {
-    if (Object.prototype.hasOwnProperty.call(scorecard, forbidden)) {
-      fail(`scorecard contains retired field ${forbidden}`, payload);
-    }
+  if (scorecard.generator === "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC") {
+    assertExactKeys(
+      scorecard,
+      ["generator"],
+      "deterministic scorecard",
+      payload,
+    );
+    assertEqual(
+      hypothesis.model_generator,
+      "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC",
+      payload,
+    );
+    return projection as unknown as Ui03GrowthHypothesisProjection;
   }
   assertEqual(scorecard.generator, "MODEL_GATEWAY", payload);
+  assertEqual(hypothesis.model_generator, "MODEL_GATEWAY", payload);
+  assertExactKeys(
+    scorecard,
+    [
+      "generator",
+      "agent_run_ref",
+      "provider_ref",
+      "model_ref",
+      "model_version",
+      "prompt_version",
+      "schema_version",
+      "context_snapshot_ref",
+      "input_refs",
+      "draft_status",
+      "human_task_ref",
+      "review_status",
+    ],
+    "model gateway scorecard",
+    payload,
+  );
   assertEqual(scorecard.draft_status, "DRAFT", payload);
-  assertEqual(scorecard.review_status, "REVIEW_REQUIRED", payload);
+  assertOneOf(
+    scorecard.review_status,
+    ["REVIEW_REQUIRED", "DRAFT_ONLY"],
+    payload,
+  );
   assertStringArray(scorecard.input_refs, "scorecard.input_refs", payload);
   for (const field of [
     "agent_run_ref",
@@ -311,11 +471,31 @@ export function parseUi03GrowthHypothesisProjection(
     "prompt_version",
     "schema_version",
     "context_snapshot_ref",
-    "human_task_ref",
   ] as const) {
     assertText(scorecard[field], field, payload);
   }
+  assertNullableText(scorecard.human_task_ref, "human_task_ref", payload);
+  if (
+    (scorecard.review_status === "REVIEW_REQUIRED" &&
+      !isNonBlankText(scorecard.human_task_ref)) ||
+    (scorecard.review_status === "DRAFT_ONLY" &&
+      scorecard.human_task_ref !== null)
+  ) {
+    fail("gateway scorecard review state and human_task_ref disagree", payload);
+  }
   return projection as unknown as Ui03GrowthHypothesisProjection;
+}
+
+export function isUi03ReviewOpen(
+  projection: Ui03GrowthHypothesisProjection,
+): projection is Ui03ReviewOpenProjection {
+  const scorecard = projection.hypothesis?.scorecard;
+  return (
+    projection.availability === "READY" &&
+    scorecard?.generator === "MODEL_GATEWAY" &&
+    scorecard.review_status === "REVIEW_REQUIRED" &&
+    isNonBlankText(scorecard.human_task_ref)
+  );
 }
 
 export function parseAssessmentHumanTaskDecisionReceipt(
@@ -413,6 +593,32 @@ function assertText(
 ): asserts value is string {
   if (!isNonBlankText(value))
     fail(`${field} must be a non-empty string`, payload);
+}
+
+function assertNullableText(
+  value: unknown,
+  field: string,
+  payload: unknown,
+): asserts value is string | null {
+  if (value !== null && !isNonBlankText(value)) {
+    fail(`${field} must be a non-empty string or null`, payload);
+  }
+}
+
+function assertExactKeys(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+  field: string,
+  payload: unknown,
+): void {
+  const actual = Object.keys(value).sort();
+  const required = [...expected].sort();
+  if (
+    actual.length !== required.length ||
+    actual.some((key, index) => key !== required[index])
+  ) {
+    fail(`${field} fields do not match the governed contract`, payload);
+  }
 }
 
 function assertPositiveInteger(

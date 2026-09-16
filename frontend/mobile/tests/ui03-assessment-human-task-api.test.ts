@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   AssessmentApiContractError,
+  isUi03ReviewOpen,
   parseAssessmentHumanTaskDecisionReceipt,
   parseConfirmedGrowthHypothesisReceipt,
   parseUi03GrowthHypothesisProjection,
@@ -36,9 +37,17 @@ const projection = {
       assessment_evidence_id: "evidence-1",
       tool_ref: "tool-1",
       tool_version: 3,
+      assessment_submitted_at: null,
     },
     limitations: ["不是诊断"],
     generator: "FAMILY_EDUCATION_ASSESSMENT_MODEL_V0_1",
+    model_draft_ref: "draft-1",
+    model_generator: "MODEL_GATEWAY",
+    model_component_ref: "assessment-interpretation",
+    model_boundary_labels: ["DRAFT_ONLY"],
+    need_refs: [],
+    construct_refs: [],
+    action_candidate_refs: [],
     fact_boundary: "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS",
     scorecard: {
       generator: "MODEL_GATEWAY",
@@ -58,7 +67,7 @@ const projection = {
 } as const;
 
 describe("UI-03 assessment HumanTask HTTP contract", () => {
-  it("loads the real UI-03 projection only when human_task_ref is present", async () => {
+  it("loads a REVIEW_REQUIRED Model Gateway projection as review-open", async () => {
     const fetcher = vi.fn(async () =>
       response(projection),
     ) as unknown as typeof fetch;
@@ -66,10 +75,102 @@ describe("UI-03 assessment HumanTask HTTP contract", () => {
 
     const result = await client.getGrowthHypothesis("token-1", "family-1");
 
-    expect(result.hypothesis?.scorecard.human_task_ref).toBe("task-1");
+    expect(isUi03ReviewOpen(result)).toBe(true);
+    if (!isUi03ReviewOpen(result))
+      throw new Error("expected review-open UI-03");
+    expect(result.hypothesis.scorecard.human_task_ref).toBe("task-1");
     expect(vi.mocked(fetcher).mock.calls[0][0]).toBe(
       "https://family.example/families/family-1/ui/03/growth-hypothesis",
     );
+  });
+
+  it("accepts governed deterministic and DRAFT_ONLY variants without opening review", () => {
+    const deterministic = parseUi03GrowthHypothesisProjection(
+      {
+        ...projection,
+        hypothesis: {
+          ...projection.hypothesis,
+          model_generator: "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC",
+          scorecard: {
+            generator: "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC",
+          },
+        },
+      },
+      "family-1",
+    );
+    expect(isUi03ReviewOpen(deterministic)).toBe(false);
+
+    const draftOnly = parseUi03GrowthHypothesisProjection(
+      {
+        ...projection,
+        hypothesis: {
+          ...projection.hypothesis,
+          scorecard: {
+            ...projection.hypothesis.scorecard,
+            human_task_ref: null,
+            review_status: "DRAFT_ONLY",
+          },
+        },
+      },
+      "family-1",
+    );
+    expect(isUi03ReviewOpen(draftOnly)).toBe(false);
+  });
+
+  it("fails closed for missing, nullable, retired, or discriminator-mismatched fields", () => {
+    const sourceWithoutSubmittedAt = {
+      assessment_session_id: "assessment-1",
+      assessment_response_id: "response-1",
+      assessment_evidence_id: "evidence-1",
+      tool_ref: "tool-1",
+      tool_version: 3,
+    };
+    const invalidPayloads = [
+      {
+        ...projection,
+        hypothesis: {
+          ...projection.hypothesis,
+          source_refs: sourceWithoutSubmittedAt,
+        },
+      },
+      {
+        ...projection,
+        hypothesis: {
+          ...projection.hypothesis,
+          model_draft_ref: null,
+        },
+      },
+      {
+        ...projection,
+        hypothesis: {
+          ...projection.hypothesis,
+          model_generator: "FAMILY_EDUCATION_MODEL_RUNTIME_GATEWAY",
+        },
+      },
+      {
+        ...projection,
+        hypothesis: {
+          ...projection.hypothesis,
+          model_generator: "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC",
+        },
+      },
+      {
+        ...projection,
+        hypothesis: {
+          ...projection.hypothesis,
+          scorecard: {
+            ...projection.hypothesis.scorecard,
+            generator: "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC",
+          },
+        },
+      },
+    ];
+
+    for (const invalidPayload of invalidPayloads) {
+      expect(() =>
+        parseUi03GrowthHypothesisProjection(invalidPayload, "family-1"),
+      ).toThrow(AssessmentApiContractError);
+    }
   });
 
   it("fails closed for a missing receipt or a retired score model", () => {
