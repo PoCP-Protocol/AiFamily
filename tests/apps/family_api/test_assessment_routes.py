@@ -29,6 +29,7 @@ intent's `boundary` (a confirmation yields an intent, not an outcome).
 
 from __future__ import annotations
 
+import os
 import uuid
 
 import pytest
@@ -36,6 +37,7 @@ from fastapi.testclient import TestClient
 
 from backend.apps.family_api.dev_wiring import reset_dev_state
 from backend.apps.family_api.main import create_app
+from backend.platform.persistence.session import DATABASE_URL_ENV_VAR
 
 FAMILY = "family-a"
 OTHER_FAMILY = "family-b"
@@ -105,15 +107,23 @@ def _dev_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """`create_app` only installs dev wiring when the environment says dev.
 
     Set before `create_app` is called, not after: the decision is made once at
-    construction time.
+    construction time. This file exercises the synthetic HTTP contract, so an
+    ambient CI database URL must not silently replace its fake identity seam;
+    real PostgreSQL behavior is covered by the dedicated E2E module.
     """
     monkeypatch.setenv("AIFAMILY_ENV", "dev")
+    monkeypatch.delenv(DATABASE_URL_ENV_VAR, raising=False)
     reset_dev_state()
 
 
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(create_app())
+
+
+def test_dev_http_contract_fixture_isolates_ambient_database_url() -> None:
+    database_url_is_present = DATABASE_URL_ENV_VAR in os.environ
+    assert database_url_is_present is False
 
 
 def _auth(client: TestClient, family: str = FAMILY, key: str = "auth-1") -> dict[str, str]:
