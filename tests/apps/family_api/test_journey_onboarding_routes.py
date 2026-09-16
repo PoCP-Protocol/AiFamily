@@ -68,9 +68,7 @@ def _application() -> tuple[TestClient, object, GrowthOnboardingActorContext]:
         "GROWTH_TRACKING",
         granted_at=current - timedelta(minutes=1),
     )
-    actor_resolver = InMemoryGrowthOnboardingActorResolver(
-        {"parent-token": scope}
-    )
+    actor_resolver = InMemoryGrowthOnboardingActorResolver({"parent-token": scope})
     app = FastAPI()
     install_growth_onboarding_dev_wiring(
         app,
@@ -104,8 +102,44 @@ def test_confirmed_intent_route_uses_application_and_replays_without_duplicates(
     )
 
     assert first.status_code == 200, first.text
-    assert first.json()["created"] is True
-    assert first.json()["event"]["event_name"] == "GrowthOnboardingStarted"
+    body = first.json()
+    assert set(body) == {"onboarding", "event", "created", "replayed"}
+    assert set(body["onboarding"]) == {
+        "onboarding_id",
+        "tenant_id",
+        "family_id",
+        "intent_id",
+        "subject_person_id",
+        "journey_type",
+        "phase",
+        "status",
+        "started_by_actor_id",
+        "started_at",
+        "version",
+        "intent_binding",
+    }
+    assert set(body["onboarding"]["intent_binding"]) == {
+        "binding_id",
+        "tenant_id",
+        "family_id",
+        "intent_id",
+        "onboarding_id",
+        "subject_person_id",
+    }
+    assert set(body["event"]) == {
+        "event_id",
+        "event_name",
+        "event_version",
+        "tenant_id",
+        "family_id",
+        "actor_id",
+        "intent_id",
+        "onboarding_id",
+        "subject_person_id",
+        "occurred_at",
+    }
+    assert body["created"] is True
+    assert body["event"]["event_name"] == "GrowthOnboardingStarted"
     assert replay.status_code == 200, replay.text
     assert replay.json()["replayed"] is True
     assert replay.json()["event"] == first.json()["event"]
@@ -177,9 +211,7 @@ def test_cross_tenant_intent_is_not_visible_through_reader_scope() -> None:
         actor_id=scope.actor_id,
     )
     runtime.policy.allow(
-        GrowthOnboardingScope(
-            tenant_scope.tenant_id, tenant_scope.family_id, tenant_scope.actor_id
-        )
+        GrowthOnboardingScope(tenant_scope.tenant_id, tenant_scope.family_id, tenant_scope.actor_id)
     )
     runtime.consent.grant(
         GrowthOnboardingScope(
@@ -360,3 +392,55 @@ def test_production_wiring_rejects_non_postgres() -> None:
         install_growth_onboarding_production_wiring(
             FastAPI(), database_url="sqlite+aiosqlite:///:memory:"
         )
+
+
+def test_growth_onboarding_openapi_response_is_closed() -> None:
+    client, _runtime, _scope = _application()
+    spec = client.get("/openapi.json").json()
+    operation = spec["paths"]["/families/{family_id}/growth/onboardings"]["post"]
+    response_schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
+    assert response_schema == {"$ref": "#/components/schemas/StartGrowthOnboardingResponse"}
+
+    schemas = spec["components"]["schemas"]
+    expected = {
+        "StartGrowthOnboardingResponse": {"onboarding", "event", "created", "replayed"},
+        "GrowthOnboardingResponse": {
+            "onboarding_id",
+            "tenant_id",
+            "family_id",
+            "intent_id",
+            "subject_person_id",
+            "journey_type",
+            "phase",
+            "status",
+            "started_by_actor_id",
+            "started_at",
+            "version",
+            "intent_binding",
+        },
+        "GrowthOnboardingIntentBindingResponse": {
+            "binding_id",
+            "tenant_id",
+            "family_id",
+            "intent_id",
+            "onboarding_id",
+            "subject_person_id",
+        },
+        "GrowthOnboardingStartedEventResponse": {
+            "event_id",
+            "event_name",
+            "event_version",
+            "tenant_id",
+            "family_id",
+            "actor_id",
+            "intent_id",
+            "onboarding_id",
+            "subject_person_id",
+            "occurred_at",
+        },
+    }
+    for name, keys in expected.items():
+        schema = schemas[name]
+        assert schema["additionalProperties"] is False
+        assert set(schema["properties"]) == keys
+        assert set(schema["required"]) == keys

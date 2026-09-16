@@ -50,6 +50,9 @@ from backend.intelligence.human_gate.errors import HumanGateError
 from backend.intelligence.human_gate.persistence import SqlAlchemyHumanGate
 
 DecisionValue = Literal["ACCEPT", "REJECT"]
+ASSESSMENT_REJECTION_REASON_UNSPECIFIED = (
+    "Guardian rejected the assessment draft; no reason was provided."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +93,9 @@ class AssessmentHumanTaskDecisionApplication:
         binding = None
         if outcome == DecisionOutcome.ACCEPT.value:
             binding = await self._confirmation_binding(task, runtime.scope)
+        decision_reason = reason
+        if outcome == DecisionOutcome.REJECT.value and decision_reason is None:
+            decision_reason = ASSESSMENT_REJECTION_REASON_UNSPECIFIED
 
         decision_id = assessment_review_decision_id(
             tenant_id=self.identity.tenant_id,
@@ -104,7 +110,7 @@ class AssessmentHumanTaskDecisionApplication:
                 actor_type=ActorType.GUARDIAN,
                 outcome=outcome,
                 decision_id=decision_id,
-                reason=reason,
+                reason=decision_reason,
             )
         except IntegrityError as exc:
             raise AssessmentConflictError("assessment_human_task_decision_id_conflict") from exc
@@ -325,6 +331,7 @@ def _decision_receipt(
 
 
 __all__ = [
+    "ASSESSMENT_REJECTION_REASON_UNSPECIFIED",
     "AssessmentHumanTaskDecisionApplication",
     "assessment_review_decision_id",
 ]

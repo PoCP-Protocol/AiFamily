@@ -8,11 +8,11 @@ boundary.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..application.growth_onboarding import (
     GrowthOnboardingApplication,
@@ -42,6 +42,58 @@ class StartGrowthOnboardingRequest(BaseModel):
     intent_id: str = Field(min_length=1, max_length=128)
 
 
+class GrowthOnboardingIntentBindingResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    binding_id: str
+    tenant_id: str
+    family_id: str
+    intent_id: str
+    onboarding_id: str
+    subject_person_id: str
+
+
+class GrowthOnboardingResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    onboarding_id: str
+    tenant_id: str
+    family_id: str
+    intent_id: str
+    subject_person_id: str
+    journey_type: Literal["PARENT_CHILD_COMMUNICATION_CONFLICT"]
+    phase: Literal["ONBOARDING"]
+    status: Literal["ACTIVE"]
+    started_by_actor_id: str
+    started_at: str
+    version: int
+    intent_binding: GrowthOnboardingIntentBindingResponse
+
+
+class GrowthOnboardingStartedEventResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str
+    event_name: Literal["GrowthOnboardingStarted"]
+    event_version: int
+    tenant_id: str
+    family_id: str
+    actor_id: str
+    intent_id: str
+    onboarding_id: str
+    subject_person_id: str
+    occurred_at: str
+
+
+class StartGrowthOnboardingResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    onboarding: GrowthOnboardingResponse
+    event: GrowthOnboardingStartedEventResponse
+    created: bool
+    replayed: bool
+
+
 async def get_growth_onboarding_application() -> GrowthOnboardingApplication:
     """Fail closed until production or test wiring installs the application."""
 
@@ -64,16 +116,15 @@ async def get_growth_onboarding_actor_context(
     )
 
 
-@router.post("/families/{family_id}/growth/onboardings")
+@router.post(
+    "/families/{family_id}/growth/onboardings",
+    response_model=StartGrowthOnboardingResponse,
+)
 async def start_growth_onboarding(
     family_id: str,
     body: StartGrowthOnboardingRequest,
-    actor: Annotated[
-        GrowthOnboardingActorContext, Depends(get_growth_onboarding_actor_context)
-    ],
-    application: Annotated[
-        GrowthOnboardingApplication, Depends(get_growth_onboarding_application)
-    ],
+    actor: Annotated[GrowthOnboardingActorContext, Depends(get_growth_onboarding_actor_context)],
+    application: Annotated[GrowthOnboardingApplication, Depends(get_growth_onboarding_application)],
     idempotency_key: Annotated[str | None, Header()] = None,
     x_correlation_id: Annotated[str | None, Header()] = None,
 ) -> dict:
@@ -108,6 +159,7 @@ async def start_growth_onboarding(
 
 __all__ = [
     "GrowthOnboardingActorContext",
+    "StartGrowthOnboardingResponse",
     "StartGrowthOnboardingRequest",
     "get_growth_onboarding_actor_context",
     "get_growth_onboarding_application",

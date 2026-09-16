@@ -83,11 +83,18 @@ def test_decision_contract_accepts_only_outcome_reason_and_required_key() -> Non
             "outcome": "ACCEPT",
             "reason": "reviewed by guardian",
             "idempotency_key": "mobile-decision-1",
-        }
+        },
+        {
+            "task_id": "task-1",
+            "outcome": "REJECT",
+            "reason": None,
+            "idempotency_key": "reject-no-reason",
+        },
     ]
     assert missing_key.status_code == 422
     assert forged_scope.status_code == 422
-    assert reject_without_reason.status_code == 422
+    assert reject_without_reason.status_code == 200
+    assert reject_without_reason.json()["reason"] is None
     assert unsupported_outcome.status_code == 422
 
 

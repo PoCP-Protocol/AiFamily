@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class StartAssessmentRequestBody(BaseModel):
@@ -62,9 +62,3 @@ class DecideAssessmentHumanTaskRequestBody(BaseModel):
             return None
         normalised = value.strip()
         return normalised or None
-
-    @model_validator(mode="after")
-    def _require_rejection_reason(self) -> DecideAssessmentHumanTaskRequestBody:
-        if self.outcome == "REJECT" and self.reason is None:
-            raise ValueError("reason is required when outcome is REJECT")
-        return self

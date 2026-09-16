@@ -30,6 +30,9 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from backend.apps.family_api.assessment_ai_wiring import AssessmentAiAssets
+from backend.apps.family_api.assessment_human_task_decision import (
+    ASSESSMENT_REJECTION_REASON_UNSPECIFIED,
+)
 from backend.apps.family_api.main import create_app
 from backend.apps.family_api.production_assessment_http_wiring import (
     ProductionAssessmentAiCompositionResolver,
@@ -769,4 +772,93 @@ async def test_assessment_human_task_decision_survives_restart_and_confirms_down
     assert task_row.action_request_payload["scope"]["subject_ids"] == [CHILD]
     assert audit_count == 1
     assert downstream_count == 1
+    clear_engine_cache()
+
+
+@pytest.mark.asyncio
+async def test_assessment_reject_without_reason_is_audited_and_replays_after_restart(
+    database_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _seed(database_url)
+    await _seed_governed_ai_controls(database_url)
+    monkeypatch.setenv("AIFAMILY_ENV", "test")
+    monkeypatch.setenv(DATABASE_URL_ENV_VAR, database_url)
+    clear_engine_cache()
+
+    app, engine, _, provider = _production_assessment_app(database_url)
+    with _production_client(app, engine) as client:
+        started = client.post(
+            f"/families/{FAMILY}/assessments/sessions",
+            headers=_headers("reasonless-reject-start"),
+            json={"subject_person_id": CHILD},
+        )
+        assert started.status_code == 200, started.text
+        session_id = started.json()["session"]["assessment_session_id"]
+        saved = client.post(
+            f"/families/{FAMILY}/assessments/sessions/{session_id}/responses",
+            headers=_headers("reasonless-reject-response"),
+            json={
+                "item_ref": "FOCUS",
+                "response_type": "SINGLE_CHOICE",
+                "response_value": "PARENT_CHILD_COMMUNICATION",
+            },
+        )
+        assert saved.status_code == 200, saved.text
+        submitted = client.post(
+            f"/families/{FAMILY}/assessments/sessions/{session_id}/submit",
+            headers=_headers("reasonless-reject-submit"),
+        )
+        assert submitted.status_code == 200, submitted.text
+        projection = client.get(
+            f"/families/{FAMILY}/ui/03/growth-hypothesis",
+            headers=_headers("reasonless-reject-draft"),
+        )
+        assert projection.status_code == 200, projection.text
+        task_id = projection.json()["hypothesis"]["scorecard"]["human_task_ref"]
+        rejected = client.post(
+            f"/families/{FAMILY}/assessment/human-tasks/{task_id}/decisions",
+            headers=_headers("stable-reasonless-reject"),
+            json={"outcome": "REJECT"},
+        )
+        assert rejected.status_code == 200, rejected.text
+        receipt = rejected.json()
+        assert receipt["outcome"] == "REJECT"
+        assert receipt["reason"] == ASSESSMENT_REJECTION_REASON_UNSPECIFIED
+        assert receipt["binding"] is None
+    await _assert_no_application_connections(database_url)
+
+    restarted_app, restarted_engine, _, restarted_provider = _production_assessment_app(
+        database_url
+    )
+    with _production_client(restarted_app, restarted_engine) as restarted:
+        replay = restarted.post(
+            f"/families/{FAMILY}/assessment/human-tasks/{task_id}/decisions",
+            headers=_headers("stable-reasonless-reject"),
+            json={"outcome": "REJECT"},
+        )
+        assert replay.status_code == 200, replay.text
+        assert replay.json() == receipt
+    await _assert_no_application_connections(database_url)
+
+    assert len(provider.invocations) == 1
+    assert restarted_provider.invocations == []
+    async with _engine(database_url) as verification_engine, verification_engine.connect() as conn:
+        task_row = (
+            await conn.execute(
+                text("select decision_payload from ai_human_tasks where task_id=:task_id"),
+                {"task_id": task_id},
+            )
+        ).one()
+        audit_rows = (
+            await conn.execute(
+                text(
+                    "select reason from platform_audit_events "
+                    "where action='DECIDE_HUMAN_TASK' and resource_id=:task_id"
+                ),
+                {"task_id": task_id},
+            )
+        ).all()
+    assert task_row.decision_payload["reason"] == ASSESSMENT_REJECTION_REASON_UNSPECIFIED
+    assert [row.reason for row in audit_rows] == [ASSESSMENT_REJECTION_REASON_UNSPECIFIED]
     clear_engine_cache()

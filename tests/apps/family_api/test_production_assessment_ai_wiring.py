@@ -538,6 +538,22 @@ async def test_http_ui03_to_guardian_confirmation_reuses_same_model_draft(
         body = projection.json()
         assert body["ai_state"] == "MODEL_DRAFT_READY"
         assert body["hypothesis"]["subject_person_id"] == child_id
+        assert set(body["hypothesis"]["scorecard"]) == {
+            "generator",
+            "agent_run_ref",
+            "provider_ref",
+            "model_ref",
+            "model_version",
+            "prompt_version",
+            "schema_version",
+            "context_snapshot_ref",
+            "input_refs",
+            "draft_status",
+            "human_task_ref",
+            "review_status",
+        }
+        assert body["hypothesis"]["scorecard"]["generator"] == "MODEL_GATEWAY"
+        assert all(isinstance(item, str) for item in body["hypothesis"]["scorecard"]["input_refs"])
 
         human_task_ref = body["hypothesis"]["scorecard"]["human_task_ref"]
         async with session_factory() as session:

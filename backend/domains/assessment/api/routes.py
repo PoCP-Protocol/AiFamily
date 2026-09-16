@@ -232,7 +232,7 @@ async def submit_assessment(
 
 @router.get(
     "/{family_id}/ui/03/growth-hypothesis",
-    responses={200: {"model": Ui03GrowthHypothesisProjectionResponse}},
+    response_model=Ui03GrowthHypothesisProjectionResponse,
 )
 async def get_ui03_projection(
     family_id: str,
