@@ -35,6 +35,7 @@ export function FamilyScreenList({ tab, eyebrow, title, description }: FamilyScr
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`${item.title}，${item.subtitle}`}
+            accessibilityHint={item.entryNote}
             onPress={() => router.push(routeForUi(item.id))}
             style={({ pressed }) => [
               styles.row,
@@ -50,6 +51,7 @@ export function FamilyScreenList({ tab, eyebrow, title, description }: FamilyScr
               <Text style={[styles.rowSubtitle, { color: colors.muted }]} numberOfLines={2}>
                 {item.subtitle}
               </Text>
+              {item.entryNote ? <Text style={[styles.entryNote, { color: colors.muted }]}>{item.entryNote}</Text> : null}
               <Text style={[styles.loop, { color: colors.success }]}>{item.loop}循环</Text>
             </View>
             <IconSymbol name="chevron.right" size={20} color={colors.muted} />
@@ -73,5 +75,6 @@ const styles = StyleSheet.create({
   rowCopy: { flex: 1, gap: 4 },
   rowTitle: { fontSize: 17, lineHeight: 23, fontWeight: "700" },
   rowSubtitle: { fontSize: 14, lineHeight: 20 },
+  entryNote: { fontSize: 12, lineHeight: 18 },
   loop: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
 });

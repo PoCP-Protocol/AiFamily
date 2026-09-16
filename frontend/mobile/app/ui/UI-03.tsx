@@ -11,6 +11,7 @@ import {
 } from "react-native";
 
 import { ScreenContainer } from "@/components/screen-container";
+import { Ui03PolicyBlockedNotice } from "@/components/family/ui03-policy-blocked-notice";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import {
@@ -35,6 +36,7 @@ type RemoteState =
   | "review_open"
   | "draft_only"
   | "empty"
+  | "policy_blocked"
   | "denied"
   | "contract_blocked"
   | "error";
@@ -99,7 +101,7 @@ export default function GrowthExplanationScreen() {
       if (revision !== loadRevisionRef.current) return;
       setRemote(result);
       if (result.availability === "POLICY_BLOCKED") {
-        setRemoteState("denied");
+        setRemoteState("policy_blocked");
         return;
       }
       if (result.availability === "NO_SUBMITTED_ASSESSMENT") {
@@ -296,7 +298,12 @@ export default function GrowthExplanationScreen() {
           </Text>
         </View>
 
-        {unavailable ? (
+        {unavailable && remoteState === "policy_blocked" ? (
+          <Ui03PolicyBlockedNotice
+            onReviewAssessment={() => router.push("/ui/UI-02" as Href)}
+            onRetry={() => void loadProjection()}
+          />
+        ) : unavailable ? (
           <View
             style={
               remoteState === "contract_blocked"

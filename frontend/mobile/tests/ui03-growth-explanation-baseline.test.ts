@@ -76,13 +76,26 @@ describe("UI-03 family growth explanation baseline contract", () => {
     expect(source).toContain("只有服务端同时返回人工任务凭据时，才能继续确认");
   });
 
+  it("wires POLICY_BLOCKED to its dedicated actionable notice", () => {
+    expect(source).toContain('setRemoteState("policy_blocked")');
+    expect(source).toContain('remoteState === "policy_blocked"');
+    expect(source).toContain("<Ui03PolicyBlockedNotice");
+    expect(source).toContain('router.push("/ui/UI-02" as Href)');
+    expect(source).toContain("onRetry={() => void loadProjection()}");
+  });
+
   it("does not continue into UI-04 before INTENT_CREATED and onboarding receipt", () => {
     const intentCheck = flow.indexOf("parseConfirmedGrowthHypothesisReceipt");
-    const onboarding = flow.indexOf("startGrowthOnboarding<unknown>");
+    const onboarding = flow.indexOf("startGrowthOnboarding(");
+    const onboardingValidation = flow.lastIndexOf(
+      "parseStartGrowthOnboardingResponse",
+    );
     const returnContext = flow.lastIndexOf('status: "ONBOARDING_STARTED"');
     expect(intentCheck).toBeGreaterThan(-1);
     expect(onboarding).toBeGreaterThan(intentCheck);
-    expect(returnContext).toBeGreaterThan(onboarding);
+    expect(onboardingValidation).toBeGreaterThan(onboarding);
+    expect(returnContext).toBeGreaterThan(onboardingValidation);
+    expect(flow).not.toContain("startGrowthOnboarding<unknown>");
     expect(source).toContain("setUi03FlowContext(result)");
   });
 

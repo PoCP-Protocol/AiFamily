@@ -9,7 +9,10 @@ import {
   type GrowthHypothesisDecisionReceipt,
   type Ui03GrowthHypothesisProjection,
 } from "../lib/family/assessment-api-contracts";
-import { FamilyApiError } from "../lib/family/family-api-client";
+import {
+  FamilyApiError,
+  type StartGrowthOnboardingResponse,
+} from "../lib/family/family-api-client";
 import {
   Ui03FlowContractBlockedError,
   Ui03FlowPartialSuccessError,
@@ -335,6 +338,33 @@ describe("UI-03 two-step HumanTask flow", () => {
     expect(onboardingCalls[0]).toEqual(onboardingCalls[1]);
   });
 
+  it.each(invalidOnboardingPayloads())(
+    "fails closed after INTENT_CREATED when onboarding %s",
+    async (_caseName, payload) => {
+      const api = new RecordingApi();
+      api.onboardingPayloadOverride = payload;
+
+      const failure = await new Ui03HumanTaskFlow(api)
+        .decide({
+          token: "token-1",
+          projection: projection(),
+          outcome: "ACCEPT",
+        })
+        .catch((error) => error);
+
+      expect(failure).toBeInstanceOf(Ui03FlowPartialSuccessError);
+      expect(failure).toMatchObject({
+        stage: "INTENT_CREATED",
+        recovery: "CONTRACT_MISMATCH",
+      });
+      expect(api.calls.map((call) => call.kind)).toEqual([
+        "human",
+        "growth",
+        "onboarding",
+      ]);
+    },
+  );
+
   it("derives the same reason-free REJECT body and bounded key in new flow instances", async () => {
     const firstApi = new RecordingApi();
     const secondApi = new RecordingApi();
@@ -399,6 +429,7 @@ type RecordedCall =
       familyId: string;
       body: { intent_id: string };
       key: string;
+      expectedSubjectPersonId: string;
     };
 
 class RecordingApi implements Ui03HumanTaskApi {
@@ -406,6 +437,7 @@ class RecordingApi implements Ui03HumanTaskApi {
   humanError: unknown = null;
   growthError: unknown = null;
   onboardingError: unknown = null;
+  onboardingPayloadOverride: unknown = null;
   pendingHuman: Promise<AssessmentHumanTaskDecisionReceipt> | null = null;
   omitAcceptedBinding = false;
   growthReplayed = false;
@@ -458,20 +490,26 @@ class RecordingApi implements Ui03HumanTaskApi {
     };
   }
 
-  async startGrowthOnboarding<T>(
+  async startGrowthOnboarding(
     _token: string,
     familyId: string,
     body: { intent_id: string },
     key: string,
-  ): Promise<T> {
+    expectedSubjectPersonId: string,
+  ): Promise<StartGrowthOnboardingResponse> {
     this.calls.push({
       kind: "onboarding",
       familyId,
       body: structuredClone(body),
       key,
+      expectedSubjectPersonId,
     });
     if (this.onboardingError) throw this.onboardingError;
-    return { onboarding: { onboarding_id: `onboarding-${familyId}` } } as T;
+    return (this.onboardingPayloadOverride ??
+      validOnboardingResponse(
+        familyId,
+        body.intent_id,
+      )) as StartGrowthOnboardingResponse;
   }
 
   humanReceipt(
@@ -567,6 +605,104 @@ function projection(
     },
     familyId,
   );
+}
+
+function validOnboardingResponse(
+  familyId: string,
+  intentId: string,
+): StartGrowthOnboardingResponse {
+  const onboardingId = `onboarding-${familyId}`;
+  const subjectPersonId = `child-${familyId}`;
+  return {
+    onboarding: {
+      onboarding_id: onboardingId,
+      tenant_id: "tenant-1",
+      family_id: familyId,
+      intent_id: intentId,
+      subject_person_id: subjectPersonId,
+      journey_type: "PARENT_CHILD_COMMUNICATION_CONFLICT",
+      phase: "ONBOARDING",
+      status: "ACTIVE",
+      started_by_actor_id: "parent-1",
+      started_at: "2026-09-17T00:00:00Z",
+      version: 1,
+      intent_binding: {
+        binding_id: `binding-${familyId}`,
+        tenant_id: "tenant-1",
+        family_id: familyId,
+        intent_id: intentId,
+        onboarding_id: onboardingId,
+        subject_person_id: subjectPersonId,
+      },
+    },
+    event: {
+      event_id: `event-${familyId}`,
+      event_name: "GrowthOnboardingStarted",
+      event_version: 1,
+      tenant_id: "tenant-1",
+      family_id: familyId,
+      actor_id: "parent-1",
+      intent_id: intentId,
+      onboarding_id: onboardingId,
+      subject_person_id: subjectPersonId,
+      occurred_at: "2026-09-17T00:00:00Z",
+    },
+    created: true,
+    replayed: false,
+  };
+}
+
+function invalidOnboardingPayloads(): [string, unknown][] {
+  const valid = validOnboardingResponse("family-1", "intent-family-1");
+  const { event: _event, ...withoutEvent } = valid;
+  const { occurred_at: _occurredAt, ...eventWithoutOccurredAt } = valid.event;
+  const { started_at: _startedAt, ...onboardingWithoutStartedAt } =
+    valid.onboarding;
+  const { intent_binding: _intentBinding, ...onboardingWithoutBinding } =
+    valid.onboarding;
+
+  return [
+    ["has a non-boolean created flag", { ...valid, created: "true" }],
+    ["has a non-boolean replayed flag", { ...valid, replayed: 0 }],
+    ["omits the event", withoutEvent],
+    ["omits an event field", { ...valid, event: eventWithoutOccurredAt }],
+    [
+      "uses the wrong event field type",
+      { ...valid, event: { ...valid.event, event_version: "1" } },
+    ],
+    [
+      "is bound to another family",
+      {
+        ...valid,
+        onboarding: { ...valid.onboarding, family_id: "family-2" },
+      },
+    ],
+    [
+      "is bound to another intent",
+      {
+        ...valid,
+        onboarding: { ...valid.onboarding, intent_id: "intent-other" },
+      },
+    ],
+    [
+      "is bound to another subject",
+      {
+        ...valid,
+        onboarding: {
+          ...valid.onboarding,
+          subject_person_id: "child-other",
+        },
+      },
+    ],
+    [
+      "omits an onboarding field",
+      { ...valid, onboarding: onboardingWithoutStartedAt },
+    ],
+    [
+      "omits the intent binding",
+      { ...valid, onboarding: onboardingWithoutBinding },
+    ],
+  ];
 }
 
 function deferred<T>() {

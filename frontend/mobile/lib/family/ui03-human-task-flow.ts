@@ -9,7 +9,12 @@ import {
   type Ui03GrowthHypothesisProjection,
   type Ui03ReviewOpenHypothesis,
 } from "./assessment-api-contracts";
-import { FamilyApiError } from "./family-api-client";
+import {
+  FamilyApiError,
+  GrowthOnboardingContractError,
+  parseStartGrowthOnboardingResponse,
+  type StartGrowthOnboardingResponse,
+} from "./family-api-client";
 
 export interface Ui03HumanTaskApi {
   decideAssessmentHumanTask(
@@ -25,12 +30,13 @@ export interface Ui03HumanTaskApi {
     body: ConfirmGrowthHypothesisBody,
     idempotencyKey: string,
   ): Promise<GrowthHypothesisDecisionReceipt>;
-  startGrowthOnboarding<T>(
+  startGrowthOnboarding(
     token: string,
     familyId: string,
     body: { intent_id: string },
     idempotencyKey: string,
-  ): Promise<T>;
+    expectedSubjectPersonId: string,
+  ): Promise<StartGrowthOnboardingResponse>;
 }
 
 export interface Ui03FlowContext {
@@ -249,14 +255,23 @@ export class Ui03HumanTaskFlow {
       `${scopeKey}:${intentId}`,
     );
     try {
-      const rawOnboarding = await this.api.startGrowthOnboarding<unknown>(
+      const rawOnboarding = await this.api.startGrowthOnboarding(
         input.token,
         familyId,
         Object.freeze({ intent_id: intentId }),
         onboardingKey,
+        hypothesis.subject_person_id,
       );
       this.assertCurrent(operationRevision, scopeKey);
-      const onboardingId = readOnboardingId(rawOnboarding);
+      const onboardingReceipt = parseStartGrowthOnboardingResponse(
+        rawOnboarding,
+        {
+          familyId,
+          intentId,
+          subjectPersonId: hypothesis.subject_person_id,
+        },
+      );
+      const onboardingId = onboardingReceipt.onboarding.onboarding_id;
       return {
         status: "ONBOARDING_STARTED",
         familyId,
@@ -338,6 +353,7 @@ export function classifyUi03PartialRecovery(
   }
   if (
     error instanceof AssessmentApiContractError ||
+    error instanceof GrowthOnboardingContractError ||
     error instanceof Ui03FlowContractBlockedError
   ) {
     return "CONTRACT_MISMATCH";
@@ -400,32 +416,4 @@ function readyHypothesis(
     );
   }
   return projection.hypothesis as Ui03ReviewOpenHypothesis;
-}
-
-function readOnboardingId(payload: unknown): string {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new AssessmentApiContractError(
-      "onboarding receipt must be an object",
-      payload,
-    );
-  }
-  const onboarding = (payload as Record<string, unknown>).onboarding;
-  if (
-    !onboarding ||
-    typeof onboarding !== "object" ||
-    Array.isArray(onboarding)
-  ) {
-    throw new AssessmentApiContractError(
-      "onboarding receipt is missing onboarding",
-      payload,
-    );
-  }
-  const onboardingId = (onboarding as Record<string, unknown>).onboarding_id;
-  if (typeof onboardingId !== "string" || !onboardingId.trim()) {
-    throw new AssessmentApiContractError(
-      "onboarding receipt is missing onboarding_id",
-      payload,
-    );
-  }
-  return onboardingId;
 }
