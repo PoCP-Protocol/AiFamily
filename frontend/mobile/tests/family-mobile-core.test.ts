@@ -20,7 +20,7 @@ import {
   type FamilyApiPlatformSurfacesProjection,
   type FamilyApiServiceOffering,
 } from "../lib/family/family-api-projections";
-import { familyMobileReducer, initialFamilyMobileState } from "../lib/family/family-state-core";
+import { familyMobileReducer, initialFamilyMobileState, ui03FlowContextForFamily } from "../lib/family/family-state-core";
 import { MOBILE_JOURNEY_PHASES, getJourneyWeeklyAction } from "../lib/family/journey-plan-content";
 import { growthActivitiesForDisplay, serviceOfferingsForDisplay } from "../lib/family/service-support";
 import { UI_ACTION_POLICIES } from "../lib/family/ui-action-policies";
@@ -201,14 +201,27 @@ describe("six-loop controlled mobile actions", () => {
 });
 
 describe("family assessment and 90-day journey", () => {
-  it("keeps the selected assessment subject available for the next growth screens", () => {
+  it("keeps UI-03 onboarding context bound to the family that confirmed it", () => {
     const selected = familyMobileReducer(initialFamilyMobileState, {
       type: "set_assessment_subject",
       subjectId: "child-1",
     });
+    const confirmed = familyMobileReducer(selected, {
+      type: "set_ui03_flow_context",
+      context: {
+        familyId: "family-1",
+        hypothesisRef: "hypothesis-1",
+        humanTaskId: "task-1",
+        subjectPersonId: "child-1",
+        intentId: "intent-1",
+        onboardingId: "onboarding-1",
+      },
+    });
 
     expect(selected.assessmentSubjectId).toBe("child-1");
-    expect(selected.activeOnboardingId).toBeNull();
+    expect(selected.ui03FlowContext).toBeNull();
+    expect(ui03FlowContextForFamily(confirmed.ui03FlowContext, "family-1")?.onboardingId).toBe("onboarding-1");
+    expect(ui03FlowContextForFamily(confirmed.ui03FlowContext, "family-2")).toBeNull();
   });
   it("keeps five bounded family focus areas with three scenario questions each", () => {
     expect(GROWTH_FOCUSES).toHaveLength(5);

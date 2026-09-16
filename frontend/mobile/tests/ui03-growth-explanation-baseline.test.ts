@@ -3,20 +3,28 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const source = readFileSync(resolve(process.cwd(), "app/ui/UI-03.tsx"), "utf8");
+const flow = readFileSync(
+  resolve(process.cwd(), "lib/family/ui03-human-task-flow.ts"),
+  "utf8",
+);
+const contracts = readFileSync(
+  resolve(process.cwd(), "lib/family/assessment-api-contracts.ts"),
+  "utf8",
+);
 
 describe("UI-03 family growth explanation baseline contract", () => {
-  it("keeps the baseline summary, direction overview, focus, suggestion, and action sequence", () => {
+  it("keeps the baseline summary, support direction, review boundary, and explicit action sequence", () => {
     const summary = source.indexOf("<View style={styles.assessmentSummary}>");
     const overview = source.indexOf("证据与支持方向");
-    const issues = source.indexOf(">核心问题<");
-    const suggestions = source.indexOf(">成长建议<");
-    const action = source.indexOf("生成个性化方案");
+    const issues = source.indexOf("核心问题");
+    const boundary = source.indexOf("理解边界");
+    const action = source.indexOf("接受这份支持方向并继续");
 
     expect(summary).toBeGreaterThan(-1);
     expect(overview).toBeGreaterThan(summary);
     expect(issues).toBeGreaterThan(overview);
-    expect(suggestions).toBeGreaterThan(issues);
-    expect(action).toBeGreaterThan(suggestions);
+    expect(boundary).toBeGreaterThan(issues);
+    expect(action).toBeGreaterThan(boundary);
   });
 
   it("renders evidence-backed support direction without a family score or radar", () => {
@@ -26,8 +34,8 @@ describe("UI-03 family growth explanation baseline contract", () => {
     expect(source).not.toContain("peer_reference");
     expect(source).toContain("家庭支持理解");
     expect(source).toContain("可审阅支持假设");
-    expect(source).toContain("证据覆盖度");
-    expect(source).toContain("支持方向");
+    expect(source).toContain("证据与支持方向");
+    expect(source).toContain("理解边界");
     expect(source).toContain('title: "家庭支持理解"');
     expect(source).toContain("不是儿童诊断结论、能力测验或排名");
     expect(source).not.toContain("PREVIEW_SCORECARD");
@@ -38,46 +46,47 @@ describe("UI-03 family growth explanation baseline contract", () => {
   it("keeps backend model capability embedded in the baseline report hierarchy", () => {
     expect(source).toContain("ai_state");
     expect(source).toContain("formatAiState");
-    expect(source).toContain("const aiState = remote?.ai_state");
-    expect(source).toContain("named_actions.confirm");
-    expect(source).toContain("CONFIRM_GROWTH_HYPOTHESIS");
+    expect(flow).toContain("parseAssessmentHumanTaskDecisionReceipt");
+    expect(flow).toContain("parseConfirmedGrowthHypothesisReceipt");
+    expect(contracts).toContain('confirm: "CONFIRM_GROWTH_HYPOTHESIS"');
     expect(source).not.toContain("AI解读摘要");
     expect(source).not.toContain("来源与边界");
   });
 
-  it("uses server support-draft issue tags and numbered recommendations", () => {
-    expect(source).toContain("supportDraft.core_issue_tags.slice(0, 3).map");
-    expect(source).toContain("supportDraft.recommendations.slice(0, 3).map");
-    expect(source).toContain("{index + 1}");
-    expect(source).not.toContain("function LayerCard");
+  it("uses the server hypothesis and limitations without retaining the legacy score model", () => {
+    expect(source).toContain("hypothesis.statement");
+    expect(source).toContain("hypothesis.limitations.map");
+    expect(contracts).not.toContain("interface Ui03ScoreDimension");
+    expect(contracts).not.toContain("interface Ui03Scorecard");
+    expect(contracts).not.toContain("peer_reference: number");
   });
 
-  it("keeps UI-04 gated by the single generation action and preserves a real empty state", () => {
+  it("keeps UI-04 gated by the two-step human receipt flow and preserves a real empty state", () => {
     expect(source).toContain('router.push("/ui/UI-04" as Href)');
     expect(source).not.toContain('router.push("/ui/UI-08" as Href)');
-    expect(source).toContain('decision_type: "CONFIRM"');
-    expect(source).not.toContain('decision_type: "DISMISS"');
-    expect(source).not.toContain("暂不形成成长方向");
-    expect(source).toContain("先完成免费家庭测评");
-    expect(source).toContain("remoteState === \"empty\"");
-    expect(source).toContain("remoteState === \"denied\"");
-    expect(source).toContain("remoteState === \"review_required\"");
-    expect(source).toContain("AI 会基于你提交的家庭自查整理可讨论的视角；这不是儿童诊断、能力测验或排名。");
+    expect(flow).toContain('decision_type: "CONFIRM"');
+    expect(flow).not.toContain('decision_type: "DISMISS"');
+    expect(source).toContain('remoteState === "empty"');
+    expect(source).toContain('remoteState === "denied"');
+    expect(source).toContain('remoteState === "contract_blocked"');
+    expect(source).toContain("只有服务端同时返回人工任务凭据时，才能继续确认");
   });
 
-  it("does not continue into UI-04 when onboarding start fails", () => {
-    expect(source).toContain("const onboardingStarted = await ensureActiveOnboarding");
-    expect(source).toContain('if (!onboardingStarted)');
-    expect(source).toContain('setDecisionState("error")');
-    expect(source).toContain('error.code === "growth_onboarding_already_active"')
-    expect(source).toContain("return false")
+  it("does not continue into UI-04 before INTENT_CREATED and onboarding receipt", () => {
+    const intentCheck = flow.indexOf("parseConfirmedGrowthHypothesisReceipt");
+    const onboarding = flow.indexOf("startGrowthOnboarding<unknown>");
+    const returnContext = flow.lastIndexOf('status: "ONBOARDING_STARTED"');
+    expect(intentCheck).toBeGreaterThan(-1);
+    expect(onboarding).toBeGreaterThan(intentCheck);
+    expect(returnContext).toBeGreaterThan(onboarding);
+    expect(source).toContain("setUi03FlowContext(result)");
   });
 
   it("shows only real collected context and hides missing personal fields", () => {
-    expect(source).toContain("source_refs.assessment_session_id");
+    expect(flow).toContain("hypothesis.source_refs.assessment_session_id");
     expect(source).toContain("assessment_submitted_at");
     expect(source).toContain("formatDate");
-    expect(source).toContain("filter(Boolean)");
+    expect(source).toContain(".filter((row): row is string => Boolean(row))");
     expect(source).toContain("测评时间：");
     expect(source).not.toContain("10岁");
     expect(source).not.toContain("四年级");
@@ -90,5 +99,13 @@ describe("UI-03 family growth explanation baseline contract", () => {
     expect(source).not.toContain("remote.hypothesis.principal.reading");
     expect(source).not.toContain("remote.hypothesis.principal.boundary");
     expect(source).not.toContain("家庭教育大模型 · 陪你一起看这次测评");
+  });
+
+  it("keeps reject distinct from defer and requires a typed reason", () => {
+    expect(source).toContain('onPress={() => void decide("REJECT")}');
+    expect(source).toContain("!rejectionReason.trim()");
+    expect(source).toContain("提交拒绝并终止");
+    expect(source).toContain("先放一放，不提交决定");
+    expect(flow).toContain('status: "REJECTED"');
   });
 });

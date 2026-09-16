@@ -1,9 +1,12 @@
+import { parseUi03GrowthHypothesisProjection } from "./assessment-api-contracts";
 import type {
+  AssessmentHumanTaskDecisionBody,
+  AssessmentHumanTaskDecisionReceipt,
   AssessmentMutationReceipt,
   AssessmentResponseType,
+  ConfirmGrowthHypothesisBody,
   GrowthHypothesisDecisionReceipt,
   Ui02AssessmentProjection,
-  Ui03GrowthHypothesisProjection,
 } from "./assessment-api-contracts";
 import type {
   AvailabilitySlotDto,
@@ -625,8 +628,16 @@ export class FamilyApiClient {
     });
   }
 
-  getGrowthHypothesis(token: string, familyId: string) {
-    return this.request<Ui03GrowthHypothesisProjection>(`/families/${familyId}/ui/03/growth-hypothesis`, { token });
+  async getGrowthHypothesis(token: string, familyId: string) {
+    const payload = await this.request<unknown>(`/families/${familyId}/ui/03/growth-hypothesis`, { token });
+    return parseUi03GrowthHypothesisProjection(payload, familyId);
+  }
+
+  decideAssessmentHumanTask(token: string, familyId: string, taskId: string, body: AssessmentHumanTaskDecisionBody, idempotencyKey: string) {
+    return this.request<AssessmentHumanTaskDecisionReceipt>(`/families/${familyId}/assessment/human-tasks/${taskId}/decisions`, {
+      method: "POST", token, body,
+      headers: { "Idempotency-Key": idempotencyKey, "x-correlation-id": createMobileRequestId("ui03-human-task-decision"), "x-source": "family-ai-mobile" },
+    });
   }
 
   /**
@@ -735,7 +746,7 @@ export class FamilyApiClient {
     });
   }
 
-  decideGrowthHypothesis(token: string, familyId: string, body: { assessment_session_id: string; hypothesis_ref: string; decision_type: "CONFIRM" | "DISMISS" }, idempotencyKey: string) {
+  decideGrowthHypothesis(token: string, familyId: string, body: ConfirmGrowthHypothesisBody, idempotencyKey: string) {
     return this.request<GrowthHypothesisDecisionReceipt>(`/families/${familyId}/growth-hypotheses/decisions`, {
       method: "POST", token, body,
       headers: { "idempotency-key": idempotencyKey, "x-correlation-id": createMobileRequestId("ui03-hypothesis-decision"), "x-source": "family-ai-mobile" },
