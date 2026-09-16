@@ -30,10 +30,10 @@ class DecideGrowthHypothesisRequestBody(BaseModel):
     # (accept part of it), DISMISS (reject), LATER (defer). See
     # `growth_hypothesis_commands.py` module docstring for what each writes.
     decision_type: Literal["CONFIRM", "EDIT", "PARTIAL", "DISMISS", "LATER"]
-    # Human-Gate-reviewed-draft binding. Only required when the process is
-    # wired to the canonical `GrowthIntentConfirmationPort` path (see
-    # `production_growth_wiring.ProductionGrowthConfirmationWiring`); the
-    # legacy evidence/interpretation path ignores these.
+    # Human-Gate-reviewed-draft binding. Intent-creating production paths
+    # require the complete tuple. The canonical path resolves a viewed-
+    # understanding receipt; the legacy AI interpretation path resolves an
+    # accepted durable HumanTask and rejects an incomplete or stale tuple.
     scope_ref: str = ""
     signal_version: int = 0
     reviewed_draft_ref: str = ""

@@ -6,13 +6,14 @@ from hashlib import sha256
 from pathlib import Path
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from backend.apps.family_api.assessment_ai_wiring import AssessmentAiAssets
+from backend.apps.family_api.main import create_app
 from backend.apps.family_api.production_agent_wiring import ProductionAgentRuntimeResolver
 from backend.apps.family_api.production_assessment_ai_wiring import (
     ProductionAssessmentAiComposition,
@@ -23,8 +24,6 @@ from backend.apps.family_api.production_assessment_http_wiring import (
     SqlAlchemyAssessmentIdentityResolver,
     install_production_assessment_http_wiring,
 )
-from backend.domains.assessment.api import register_exception_handlers
-from backend.domains.assessment.api import router as assessment_router
 from backend.domains.assessment.api.dependencies import FamilyContext
 from backend.domains.assessment.application.commands import (
     AssessmentCommandHandler,
@@ -50,7 +49,7 @@ from backend.intelligence.context_engine.sql_store import (
     AsyncSqlContextBroker,
     ContextPersistenceBase,
 )
-from backend.intelligence.human_gate.persistence import HumanGateBase
+from backend.intelligence.human_gate.persistence import HumanGateBase, SqlAlchemyHumanGate
 from backend.intelligence.model_gateway.attempt_persistence import (
     AttemptPersistenceBase,
     SqlAlchemyAttemptSink,
@@ -441,7 +440,9 @@ async def test_http_composition_resolver_builds_subject_scoped_production_runtim
 @pytest.mark.asyncio
 async def test_http_ui03_to_guardian_confirmation_reuses_same_model_draft(
     dependencies,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("AIFAMILY_ENV", "production")
     engine, session_factory, broker = dependencies
     child_id = "11111111-1111-4111-8111-111111111111"
     repository = FakeAssessmentRepository()
@@ -506,15 +507,16 @@ async def test_http_ui03_to_guardian_confirmation_reuses_same_model_draft(
         assert authorization == "Bearer guardian-session"
         return composition
 
-    app = FastAPI()
-    app.include_router(assessment_router, prefix="/families")
-    register_exception_handlers(app)
-    install_production_assessment_http_wiring(
-        app,
-        engine=engine,
-        identity_resolver=identity_resolver,
-        composition_resolver=composition_resolver,
-        repository_factory=lambda connection: repository,
+    app = create_app(
+        assessment_production_ai_wiring=lambda application: (
+            install_production_assessment_http_wiring(
+                application,
+                engine=engine,
+                identity_resolver=identity_resolver,
+                composition_resolver=composition_resolver,
+                repository_factory=lambda connection: repository,
+            )
+        )
     )
     headers = {
         "Authorization": "Bearer guardian-session",
@@ -537,20 +539,67 @@ async def test_http_ui03_to_guardian_confirmation_reuses_same_model_draft(
         assert body["ai_state"] == "MODEL_DRAFT_READY"
         assert body["hypothesis"]["subject_person_id"] == child_id
 
+        human_task_ref = body["hypothesis"]["scorecard"]["human_task_ref"]
+        async with session_factory() as session:
+            pending_task = await SqlAlchemyHumanGate(session).get(human_task_ref)
+        pending_payload = {
+            "assessment_session_id": session_id,
+            "hypothesis_ref": body["hypothesis"]["hypothesis_ref"],
+            "decision_type": "CONFIRM",
+            "scope_ref": "family://tenant-1/family-1/assessment",
+            "signal_version": body["hypothesis"]["source_refs"]["tool_version"],
+            "reviewed_draft_ref": pending_task.proposal.draft_id,
+            "draft_version": 1,
+            "provenance_ref": pending_task.proposal.provenance_ref,
+            "human_gate_receipt_ref": human_task_ref,
+        }
+        undecided = await client.post(
+            "/families/family-1/growth-hypotheses/decisions",
+            headers={**headers, "Idempotency-Key": "idem:undecided"},
+            json=pending_payload,
+        )
+        assert undecided.status_code == 409
+        assert undecided.json()["detail"] == "human_task_acceptance_required"
+
+        runtime = await composition.runtime_resolver.resolve_for_subject("family-1", child_id)
+        _, accepted_action = await runtime.decide_review(
+            human_task_ref,
+            actor_id="guardian-1",
+            actor_type="GUARDIAN",
+            outcome="ACCEPT",
+            decision_id="decision:http-ui03",
+        )
+        assert accepted_action is not None
+
+        confirmation_payload = {
+            "assessment_session_id": session_id,
+            "hypothesis_ref": body["hypothesis"]["hypothesis_ref"],
+            "decision_type": "CONFIRM",
+            "scope_ref": "family://tenant-1/family-1/assessment",
+            "signal_version": body["hypothesis"]["source_refs"]["tool_version"],
+            "reviewed_draft_ref": accepted_action.action_arguments["draft_ref"],
+            "draft_version": 1,
+            "provenance_ref": accepted_action.provenance_ref,
+            "human_gate_receipt_ref": human_task_ref,
+        }
         confirmation = await client.post(
             "/families/family-1/growth-hypotheses/decisions",
             headers={**headers, "Idempotency-Key": "idem:http-confirm"},
-            json={
-                "assessment_session_id": session_id,
-                "hypothesis_ref": body["hypothesis"]["hypothesis_ref"],
-                "decision_type": "CONFIRM",
-            },
+            json=confirmation_payload,
+        )
+        replay = await client.post(
+            "/families/family-1/growth-hypotheses/decisions",
+            headers={**headers, "Idempotency-Key": "different-client-key"},
+            json=confirmation_payload,
         )
 
     assert confirmation.status_code == 200, confirmation.text
     receipt = confirmation.json()
     assert receipt["outcome"] == "INTENT_CREATED"
     assert receipt["intent"]["boundary"] == "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME"
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["replayed"] is True
+    assert replay.json()["intent"]["intent_id"] == receipt["intent"]["intent_id"]
     assert len(provider.invocations) == 1
 
 
