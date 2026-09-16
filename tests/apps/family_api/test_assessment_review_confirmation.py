@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
@@ -262,10 +263,10 @@ async def test_accepted_action_owns_business_idempotency_across_client_replay() 
 
     assert first["outcome"] == "INTENT_CREATED"
     assert replay["replayed"] is True
-    assert [item.idempotency_key for item in delegate.commands] == [
-        "server-owned-action-key",
-        "server-owned-action-key",
-    ]
+    digest = hashlib.sha256(b"server-owned-action-key").hexdigest()
+    expected_key = f"assessment-action:{digest}"
+    assert len(expected_key) <= 128
+    assert [item.idempotency_key for item in delegate.commands] == [expected_key, expected_key]
 
 
 @pytest.mark.asyncio

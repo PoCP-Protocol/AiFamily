@@ -422,6 +422,41 @@ async def test_fe_s01_review_rejects_cross_family_and_stale_consent(session_fact
             decision_id="decision:stale-consent",
         )
 
+    for stale_scope in (
+        replace(_scope(), subject_ids=("child-2",)),
+        replace(_scope(), purpose="growth_tracking"),
+        replace(_scope(), region_id="US"),
+        replace(_scope(), deletion_ref="delete-2"),
+    ):
+        with pytest.raises(ContextScopeError, match="SCOPE_STALE"):
+            await replace(runtime, scope=stale_scope).decide_review(
+                run.human_task_ref,
+                actor_id="guardian-1",
+                actor_type=ActorType.GUARDIAN,
+                outcome=DecisionOutcome.ACCEPT,
+                decision_id=f"decision:stale:{stale_scope.correlation_id}",
+            )
+
+    # A correlation id is per request/trace. It must not become part of the
+    # frozen authorization identity for a later human decision.
+    next_request = replace(
+        runtime,
+        scope=replace(
+            _scope(),
+            correlation_id="corr-review-request-2",
+            causation_id="cause-review-request-2",
+        ),
+    )
+    decided, action = await next_request.decide_review(
+        run.human_task_ref,
+        actor_id="guardian-1",
+        actor_type=ActorType.GUARDIAN,
+        outcome=DecisionOutcome.ACCEPT,
+        decision_id="decision:new-correlation",
+    )
+    assert decided.status is GateStatus.DECIDED
+    assert action is not None
+
 
 @pytest.mark.asyncio
 async def test_growth_plan_review_does_not_create_generic_human_task(session_factory) -> None:

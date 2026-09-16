@@ -8,11 +8,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path as FilePath
 
-from fastapi import FastAPI, Header, HTTPException, Path
+from fastapi import Depends, FastAPI, Header, HTTPException, Path
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, async_sessionmaker
 
 from backend.apps.family_api.assessment_ai_wiring import AssessmentAiAssets
+from backend.apps.family_api.assessment_human_task_decision import (
+    AssessmentHumanTaskDecisionApplication,
+)
 from backend.apps.family_api.assessment_review_confirmation import (
     HumanGateConfirmedGrowthHypothesisHandler,
     SqlAlchemyAcceptedAssessmentReviewReader,
@@ -382,11 +385,37 @@ def install_production_assessment_http_wiring(
                 clock=composition.clock,
             )
 
+    async def assessment_human_task_decision_handler(
+        identity: FamilyContext = Depends(family_context),
+        authorization: str | None = Header(default=None),
+        x_correlation_id: str | None = Header(default=None),
+        x_causation_id: str | None = Header(default=None),
+    ) -> AsyncIterator[AssessmentHumanTaskDecisionApplication]:
+        composition = await _resolve_composition(
+            composition_resolver,
+            identity,
+            authorization,
+            x_correlation_id,
+            x_causation_id,
+        )
+        async with engine.connect() as connection:
+            yield AssessmentHumanTaskDecisionApplication(
+                identity=identity,
+                session_factory=composition.session_factory,
+                runtime_resolver=composition.runtime_resolver,
+                repository=repository_factory(connection),
+                expected_prompt_version=composition.assets.prompt_version,
+                expected_schema_version=composition.assets.schema_version,
+            )
+
     app.dependency_overrides[assessment_dependencies.get_family_context] = family_context
     app.dependency_overrides[assessment_dependencies.get_command_handler] = command_handler
     app.dependency_overrides[assessment_dependencies.get_query_handler] = query_handler
     app.dependency_overrides[assessment_dependencies.get_growth_hypothesis_handler] = (
         growth_hypothesis_handler
+    )
+    app.dependency_overrides[assessment_dependencies.get_assessment_human_task_decision_handler] = (
+        assessment_human_task_decision_handler
     )
 
 

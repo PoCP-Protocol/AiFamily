@@ -330,3 +330,27 @@ class GrowthHypothesisDecisionReceiptResponse(BaseModel):
     intent: GrowthIntentModel | None
     replayed: bool
     parent_note: str | None = None
+
+
+class AssessmentHumanTaskConfirmationBindingResponse(BaseModel):
+    """Server-owned values required by the existing CONFIRM command."""
+
+    subject_person_id: str
+    assessment_session_id: str
+    hypothesis_ref: str
+    scope_ref: str
+    signal_version: int
+    reviewed_draft_ref: str
+    draft_version: int
+    provenance_ref: str
+    human_gate_receipt_ref: str
+
+
+class AssessmentHumanTaskDecisionReceiptResponse(BaseModel):
+    task_id: str
+    decision_id: str
+    status: Literal["DECIDED"]
+    outcome: Literal["ACCEPT", "REJECT"]
+    reason: str | None
+    decided_at: str
+    binding: AssessmentHumanTaskConfirmationBindingResponse | None

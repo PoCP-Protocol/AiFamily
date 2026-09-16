@@ -7,6 +7,7 @@ domain package has no hard dependency on any concrete infra choice.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal, Protocol
 
 from fastapi import HTTPException
 
@@ -15,6 +16,17 @@ from backend.platform.identity.context import ActorType
 from ..application.commands import AssessmentCommandHandler
 from ..application.growth_hypothesis_commands import GrowthHypothesisCommandHandler
 from ..application.queries import AssessmentQueryHandler
+
+
+class AssessmentHumanTaskDecisionHandler(Protocol):
+    async def decide(
+        self,
+        task_id: str,
+        *,
+        outcome: Literal["ACCEPT", "REJECT"],
+        reason: str | None,
+        idempotency_key: str,
+    ) -> dict[str, object]: ...
 
 
 @dataclass(frozen=True)
@@ -46,3 +58,10 @@ def get_query_handler() -> AssessmentQueryHandler:
 
 def get_growth_hypothesis_handler() -> GrowthHypothesisCommandHandler:
     raise HTTPException(status_code=500, detail="growth_hypothesis_handler_not_wired")
+
+
+def get_assessment_human_task_decision_handler() -> AssessmentHumanTaskDecisionHandler:
+    raise HTTPException(
+        status_code=500,
+        detail="assessment_human_task_decision_handler_not_wired",
+    )

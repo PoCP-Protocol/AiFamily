@@ -67,7 +67,7 @@ from backend.intelligence.safety.persistence import (
 from backend.intelligence.safety.runtime import SafetyRuntime
 from backend.intelligence.schema_registry.contracts import SchemaDefinition
 from backend.intelligence.schema_registry.registry import SchemaRegistry
-from backend.platform.audit.store import AuditBase
+from backend.platform.audit.store import AuditBase, read_all_events
 
 NOW = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
 ROOT = Path(__file__).resolve().parents[3]
@@ -561,26 +561,63 @@ async def test_http_ui03_to_guardian_confirmation_reuses_same_model_draft(
         assert undecided.status_code == 409
         assert undecided.json()["detail"] == "human_task_acceptance_required"
 
-        runtime = await composition.runtime_resolver.resolve_for_subject("family-1", child_id)
-        _, accepted_action = await runtime.decide_review(
-            human_task_ref,
-            actor_id="guardian-1",
-            actor_type="GUARDIAN",
-            outcome="ACCEPT",
-            decision_id="decision:http-ui03",
+        missing_key = await client.post(
+            f"/families/family-1/assessment/human-tasks/{human_task_ref}/decisions",
+            headers=headers,
+            json={"outcome": "ACCEPT"},
         )
-        assert accepted_action is not None
+        assert missing_key.status_code == 422
 
-        confirmation_payload = {
+        decision_headers = {**headers, "Idempotency-Key": "idem:http-human-gate"}
+        accepted = await client.post(
+            f"/families/family-1/assessment/human-tasks/{human_task_ref}/decisions",
+            headers=decision_headers,
+            json={"outcome": "ACCEPT"},
+        )
+        accepted_replay = await client.post(
+            f"/families/family-1/assessment/human-tasks/{human_task_ref}/decisions",
+            headers=decision_headers,
+            json={"outcome": "ACCEPT"},
+        )
+        changed_payload = await client.post(
+            f"/families/family-1/assessment/human-tasks/{human_task_ref}/decisions",
+            headers=decision_headers,
+            json={"outcome": "REJECT", "reason": "不同意这份草案"},
+        )
+        occupied = await client.post(
+            f"/families/family-1/assessment/human-tasks/{human_task_ref}/decisions",
+            headers={**headers, "Idempotency-Key": "idem:another-decision"},
+            json={"outcome": "ACCEPT"},
+        )
+
+        assert accepted.status_code == 200, accepted.text
+        assert accepted_replay.status_code == 200, accepted_replay.text
+        assert accepted_replay.json() == accepted.json()
+        assert changed_payload.status_code == 409
+        assert occupied.status_code == 409
+        binding = accepted.json()["binding"]
+        assert binding == {
+            "subject_person_id": child_id,
             "assessment_session_id": session_id,
             "hypothesis_ref": body["hypothesis"]["hypothesis_ref"],
-            "decision_type": "CONFIRM",
             "scope_ref": "family://tenant-1/family-1/assessment",
             "signal_version": body["hypothesis"]["source_refs"]["tool_version"],
-            "reviewed_draft_ref": accepted_action.action_arguments["draft_ref"],
+            "reviewed_draft_ref": pending_task.proposal.draft_id,
             "draft_version": 1,
-            "provenance_ref": accepted_action.provenance_ref,
+            "provenance_ref": pending_task.proposal.provenance_ref,
             "human_gate_receipt_ref": human_task_ref,
+        }
+
+        confirmation_payload = {
+            "assessment_session_id": binding["assessment_session_id"],
+            "hypothesis_ref": binding["hypothesis_ref"],
+            "decision_type": "CONFIRM",
+            "scope_ref": binding["scope_ref"],
+            "signal_version": binding["signal_version"],
+            "reviewed_draft_ref": binding["reviewed_draft_ref"],
+            "draft_version": binding["draft_version"],
+            "provenance_ref": binding["provenance_ref"],
+            "human_gate_receipt_ref": binding["human_gate_receipt_ref"],
         }
         confirmation = await client.post(
             "/families/family-1/growth-hypotheses/decisions",
@@ -601,6 +638,9 @@ async def test_http_ui03_to_guardian_confirmation_reuses_same_model_draft(
     assert replay.json()["replayed"] is True
     assert replay.json()["intent"]["intent_id"] == receipt["intent"]["intent_id"]
     assert len(provider.invocations) == 1
+    async with session_factory() as session:
+        events = await read_all_events(session, tenant_id="tenant-1")
+    assert [event.action for event in events].count("DECIDE_HUMAN_TASK") == 1
 
 
 @pytest.mark.asyncio

@@ -375,7 +375,19 @@ def _gate_scope(scope: ContextScope) -> GateScope:
 
 
 def _assert_gate_scope(current: ContextScope, frozen: GateScope) -> None:
-    if _gate_scope(current) != frozen:
+    # correlation_id identifies a request/trace, not an authorization scope.
+    # A reviewer necessarily arrives on a later request, so requiring the
+    # correlation id frozen at draft time would reject every legitimate
+    # decision. All authorization and lifecycle dimensions remain frozen.
+    if (
+        current.tenant_id != frozen.tenant_id
+        or current.family_id != frozen.family_id
+        or current.subject_ids != frozen.subject_ids
+        or current.purpose != frozen.purpose
+        or current.consent_version != frozen.consent_version
+        or current.region_id != frozen.region_id
+        or current.deletion_ref != frozen.deletion_ref
+    ):
         raise ContextScopeError("AGENT_HUMAN_GATE_SCOPE_STALE")
 
 

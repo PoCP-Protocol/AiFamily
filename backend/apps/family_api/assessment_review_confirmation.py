@@ -9,6 +9,7 @@ and therefore do not pass through this legacy bridge.
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
@@ -192,7 +193,9 @@ class HumanGateConfirmedGrowthHypothesisHandler:
         )
         # The server-owned NamedAction identity, not a second client-selected
         # key, is the durable exactly-once identity of this fact transition.
-        return await self.delegate.decide(replace(command, idempotency_key=request.idempotency_key))
+        return await self.delegate.decide(
+            replace(command, idempotency_key=_domain_idempotency_key(request.idempotency_key))
+        )
 
 
 def _assert_client_binding_present(command: DecideGrowthHypothesisCommand) -> None:
@@ -352,6 +355,11 @@ def _required_text(arguments: dict[str, object], name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise AssessmentConflictError(f"human_task_{name}_missing")
     return value
+
+
+def _domain_idempotency_key(source: str) -> str:
+    digest = hashlib.sha256(source.encode()).hexdigest()
+    return f"assessment-action:{digest}"
 
 
 __all__ = [

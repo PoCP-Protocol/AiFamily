@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class StartAssessmentRequestBody(BaseModel):
@@ -45,3 +45,26 @@ class DecideGrowthHypothesisRequestBody(BaseModel):
     # draft. Optional for PARTIAL/LATER (which part / why deferring).
     # Ignored for CONFIRM/DISMISS.
     parent_note: str = ""
+
+
+class DecideAssessmentHumanTaskRequestBody(BaseModel):
+    """The only client-owned fields at the Assessment Human Gate boundary."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: Literal["ACCEPT", "REJECT"]
+    reason: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("reason")
+    @classmethod
+    def _normalise_reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalised = value.strip()
+        return normalised or None
+
+    @model_validator(mode="after")
+    def _require_rejection_reason(self) -> DecideAssessmentHumanTaskRequestBody:
+        if self.outcome == "REJECT" and self.reason is None:
+            raise ValueError("reason is required when outcome is REJECT")
+        return self
