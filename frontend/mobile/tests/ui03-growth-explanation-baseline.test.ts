@@ -16,9 +16,9 @@ describe("UI-03 family growth explanation baseline contract", () => {
   it("keeps the baseline summary, support direction, review boundary, and explicit action sequence", () => {
     const summary = source.indexOf("<View style={styles.assessmentSummary}>");
     const overview = source.indexOf("证据与支持方向");
-    const issues = source.indexOf("核心问题");
+    const issues = source.indexOf("待验证的支持方向", overview);
     const boundary = source.indexOf("理解边界");
-    const action = source.indexOf("接受这份支持方向并继续");
+    const action = source.indexOf("家长采纳这份支持方向并继续");
 
     expect(summary).toBeGreaterThan(-1);
     expect(overview).toBeGreaterThan(summary);
@@ -33,10 +33,12 @@ describe("UI-03 family growth explanation baseline contract", () => {
     expect(source).not.toContain("overall_score");
     expect(source).not.toContain("peer_reference");
     expect(source).toContain("家庭支持理解");
-    expect(source).toContain("可审阅支持假设");
+    expect(source).toContain("等待家长确认");
     expect(source).toContain("证据与支持方向");
+    expect(source).toContain("待验证的支持方向");
+    expect(source).not.toContain("核心问题");
     expect(source).toContain("理解边界");
-    expect(source).toContain('title: "家庭支持理解"');
+    expect(source).toContain('title: "家长确认支持方向"');
     expect(source).toContain("不是儿童诊断结论、能力测验或排名");
     expect(source).not.toContain("PREVIEW_SCORECARD");
     expect(source).toContain("这里不会预填家庭分数");
@@ -101,11 +103,36 @@ describe("UI-03 family growth explanation baseline contract", () => {
     expect(source).not.toContain("家庭教育大模型 · 陪你一起看这次测评");
   });
 
-  it("keeps reject distinct from defer and requires a typed reason", () => {
+  it("keeps non-adoption distinct from defer without forcing an explanation", () => {
     expect(source).toContain('onPress={() => void decide("REJECT")}');
-    expect(source).toContain("!rejectionReason.trim()");
-    expect(source).toContain("提交拒绝并终止");
+    expect(source).not.toContain("!rejectionReason.trim()");
+    expect(source).toContain("不采纳说明（可选）");
+    expect(source).toContain("记录家长不采纳");
+    expect(source).not.toContain("提交拒绝并终止");
     expect(source).toContain("先放一放，不提交决定");
     expect(flow).toContain('status: "REJECTED"');
+  });
+
+  it("states that the parent confirms support while the child keeps an independent choice", () => {
+    expect(source).toContain("家长确认支持方向");
+    expect(source).toContain("不代表孩子已经同意");
+    expect(source).toContain("孩子在行动开始前拥有独立选择权");
+    expect(source).toContain("可以接受、暂停或不参与");
+  });
+
+  it("offers real load retries and honest resumable partial-success actions", () => {
+    expect(source).toContain("onPress={() => void loadProjection()}");
+    expect(source).toContain("重新加载确认凭据");
+    expect(source).toContain("retryDecision.outcome");
+    expect(source).toContain("重试家长采纳");
+    expect(source).toContain("重试家长不采纳");
+    expect(source).toContain("家长确认回执已保存，但成长意向尚未创建");
+    expect(source).toContain("成长意向已创建，但成长方案尚未启动");
+    expect(source).toContain("继续创建成长意向");
+    expect(source).toContain("继续启动成长方案");
+    expect(source).not.toContain("联系人工支持");
+    expect(flow).toContain("Ui03FlowPartialSuccessError");
+    expect(flow).toContain("createUi03IdempotencyKey");
+    expect(flow).not.toContain("new Map");
   });
 });

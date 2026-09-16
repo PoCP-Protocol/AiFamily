@@ -11,6 +11,7 @@ import {
 import { FamilyApiError } from "../lib/family/family-api-client";
 import {
   Ui03FlowContractBlockedError,
+  Ui03FlowPartialSuccessError,
   Ui03FlowStaleError,
   Ui03HumanTaskFlow,
   type Ui03HumanTaskApi,
@@ -19,7 +20,7 @@ import {
 describe("UI-03 two-step HumanTask flow", () => {
   it("orders human ACCEPT, complete-binding CONFIRM, and onboarding", async () => {
     const api = new RecordingApi();
-    const flow = new Ui03HumanTaskFlow(api, (prefix) => `${prefix}-stable`);
+    const flow = new Ui03HumanTaskFlow(api);
 
     const result = await flow.decide({
       token: "token-1",
@@ -61,32 +62,24 @@ describe("UI-03 two-step HumanTask flow", () => {
     });
   });
 
-  it("requires a real REJECT reason and terminates without growth decision", async () => {
+  it("allows an optional REJECT explanation and never invents one", async () => {
     const api = new RecordingApi();
     const flow = new Ui03HumanTaskFlow(api);
-
-    await expect(
-      flow.decide({
-        token: "token-1",
-        projection: projection(),
-        outcome: "REJECT",
-        reason: "   ",
-      }),
-    ).rejects.toBeInstanceOf(Ui03FlowContractBlockedError);
-    expect(api.calls).toHaveLength(0);
 
     const result = await flow.decide({
       token: "token-1",
       projection: projection(),
       outcome: "REJECT",
-      reason: "  这与我们的真实观察不一致  ",
     });
     expect(result.status).toBe("REJECTED");
     expect(api.calls).toHaveLength(1);
     expect(api.calls[0]).toMatchObject({
       kind: "human",
-      body: { outcome: "REJECT", reason: "这与我们的真实观察不一致" },
+      body: { outcome: "REJECT" },
     });
+    expect(
+      (api.calls[0] as { body: AssessmentHumanTaskDecisionBody }).body,
+    ).not.toHaveProperty("reason");
   });
 
   it("blocks 409 conflicts before CONFIRM or onboarding", async () => {
@@ -117,11 +110,7 @@ describe("UI-03 two-step HumanTask flow", () => {
       "FAMILY_API_TIMEOUT",
       null,
     );
-    let sequence = 0;
-    const flow = new Ui03HumanTaskFlow(
-      api,
-      (prefix) => `${prefix}-${++sequence}`,
-    );
+    const flow = new Ui03HumanTaskFlow(api);
     const input = {
       token: "token-1",
       projection: projection(),
@@ -141,10 +130,39 @@ describe("UI-03 two-step HumanTask flow", () => {
     expect(humanCalls[0]).toEqual(humanCalls[1]);
   });
 
+  it("retries a timed-out non-adoption with the same optional explanation", async () => {
+    const api = new RecordingApi();
+    api.humanError = new FamilyApiError(
+      "timeout",
+      0,
+      "FAMILY_API_TIMEOUT",
+      null,
+    );
+    const flow = new Ui03HumanTaskFlow(api);
+    const input = {
+      token: "token-1",
+      projection: projection(),
+      outcome: "REJECT" as const,
+      reason: "这与我们的观察不一致",
+    };
+
+    await expect(flow.decide(input)).rejects.toMatchObject({
+      code: "FAMILY_API_TIMEOUT",
+    });
+    api.humanError = null;
+    await expect(flow.decide(input)).resolves.toMatchObject({
+      status: "REJECTED",
+    });
+
+    const humanCalls = api.calls.filter((call) => call.kind === "human");
+    expect(humanCalls).toHaveLength(2);
+    expect(humanCalls[0]).toEqual(humanCalls[1]);
+  });
+
   it("accepts a replayed growth receipt without starting a second logical flow", async () => {
     const api = new RecordingApi();
     api.growthReplayed = true;
-    const flow = new Ui03HumanTaskFlow(api, (prefix) => `${prefix}-stable`);
+    const flow = new Ui03HumanTaskFlow(api);
 
     const first = await flow.decide({
       token: "token-1",
@@ -197,6 +215,111 @@ describe("UI-03 two-step HumanTask flow", () => {
     ).rejects.toBeInstanceOf(Ui03FlowContractBlockedError);
     expect(api.calls.map((call) => call.kind)).toEqual(["human"]);
   });
+
+  it("preserves the HumanTask receipt when GrowthIntent creation fails", async () => {
+    const api = new RecordingApi();
+    api.growthError = new FamilyApiError(
+      "timeout",
+      0,
+      "FAMILY_API_TIMEOUT",
+      null,
+    );
+    const flow = new Ui03HumanTaskFlow(api);
+    const input = {
+      token: "token-1",
+      projection: projection(),
+      outcome: "ACCEPT" as const,
+    };
+
+    const failure = await flow.decide(input).catch((error) => error);
+    expect(failure).toBeInstanceOf(Ui03FlowPartialSuccessError);
+    expect(failure).toMatchObject({
+      stage: "HUMAN_ACCEPTED",
+      humanReceipt: { task_id: "task-1", outcome: "ACCEPT" },
+      growthReceipt: null,
+    });
+
+    api.growthError = null;
+    await expect(flow.decide(input)).resolves.toMatchObject({
+      status: "ONBOARDING_STARTED",
+    });
+    const humanCalls = api.calls.filter((call) => call.kind === "human");
+    const growthCalls = api.calls.filter((call) => call.kind === "growth");
+    expect(humanCalls[0]).toEqual(humanCalls[1]);
+    expect(growthCalls[0]).toEqual(growthCalls[1]);
+  });
+
+  it("preserves the GrowthIntent receipt when onboarding fails", async () => {
+    const api = new RecordingApi();
+    api.onboardingError = new FamilyApiError(
+      "unavailable",
+      503,
+      "HTTP_503",
+      null,
+    );
+    const flow = new Ui03HumanTaskFlow(api);
+    const input = {
+      token: "token-1",
+      projection: projection(),
+      outcome: "ACCEPT" as const,
+    };
+
+    const failure = await flow.decide(input).catch((error) => error);
+    expect(failure).toBeInstanceOf(Ui03FlowPartialSuccessError);
+    expect(failure).toMatchObject({
+      stage: "INTENT_CREATED",
+      humanReceipt: { task_id: "task-1", outcome: "ACCEPT" },
+      growthReceipt: {
+        outcome: "INTENT_CREATED",
+        intent: { intent_id: "intent-family-1" },
+      },
+    });
+
+    api.onboardingError = null;
+    await expect(flow.decide(input)).resolves.toMatchObject({
+      onboardingId: "onboarding-family-1",
+    });
+    const onboardingCalls = api.calls.filter(
+      (call) => call.kind === "onboarding",
+    );
+    expect(onboardingCalls[0]).toEqual(onboardingCalls[1]);
+  });
+
+  it("derives identical bounded keys after a new flow instance is created", async () => {
+    const firstApi = new RecordingApi();
+    const secondApi = new RecordingApi();
+
+    await new Ui03HumanTaskFlow(firstApi).decide({
+      token: "token-1",
+      projection: projection(),
+      outcome: "ACCEPT",
+    });
+    await new Ui03HumanTaskFlow(secondApi).decide({
+      token: "token-1",
+      projection: projection(),
+      outcome: "ACCEPT",
+    });
+
+    expect(firstApi.calls).toEqual(secondApi.calls);
+    expect(firstApi.calls.every((call) => call.key.length <= 128)).toBe(true);
+  });
+
+  it("invalidates late work when the hypothesis or HumanTask epoch changes", async () => {
+    const api = new RecordingApi();
+    const pending = deferred<AssessmentHumanTaskDecisionReceipt>();
+    api.pendingHuman = pending.promise;
+    const flow = new Ui03HumanTaskFlow(api);
+    const oldHypothesis = flow.decide({
+      token: "token-1",
+      projection: projection(),
+      outcome: "ACCEPT",
+    });
+    flow.bind(projection("family-1", "task-2", "hypothesis-2"));
+    pending.resolve(api.humanReceipt("family-1", "task-1", "ACCEPT"));
+
+    await expect(oldHypothesis).rejects.toBeInstanceOf(Ui03FlowStaleError);
+    expect(api.calls.map((call) => call.kind)).toEqual(["human"]);
+  });
 });
 
 type RecordedCall =
@@ -223,6 +346,8 @@ type RecordedCall =
 class RecordingApi implements Ui03HumanTaskApi {
   readonly calls: RecordedCall[] = [];
   humanError: unknown = null;
+  growthError: unknown = null;
+  onboardingError: unknown = null;
   pendingHuman: Promise<AssessmentHumanTaskDecisionReceipt> | null = null;
   omitAcceptedBinding = false;
   growthReplayed = false;
@@ -258,6 +383,7 @@ class RecordingApi implements Ui03HumanTaskApi {
       body: structuredClone(body),
       key,
     });
+    if (this.growthError) throw this.growthError;
     return {
       action: "CONFIRM_GROWTH_HYPOTHESIS",
       outcome: "INTENT_CREATED",
@@ -286,6 +412,7 @@ class RecordingApi implements Ui03HumanTaskApi {
       body: structuredClone(body),
       key,
     });
+    if (this.onboardingError) throw this.onboardingError;
     return { onboarding: { onboarding_id: `onboarding-${familyId}` } } as T;
   }
 
@@ -300,7 +427,7 @@ class RecordingApi implements Ui03HumanTaskApi {
       decision_id: `decision-${taskId}`,
       status: "DECIDED",
       outcome,
-      reason: outcome === "REJECT" ? (reason ?? "rejected") : null,
+      reason: outcome === "REJECT" ? (reason ?? null) : null,
       decided_at: "2026-09-17T00:00:00Z",
       binding:
         outcome === "ACCEPT" && !this.omitAcceptedBinding
@@ -323,6 +450,7 @@ class RecordingApi implements Ui03HumanTaskApi {
 function projection(
   familyId = "family-1",
   taskId = "task-1",
+  hypothesisRef = `hypothesis-${familyId}`,
 ): Ui03GrowthHypothesisProjection {
   return parseUi03GrowthHypothesisProjection(
     {
@@ -337,7 +465,7 @@ function projection(
       },
       ai_state: "MODEL_DRAFT_READY",
       hypothesis: {
-        hypothesis_ref: `hypothesis-${familyId}`,
+        hypothesis_ref: hypothesisRef,
         subject_person_id: `child-${familyId}`,
         subject_display_name: "孩子",
         focus_ref: "COMMUNICATION",

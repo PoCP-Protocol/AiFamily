@@ -269,6 +269,23 @@ export function parseUi03GrowthHypothesisProjection(
     payload,
   );
   assertPositiveInteger(sourceRefs.tool_version, "tool_version", payload);
+  assertStringArray(
+    hypothesis.required_capability_keys,
+    "required_capability_keys",
+    payload,
+  );
+  assertStringArray(hypothesis.limitations, "limitations", payload);
+  for (const optionalRefs of [
+    "model_boundary_labels",
+    "need_refs",
+    "construct_refs",
+    "action_candidate_refs",
+  ] as const) {
+    const value = hypothesis[optionalRefs];
+    if (value !== undefined && value !== null) {
+      assertStringArray(value, optionalRefs, payload);
+    }
+  }
 
   const scorecard = record(hypothesis.scorecard, "scorecard");
   for (const forbidden of [
@@ -285,6 +302,7 @@ export function parseUi03GrowthHypothesisProjection(
   assertEqual(scorecard.generator, "MODEL_GATEWAY", payload);
   assertEqual(scorecard.draft_status, "DRAFT", payload);
   assertEqual(scorecard.review_status, "REVIEW_REQUIRED", payload);
+  assertStringArray(scorecard.input_refs, "scorecard.input_refs", payload);
   for (const field of [
     "agent_run_ref",
     "provider_ref",
@@ -319,11 +337,14 @@ export function parseAssessmentHumanTaskDecisionReceipt(
   assertEqual(receipt.status, "DECIDED", payload);
   assertEqual(receipt.outcome, expected.outcome, payload);
   assertText(receipt.decided_at, "decided_at", payload);
+  if (receipt.reason !== null && typeof receipt.reason !== "string") {
+    fail("human-task receipt reason must be string or null", payload);
+  }
 
   if (expected.outcome === "REJECT") {
-    if (receipt.binding !== null || !isNonBlankText(receipt.reason)) {
+    if (receipt.binding !== null) {
       fail(
-        "rejection receipt must contain a reason and no confirmation binding",
+        "rejection receipt must not contain a confirmation binding",
         payload,
       );
     }
@@ -369,12 +390,12 @@ export function parseConfirmedGrowthHypothesisReceipt(
   assertText(intent.need_type, "need_type", payload);
   assertEqual(intent.status, "OPEN", payload);
   assertEqual(intent.boundary, "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME", payload);
-  if (
-    !Array.isArray(intent.required_capability_keys) ||
-    !Array.isArray(intent.evidence_refs)
-  ) {
-    fail("growth intent references are malformed", payload);
-  }
+  assertStringArray(
+    intent.required_capability_keys,
+    "intent.required_capability_keys",
+    payload,
+  );
+  assertStringArray(intent.evidence_refs, "intent.evidence_refs", payload);
   return receipt as unknown as GrowthHypothesisDecisionReceipt;
 }
 
@@ -401,6 +422,16 @@ function assertPositiveInteger(
 ): asserts value is number {
   if (!Number.isInteger(value) || (value as number) < 1) {
     fail(`${field} must be a positive integer`, payload);
+  }
+}
+
+function assertStringArray(
+  value: unknown,
+  field: string,
+  payload: unknown,
+): asserts value is string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    fail(`${field} must be an array of strings`, payload);
   }
 }
 

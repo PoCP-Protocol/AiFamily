@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   AssessmentApiContractError,
+  parseAssessmentHumanTaskDecisionReceipt,
+  parseConfirmedGrowthHypothesisReceipt,
   parseUi03GrowthHypothesisProjection,
   type ConfirmGrowthHypothesisBody,
 } from "../lib/family/assessment-api-contracts";
@@ -101,6 +103,87 @@ describe("UI-03 assessment HumanTask HTTP contract", () => {
           },
         },
         "family-1",
+      ),
+    ).toThrow(AssessmentApiContractError);
+  });
+
+  it("rejects malicious receipt values instead of trusting array containers", () => {
+    const expectedRejection = {
+      familyId: "family-1",
+      tenantId: "tenant-1",
+      taskId: "task-1",
+      outcome: "REJECT" as const,
+      hypothesisRef: projection.hypothesis.hypothesis_ref,
+      assessmentSessionId: "assessment-1",
+      subjectPersonId: "child-1",
+      signalVersion: 3,
+    };
+    expect(() =>
+      parseAssessmentHumanTaskDecisionReceipt(
+        {
+          task_id: "task-1",
+          decision_id: "decision-1",
+          status: "DECIDED",
+          outcome: "REJECT",
+          reason: { injected: "not text" },
+          decided_at: "2026-09-17T00:00:00Z",
+          binding: null,
+        },
+        expectedRejection,
+      ),
+    ).toThrow(AssessmentApiContractError);
+
+    expect(() =>
+      parseAssessmentHumanTaskDecisionReceipt(
+        {
+          task_id: "task-1",
+          decision_id: "decision-1",
+          status: "DECIDED",
+          outcome: "REJECT",
+          decided_at: "2026-09-17T00:00:00Z",
+          binding: null,
+        },
+        expectedRejection,
+      ),
+    ).toThrow(AssessmentApiContractError);
+
+    expect(() =>
+      parseConfirmedGrowthHypothesisReceipt(
+        {
+          action: "CONFIRM_GROWTH_HYPOTHESIS",
+          outcome: "INTENT_CREATED",
+          hypothesis_ref: projection.hypothesis.hypothesis_ref,
+          intent: {
+            intent_id: "intent-1",
+            need_type: "FAMILY_COMMUNICATION_SUPPORT",
+            status: "OPEN",
+            required_capability_keys: ["family_dialogue", { injected: true }],
+            evidence_refs: ["evidence-1"],
+            boundary: "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME",
+          },
+          replayed: false,
+        },
+        projection.hypothesis.hypothesis_ref,
+      ),
+    ).toThrow(AssessmentApiContractError);
+
+    expect(() =>
+      parseConfirmedGrowthHypothesisReceipt(
+        {
+          action: "CONFIRM_GROWTH_HYPOTHESIS",
+          outcome: "INTENT_CREATED",
+          hypothesis_ref: projection.hypothesis.hypothesis_ref,
+          intent: {
+            intent_id: "intent-1",
+            need_type: "FAMILY_COMMUNICATION_SUPPORT",
+            status: "OPEN",
+            required_capability_keys: [],
+            evidence_refs: [42],
+            boundary: "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME",
+          },
+          replayed: false,
+        },
+        projection.hypothesis.hypothesis_ref,
       ),
     ).toThrow(AssessmentApiContractError);
   });
