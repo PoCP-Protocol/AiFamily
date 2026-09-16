@@ -34,6 +34,21 @@ class RecordingDecisionHandler:
         }
 
 
+class MalformedDecisionHandler:
+    async def decide(self, task_id, *, outcome, reason, idempotency_key):
+        del outcome, reason, idempotency_key
+        return {
+            "task_id": task_id,
+            "decision_id": "assessment-decision:" + "b" * 64,
+            "status": "DECIDED",
+            "outcome": "ACCEPT",
+            "reason": None,
+            "decided_at": "2026-09-17T08:00:00+00:00",
+            "binding": None,
+            "uncontracted_internal_state": "must-not-cross-http-boundary",
+        }
+
+
 def _client() -> tuple[TestClient, RecordingDecisionHandler]:
     app = FastAPI()
     app.include_router(router, prefix="/families")
@@ -121,6 +136,17 @@ def test_openapi_exposes_frozen_decision_path_and_server_binding() -> None:
     assert set(request_schema["properties"]) == {"outcome", "reason"}
     assert key_parameter["required"] is True
     assert authorization_parameter["required"] is True
+    assert response_schema["additionalProperties"] is False
+    assert set(response_schema["required"]) == {
+        "task_id",
+        "decision_id",
+        "status",
+        "outcome",
+        "reason",
+        "decided_at",
+        "binding",
+    }
+    assert binding_schema["additionalProperties"] is False
     assert set(binding_schema["required"]) == {
         "subject_person_id",
         "assessment_session_id",
@@ -132,3 +158,19 @@ def test_openapi_exposes_frozen_decision_path_and_server_binding() -> None:
         "provenance_ref",
         "human_gate_receipt_ref",
     }
+
+
+def test_decision_response_model_rejects_uncontracted_internal_fields() -> None:
+    client, _ = _client()
+    client.app.dependency_overrides[dependencies.get_assessment_human_task_decision_handler] = (
+        MalformedDecisionHandler
+    )
+    strict_client = TestClient(client.app, raise_server_exceptions=False)
+
+    response = strict_client.post(
+        PATH,
+        headers={**AUTHORIZATION, "Idempotency-Key": "malformed-response"},
+        json={"outcome": "ACCEPT"},
+    )
+
+    assert response.status_code == 500

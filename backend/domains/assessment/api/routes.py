@@ -301,7 +301,7 @@ async def decide_growth_hypothesis(
 
 @router.post(
     "/{family_id}/assessment/human-tasks/{task_id}/decisions",
-    responses={200: {"model": AssessmentHumanTaskDecisionReceiptResponse}},
+    response_model=AssessmentHumanTaskDecisionReceiptResponse,
 )
 async def decide_assessment_human_task(
     family_id: str,

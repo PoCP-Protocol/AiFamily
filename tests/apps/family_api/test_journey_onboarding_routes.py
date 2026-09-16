@@ -398,6 +398,23 @@ def test_growth_onboarding_openapi_response_is_closed() -> None:
     client, _runtime, _scope = _application()
     spec = client.get("/openapi.json").json()
     operation = spec["paths"]["/families/{family_id}/growth/onboardings"]["post"]
+    parameters = {
+        (parameter["in"], parameter["name"]): parameter for parameter in operation["parameters"]
+    }
+    authorization = parameters[("header", "Authorization")]
+    idempotency_key = parameters[("header", "Idempotency-Key")]
+    assert authorization["required"] is True
+    assert authorization["schema"] == {
+        "type": "string",
+        "minLength": 8,
+        "pattern": r"^Bearer \S+$",
+    }
+    assert idempotency_key["required"] is True
+    assert idempotency_key["schema"] == {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+    }
     response_schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
     assert response_schema == {"$ref": "#/components/schemas/StartGrowthOnboardingResponse"}
 

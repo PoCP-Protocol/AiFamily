@@ -13,7 +13,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Protocol
 
-from fastapi import FastAPI, Header, HTTPException, Path
+from fastapi import FastAPI, HTTPException, Path, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -176,11 +176,11 @@ def install_growth_onboarding_wiring(
     app.include_router(router)
 
     async def resolve_actor(
+        request: Request,
         family_id: str = Path(...),
-        authorization: str | None = Header(default=None),
     ) -> GrowthOnboardingActorContext:
         try:
-            return await actor_resolver.resolve(authorization, family_id)
+            return await actor_resolver.resolve(request.headers.get("Authorization"), family_id)
         except GrowthOnboardingAuthenticationError as error:
             raise HTTPException(status_code=401, detail=str(error)) from error
         except GrowthOnboardingScopeError as error:

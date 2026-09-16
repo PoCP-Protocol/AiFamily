@@ -326,6 +326,8 @@ class GrowthHypothesisDecisionReceiptResponse(BaseModel):
 class AssessmentHumanTaskConfirmationBindingResponse(BaseModel):
     """Server-owned values required by the existing CONFIRM command."""
 
+    model_config = ConfigDict(extra="forbid")
+
     subject_person_id: str
     assessment_session_id: str
     hypothesis_ref: str
@@ -338,6 +340,8 @@ class AssessmentHumanTaskConfirmationBindingResponse(BaseModel):
 
 
 class AssessmentHumanTaskDecisionReceiptResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     task_id: str
     decision_id: str
     status: Literal["DECIDED"]
