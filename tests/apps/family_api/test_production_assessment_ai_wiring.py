@@ -50,6 +50,7 @@ from backend.intelligence.context_engine.sql_store import (
     AsyncSqlContextBroker,
     ContextPersistenceBase,
 )
+from backend.intelligence.human_gate.persistence import HumanGateBase
 from backend.intelligence.model_gateway.attempt_persistence import (
     AttemptPersistenceBase,
     SqlAlchemyAttemptSink,
@@ -67,6 +68,7 @@ from backend.intelligence.safety.persistence import (
 from backend.intelligence.safety.runtime import SafetyRuntime
 from backend.intelligence.schema_registry.contracts import SchemaDefinition
 from backend.intelligence.schema_registry.registry import SchemaRegistry
+from backend.platform.audit.store import AuditBase
 
 NOW = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
 ROOT = Path(__file__).resolve().parents[3]
@@ -106,6 +108,8 @@ async def dependencies():
         await connection.run_sync(AttemptPersistenceBase.metadata.create_all)
         await connection.run_sync(SafetyDecisionPersistenceBase.metadata.create_all)
         await connection.run_sync(TelemetryPersistenceBase.metadata.create_all)
+        await connection.run_sync(HumanGateBase.metadata.create_all)
+        await connection.run_sync(AuditBase.metadata.create_all)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     broker = AsyncSqlContextBroker(session_factory)
     try:

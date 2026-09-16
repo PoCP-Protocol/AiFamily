@@ -9,10 +9,11 @@ here.
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -24,10 +25,20 @@ from backend.intelligence.agent_runtime.gateway_port import ModelGatewayExecutio
 from backend.intelligence.agent_runtime.persistence import SqlAlchemyAgentRunStore
 from backend.intelligence.context_engine.async_port import AsyncContextBrokerPort
 from backend.intelligence.context_engine.contracts import ContextScope, ContextScopeError
+from backend.intelligence.human_gate.contracts import (
+    ActionProposal,
+    ActorType,
+    DecisionOutcome,
+    GateScope,
+    HumanTask,
+    NamedActionRequest,
+)
+from backend.intelligence.human_gate.persistence import SqlAlchemyHumanGate
 from backend.intelligence.model_gateway.attempts import AttemptSink
 from backend.intelligence.model_gateway.gateway import ModelGateway
 from backend.intelligence.observability import TelemetrySink
 from backend.intelligence.safety.persistence import SafetyDecisionSink
+from backend.platform.audit import AuditRecorder
 from backend.platform.persistence.unit_of_work import SqlAlchemyUnitOfWork
 
 ScopeResolver = Callable[[str], ContextScope | Awaitable[ContextScope]]
@@ -37,6 +48,8 @@ SafetySinkFactory = Callable[[AsyncSession], SafetyDecisionSink]
 TelemetrySinkFactory = Callable[[AsyncSession], TelemetrySink]
 RegistryFactory = Callable[[AsyncSession], object]
 PRODUCTION_ENVIRONMENTS = frozenset({"staging", "production"})
+ASSESSMENT_REVIEW_ACTION = "CONFIRM_GROWTH_HYPOTHESIS"
+ASSESSMENT_REVIEW_USE_CASE = "assessment_interpretation"
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +65,7 @@ class ProductionAgentRuntime:
     schema_registry: object | None
     prompt_registry_factory: RegistryFactory | None
     schema_registry_factory: RegistryFactory | None
+    execution_material_resolver: object | None
     attempt_sink_factory: AttemptSinkFactory
     safety_sink_factory: SafetySinkFactory
     telemetry_sink_factory: TelemetrySinkFactory
@@ -100,6 +114,7 @@ class ProductionAgentRuntime:
                 registry_path=self.registry_path,
                 prompt_registry=prompt_registry,
                 schema_registry=schema_registry,
+                execution_material_resolver=self.execution_material_resolver,
                 run_store=SqlAlchemyAgentRunStore(session),
                 authorizer=self.authorizer,
                 clock=self.clock,
@@ -111,8 +126,104 @@ class ProductionAgentRuntime:
                 scope=self.scope,
                 idempotency_key=idempotency_key,
             )
+            if result.draft.safety_review is not None:
+                result = await self._stage_safety_review(session, result, task=task)
             await unit_of_work.commit()
             return result
+
+    async def decide_review(
+        self,
+        task_id: str,
+        *,
+        actor_id: str,
+        actor_type: ActorType | str,
+        outcome: DecisionOutcome | str,
+        decision_id: str,
+        reason: str | None = None,
+    ) -> tuple[HumanTask, NamedActionRequest | None]:
+        """Decide an FE-S01 task against the freshly resolved trusted scope.
+
+        ACCEPT returns a NamedActionRequest; this boundary never executes the
+        action or writes an assessment fact.
+        """
+
+        self.scope.assert_active()
+        async with SqlAlchemyUnitOfWork(self.session_factory) as unit_of_work:
+            session = unit_of_work.session
+            if session is None:  # pragma: no cover - UoW contract guard
+                raise RuntimeError("production Agent UoW did not open a session")
+            gate = SqlAlchemyHumanGate(session)
+            task = await gate.get(task_id)
+            _assert_gate_scope(self.scope, task.proposal.scope)
+            if task.proposal.action_name != ASSESSMENT_REVIEW_ACTION:
+                raise ContextScopeError("AGENT_HUMAN_GATE_ACTION_MISMATCH")
+            recorder = AuditRecorder()
+            decided, request = await gate.decide(
+                task_id,
+                actor_id=actor_id,
+                actor_type=actor_type,
+                outcome=outcome,
+                recorder=recorder,
+                reason=reason,
+                decision_id=decision_id,
+                now=self.clock() if self.clock is not None else None,
+            )
+            await gate.flush_audit(recorder)
+            await unit_of_work.commit()
+            return decided, request
+
+    async def _stage_safety_review(
+        self,
+        session: AsyncSession,
+        result: AgentRun,
+        *,
+        task: AgentTask,
+    ) -> AgentRun:
+        if task.use_case != ASSESSMENT_REVIEW_USE_CASE:
+            # Growth plans and other high-impact flows retain their dedicated
+            # review envelopes. The generic bridge never creates a second,
+            # weaker action for them; the ModelDraft remains non-publishable.
+            return result
+        review = result.draft.safety_review
+        if review is None:  # pragma: no cover - caller guard
+            return result
+        identity = _assessment_review_identity(
+            task.tenant_id,
+            task.family_id,
+            result.run_id,
+        )
+        draft_id = f"agent-draft:{identity}"
+        proposal = ActionProposal(
+            proposal_id=f"agent-review:{identity}",
+            draft_id=draft_id,
+            draft_status=result.draft.status,
+            action_name=ASSESSMENT_REVIEW_ACTION,
+            action_arguments={
+                "agent_run_ref": result.run_id,
+                "agent_request_ref": result.request_id,
+                "draft_ref": draft_id,
+                "recommendation_status": "PROPOSED",
+            },
+            scope=_gate_scope(self.scope),
+            allowed_actor_types=(ActorType.GUARDIAN,),
+            risk_level=review.risk_level,
+            provenance_ref=f"agent-provenance:{identity}",
+            created_at=result.completed_at,
+            expires_at=result.completed_at + timedelta(hours=24),
+        )
+        recorder = AuditRecorder()
+        gate = SqlAlchemyHumanGate(session)
+        human_task = await gate.submit(
+            proposal,
+            recorder=recorder,
+            task_id=assessment_review_task_ref(
+                task.tenant_id,
+                task.family_id,
+                result.run_id,
+            ),
+        )
+        await gate.flush_audit(recorder)
+        return replace(result, human_task_ref=human_task.task_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +242,7 @@ class ProductionAgentRuntimeResolver:
     schema_registry: object | None = None
     prompt_registry_factory: RegistryFactory | None = None
     schema_registry_factory: RegistryFactory | None = None
+    execution_material_resolver: object | None = None
     telemetry_sink_factory: TelemetrySinkFactory | None = None
     context_broker: AsyncContextBrokerPort | None = None
     authorizer: AgentAuthorizer | None = None
@@ -164,6 +276,10 @@ class ProductionAgentRuntimeResolver:
             raise TypeError("prompt_registry_factory must be callable")
         if self.schema_registry_factory is not None and not callable(self.schema_registry_factory):
             raise TypeError("schema_registry_factory must be callable")
+        if self.execution_material_resolver is not None and not callable(
+            getattr(self.execution_material_resolver, "resolve", None)
+        ):
+            raise TypeError("execution_material_resolver must implement resolve")
         if not callable(self.attempt_sink_factory):
             raise TypeError("attempt_sink_factory must be callable")
         if not callable(self.safety_sink_factory):
@@ -202,6 +318,7 @@ class ProductionAgentRuntimeResolver:
             schema_registry=self.schema_registry,
             prompt_registry_factory=self.prompt_registry_factory,
             schema_registry_factory=self.schema_registry_factory,
+            execution_material_resolver=self.execution_material_resolver,
             attempt_sink_factory=self.attempt_sink_factory,
             safety_sink_factory=self.safety_sink_factory,
             telemetry_sink_factory=self.telemetry_sink_factory,
@@ -244,4 +361,37 @@ class ProductionAgentRuntimeResolver:
         return replace(runtime, scope=narrowed_scope)
 
 
-__all__ = ["ProductionAgentRuntime", "ProductionAgentRuntimeResolver"]
+def _gate_scope(scope: ContextScope) -> GateScope:
+    return GateScope(
+        tenant_id=scope.tenant_id,
+        family_id=scope.family_id,
+        subject_ids=scope.subject_ids,
+        purpose=scope.purpose,
+        consent_version=scope.consent_version,
+        correlation_id=scope.correlation_id,
+        region_id=scope.region_id,
+        deletion_ref=scope.deletion_ref,
+    )
+
+
+def _assert_gate_scope(current: ContextScope, frozen: GateScope) -> None:
+    if _gate_scope(current) != frozen:
+        raise ContextScopeError("AGENT_HUMAN_GATE_SCOPE_STALE")
+
+
+def _assessment_review_identity(tenant_id: str, family_id: str, run_id: str) -> str:
+    return hashlib.sha256(f"{tenant_id}:{family_id}:{run_id}".encode()).hexdigest()
+
+
+def assessment_review_task_ref(tenant_id: str, family_id: str, run_id: str) -> str:
+    """Return the deterministic FE-S01 HumanTask reference for a durable run."""
+
+    identity = _assessment_review_identity(tenant_id, family_id, run_id)
+    return f"human-task:agent-review:{identity}"
+
+
+__all__ = [
+    "ProductionAgentRuntime",
+    "ProductionAgentRuntimeResolver",
+    "assessment_review_task_ref",
+]

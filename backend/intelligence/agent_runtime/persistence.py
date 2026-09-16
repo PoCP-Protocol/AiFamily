@@ -21,7 +21,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from backend.intelligence.agent_runtime.contracts import AgentRun, AgentTask
-from backend.intelligence.model_gateway.contracts import AiProvenance, ModelDraft, TokenUsage
+from backend.intelligence.model_gateway.contracts import (
+    AiProvenance,
+    ModelDraft,
+    ModelSafetyReview,
+    TokenUsage,
+)
 
 
 class AgentRunPersistenceBase(DeclarativeBase):
@@ -177,11 +182,9 @@ class AgentRunPersistencePort(Protocol):
         trace_id: str,
         idempotency_key: str,
         started_at: datetime | None = None,
-    ) -> AgentRunRecord:
-        ...
+    ) -> AgentRunRecord: ...
 
-    async def succeed(self, run: AgentRun, *, scope: AgentRunScope) -> AgentRunRecord:
-        ...
+    async def succeed(self, run: AgentRun, *, scope: AgentRunScope) -> AgentRunRecord: ...
 
     async def fail(
         self,
@@ -190,14 +193,11 @@ class AgentRunPersistencePort(Protocol):
         scope: AgentRunScope,
         error_code: str,
         completed_at: datetime | None = None,
-    ) -> AgentRunRecord:
-        ...
+    ) -> AgentRunRecord: ...
 
-    async def append_trace(self, event: AgentTraceEvent) -> AgentTraceEvent:
-        ...
+    async def append_trace(self, event: AgentTraceEvent) -> AgentTraceEvent: ...
 
-    async def replay(self, run_id: str, *, scope: AgentRunScope) -> AgentRunReplay | None:
-        ...
+    async def replay(self, run_id: str, *, scope: AgentRunScope) -> AgentRunReplay | None: ...
 
     async def replay_by_request_id(
         self,
@@ -522,6 +522,14 @@ def _encode_draft(draft: ModelDraft) -> dict[str, Any]:
             "generated_at": provenance.generated_at.isoformat(),
         },
     }
+    if draft.safety_review is not None:
+        payload["safety_review"] = {
+            "status": draft.safety_review.status,
+            "risk_level": draft.safety_review.risk_level,
+            "reasons": list(draft.safety_review.reasons),
+            "requires_human_gate": draft.safety_review.requires_human_gate,
+            "policy_version": draft.safety_review.policy_version,
+        }
     return payload
 
 
@@ -535,9 +543,20 @@ def _decode_draft(payload: Mapping[str, Any] | None) -> ModelDraft | None:
         raise AgentRunPersistenceError("AGENT_RUN_DRAFT_PROVENANCE_REQUIRED")
     usage = provenance.get("token_usage")
     token_usage = TokenUsage(**usage) if isinstance(usage, Mapping) else None
+    safety_review_payload = payload.get("safety_review")
+    safety_review = None
+    if isinstance(safety_review_payload, Mapping):
+        safety_review = ModelSafetyReview(
+            status=str(safety_review_payload["status"]),
+            risk_level=str(safety_review_payload["risk_level"]),
+            reasons=tuple(str(reason) for reason in safety_review_payload["reasons"]),
+            requires_human_gate=bool(safety_review_payload["requires_human_gate"]),
+            policy_version=str(safety_review_payload["policy_version"]),
+        )
     return ModelDraft(
         output=dict(payload.get("output", {})),
         status="DRAFT",
+        safety_review=safety_review,
         provenance=AiProvenance(
             provider_id=str(provenance["provider_id"]),
             model=str(provenance["model"]),

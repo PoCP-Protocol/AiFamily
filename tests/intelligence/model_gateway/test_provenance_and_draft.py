@@ -226,7 +226,7 @@ class TestDraftIsNotABusinessEntity:
         domain's Named Action with a human actor (R8/R9), never something the
         gateway's own type can express."""
         field_names = {f.name for f in dataclasses.fields(ModelDraft)}
-        assert field_names == {"output", "provenance", "status"}
+        assert field_names == {"output", "provenance", "status", "safety_review"}
         draft = ModelDraft(output={}, provenance=_provenance())
         assert not [name for name in dir(draft) if "promote" in name or "approve" in name]
 

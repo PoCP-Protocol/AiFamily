@@ -44,9 +44,7 @@ class AgentDefinition:
         if not self.context_policy or not self.safety_policy:
             raise ValueError("AgentDefinition context_policy and safety_policy are required")
         if not self.human_handoff_policy or not self.budget_policy:
-            raise ValueError(
-                "AgentDefinition human_handoff_policy and budget_policy are required"
-            )
+            raise ValueError("AgentDefinition human_handoff_policy and budget_policy are required")
 
     @property
     def may_mutate_business_state(self) -> bool:
@@ -171,8 +169,7 @@ class AgentExecutionPort(Protocol):
     agents from importing a provider SDK or constructing a provider adapter.
     """
 
-    async def generate_structured(self, request: StructuredRequest) -> ModelDraft:
-        ...
+    async def generate_structured(self, request: StructuredRequest) -> ModelDraft: ...
 
 
 # Descriptive alias retained for callers that want to emphasize the gateway's
@@ -191,6 +188,7 @@ class AgentRun:
     family_id: str
     use_case: str
     draft: ModelDraft
+    human_task_ref: str | None = None
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     completed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 

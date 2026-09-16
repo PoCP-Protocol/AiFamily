@@ -19,6 +19,7 @@ from typing import Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from backend.apps.family_api.production_agent_wiring import assessment_review_task_ref
 from backend.domains.assessment.application.ports import AssessmentInterpretationPort
 from backend.domains.assessment.domain.entities import GrowthHypothesisEvidence
 from backend.domains.assessment.domain.interpretation_boundary import (
@@ -45,6 +46,8 @@ from backend.intelligence.context_engine.contracts import (
     DataClass,
     StateObservation,
 )
+from backend.intelligence.human_gate.errors import HumanGateError
+from backend.intelligence.human_gate.persistence import SqlAlchemyHumanGate
 from backend.intelligence.principal.contracts import (
     PrincipalCapability,
     PrincipalEntryPoint,
@@ -172,11 +175,40 @@ class SqlAlchemyAssessmentRunReplayResolver:
             raise TypeError("session_factory must be an async_sessionmaker")
 
     async def __call__(self, request_id: str, scope: ContextScope) -> AgentRun | None:
+        human_task_ref = None
         async with self.session_factory() as session:
             replay = await SqlAlchemyAgentRunStore(session).replay_by_request_id(
                 request_id,
                 scope=AgentRunScope(scope.tenant_id, scope.family_id),
             )
+            if (
+                replay is not None
+                and replay.run.draft is not None
+                and replay.run.draft.safety_review is not None
+            ):
+                human_task_ref = assessment_review_task_ref(
+                    scope.tenant_id,
+                    scope.family_id,
+                    replay.run.run_id,
+                )
+                try:
+                    task = await SqlAlchemyHumanGate(session).get(human_task_ref)
+                except HumanGateError as exc:
+                    if exc.code == "TASK_NOT_FOUND":
+                        raise RuntimeError("ASSESSMENT_HUMAN_TASK_MISSING") from exc
+                    raise
+                frozen = task.proposal.scope
+                if (
+                    frozen.tenant_id != scope.tenant_id
+                    or frozen.family_id != scope.family_id
+                    or frozen.subject_ids != scope.subject_ids
+                    or frozen.purpose != scope.purpose
+                    or frozen.consent_version != scope.consent_version
+                    or frozen.region_id != scope.region_id
+                    or frozen.deletion_ref != scope.deletion_ref
+                    or task.proposal.action_name != "CONFIRM_GROWTH_HYPOTHESIS"
+                ):
+                    raise RuntimeError("ASSESSMENT_HUMAN_TASK_SCOPE_MISMATCH")
         if replay is None:
             return None
         record = replay.run
@@ -194,6 +226,7 @@ class SqlAlchemyAssessmentRunReplayResolver:
             family_id=record.family_id,
             use_case=record.use_case,
             draft=record.draft,
+            human_task_ref=human_task_ref,
             started_at=record.started_at,
             completed_at=record.completed_at or record.started_at,
         )
@@ -368,6 +401,10 @@ class AssessmentAiInterpretationAdapter(AssessmentInterpretationPort):
                 "context_snapshot_ref": provenance.context_snapshot_ref,
                 "input_refs": list(input_refs),
                 "draft_status": run.draft.status,
+                "human_task_ref": run.human_task_ref,
+                "review_status": (
+                    "REVIEW_REQUIRED" if run.draft.safety_review is not None else "DRAFT_ONLY"
+                ),
             },
         }
 

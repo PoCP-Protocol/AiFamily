@@ -23,6 +23,7 @@ _PROHIBITED_USE_CASES = frozenset(
 )
 _HIGH_IMPACT_USE_CASES = frozenset(
     {
+        "assessment_interpretation",
         "growth_plan_draft",
         "daily_action_proposal",
         "service_matching_recommendation",
