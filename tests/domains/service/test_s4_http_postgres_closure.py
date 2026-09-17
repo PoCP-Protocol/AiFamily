@@ -26,6 +26,7 @@ from backend.domains.service.infrastructure.sqlalchemy_repository import (
     SqlAlchemyServiceRepository,
 )
 from backend.platform.audit.recorder import AuditRecorder
+from backend.platform.audit.store import AuditBase, read_all_events
 from backend.platform.identity.context import ActorContext, ActorType, TenantStatus
 from backend.platform.identity.directory import InMemoryTenantDirectory
 from tests.domains.service.helpers import CHILD, CONSENT_REF, FAMILY, GUARDIAN, TENANT, granted
@@ -96,6 +97,8 @@ async def test_guardian_books_then_cancels_over_http_and_postgres_reconnects() -
         pytest.skip(SKIP_REASON)
 
     async with postgres_schema_engine(Base.metadata) as engine:
+        async with engine.begin() as connection:
+            await connection.run_sync(AuditBase.metadata.create_all)
         sessions = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         async with sessions() as session:
             state = _HttpState(SqlAlchemyServiceRepository(session))
@@ -197,15 +200,14 @@ async def test_guardian_books_then_cancels_over_http_and_postgres_reconnects() -
         # Dispose the connection pool to model an application process restart;
         # the next repository must reconnect and reconstruct state from PG.
         await engine.dispose()
-        restarted_sessions = async_sessionmaker(
-            engine, class_=AsyncSession, expire_on_commit=False
-        )
+        restarted_sessions = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         async with restarted_sessions() as restarted_session:
             restarted_repo = SqlAlchemyServiceRepository(restarted_session)
             persisted_booking = await restarted_repo.load_booking(booking_id)
             persisted_record = await restarted_repo.load_service_record(record_id)
             persisted_slot = await restarted_repo.load_slot(slot.json()["availability_slot_id"])
             events = await restarted_repo.list_pending_service_events(TENANT)
+            persisted_audit = await read_all_events(restarted_session, tenant_id=TENANT)
 
             assert persisted_booking is not None and persisted_booking.status == "CANCELLED"
             assert persisted_record is not None and persisted_record.status == "CANCELLED"
@@ -214,3 +216,7 @@ async def test_guardian_books_then_cancels_over_http_and_postgres_reconnects() -
             assert sum(event.event_type == "service.booking_cancelled.v1" for event in events) == 1
             assert not any("cash" in key for event in events for key in event.payload)
             assert not any("contribution" in event.event_type for event in events)
+            assert any(
+                event.action == "cancel_booking_request" and event.resource_id == booking_id
+                for event in persisted_audit
+            )
