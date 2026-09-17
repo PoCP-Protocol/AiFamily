@@ -48,6 +48,7 @@ import inspect
 import json
 import re
 import time
+from dataclasses import replace
 from types import MappingProxyType
 from typing import Any
 from uuid import uuid4
@@ -65,6 +66,7 @@ from backend.intelligence.model_gateway.budget import (
 from backend.intelligence.model_gateway.contracts import (
     AiProvenance,
     ModelDraft,
+    ModelSafetyReview,
     StructuredRequest,
     TokenUsage,
 )
@@ -332,9 +334,7 @@ class ModelGateway:
             default_timeout_seconds=self._default_timeout_seconds,
         )
 
-    def with_invocation_fence(
-        self, invocation_fence: ModelInvocationFence
-    ) -> ModelGateway:
+    def with_invocation_fence(self, invocation_fence: ModelInvocationFence) -> ModelGateway:
         """Return an equivalent gateway with a request-safe release fence."""
 
         if invocation_fence is None:
@@ -428,7 +428,6 @@ class ModelGateway:
                     "safety policy blocked the model request",
                     provider_id=provider_id,
                 )
-
         record = self._registry.admit(
             provider_id,
             data_class=request.data_class,
@@ -602,9 +601,7 @@ class ModelGateway:
                 else None
             ),
             control_id=(
-                request.release_binding.control_id
-                if request.release_binding is not None
-                else None
+                request.release_binding.control_id if request.release_binding is not None else None
             ),
             fence_claim_id=(fence_claim.claim_id if fence_claim is not None else None),
         )
@@ -660,6 +657,15 @@ class ModelGateway:
                     "POLICY_REJECTED",
                     "safety policy blocked the model output",
                     provider_id=provider_id,
+                )
+            if decision.status == "REVIEW":
+                draft = replace(
+                    draft,
+                    safety_review=ModelSafetyReview(
+                        risk_level=decision.risk_level,
+                        reasons=decision.reasons,
+                        policy_version=self._safety.policy_version,
+                    ),
                 )
 
         await self._finish_attempt(
@@ -889,9 +895,7 @@ class ModelGateway:
                 begin_kwargs["deployment_receipt_id"] = (
                     request.release_binding.deployment_receipt_id
                 )
-                begin_kwargs["deployment_sequence"] = (
-                    request.release_binding.deployment_sequence
-                )
+                begin_kwargs["deployment_sequence"] = request.release_binding.deployment_sequence
                 begin_kwargs["runtime_config_digest"] = (
                     request.release_binding.runtime_config_digest
                 )

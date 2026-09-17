@@ -7,6 +7,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { familyApi, FamilyApiError } from "@/lib/family/family-api-client";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
+import { ui03FlowContextForFamily } from "@/lib/family/family-state-core";
 import { useFamilyMobile } from "@/lib/family/family-state";
 import type { JourneyPlanProjection, ServiceJourneyProjection } from "@/lib/family/growth-api-contracts";
 import type { ExperienceMediaKind, MultimodalDraftResponse, MultimodalFeedbackSignal } from "@/lib/family/multimodal-api-contracts";
@@ -23,7 +24,11 @@ const SERVICE_CARDS = [
 
 export default function CompanionJourneyScreen() {
   const session = useFamilyApiSession();
-  const { activeOnboardingId } = useFamilyMobile();
+  const { ui03FlowContext } = useFamilyMobile();
+  const activeOnboardingId = ui03FlowContextForFamily(
+    ui03FlowContext,
+    session.selectedFamily?.family_id ?? null,
+  )?.onboardingId ?? null;
   const [remote, setRemote] = useState<ServiceJourneyProjection | null>(null);
   const [journeyPlan, setJourneyPlan] = useState<JourneyPlanProjection | null>(null);
   const [loadState, setLoadState] = useState<"idle" | "loading" | "ready" | "empty" | "denied" | "error">("idle");
@@ -46,6 +51,8 @@ export default function CompanionJourneyScreen() {
   const isRoutingToCheckin = useRef(false);
 
   useEffect(() => {
+    setRemote(null);
+    setJourneyPlan(null);
     if (session.status !== "connected" || !session.token || !session.selectedFamily || !activeOnboardingId) {
       setLoadState(activeOnboardingId ? "idle" : "empty");
       return;

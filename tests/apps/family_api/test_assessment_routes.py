@@ -29,6 +29,7 @@ intent's `boundary` (a confirmation yields an intent, not an outcome).
 
 from __future__ import annotations
 
+import os
 import uuid
 
 import pytest
@@ -36,9 +37,69 @@ from fastapi.testclient import TestClient
 
 from backend.apps.family_api.dev_wiring import reset_dev_state
 from backend.apps.family_api.main import create_app
+from backend.platform.persistence.session import DATABASE_URL_ENV_VAR
 
 FAMILY = "family-a"
 OTHER_FAMILY = "family-b"
+UI03_TOP_LEVEL_KEYS = {
+    "projection_version",
+    "tenant_id",
+    "family_id",
+    "availability",
+    "latest_assessment_session_id",
+    "hypothesis",
+    "named_actions",
+    "ai_state",
+}
+UI03_HYPOTHESIS_KEYS = {
+    "hypothesis_ref",
+    "subject_person_id",
+    "subject_display_name",
+    "focus_ref",
+    "need_type_ref",
+    "need_type_version",
+    "title",
+    "statement",
+    "required_capability_keys",
+    "source_refs",
+    "limitations",
+    "generator",
+    "model_draft_ref",
+    "model_generator",
+    "model_component_ref",
+    "model_boundary_labels",
+    "need_refs",
+    "construct_refs",
+    "action_candidate_refs",
+    "fact_boundary",
+    "scorecard",
+}
+UI03_SOURCE_REF_KEYS = {
+    "assessment_session_id",
+    "assessment_response_id",
+    "assessment_evidence_id",
+    "tool_ref",
+    "tool_version",
+    "assessment_submitted_at",
+}
+FORBIDDEN_SCORE_KEYS = {
+    "score",
+    "overall_score",
+    "overall_band",
+    "dimensions",
+    "dimension_ref",
+    "peer_reference",
+    "ranking",
+    "rank",
+}
+
+
+def _object_keys(value: object) -> set[str]:
+    if isinstance(value, dict):
+        return set(value).union(*(_object_keys(item) for item in value.values()), set())
+    if isinstance(value, list):
+        return set().union(*(_object_keys(item) for item in value), set())
+    return set()
 
 
 @pytest.fixture(autouse=True)
@@ -46,15 +107,23 @@ def _dev_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """`create_app` only installs dev wiring when the environment says dev.
 
     Set before `create_app` is called, not after: the decision is made once at
-    construction time.
+    construction time. This file exercises the synthetic HTTP contract, so an
+    ambient CI database URL must not silently replace its fake identity seam;
+    real PostgreSQL behavior is covered by the dedicated E2E module.
     """
     monkeypatch.setenv("AIFAMILY_ENV", "dev")
+    monkeypatch.delenv(DATABASE_URL_ENV_VAR, raising=False)
     reset_dev_state()
 
 
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(create_app())
+
+
+def test_dev_http_contract_fixture_isolates_ambient_database_url() -> None:
+    database_url_is_present = DATABASE_URL_ENV_VAR in os.environ
+    assert database_url_is_present is False
 
 
 def _auth(client: TestClient, family: str = FAMILY, key: str = "auth-1") -> dict[str, str]:
@@ -174,7 +243,13 @@ def test_http_chain_is_idempotent_end_to_end(client: TestClient) -> None:
     assert projection.status_code == 200, projection.text
     assert projection.json()["availability"] == "READY"
 
-    hypothesis = projection.json()["hypothesis"]
+    projection_body = projection.json()
+    hypothesis = projection_body["hypothesis"]
+    assert set(projection_body) == UI03_TOP_LEVEL_KEYS
+    assert set(hypothesis) == UI03_HYPOTHESIS_KEYS
+    assert set(hypothesis["source_refs"]) == UI03_SOURCE_REF_KEYS
+    assert hypothesis["scorecard"] == {"generator": "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC"}
+    assert _object_keys(projection_body).isdisjoint(FORBIDDEN_SCORE_KEYS)
     # R9, first half: the model's product is a hypothesis and says so about
     # itself. A projection that presented this as established fact is the exact
     # failure R9 exists to prevent.
@@ -334,3 +409,75 @@ def test_malformed_subject_person_id_is_rejected(client: TestClient) -> None:
     )
     assert response.status_code == 400
     assert response.json()["detail"] == "valid_subject_person_id_required"
+
+
+def test_ui03_openapi_is_closed_and_discriminates_scorecards(client: TestClient) -> None:
+    spec = client.get("/openapi.json").json()
+    operation = spec["paths"]["/families/{family_id}/ui/03/growth-hypothesis"]["get"]
+    response_schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
+    assert response_schema == {
+        "$ref": "#/components/schemas/Ui03GrowthHypothesisProjectionResponse"
+    }
+
+    schemas = spec["components"]["schemas"]
+    projection = schemas["Ui03GrowthHypothesisProjectionResponse"]
+    hypothesis = schemas["Ui03GrowthHypothesisModel"]
+    source_refs = schemas["Ui03SourceRefsModel"]
+    named_actions = schemas["Ui03NamedActionsModel"]
+    deterministic = schemas["Ui03DeterministicScorecardModel"]
+    gateway = schemas["Ui03ModelGatewayScorecardModel"]
+
+    assert projection["additionalProperties"] is False
+    assert set(projection["properties"]) == UI03_TOP_LEVEL_KEYS
+    assert set(projection["required"]) == UI03_TOP_LEVEL_KEYS
+    assert hypothesis["additionalProperties"] is False
+    assert set(hypothesis["properties"]) == UI03_HYPOTHESIS_KEYS
+    assert set(hypothesis["required"]) == UI03_HYPOTHESIS_KEYS
+    assert source_refs["additionalProperties"] is False
+    assert set(source_refs["properties"]) == UI03_SOURCE_REF_KEYS
+    assert set(source_refs["required"]) == UI03_SOURCE_REF_KEYS
+    assert named_actions["additionalProperties"] is False
+    assert set(named_actions["properties"]) == {"confirm", "dismiss"}
+    assert set(named_actions["required"]) == {"confirm", "dismiss"}
+    assert deterministic["additionalProperties"] is False
+    assert deterministic["required"] == ["generator"]
+
+    scorecard = hypothesis["properties"]["scorecard"]
+    assert scorecard["discriminator"] == {
+        "propertyName": "generator",
+        "mapping": {
+            "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC": (
+                "#/components/schemas/Ui03DeterministicScorecardModel"
+            ),
+            "MODEL_GATEWAY": "#/components/schemas/Ui03ModelGatewayScorecardModel",
+        },
+    }
+    assert {item["$ref"] for item in scorecard["oneOf"]} == {
+        "#/components/schemas/Ui03DeterministicScorecardModel",
+        "#/components/schemas/Ui03ModelGatewayScorecardModel",
+    }
+    gateway_keys = {
+        "generator",
+        "agent_run_ref",
+        "provider_ref",
+        "model_ref",
+        "model_version",
+        "prompt_version",
+        "schema_version",
+        "context_snapshot_ref",
+        "input_refs",
+        "draft_status",
+        "human_task_ref",
+        "review_status",
+    }
+    assert gateway["additionalProperties"] is False
+    assert set(gateway["properties"]) == gateway_keys
+    assert set(gateway["required"]) == gateway_keys
+    assert gateway["properties"]["input_refs"] == {
+        "items": {"type": "string"},
+        "type": "array",
+        "title": "Input Refs",
+    }
+    assert _object_keys(
+        {name: schemas[name] for name in schemas if name.startswith("Ui03")}
+    ).isdisjoint(FORBIDDEN_SCORE_KEYS)

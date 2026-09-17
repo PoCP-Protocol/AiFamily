@@ -6,6 +6,7 @@
   POST :familyId/assessments/sessions/:sessionId/submit
   GET  :familyId/ui/03/growth-hypothesis
   POST :familyId/growth-hypotheses/decisions
+  POST :familyId/assessment/human-tasks/:taskId/decisions
   GET  :familyId/assessments/results/latest
 
 Auth/family-context extraction is a thin FastAPI dependency
@@ -55,18 +56,22 @@ from ..domain.errors import (
     AssessmentValidationError,
 )
 from .dependencies import (
+    AssessmentHumanTaskDecisionHandler,
     FamilyContext,
+    get_assessment_human_task_decision_handler,
     get_command_handler,
     get_family_context,
     get_growth_hypothesis_handler,
     get_query_handler,
 )
 from .requests import (
+    DecideAssessmentHumanTaskRequestBody,
     DecideGrowthHypothesisRequestBody,
     SaveAssessmentResponseRequestBody,
     StartAssessmentRequestBody,
 )
 from .responses import (
+    AssessmentHumanTaskDecisionReceiptResponse,
     AssessmentMutationReceiptResponse,
     AssessmentResultProjectionResponse,
     GrowthHypothesisDecisionReceiptResponse,
@@ -227,7 +232,7 @@ async def submit_assessment(
 
 @router.get(
     "/{family_id}/ui/03/growth-hypothesis",
-    responses={200: {"model": Ui03GrowthHypothesisProjectionResponse}},
+    response_model=Ui03GrowthHypothesisProjectionResponse,
 )
 async def get_ui03_projection(
     family_id: str,
@@ -291,4 +296,37 @@ async def decide_growth_hypothesis(
             human_gate_receipt_ref=body.human_gate_receipt_ref,
             parent_note=body.parent_note,
         )
+    )
+
+
+@router.post(
+    "/{family_id}/assessment/human-tasks/{task_id}/decisions",
+    response_model=AssessmentHumanTaskDecisionReceiptResponse,
+)
+async def decide_assessment_human_task(
+    family_id: str,
+    task_id: str,
+    body: DecideAssessmentHumanTaskRequestBody,
+    context: FamilyContext = Depends(get_family_context),
+    handler: AssessmentHumanTaskDecisionHandler = Depends(
+        get_assessment_human_task_decision_handler
+    ),
+    authorization: str = Header(
+        alias="Authorization",
+        min_length=8,
+        pattern=r"^Bearer \S+$",
+    ),
+    idempotency_key: str = Header(
+        alias="Idempotency-Key",
+        min_length=1,
+        max_length=256,
+    ),
+) -> dict[str, object]:
+    del authorization  # Authentication is resolved by the trusted dependency.
+    _assert_path_family(context, family_id)
+    return await handler.decide(
+        task_id,
+        outcome=body.outcome,
+        reason=body.reason,
+        idempotency_key=idempotency_key,
     )

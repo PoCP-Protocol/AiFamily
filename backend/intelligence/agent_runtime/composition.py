@@ -29,6 +29,7 @@ def build_agent_runtime(
     registry_path: str | Path,
     prompt_registry: object,
     schema_registry: object,
+    execution_material_resolver: object | None = None,
     authorizer: AgentAuthorizer | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> AgentRuntime:
@@ -49,6 +50,7 @@ def build_agent_runtime(
         clock=clock,
         prompt_registry=prompt_registry,
         schema_registry=schema_registry,
+        execution_material_resolver=execution_material_resolver,
         require_registries=True,
     )
 
@@ -60,6 +62,7 @@ def build_durable_agent_runtime(
     prompt_registry: object,
     schema_registry: object,
     run_store: AgentRunPersistencePort,
+    execution_material_resolver: object | None = None,
     authorizer: AgentAuthorizer | None = None,
     clock: Callable[[], datetime] | None = None,
     telemetry_sink: TelemetrySink | None = None,
@@ -71,6 +74,7 @@ def build_durable_agent_runtime(
         registry_path=registry_path,
         prompt_registry=prompt_registry,
         schema_registry=schema_registry,
+        execution_material_resolver=execution_material_resolver,
         authorizer=authorizer,
         clock=clock,
     )
@@ -84,6 +88,7 @@ def build_context_bound_agent_runtime(
     prompt_registry: object,
     schema_registry: object,
     run_store: AgentRunPersistencePort,
+    execution_material_resolver: object | None = None,
     authorizer: AgentAuthorizer | None = None,
     clock: Callable[[], datetime] | None = None,
     telemetry_sink: TelemetrySink | None = None,
@@ -96,6 +101,7 @@ def build_context_bound_agent_runtime(
             registry_path=registry_path,
             prompt_registry=prompt_registry,
             schema_registry=schema_registry,
+            execution_material_resolver=execution_material_resolver,
             run_store=run_store,
             authorizer=authorizer,
             clock=clock,

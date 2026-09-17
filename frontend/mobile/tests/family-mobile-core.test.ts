@@ -20,7 +20,7 @@ import {
   type FamilyApiPlatformSurfacesProjection,
   type FamilyApiServiceOffering,
 } from "../lib/family/family-api-projections";
-import { familyMobileReducer, initialFamilyMobileState } from "../lib/family/family-state-core";
+import { familyMobileReducer, initialFamilyMobileState, ui03FlowContextForFamily } from "../lib/family/family-state-core";
 import { MOBILE_JOURNEY_PHASES, getJourneyWeeklyAction } from "../lib/family/journey-plan-content";
 import { growthActivitiesForDisplay, serviceOfferingsForDisplay } from "../lib/family/service-support";
 import { UI_ACTION_POLICIES } from "../lib/family/ui-action-policies";
@@ -201,14 +201,27 @@ describe("six-loop controlled mobile actions", () => {
 });
 
 describe("family assessment and 90-day journey", () => {
-  it("keeps the selected assessment subject available for the next growth screens", () => {
+  it("keeps UI-03 onboarding context bound to the family that confirmed it", () => {
     const selected = familyMobileReducer(initialFamilyMobileState, {
       type: "set_assessment_subject",
       subjectId: "child-1",
     });
+    const confirmed = familyMobileReducer(selected, {
+      type: "set_ui03_flow_context",
+      context: {
+        familyId: "family-1",
+        hypothesisRef: "hypothesis-1",
+        humanTaskId: "task-1",
+        subjectPersonId: "child-1",
+        intentId: "intent-1",
+        onboardingId: "onboarding-1",
+      },
+    });
 
     expect(selected.assessmentSubjectId).toBe("child-1");
-    expect(selected.activeOnboardingId).toBeNull();
+    expect(selected.ui03FlowContext).toBeNull();
+    expect(ui03FlowContextForFamily(confirmed.ui03FlowContext, "family-1")?.onboardingId).toBe("onboarding-1");
+    expect(ui03FlowContextForFamily(confirmed.ui03FlowContext, "family-2")).toBeNull();
   });
   it("keeps five bounded family focus areas with three scenario questions each", () => {
     expect(GROWTH_FOCUSES).toHaveLength(5);
@@ -238,24 +251,41 @@ describe("family assessment and 90-day journey", () => {
 });
 
 describe("Family API mobile contract", () => {
-  it("starts onboarding through the canonical confirmed-intent route", async () => {
+  it("fails closed when the onboarding response violates its runtime contract", async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({
-      onboarding: { onboarding_id: "onboarding-1" },
-      created: true,
-      replayed: false,
+      ...growthOnboardingResponse(),
+      created: "true",
     }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     })) as unknown as typeof fetch;
     const client = new FamilyApiClient("https://family.example", fetcher);
 
-    await client.startGrowthOnboarding<{ onboarding: { onboarding_id: string } }>(
+    await expect(client.startGrowthOnboarding(
       "fam_token",
       "family-1",
       { intent_id: "intent-1" },
       "onboarding-idempotency-1",
+      "child-1",
+    )).rejects.toMatchObject({ code: "GROWTH_ONBOARDING_CONTRACT_BLOCKED" });
+  });
+
+  it("starts onboarding through the canonical confirmed-intent route", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify(growthOnboardingResponse()), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })) as unknown as typeof fetch;
+    const client = new FamilyApiClient("https://family.example", fetcher);
+
+    const result = await client.startGrowthOnboarding(
+      "fam_token",
+      "family-1",
+      { intent_id: "intent-1" },
+      "onboarding-idempotency-1",
+      "child-1",
     );
 
+    expect(result.onboarding.onboarding_id).toBe("onboarding-1");
     const [url, request] = vi.mocked(fetcher).mock.calls[0];
     expect(url).toBe("https://family.example/families/family-1/growth/onboardings");
     expect(request?.method).toBe("POST");
@@ -504,6 +534,46 @@ describe("Family API mobile contract", () => {
     });
   });
 });
+
+function growthOnboardingResponse() {
+  return {
+    onboarding: {
+      onboarding_id: "onboarding-1",
+      tenant_id: "tenant-1",
+      family_id: "family-1",
+      intent_id: "intent-1",
+      subject_person_id: "child-1",
+      journey_type: "PARENT_CHILD_COMMUNICATION_CONFLICT",
+      phase: "ONBOARDING",
+      status: "ACTIVE",
+      started_by_actor_id: "parent-1",
+      started_at: "2026-09-17T00:00:00Z",
+      version: 1,
+      intent_binding: {
+        binding_id: "binding-1",
+        tenant_id: "tenant-1",
+        family_id: "family-1",
+        intent_id: "intent-1",
+        onboarding_id: "onboarding-1",
+        subject_person_id: "child-1",
+      },
+    },
+    event: {
+      event_id: "event-1",
+      event_name: "GrowthOnboardingStarted",
+      event_version: 1,
+      tenant_id: "tenant-1",
+      family_id: "family-1",
+      actor_id: "parent-1",
+      intent_id: "intent-1",
+      onboarding_id: "onboarding-1",
+      subject_person_id: "child-1",
+      occurred_at: "2026-09-17T00:00:00Z",
+    },
+    created: true,
+    replayed: false,
+  };
+}
 
 describe("child autonomy and private family storytelling", () => {
   it("selects UI-10 through UI-12 from the existing Family API projections without redefining their boundaries", () => {

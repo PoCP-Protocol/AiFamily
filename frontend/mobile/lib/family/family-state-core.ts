@@ -7,6 +7,7 @@ import type { ChildChoice, ChildChoiceDraft, PrivateGrowthStoryDraft } from "./c
 import type { CommerceIntentDraft, FamilyInvitationDraft, FamilyStudyGroupDraft } from "./commerce-entitlements";
 import type { ActivityInterestDraft, ConsultationChannel, ConsultationNeedDraft } from "./service-support";
 import type { CommunityAiTagDraft, CommunityInteractionDraft, CommunityPostDraft, CommunityPostKind } from "./community-content";
+import type { Ui03FlowContext } from "./ui03-human-task-flow";
 
 export interface ActionReceipt {
   actionId: string;
@@ -49,7 +50,7 @@ export interface FamilyMobileState {
   assessmentAnswers: Record<string, AssessmentAnswer>;
   assessmentSyncState: "local" | "syncing" | "synced" | "error";
   assessmentSubjectId: string | null;
-  activeOnboardingId: string | null;
+  ui03FlowContext: Ui03FlowContext | null;
   childChoiceDraft: ChildChoiceDraft | null;
   privateGrowthStory: PrivateGrowthStoryDraft | null;
   commerceIntentDraft: CommerceIntentDraft | null;
@@ -74,7 +75,7 @@ export type FamilyMobileAction =
   | { type: "answer_assessment"; questionId: string; answer: AssessmentAnswer }
   | { type: "set_assessment_sync"; state: FamilyMobileState["assessmentSyncState"] }
   | { type: "set_assessment_subject"; subjectId: string | null }
-  | { type: "set_active_onboarding"; onboardingId: string | null }
+  | { type: "set_ui03_flow_context"; context: Ui03FlowContext | null }
   | { type: "record_child_choice"; promptId: string; choice: ChildChoice }
   | { type: "save_private_growth_story"; draft: PrivateGrowthStoryDraft }
   | { type: "save_commerce_intent_draft"; productRef: string; productVersion: number; productTitle: string }
@@ -120,7 +121,7 @@ export const initialFamilyMobileState: FamilyMobileState = {
   assessmentAnswers: {},
   assessmentSyncState: "local",
   assessmentSubjectId: null,
-  activeOnboardingId: null,
+  ui03FlowContext: null,
   childChoiceDraft: null,
   privateGrowthStory: null,
   commerceIntentDraft: null,
@@ -221,7 +222,7 @@ export function familyMobileReducer(state: FamilyMobileState, action: FamilyMobi
     };
   }
   if (action.type === "set_assessment_sync") return { ...state, assessmentSyncState: action.state };
-  if (action.type === "set_active_onboarding") return { ...state, activeOnboardingId: action.onboardingId };
+  if (action.type === "set_ui03_flow_context") return { ...state, ui03FlowContext: action.context };
   if (action.type === "set_assessment_subject") return { ...state, assessmentSubjectId: action.subjectId, updatedAt: new Date().toISOString() };
   if (action.type === "record_child_choice") {
     return {
@@ -388,4 +389,11 @@ export function familyMobileReducer(state: FamilyMobileState, action: FamilyMobi
     return { ...state, communityInteractionDrafts: { ...state.communityInteractionDrafts, [action.exchangeRef]: next } };
   }
   return state;
+}
+
+export function ui03FlowContextForFamily(
+  context: Ui03FlowContext | null,
+  familyId: string | null,
+): Ui03FlowContext | null {
+  return context && familyId && context.familyId === familyId ? context : null;
 }

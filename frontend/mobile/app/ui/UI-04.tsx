@@ -1,6 +1,6 @@
 import type { Href } from "expo-router";
 import { Stack, router } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { FamilyRefreshControl } from "@/components/family/family-refresh-control";
@@ -8,6 +8,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { createMobileRequestId, familyApi } from "@/lib/family/family-api-client";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
+import { ui03FlowContextForFamily } from "@/lib/family/family-state-core";
 import { useFamilyMobile } from "@/lib/family/family-state";
 import {
   isAdoptedGrowthPlan,
@@ -25,7 +26,13 @@ const actorLabel = { ADULT: "家长", FAMILY: "全家", CHILD_OPTIONAL: "孩子�
 
 export default function GenerativeGrowthPlanScreen() {
   const session = useFamilyApiSession();
-  const { activeOnboardingId, assessmentSubjectId } = useFamilyMobile();
+  const { ui03FlowContext } = useFamilyMobile();
+  const activeFlowContext = ui03FlowContextForFamily(
+    ui03FlowContext,
+    session.selectedFamily?.family_id ?? null,
+  );
+  const activeOnboardingId = activeFlowContext?.onboardingId ?? null;
+  const assessmentSubjectId = activeFlowContext?.subjectPersonId ?? null;
   const [response, setResponse] = useState<GenerativeGrowthPlanResponse | null>(null);
   const [canonicalPriority, setCanonicalPriority] = useState<Awaited<ReturnType<typeof familyApi.getGrowthPriority>> | null>(null);
   const [canonicalDraft, setCanonicalDraft] = useState<Record<string, unknown> | null>(null);
@@ -36,48 +43,53 @@ export default function GenerativeGrowthPlanScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [selectedChoices, setSelectedChoices] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const loadRevision = useRef(0);
 
   const loadPlan = useCallback(async () => {
+    const revision = ++loadRevision.current;
     if (session.status !== "connected" || !session.token || !session.selectedFamily) {
+      setResponse(null);
+      setCanonicalPriority(null);
+      setCanonicalDraft(null);
+      setHumanTask(null);
       setLoadState("empty");
       return;
     }
     setLoadState("loading");
     setMessage(null);
     if (activeOnboardingId && assessmentSubjectId) {
+      setResponse(null);
+      setCanonicalPriority(null);
+      setCanonicalDraft(null);
+      setHumanTask(null);
       setCanonicalState("loading");
+      setCanonicalMessage(null);
       try {
         const priority = await familyApi.getGrowthPriority(
           session.token,
           session.selectedFamily.family_id,
           activeOnboardingId,
         );
+        if (revision !== loadRevision.current) return;
         setCanonicalPriority(priority);
         setCanonicalState("ready");
         setLoadState("ready");
         return;
       } catch {
+        if (revision !== loadRevision.current) return;
         setCanonicalState("error");
         setCanonicalMessage("成长方向暂时无法同步，请稍后重试。系统没有生成未经验证的替代方案。");
         setLoadState("error");
         return;
       }
     }
-    try {
-      const result = await familyApi.getGenerativeGrowthPlan<GenerativeGrowthPlanResponse>(
-        session.token,
-        session.selectedFamily.family_id,
-      );
-      setResponse(result);
-      if (isAdoptedGrowthPlan(result.plan)) {
-        setSelectedChoices(result.plan.selected_choices);
-      }
-      setLoadState(result.plan ? "ready" : "empty");
-    } catch {
-      setResponse(null);
-      setLoadState("error");
-      setMessage("成长方案暂时没有同步成功。你的家庭理解仍会保留，可以稍后再试。");
-    }
+    setResponse(null);
+    setCanonicalPriority(null);
+    setCanonicalDraft(null);
+    setHumanTask(null);
+    setCanonicalState("blocked");
+    setCanonicalMessage("当前家庭没有经过 UI-03 人工确认的成长意向，已停止读取旧兼容方案。");
+    setLoadState("empty");
   }, [activeOnboardingId, assessmentSubjectId, session.selectedFamily, session.status, session.token]);
 
   useEffect(() => { void loadPlan(); }, [loadPlan]);

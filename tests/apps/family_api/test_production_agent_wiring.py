@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -23,6 +24,12 @@ from backend.intelligence.context_engine.contracts import (
 from backend.intelligence.context_engine.sql_store import (
     AsyncSqlContextBroker,
     ContextPersistenceBase,
+)
+from backend.intelligence.human_gate.contracts import ActorType, DecisionOutcome, GateStatus
+from backend.intelligence.human_gate.persistence import (
+    HumanGateBase,
+    HumanTaskRow,
+    SqlAlchemyHumanGate,
 )
 from backend.intelligence.model_gateway.attempt_persistence import (
     AttemptPersistenceBase,
@@ -52,6 +59,7 @@ from backend.intelligence.schema_registry.sql_registry import (
     SchemaPersistenceBase,
     SqlAlchemySchemaRegistry,
 )
+from backend.platform.audit.store import AuditBase, read_all_events
 
 ROOT = Path(__file__).resolve().parents[3]
 REGISTRY_PATH = ROOT / "governance" / "AI_USE_CASE_REGISTRY.yaml"
@@ -73,6 +81,8 @@ async def session_factory() -> async_sessionmaker[AsyncSession]:
         await connection.run_sync(PromptPersistenceBase.metadata.create_all)
         await connection.run_sync(SchemaPersistenceBase.metadata.create_all)
         await connection.run_sync(ContextPersistenceBase.metadata.create_all)
+        await connection.run_sync(HumanGateBase.metadata.create_all)
+        await connection.run_sync(AuditBase.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         yield factory
@@ -265,6 +275,8 @@ async def test_production_agent_resolver_binds_scope_and_durable_attempt(session
     )
 
     assert result.draft.status == "DRAFT"
+    assert result.draft.safety_review is not None
+    assert result.human_task_ref is not None
     assert len(provider.invocations) == 1
     async with session_factory() as session:
         attempts = await SqlAlchemyAttemptSink(session).list_attempts(request_id="request-1")
@@ -281,6 +293,255 @@ async def test_production_agent_resolver_binds_scope_and_durable_attempt(session
             "ai.model_gateway.generate_structured",
         }
         assert all(span.status == "OK" for span in spans)
+        task = await SqlAlchemyHumanGate(session).get(result.human_task_ref)
+        assert task.status is GateStatus.OPEN
+        assert task.proposal.action_name == "CONFIRM_GROWTH_HYPOTHESIS"
+        assert task.proposal.action_arguments["recommendation_status"] == "PROPOSED"
+        audit_events = await read_all_events(session, tenant_id="tenant-1")
+        assert [event.action for event in audit_events] == ["CREATE_HUMAN_TASK"]
+
+
+@pytest.mark.asyncio
+async def test_fe_s01_review_is_idempotent_and_acceptance_survives_restart(
+    session_factory,
+) -> None:
+    provider = FakeProvider(
+        {
+            "assessment_interpretation": {
+                "explanation": "先讨论早晨流程。",
+                "evidence_refs": ["evidence-1"],
+            }
+        }
+    )
+    prompt_registry, schema_registry = _registries()
+    context_broker, snapshot_ref = await _context_snapshot(session_factory)
+    resolver = ProductionAgentRuntimeResolver(
+        scope_resolver=lambda family_id: _scope(),
+        session_factory=session_factory,
+        gateway=_gateway(provider),
+        provider_id=provider.provider_id,
+        registry_path=REGISTRY_PATH,
+        prompt_registry=prompt_registry,
+        schema_registry=schema_registry,
+        attempt_sink_factory=SqlAlchemyAttemptSink,
+        safety_sink_factory=SqlAlchemySafetyDecisionSink,
+        telemetry_sink_factory=SqlAlchemyTelemetrySink,
+        context_broker=context_broker,
+        environment="staging",
+        clock=lambda: NOW + timedelta(minutes=1),
+    )
+    runtime = await resolver.resolve("family-1")
+    task = replace(_task(), context_snapshot_ref=snapshot_ref)
+
+    first = await runtime.execute(task, _authorization(), idempotency_key="fe-s01-review")
+    replay = await runtime.execute(task, _authorization(), idempotency_key="fe-s01-review")
+
+    assert first.human_task_ref == replay.human_task_ref
+    assert len(provider.invocations) == 1
+    async with session_factory() as session:
+        task_count = await session.scalar(select(func.count()).select_from(HumanTaskRow))
+        assert task_count == 1
+
+    # A new handle models a fresh request/process resolving the current scope.
+    restarted = await resolver.resolve("family-1")
+    decided, action = await restarted.decide_review(
+        first.human_task_ref,
+        actor_id="guardian-1",
+        actor_type=ActorType.GUARDIAN,
+        outcome=DecisionOutcome.ACCEPT,
+        decision_id="decision:fe-s01-review",
+        reason="guardian confirmed the tentative hypothesis",
+    )
+
+    assert decided.status is GateStatus.DECIDED
+    assert action is not None
+    assert action.action_name == "CONFIRM_GROWTH_HYPOTHESIS"
+    assert action.action_arguments["recommendation_status"] == "PROPOSED"
+    assert action.scope.consent_version == "consent-v1"
+    async with session_factory() as session:
+        stored = await SqlAlchemyHumanGate(session).get(first.human_task_ref)
+        events = await read_all_events(session, tenant_id="tenant-1")
+    assert stored.action_request == action
+    assert [event.action for event in events] == [
+        "CREATE_HUMAN_TASK",
+        "DECIDE_HUMAN_TASK",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_fe_s01_review_rejects_cross_family_and_stale_consent(session_factory) -> None:
+    provider = FakeProvider(
+        {
+            "assessment_interpretation": {
+                "explanation": "先讨论早晨流程。",
+                "evidence_refs": ["evidence-1"],
+            }
+        }
+    )
+    prompt_registry, schema_registry = _registries()
+    context_broker, snapshot_ref = await _context_snapshot(session_factory)
+    resolver = ProductionAgentRuntimeResolver(
+        scope_resolver=lambda family_id: _scope(),
+        session_factory=session_factory,
+        gateway=_gateway(provider),
+        provider_id=provider.provider_id,
+        registry_path=REGISTRY_PATH,
+        prompt_registry=prompt_registry,
+        schema_registry=schema_registry,
+        attempt_sink_factory=SqlAlchemyAttemptSink,
+        safety_sink_factory=SqlAlchemySafetyDecisionSink,
+        telemetry_sink_factory=SqlAlchemyTelemetrySink,
+        context_broker=context_broker,
+        environment="staging",
+        clock=lambda: NOW + timedelta(minutes=1),
+    )
+    runtime = await resolver.resolve("family-1")
+    run = await runtime.execute(
+        replace(_task(), context_snapshot_ref=snapshot_ref),
+        _authorization(),
+        idempotency_key="fe-s01-scope",
+    )
+
+    cross_family = replace(runtime, scope=replace(_scope(), family_id="family-2"))
+    with pytest.raises(ContextScopeError, match="SCOPE_STALE"):
+        await cross_family.decide_review(
+            run.human_task_ref,
+            actor_id="guardian-2",
+            actor_type=ActorType.GUARDIAN,
+            outcome=DecisionOutcome.ACCEPT,
+            decision_id="decision:cross-family",
+        )
+
+    reconsented = replace(runtime, scope=replace(_scope(), consent_version="consent-v2"))
+    with pytest.raises(ContextScopeError, match="SCOPE_STALE"):
+        await reconsented.decide_review(
+            run.human_task_ref,
+            actor_id="guardian-1",
+            actor_type=ActorType.GUARDIAN,
+            outcome=DecisionOutcome.ACCEPT,
+            decision_id="decision:stale-consent",
+        )
+
+    for stale_scope in (
+        replace(_scope(), subject_ids=("child-2",)),
+        replace(_scope(), purpose="growth_tracking"),
+        replace(_scope(), region_id="US"),
+        replace(_scope(), deletion_ref="delete-2"),
+    ):
+        with pytest.raises(ContextScopeError, match="SCOPE_STALE"):
+            await replace(runtime, scope=stale_scope).decide_review(
+                run.human_task_ref,
+                actor_id="guardian-1",
+                actor_type=ActorType.GUARDIAN,
+                outcome=DecisionOutcome.ACCEPT,
+                decision_id=f"decision:stale:{stale_scope.correlation_id}",
+            )
+
+    # A correlation id is per request/trace. It must not become part of the
+    # frozen authorization identity for a later human decision.
+    next_request = replace(
+        runtime,
+        scope=replace(
+            _scope(),
+            correlation_id="corr-review-request-2",
+            causation_id="cause-review-request-2",
+        ),
+    )
+    decided, action = await next_request.decide_review(
+        run.human_task_ref,
+        actor_id="guardian-1",
+        actor_type=ActorType.GUARDIAN,
+        outcome=DecisionOutcome.ACCEPT,
+        decision_id="decision:new-correlation",
+    )
+    assert decided.status is GateStatus.DECIDED
+    assert action is not None
+
+
+@pytest.mark.asyncio
+async def test_growth_plan_review_does_not_create_generic_human_task(session_factory) -> None:
+    provider = FakeProvider({"growth_plan_draft": {"plan": "draft only"}})
+    prompt = PromptBundle(
+        prompt_ref="growth-plan-prompt",
+        version="growth-plan-v1",
+        use_case="growth_plan_draft",
+        agent_id="growth_planner",
+        template="Draft a plan.",
+        system_policy_ref="family-safety-v1",
+        knowledge_refs=(),
+        input_contract_ref="growth-plan-input-v1",
+        output_schema_ref="growth-plan-schema",
+        safety_policy_version="safety-v1",
+        locale="zh-CN",
+        author="product",
+        reviewer="reviewer",
+        status="PUBLISHED",
+        effective_at=NOW,
+    )
+    schema = SchemaDefinition(
+        schema_ref="growth-plan-schema",
+        version="growth-plan-v1",
+        use_case="growth_plan_draft",
+        agent_id="growth_planner",
+        object_type="GrowthPlanDraft",
+        json_schema={
+            "type": "object",
+            "required": ["plan"],
+            "properties": {"plan": {"type": "string"}},
+        },
+        status="PUBLISHED",
+        effective_at=NOW,
+        reviewer="reviewer",
+    )
+    context_broker, snapshot_ref = await _context_snapshot(session_factory)
+    resolver = ProductionAgentRuntimeResolver(
+        scope_resolver=lambda family_id: _scope(),
+        session_factory=session_factory,
+        gateway=_gateway(provider),
+        provider_id=provider.provider_id,
+        registry_path=REGISTRY_PATH,
+        prompt_registry=PromptRegistry(bundles=(prompt,)),
+        schema_registry=SchemaRegistry(definitions=(schema,)),
+        attempt_sink_factory=SqlAlchemyAttemptSink,
+        safety_sink_factory=SqlAlchemySafetyDecisionSink,
+        telemetry_sink_factory=SqlAlchemyTelemetrySink,
+        context_broker=context_broker,
+        environment="staging",
+        clock=lambda: NOW + timedelta(minutes=1),
+    )
+    runtime = await resolver.resolve("family-1")
+    authorization = replace(
+        _authorization(),
+        authorization_id="auth-growth-plan",
+        agent_id="growth_planner",
+        allowed_use_cases=frozenset({"growth_plan_draft"}),
+    )
+    run = await runtime.execute(
+        AgentTask(
+            request_id="request-growth-plan",
+            agent_id="growth_planner",
+            tenant_id="tenant-1",
+            family_id="family-1",
+            use_case="growth_plan_draft",
+            context_snapshot_ref=snapshot_ref,
+            prompt_version="growth-plan-v1",
+            schema_version="growth-plan-v1",
+            data_class="MINOR_PERSONAL_DATA",
+            payload={"goal": "draft only"},
+            output_schema={"type": "object"},
+            prompt_ref="growth-plan-prompt",
+            schema_ref="growth-plan-schema",
+        ),
+        authorization,
+        idempotency_key="growth-plan-specialized-review",
+    )
+
+    assert run.draft.safety_review is not None
+    assert run.human_task_ref is None
+    assert run.draft.status == "DRAFT"
+    async with session_factory() as session:
+        task_count = await session.scalar(select(func.count()).select_from(HumanTaskRow))
+    assert task_count == 0
 
 
 @pytest.mark.asyncio

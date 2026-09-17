@@ -8,6 +8,7 @@ export interface FamilyScreenDefinition {
   tab: FamilyTab;
   loop: FamilyLoop;
   featurePoints: string[];
+  entryNote?: string;
   primaryAction: string;
   primaryTarget?: `UI-${string}`;
   baseline: string;
@@ -16,7 +17,7 @@ export interface FamilyScreenDefinition {
 export const FAMILY_SCREENS: FamilyScreenDefinition[] = [
   { id: "UI-01", title: "家庭成长首页", subtitle: "看见我们家今天最值得做的一件事", tab: "today", loop: "成长", featurePoints: ["今晚一件事", "当前成长旅程", "最近家庭里程碑", "21 天成长营入口"], primaryAction: "查看今日任务", primaryTarget: "UI-09", baseline: "core-01-home" },
   { id: "UI-02", title: "家庭测评", subtitle: "从真实家庭场景找到当前关注点", tab: "growth", loop: "评估", featurePoints: ["沟通与冲突", "学习与习惯", "手机与边界", "家长视角说明"], primaryAction: "开始选择场景", primaryTarget: "UI-02-result", baseline: "core-02-assessment" },
-  { id: "UI-03", title: "AI成长诊断", subtitle: "免费测评的 AI 升级版：综合评估、核心问题与成长建议", tab: "growth", loop: "评估", featurePoints: ["综合成长评估", "核心问题", "成长建议", "个性化方案"], primaryAction: "生成个性化方案", primaryTarget: "UI-04", baseline: "core-03-ai-report" },
+  { id: "UI-03", title: "待确认的成长方向", subtitle: "AI 基于这次家庭自查整理可讨论的支持方向，由家庭共同选择是否采纳", tab: "growth", loop: "评估", featurePoints: ["家庭观察与证据", "待确认方向", "理解边界", "家庭共同选择"], entryNote: "这不是诊断或对孩子的结论，家庭可以不同意，也可以先放一放。", primaryAction: "查看并共同确认", primaryTarget: "UI-04", baseline: "core-03-ai-report" },
   { id: "UI-04", title: "90 天成长方案", subtitle: "四个阶段，一步一步形成家庭新节奏", tab: "growth", loop: "计划", featurePoints: ["看见与理解", "家长先行动", "亲子共同练习", "稳定与复盘"], primaryAction: "查看陪跑安排", primaryTarget: "UI-05", baseline: "core-04-growth-plan" },
   { id: "UI-05", title: "90 天陪跑", subtitle: "任务、家庭小会与阶段回顾在这里汇合", tab: "growth", loop: "计划", featurePoints: ["本周任务", "阶段复盘", "陪伴记录", "家长社群"], primaryAction: "查看今日任务", primaryTarget: "UI-09", baseline: "core-05-delivery-community" },
   { id: "UI-06", title: "我的会员", subtitle: "清楚查看成长权益与服务有效期", tab: "mine", loop: "商业", featurePoints: ["当前方案", "成长权益", "服务额度", "有效期"], primaryAction: "查看年度方案", primaryTarget: "UI-30", baseline: "core-06-mine-member" },

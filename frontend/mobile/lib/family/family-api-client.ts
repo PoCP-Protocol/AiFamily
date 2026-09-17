@@ -1,9 +1,12 @@
+import { parseUi03GrowthHypothesisProjection } from "./assessment-api-contracts";
 import type {
+  AssessmentHumanTaskDecisionBody,
+  AssessmentHumanTaskDecisionReceipt,
   AssessmentMutationReceipt,
   AssessmentResponseType,
+  ConfirmGrowthHypothesisBody,
   GrowthHypothesisDecisionReceipt,
   Ui02AssessmentProjection,
-  Ui03GrowthHypothesisProjection,
 } from "./assessment-api-contracts";
 import type {
   AvailabilitySlotDto,
@@ -155,6 +158,50 @@ export interface ActiveOnboarding {
   [key: string]: unknown;
 }
 
+export interface GrowthOnboardingIntentBindingResponse {
+  binding_id: string;
+  tenant_id: string;
+  family_id: string;
+  intent_id: string;
+  onboarding_id: string;
+  subject_person_id: string;
+}
+
+export interface GrowthOnboardingResponse {
+  onboarding_id: string;
+  tenant_id: string;
+  family_id: string;
+  intent_id: string;
+  subject_person_id: string;
+  journey_type: "PARENT_CHILD_COMMUNICATION_CONFLICT";
+  phase: "ONBOARDING";
+  status: "ACTIVE";
+  started_by_actor_id: string;
+  started_at: string;
+  version: number;
+  intent_binding: GrowthOnboardingIntentBindingResponse;
+}
+
+export interface GrowthOnboardingStartedEventResponse {
+  event_id: string;
+  event_name: "GrowthOnboardingStarted";
+  event_version: number;
+  tenant_id: string;
+  family_id: string;
+  actor_id: string;
+  intent_id: string;
+  onboarding_id: string;
+  subject_person_id: string;
+  occurred_at: string;
+}
+
+export interface StartGrowthOnboardingResponse {
+  onboarding: GrowthOnboardingResponse;
+  event: GrowthOnboardingStartedEventResponse;
+  created: boolean;
+  replayed: boolean;
+}
+
 export class FamilyApiError extends Error {
   constructor(
     message: string,
@@ -164,6 +211,18 @@ export class FamilyApiError extends Error {
   ) {
     super(message);
     this.name = "FamilyApiError";
+  }
+}
+
+export class GrowthOnboardingContractError extends Error {
+  readonly code = "GROWTH_ONBOARDING_CONTRACT_BLOCKED";
+
+  constructor(
+    message: string,
+    readonly payload: unknown,
+  ) {
+    super(message);
+    this.name = "GrowthOnboardingContractError";
   }
 }
 
@@ -273,16 +332,32 @@ export class FamilyApiClient {
     return this.request<{ revoked: boolean }>("/auth/session/revoke", { method: "POST", token });
   }
 
-  startGrowthOnboarding<T>(token: string, familyId: string, body: { intent_id: string }, idempotencyKey: string) {
-    return this.request<T>(`/families/${familyId}/growth/onboardings`, {
-      method: "POST",
-      token,
-      body,
-      headers: {
-        "idempotency-key": idempotencyKey,
-        "x-correlation-id": createMobileRequestId("family-mobile-onboarding-start"),
-        "x-source": "family-ai-mobile",
+  async startGrowthOnboarding(
+    token: string,
+    familyId: string,
+    body: { intent_id: string },
+    idempotencyKey: string,
+    expectedSubjectPersonId: string,
+  ): Promise<StartGrowthOnboardingResponse> {
+    const payload = await this.request<unknown>(
+      `/families/${familyId}/growth/onboardings`,
+      {
+        method: "POST",
+        token,
+        body,
+        headers: {
+          "idempotency-key": idempotencyKey,
+          "x-correlation-id": createMobileRequestId(
+            "family-mobile-onboarding-start",
+          ),
+          "x-source": "family-ai-mobile",
+        },
       },
+    );
+    return parseStartGrowthOnboardingResponse(payload, {
+      familyId,
+      intentId: body.intent_id,
+      subjectPersonId: expectedSubjectPersonId,
     });
   }
 
@@ -625,8 +700,16 @@ export class FamilyApiClient {
     });
   }
 
-  getGrowthHypothesis(token: string, familyId: string) {
-    return this.request<Ui03GrowthHypothesisProjection>(`/families/${familyId}/ui/03/growth-hypothesis`, { token });
+  async getGrowthHypothesis(token: string, familyId: string) {
+    const payload = await this.request<unknown>(`/families/${familyId}/ui/03/growth-hypothesis`, { token });
+    return parseUi03GrowthHypothesisProjection(payload, familyId);
+  }
+
+  decideAssessmentHumanTask(token: string, familyId: string, taskId: string, body: AssessmentHumanTaskDecisionBody, idempotencyKey: string) {
+    return this.request<AssessmentHumanTaskDecisionReceipt>(`/families/${familyId}/assessment/human-tasks/${taskId}/decisions`, {
+      method: "POST", token, body,
+      headers: { "Idempotency-Key": idempotencyKey, "x-correlation-id": createMobileRequestId("ui03-human-task-decision"), "x-source": "family-ai-mobile" },
+    });
   }
 
   /**
@@ -735,7 +818,7 @@ export class FamilyApiClient {
     });
   }
 
-  decideGrowthHypothesis(token: string, familyId: string, body: { assessment_session_id: string; hypothesis_ref: string; decision_type: "CONFIRM" | "DISMISS" }, idempotencyKey: string) {
+  decideGrowthHypothesis(token: string, familyId: string, body: ConfirmGrowthHypothesisBody, idempotencyKey: string) {
     return this.request<GrowthHypothesisDecisionReceipt>(`/families/${familyId}/growth-hypotheses/decisions`, {
       method: "POST", token, body,
       headers: { "idempotency-key": idempotencyKey, "x-correlation-id": createMobileRequestId("ui03-hypothesis-decision"), "x-source": "family-ai-mobile" },
@@ -867,6 +950,145 @@ export function readErrorCode(payload: unknown) {
   if (typeof value.message === "string") return value.message;
   if (typeof value.error === "string") return value.error;
   return null;
+}
+
+export function parseStartGrowthOnboardingResponse(
+  payload: unknown,
+  expected: {
+    familyId: string;
+    intentId: string;
+    subjectPersonId: string;
+  },
+): StartGrowthOnboardingResponse {
+  const response = growthOnboardingRecord(payload, "onboarding response", payload);
+  assertGrowthOnboardingExactKeys(
+    response,
+    ["onboarding", "event", "created", "replayed"],
+    "onboarding response",
+    payload,
+  );
+  assertGrowthOnboardingBoolean(response.created, "created", payload);
+  assertGrowthOnboardingBoolean(response.replayed, "replayed", payload);
+
+  const onboarding = growthOnboardingRecord(
+    response.onboarding,
+    "onboarding",
+    payload,
+  );
+  assertGrowthOnboardingExactKeys(
+    onboarding,
+    [
+      "onboarding_id",
+      "tenant_id",
+      "family_id",
+      "intent_id",
+      "subject_person_id",
+      "journey_type",
+      "phase",
+      "status",
+      "started_by_actor_id",
+      "started_at",
+      "version",
+      "intent_binding",
+    ],
+    "onboarding",
+    payload,
+  );
+  for (const field of [
+    "onboarding_id",
+    "tenant_id",
+    "family_id",
+    "intent_id",
+    "subject_person_id",
+    "started_by_actor_id",
+    "started_at",
+  ] as const) {
+    assertGrowthOnboardingText(onboarding[field], `onboarding.${field}`, payload);
+  }
+  assertGrowthOnboardingEqual(onboarding.journey_type, "PARENT_CHILD_COMMUNICATION_CONFLICT", "onboarding.journey_type", payload);
+  assertGrowthOnboardingEqual(onboarding.phase, "ONBOARDING", "onboarding.phase", payload);
+  assertGrowthOnboardingEqual(onboarding.status, "ACTIVE", "onboarding.status", payload);
+  assertGrowthOnboardingInteger(onboarding.version, "onboarding.version", payload);
+  assertGrowthOnboardingEqual(onboarding.family_id, expected.familyId, "onboarding.family_id", payload);
+  assertGrowthOnboardingEqual(onboarding.intent_id, expected.intentId, "onboarding.intent_id", payload);
+  assertGrowthOnboardingEqual(onboarding.subject_person_id, expected.subjectPersonId, "onboarding.subject_person_id", payload);
+
+  const binding = growthOnboardingRecord(onboarding.intent_binding, "onboarding.intent_binding", payload);
+  assertGrowthOnboardingExactKeys(
+    binding,
+    ["binding_id", "tenant_id", "family_id", "intent_id", "onboarding_id", "subject_person_id"],
+    "onboarding.intent_binding",
+    payload,
+  );
+  for (const field of ["binding_id", "tenant_id", "family_id", "intent_id", "onboarding_id", "subject_person_id"] as const) {
+    assertGrowthOnboardingText(binding[field], `onboarding.intent_binding.${field}`, payload);
+  }
+  for (const field of ["tenant_id", "family_id", "intent_id", "onboarding_id", "subject_person_id"] as const) {
+    assertGrowthOnboardingEqual(binding[field], onboarding[field], `onboarding.intent_binding.${field}`, payload);
+  }
+
+  const event = growthOnboardingRecord(response.event, "event", payload);
+  assertGrowthOnboardingExactKeys(
+    event,
+    ["event_id", "event_name", "event_version", "tenant_id", "family_id", "actor_id", "intent_id", "onboarding_id", "subject_person_id", "occurred_at"],
+    "event",
+    payload,
+  );
+  for (const field of ["event_id", "tenant_id", "family_id", "actor_id", "intent_id", "onboarding_id", "subject_person_id", "occurred_at"] as const) {
+    assertGrowthOnboardingText(event[field], `event.${field}`, payload);
+  }
+  assertGrowthOnboardingEqual(event.event_name, "GrowthOnboardingStarted", "event.event_name", payload);
+  assertGrowthOnboardingInteger(event.event_version, "event.event_version", payload);
+  for (const field of ["tenant_id", "family_id", "intent_id", "onboarding_id", "subject_person_id"] as const) {
+    assertGrowthOnboardingEqual(event[field], onboarding[field], `event.${field}`, payload);
+  }
+  assertGrowthOnboardingEqual(event.actor_id, onboarding.started_by_actor_id, "event.actor_id", payload);
+
+  return response as unknown as StartGrowthOnboardingResponse;
+}
+
+function growthOnboardingRecord(value: unknown, field: string, payload: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new GrowthOnboardingContractError(`${field} must be an object`, payload);
+  }
+  return value as Record<string, unknown>;
+}
+
+function assertGrowthOnboardingExactKeys(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+  field: string,
+  payload: unknown,
+): void {
+  const actualKeys = Object.keys(value).sort();
+  const expectedKeys = [...expected].sort();
+  if (actualKeys.length !== expectedKeys.length || actualKeys.some((key, index) => key !== expectedKeys[index])) {
+    throw new GrowthOnboardingContractError(`${field} fields do not match the governed contract`, payload);
+  }
+}
+
+function assertGrowthOnboardingText(value: unknown, field: string, payload: unknown): asserts value is string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new GrowthOnboardingContractError(`${field} must be a non-empty string`, payload);
+  }
+}
+
+function assertGrowthOnboardingBoolean(value: unknown, field: string, payload: unknown): asserts value is boolean {
+  if (typeof value !== "boolean") {
+    throw new GrowthOnboardingContractError(`${field} must be boolean`, payload);
+  }
+}
+
+function assertGrowthOnboardingInteger(value: unknown, field: string, payload: unknown): asserts value is number {
+  if (!Number.isInteger(value)) {
+    throw new GrowthOnboardingContractError(`${field} must be an integer`, payload);
+  }
+}
+
+function assertGrowthOnboardingEqual(value: unknown, expected: unknown, field: string, payload: unknown): void {
+  if (value !== expected) {
+    throw new GrowthOnboardingContractError(`${field} does not match the governed context`, payload);
+  }
 }
 
 export const familyApi = new FamilyApiClient();

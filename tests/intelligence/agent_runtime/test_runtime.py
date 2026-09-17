@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -12,6 +13,10 @@ from backend.intelligence.agent_runtime.contracts import (
     AuthorizationBudget,
 )
 from backend.intelligence.agent_runtime.runtime import AgentRuntime, AgentRuntimeError
+from backend.intelligence.experience.execution_materials import (
+    InMemoryExecutionMaterialRegistry,
+    SystemPolicyMaterial,
+)
 from backend.intelligence.model_gateway.contracts import AiProvenance, ModelDraft
 from backend.intelligence.prompt_registry.contracts import PromptBundle
 from backend.intelligence.prompt_registry.registry import PromptRegistry
@@ -132,6 +137,23 @@ def registries(*, prompt_status: str = "PUBLISHED", schema_status: str = "PUBLIS
     return PromptRegistry(bundles=(prompt,)), SchemaRegistry(definitions=(schema,))
 
 
+def execution_materials() -> InMemoryExecutionMaterialRegistry:
+    return InMemoryExecutionMaterialRegistry(
+        policies=(
+            SystemPolicyMaterial.build(
+                policy_ref="family-safety-v1",
+                use_case="assessment_interpretation",
+                agent_id="parent_advisor",
+                content="Only produce a reviewable family-growth hypothesis.",
+                locale="zh-CN",
+                status="PUBLISHED",
+                reviewer="reviewer",
+                effective_at=NOW - timedelta(minutes=1),
+            ),
+        ),
+    )
+
+
 @pytest.mark.asyncio
 async def test_authorized_execution_uses_only_generation_port_and_returns_draft() -> None:
     port = FakeGenerationPort()
@@ -211,6 +233,33 @@ async def test_published_prompt_and_schema_override_client_output_schema() -> No
     )
 
     assert port.calls[0].output_schema["properties"]["explanation"]["type"] == "string"
+    assert json.loads(json.dumps(port.calls[0].output_schema)) == port.calls[0].output_schema
+
+
+@pytest.mark.asyncio
+async def test_published_execution_materials_reach_model_gateway_request() -> None:
+    port = FakeGenerationPort()
+    prompt_registry, schema_registry = registries()
+    runtime = AgentRuntime(
+        port,
+        [definition()],
+        clock=lambda: NOW + timedelta(minutes=1),
+        prompt_registry=prompt_registry,
+        schema_registry=schema_registry,
+        execution_material_resolver=execution_materials(),
+    )
+
+    await runtime.execute(
+        task(prompt_ref="assessment-prompt"),
+        authorization(),
+    )
+
+    plan = port.calls[0].prompt_execution_plan
+    assert plan is not None
+    assert plan.prompt_ref == "assessment-prompt"
+    assert plan.system_policy_ref == "family-safety-v1"
+    assert plan.has_reviewed_materials is True
+    assert "reviewable family-growth hypothesis" in plan.system_policy
 
 
 @pytest.mark.asyncio

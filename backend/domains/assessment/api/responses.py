@@ -1,34 +1,20 @@
-"""HTTP response models for OpenAPI generation only.
+"""HTTP response models for the Assessment API.
 
-These mirror the hand-written TypeScript contracts in
-`packages/contracts/src/ui02-assessment.ts` and
-`packages/contracts/src/ui03-growth-hypothesis.ts` field-for-field (including
-every optional field), NOT a fresh design. They exist purely so
-`app.openapi()` (see `export_openapi.py`) produces a real schema instead of
-`{"type": "object"}`.
+UI-02 mirrors its hand-written TypeScript contract. UI-03 follows the exact
+runtime shape returned by the deterministic and governed Model Gateway
+adapters so ``app.openapi()`` and response validation describe the same API.
 
-Deliberately NOT wired as `response_model=` on any route in `routes.py`:
-FastAPI's `response_model` silently drops any field present on the returned
-dict but absent from the model (verified empirically — this is
-`pydantic`/FastAPI's documented filtering behavior, not a bug). The six
-handlers in `application/commands.py`, `application/queries.py`, and
-`application/growth_hypothesis_commands.py` return plain dicts with some
-genuinely dynamic shape (e.g. `scorecard` differs between the deterministic
-and live-Claude interpretation adapters — see `infrastructure/*.py`), so
-wiring these models as `response_model` would risk silently truncating a
-real field the frontend depends on. Until every one of those dicts is
-replaced by a real typed return value at the application layer (a bigger,
-deliberate refactor — out of scope here per the "don't change behavior"
-constraint), these models are exposed to routes only via `responses=` /
-`openapi_extra` in `routes.py`, which FastAPI merges into the schema without
-touching the actual runtime response.
+UI-03 is closed and wired as a real ``response_model``. Its scorecard is a
+discriminated union because the deterministic development adapter and the
+governed Model Gateway deliberately return different provenance shapes.
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from datetime import datetime
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..domain.value_objects import (
     AssessmentResponseType,
@@ -123,41 +109,48 @@ class AssessmentMutationReceiptResponse(BaseModel):
 
 
 class Ui03SourceRefsModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     assessment_session_id: str
     assessment_response_id: str
     assessment_evidence_id: str
     tool_ref: str
     tool_version: int
-    assessment_submitted_at: str | None = None
+    assessment_submitted_at: datetime | None
 
 
-class Ui03PrincipalInterpretationModel(BaseModel):
-    public_role: str
-    codename: str
-    opening: str
-    reading: str
-    boundary: str
-    boundary_labels: list[str]
+class Ui03DeterministicScorecardModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    generator: Literal["FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC"]
 
 
-class Ui03GrowthScoreDimensionModel(BaseModel):
-    dimension_ref: str
-    label: str
-    score: float
-    peer_reference: float
+class Ui03ModelGatewayScorecardModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    generator: Literal["MODEL_GATEWAY"]
+    agent_run_ref: str
+    provider_ref: str
+    model_ref: str
+    model_version: str
+    prompt_version: str
+    schema_version: str
+    context_snapshot_ref: str
+    input_refs: list[str]
+    draft_status: Literal["DRAFT"]
+    human_task_ref: str | None
+    review_status: Literal["REVIEW_REQUIRED", "DRAFT_ONLY"]
 
 
-class Ui03GrowthScorecardModel(BaseModel):
-    generated_by: Literal["FAMILI_PRINCIPAL_FAMILY_EDUCATION_MODEL"]
-    overall_score: float
-    overall_band: str
-    dimensions: list[Ui03GrowthScoreDimensionModel]
-    core_issue_tags: list[str]
-    recommendations: list[str]
-    score_boundary: Literal["SUPPORT_ORIENTATION_SCORE_NOT_CHILD_DIAGNOSIS_OR_RANKING"]
+Ui03ScorecardModel = Annotated[
+    Ui03DeterministicScorecardModel | Ui03ModelGatewayScorecardModel,
+    Field(discriminator="generator"),
+]
 
 
 class Ui03GrowthHypothesisModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     hypothesis_ref: str
     subject_person_id: str
     subject_display_name: str
@@ -172,34 +165,32 @@ class Ui03GrowthHypothesisModel(BaseModel):
     generator: Literal[
         "DETERMINISTIC_CATALOG_POLICY_NOT_MODEL", "FAMILY_EDUCATION_ASSESSMENT_MODEL_V0_1"
     ]
-    model_draft_ref: str | None = None
-    model_generator: (
-        Literal[
-            "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC", "FAMILY_EDUCATION_MODEL_RUNTIME_GATEWAY"
-        ]
-        | None
-    ) = None
-    model_component_ref: str | None = None
-    model_boundary_labels: list[str] | None = None
-    need_refs: list[str] | None = None
-    construct_refs: list[str] | None = None
-    action_candidate_refs: list[str] | None = None
+    model_draft_ref: str
+    model_generator: Literal["FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC", "MODEL_GATEWAY"]
+    model_component_ref: str
+    model_boundary_labels: list[str]
+    need_refs: list[str]
+    construct_refs: list[str]
+    action_candidate_refs: list[str]
     fact_boundary: Literal["HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS"]
-    principal: Ui03PrincipalInterpretationModel | None = None
-    scorecard: Ui03GrowthScorecardModel | None = None
+    scorecard: Ui03ScorecardModel
 
 
 class Ui03NamedActionsModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     confirm: Literal["CONFIRM_GROWTH_HYPOTHESIS"]
     dismiss: Literal["DISMISS_GROWTH_HYPOTHESIS"]
 
 
 class Ui03GrowthHypothesisProjectionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     projection_version: Literal["UI03_GROWTH_HYPOTHESIS_V1"]
     tenant_id: str
     family_id: str
     availability: Literal["READY", "NO_SUBMITTED_ASSESSMENT", "POLICY_BLOCKED"]
-    latest_assessment_session_id: str | None = None
+    latest_assessment_session_id: str | None
     hypothesis: Ui03GrowthHypothesisModel | None
     named_actions: Ui03NamedActionsModel
     ai_state: Literal["NOT_INVOKED", "MODEL_DRAFT_READY", "MODEL_GATEWAY_BLOCKED"]
@@ -330,3 +321,31 @@ class GrowthHypothesisDecisionReceiptResponse(BaseModel):
     intent: GrowthIntentModel | None
     replayed: bool
     parent_note: str | None = None
+
+
+class AssessmentHumanTaskConfirmationBindingResponse(BaseModel):
+    """Server-owned values required by the existing CONFIRM command."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    subject_person_id: str
+    assessment_session_id: str
+    hypothesis_ref: str
+    scope_ref: str
+    signal_version: int
+    reviewed_draft_ref: str
+    draft_version: int
+    provenance_ref: str
+    human_gate_receipt_ref: str
+
+
+class AssessmentHumanTaskDecisionReceiptResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    decision_id: str
+    status: Literal["DECIDED"]
+    outcome: Literal["ACCEPT", "REJECT"]
+    reason: str | None
+    decided_at: str
+    binding: AssessmentHumanTaskConfirmationBindingResponse | None

@@ -88,9 +88,7 @@ async def baselined_database_url() -> AsyncIterator[str]:
         async with admin.connect() as connection:
             await connection.execute(text(f'create database "{database_name}"'))
         database_url = (
-            make_url(admin_url)
-            .set(database=database_name)
-            .render_as_string(hide_password=False)
+            make_url(admin_url).set(database=database_name).render_as_string(hide_password=False)
         )
         migrated = subprocess.run(
             [sys.executable, "-m", "alembic", "upgrade", "head"],
@@ -128,10 +126,7 @@ async def test_daily_action_sql_lifecycle_is_restart_safe_and_audited(
     )
     async with consent_engine.begin() as connection:
         await connection.execute(
-            text(
-                "UPDATE persons SET birth_date=DATE '2013-05-01' "
-                "WHERE person_id=:subject_id"
-            ),
+            text("UPDATE persons SET birth_date=DATE '2013-05-01' WHERE person_id=:subject_id"),
             {"subject_id": ids["child"]},
         )
         await connection.execute(
@@ -311,8 +306,7 @@ async def test_daily_action_sql_lifecycle_is_restart_safe_and_audited(
         )
     assert isinstance(first_step_achievement_id, str)
     feedback_path = (
-        f"/families/{ids['family']}/experience/achievements/"
-        f"{first_step_achievement_id}/feedback"
+        f"/families/{ids['family']}/experience/achievements/{first_step_achievement_id}/feedback"
     )
     helpful_body = {
         "signal": "helpful",
@@ -418,6 +412,7 @@ async def test_daily_action_sql_lifecycle_is_restart_safe_and_audited(
             outcome=DecisionOutcome.ACCEPT,
             recorder=decision_audit,
             decision_id="decision:feedback-e2e",
+            now=NOW + timedelta(minutes=9),
         )
         assert action_request is not None
         await gate.flush_audit(decision_audit)
@@ -507,10 +502,7 @@ async def test_daily_action_sql_lifecycle_is_restart_safe_and_audited(
             {"family_id": ids["family"]},
         )
         growth_graph_edge_count = await connection.scalar(
-            text(
-                "SELECT count(*) FROM ai_growth_graph_edges "
-                "WHERE family_id=:family_id"
-            ),
+            text("SELECT count(*) FROM ai_growth_graph_edges WHERE family_id=:family_id"),
             {"family_id": ids["family"]},
         )
         feedback_rows = tuple(
@@ -650,10 +642,7 @@ async def test_daily_action_sql_lifecycle_is_restart_safe_and_audited(
             )
         )
         feedback_count_after_failures = await connection.scalar(
-            text(
-                "SELECT count(*) FROM ai_achievement_feedback "
-                "WHERE family_id=:family_id"
-            ),
+            text("SELECT count(*) FROM ai_achievement_feedback WHERE family_id=:family_id"),
             {"family_id": ids["family"]},
         )
         feedback_task_count = await connection.scalar(

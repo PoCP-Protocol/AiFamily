@@ -94,7 +94,8 @@ def test_in_memory_safety_sink_records_policy_metadata_only() -> None:
         request_id="request-1",
         session_id=None,
     )
-    assert sink.decisions[0]["status"] == "ALLOW"
+    assert sink.decisions[0]["status"] == "REVIEW"
+    assert sink.decisions[0]["requires_human_gate"] is True
     assert "payload" not in sink.decisions[0]
 
 
@@ -126,15 +127,15 @@ async def test_gateway_persists_input_and_output_safety_decisions(session_factor
             provider,
             safety_sink=SqlAlchemySafetyDecisionSink(session, clock=lambda: datetime.now(UTC)),
         ).with_attempt_sink(SqlAlchemyAttemptSink(session))
-        draft = await gateway.generate_structured(
-            _request(), provider_id=provider.provider_id
-        )
+        draft = await gateway.generate_structured(_request(), provider_id=provider.provider_id)
         assert draft.status == "DRAFT"
         rows = await SqlAlchemySafetyDecisionSink(session).list_decisions(
             request_id="request:safety"
         )
         assert [row.stage for row in rows] == ["input", "output"]
-        assert all(row.status == "ALLOW" for row in rows)
+        assert all(row.status == "REVIEW" for row in rows)
+        assert all(row.requires_human_gate for row in rows)
+        assert draft.safety_review is not None
         assert all(row.tenant_id == "tenant:safety" for row in rows)
         assert all(row.family_id == "family:safety" for row in rows)
         await session.commit()

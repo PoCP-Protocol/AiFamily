@@ -8,11 +8,18 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path as FilePath
 
-from fastapi import FastAPI, Header, HTTPException, Path
+from fastapi import Depends, FastAPI, Header, HTTPException, Path
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, async_sessionmaker
 
 from backend.apps.family_api.assessment_ai_wiring import AssessmentAiAssets
+from backend.apps.family_api.assessment_human_task_decision import (
+    AssessmentHumanTaskDecisionApplication,
+)
+from backend.apps.family_api.assessment_review_confirmation import (
+    HumanGateConfirmedGrowthHypothesisHandler,
+    SqlAlchemyAcceptedAssessmentReviewReader,
+)
 from backend.apps.family_api.production_agent_wiring import (
     AttemptSinkFactory,
     ProductionAgentRuntimeResolver,
@@ -42,6 +49,9 @@ from backend.domains.assessment.infrastructure.sqlalchemy_repository import (
 )
 from backend.intelligence.context_engine.async_port import AsyncContextBrokerPort
 from backend.intelligence.context_engine.contracts import ContextScope, ContextScopeError, DataClass
+from backend.intelligence.experience.execution_materials import (
+    SessionPerCallExecutionMaterialResolver,
+)
 from backend.intelligence.model_gateway.gateway import ModelGateway
 from backend.platform.consent.models import ConsentPurpose
 from backend.platform.identity.trusted_context import (
@@ -246,6 +256,9 @@ class ProductionAssessmentAiCompositionResolver:
             schema_registry=self.schema_registry,
             prompt_registry_factory=self.prompt_registry_factory,
             schema_registry_factory=self.schema_registry_factory,
+            execution_material_resolver=SessionPerCallExecutionMaterialResolver(
+                self.session_factory
+            ),
             clock=self.clock,
         )
         return ProductionAssessmentAiComposition(
@@ -329,7 +342,7 @@ def install_production_assessment_http_wiring(
         authorization: str | None = Header(default=None),
         x_correlation_id: str | None = Header(default=None),
         x_causation_id: str | None = Header(default=None),
-    ) -> AsyncIterator[GrowthHypothesisCommandHandler]:
+    ) -> AsyncIterator[GrowthHypothesisCommandHandler | HumanGateConfirmedGrowthHypothesisHandler]:
         identity = await _resolve_identity(
             identity_resolver,
             family_id,
@@ -345,13 +358,64 @@ def install_production_assessment_http_wiring(
             x_causation_id,
         )
         async with engine.begin() as connection:
-            yield composition.build_growth_hypothesis_handler(repository_factory(connection))
+            repository = repository_factory(connection)
+            delegate = composition.build_growth_hypothesis_handler(repository)
+
+            async def current_scope(family_id: str, subject_id: str) -> ContextScope:
+                resolve_for_subject = getattr(
+                    composition.runtime_resolver,
+                    "resolve_for_subject",
+                    None,
+                )
+                if not callable(resolve_for_subject):
+                    raise TypeError("production assessment runtime must resolve subject scope")
+                runtime = await resolve_for_subject(family_id, subject_id)
+                scope = getattr(runtime, "scope", None)
+                if not isinstance(scope, ContextScope):
+                    raise TypeError("production assessment runtime scope is invalid")
+                return scope
+
+            yield HumanGateConfirmedGrowthHypothesisHandler(
+                delegate=delegate,
+                repository=repository,
+                review_reader=SqlAlchemyAcceptedAssessmentReviewReader(composition.session_factory),
+                current_scope_resolver=current_scope,
+                expected_prompt_version=composition.assets.prompt_version,
+                expected_schema_version=composition.assets.schema_version,
+                clock=composition.clock,
+            )
+
+    async def assessment_human_task_decision_handler(
+        identity: FamilyContext = Depends(family_context),
+        authorization: str | None = Header(default=None),
+        x_correlation_id: str | None = Header(default=None),
+        x_causation_id: str | None = Header(default=None),
+    ) -> AsyncIterator[AssessmentHumanTaskDecisionApplication]:
+        composition = await _resolve_composition(
+            composition_resolver,
+            identity,
+            authorization,
+            x_correlation_id,
+            x_causation_id,
+        )
+        async with engine.connect() as connection:
+            yield AssessmentHumanTaskDecisionApplication(
+                identity=identity,
+                session_factory=composition.session_factory,
+                runtime_resolver=composition.runtime_resolver,
+                repository=repository_factory(connection),
+                expected_prompt_version=composition.assets.prompt_version,
+                expected_schema_version=composition.assets.schema_version,
+            )
 
     app.dependency_overrides[assessment_dependencies.get_family_context] = family_context
     app.dependency_overrides[assessment_dependencies.get_command_handler] = command_handler
     app.dependency_overrides[assessment_dependencies.get_query_handler] = query_handler
     app.dependency_overrides[assessment_dependencies.get_growth_hypothesis_handler] = (
         growth_hypothesis_handler
+    )
+    app.dependency_overrides[assessment_dependencies.get_assessment_human_task_decision_handler] = (
+        assessment_human_task_decision_handler
     )
 
 

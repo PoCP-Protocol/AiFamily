@@ -13,17 +13,52 @@ import os
 import subprocess
 import sys
 import uuid
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import make_url, text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
+from backend.apps.family_api.assessment_ai_wiring import AssessmentAiAssets
+from backend.apps.family_api.assessment_human_task_decision import (
+    ASSESSMENT_REJECTION_REASON_UNSPECIFIED,
+)
 from backend.apps.family_api.main import create_app
+from backend.apps.family_api.production_assessment_http_wiring import (
+    ProductionAssessmentAiCompositionResolver,
+    SqlAlchemyAssessmentIdentityResolver,
+    install_production_assessment_http_wiring,
+)
+from backend.intelligence.agent_runtime.authorization_persistence import (
+    SqlAlchemyAgentAuthorizationLeaseStore,
+)
+from backend.intelligence.agent_runtime.contracts import AgentAuthorization, AuthorizationBudget
+from backend.intelligence.context_engine.sql_store import AsyncSqlContextBroker
+from backend.intelligence.experience.execution_materials import (
+    SqlAlchemyExecutionMaterialRegistry,
+    SystemPolicyMaterial,
+)
+from backend.intelligence.model_gateway.attempt_persistence import SqlAlchemyAttemptSink
+from backend.intelligence.model_gateway.gateway import ModelGateway
+from backend.intelligence.model_gateway.provider_registry import ProviderRecord, ProviderRegistry
+from backend.intelligence.model_gateway.providers.fake import deterministic_provider
+from backend.intelligence.observability import SqlAlchemyTelemetrySink
+from backend.intelligence.prompt_registry.contracts import PromptBundle
+from backend.intelligence.prompt_registry.registry import PromptRegistry
+from backend.intelligence.safety.persistence import SqlAlchemySafetyDecisionSink
+from backend.intelligence.safety.runtime import SafetyRuntime
+from backend.intelligence.schema_registry.contracts import SchemaDefinition
+from backend.intelligence.schema_registry.registry import SchemaRegistry
 from backend.platform.persistence.session import DATABASE_URL_ENV_VAR, clear_engine_cache
 from tests.support.postgres import SKIP_REASON, postgres_test_url
 
@@ -103,9 +138,10 @@ async def _seed(url: str) -> None:
     async with _engine(url) as engine, engine.begin() as connection:
         await connection.execute(
             text(
-                "insert into tenants(tenant_id,tenant_ref,display_name,tenant_type,status) "
+                "insert into tenants(tenant_id,tenant_ref,display_name,tenant_type,status,"
+                "region_ref) "
                 "values (cast(:tenant as uuid),'assessment-http','Assessment HTTP',"
-                "'DIRECT_CUSTOMER','ACTIVE')"
+                "'DIRECT_CUSTOMER','ACTIVE','CN')"
             ),
             {"tenant": TENANT},
         )
@@ -118,9 +154,10 @@ async def _seed(url: str) -> None:
         )
         await connection.execute(
             text(
-                "insert into persons(person_id,family_id,person_type,parent_role,display_name) "
-                "values (cast(:parent as uuid),cast(:family as uuid),'PARENT','GUARDIAN','Parent'),"
-                "(cast(:child as uuid),cast(:family as uuid),'CHILD',null,'Child')"
+                "insert into persons(person_id,family_id,person_type,parent_role,display_name,"
+                "birth_date) values (cast(:parent as uuid),cast(:family as uuid),'PARENT',"
+                "'GUARDIAN','Parent',date '1990-01-01'),(cast(:child as uuid),"
+                "cast(:family as uuid),'CHILD',null,'Child',date '2016-01-01')"
             ),
             {"parent": PARENT, "child": CHILD, "family": FAMILY},
         )
@@ -223,6 +260,218 @@ def _headers(key: str) -> dict[str, str]:
         "Idempotency-Key": key,
         "X-Correlation-Id": f"http:{key}",
     }
+
+
+def _governed_model_output(request) -> dict[str, object]:
+    assessment_ref = str(request.payload["assessment_ref"])
+    return {
+        "model_component_ref": "FAMILY_ASSESSMENT_V1",
+        "assessment_ref": assessment_ref,
+        "boundary_labels": ["hypothesis_not_fact", "recommendation_not_decision"],
+        "need_summary": [{"need_ref": "COMMUNICATION_SUPPORT"}],
+        "construct_signals": [
+            {
+                "construct_ref": "PARENT_CHILD_COMMUNICATION",
+                "boundary": "signal_not_diagnosis",
+            }
+        ],
+        "hypotheses": [
+            {
+                "hypothesis_ref": f"{assessment_ref}:H1",
+                "boundary": "hypothesis_not_fact",
+                "construct_refs": ["PARENT_CHILD_COMMUNICATION"],
+                "is_primary_contradiction": True,
+            }
+        ],
+        "action_candidates": [
+            {
+                "action_ref": "COMMUNICATION_SUPPORT:ACTION",
+                "boundary": "recommendation_not_decision",
+            }
+        ],
+    }
+
+
+def _production_assessment_app(database_url: str):
+    engine = create_async_engine(
+        database_url,
+        pool_pre_ping=True,
+        connect_args={"statement_cache_size": 0},
+    )
+    sessions = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    provider = deterministic_provider(
+        _governed_model_output,
+        provider_id="assessment-http-governed-fake",
+    )
+    gateway = ModelGateway(
+        {provider.provider_id: provider},
+        environment="staging",
+        registry=ProviderRegistry(
+            (
+                ProviderRecord(
+                    provider_id=provider.provider_id,
+                    vendor="aifamily-test",
+                    model="fake",
+                    model_version="1",
+                    status="INTERNAL_APPROVED",
+                    approved_environments=("staging",),
+                    sub_delegates=False,
+                    minor_data_allowed=True,
+                    security_assessment_ref="test-only-admission",
+                    processing_agreement_ref="test-only-processing",
+                    deletion_on_termination_committed=True,
+                ),
+            )
+        ),
+        safety_runtime=SafetyRuntime(),
+    )
+    prompt = PromptBundle(
+        prompt_ref="assessment_http_interpretation_v1",
+        version="1.0.0",
+        use_case="assessment_interpretation",
+        agent_id="parent_advisor",
+        template="Explain evidence as a non-diagnostic family perspective.",
+        system_policy_ref="assessment-http-policy-v1",
+        knowledge_refs=(),
+        input_contract_ref="assessment-http-input-v1",
+        output_schema_ref="assessment_http_growth_perspective_v1",
+        safety_policy_version="assessment-http-safety-v1",
+        locale="zh-CN",
+        author="test",
+        reviewer="test-reviewer",
+        status="PUBLISHED",
+        effective_at=datetime.now(UTC) - timedelta(days=1),
+    )
+    schema = SchemaDefinition(
+        schema_ref="assessment_http_growth_perspective_v1",
+        version="1.0.0",
+        use_case="assessment_interpretation",
+        agent_id="parent_advisor",
+        object_type="GrowthPerspective",
+        json_schema={
+            "type": "object",
+            "required": [
+                "model_component_ref",
+                "assessment_ref",
+                "boundary_labels",
+                "need_summary",
+                "construct_signals",
+                "hypotheses",
+                "action_candidates",
+            ],
+            "properties": {
+                "model_component_ref": {"type": "string"},
+                "assessment_ref": {"type": "string"},
+                "boundary_labels": {"type": "array"},
+                "need_summary": {"type": "array"},
+                "construct_signals": {"type": "array"},
+                "hypotheses": {"type": "array"},
+                "action_candidates": {"type": "array"},
+            },
+        },
+        status="PUBLISHED",
+        effective_at=datetime.now(UTC) - timedelta(days=1),
+        reviewer="test-reviewer",
+    )
+    assets = AssessmentAiAssets(
+        prompt_ref=prompt.prompt_ref,
+        prompt_version=prompt.version,
+        schema_ref=schema.schema_ref,
+        schema_version=schema.version,
+        reviewed_construct_refs=frozenset({"PARENT_CHILD_COMMUNICATION"}),
+    )
+    composition_resolver = ProductionAssessmentAiCompositionResolver(
+        engine=engine,
+        session_factory=sessions,
+        gateway=gateway,
+        provider_id=provider.provider_id,
+        registry_path=ROOT / "governance" / "AI_USE_CASE_REGISTRY.yaml",
+        attempt_sink_factory=SqlAlchemyAttemptSink,
+        safety_sink_factory=SqlAlchemySafetyDecisionSink,
+        telemetry_sink_factory=SqlAlchemyTelemetrySink,
+        context_broker=AsyncSqlContextBroker(sessions),
+        assets=assets,
+        environment="staging",
+        clock=lambda: datetime.now(UTC),
+        prompt_registry=PromptRegistry(bundles=(prompt,)),
+        schema_registry=SchemaRegistry(definitions=(schema,)),
+    )
+    identity_resolver = SqlAlchemyAssessmentIdentityResolver(engine, sessions)
+    app = create_app(
+        assessment_production_ai_wiring=lambda application: (
+            install_production_assessment_http_wiring(
+                application,
+                engine=engine,
+                identity_resolver=identity_resolver,
+                composition_resolver=composition_resolver,
+            )
+        )
+    )
+    return app, engine, sessions, provider
+
+
+@contextmanager
+def _production_client(app, engine: AsyncEngine) -> Iterator[TestClient]:
+    """Keep pooled asyncpg connections on one TestClient portal loop."""
+
+    with TestClient(app) as client:
+        try:
+            yield client
+        finally:
+            if client.portal is None:  # pragma: no cover - TestClient lifecycle guard
+                raise RuntimeError("TestClient portal closed before engine disposal")
+            client.portal.call(engine.dispose)
+
+
+async def _assert_no_application_connections(database_url: str) -> None:
+    async with _engine(database_url) as engine, engine.connect() as connection:
+        remaining = int(
+            await connection.scalar(
+                text(
+                    "select count(*) from pg_stat_activity "
+                    "where datname=current_database() and pid<>pg_backend_pid()"
+                )
+            )
+        )
+    assert remaining == 0
+
+
+async def _seed_governed_ai_controls(database_url: str) -> None:
+    now = datetime.now(UTC)
+    async with _engine(database_url) as engine:
+        sessions = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async with sessions() as session:
+            await SqlAlchemyAgentAuthorizationLeaseStore(session).issue(
+                AgentAuthorization(
+                    authorization_id="assessment-http-agent-authorization",
+                    agent_id="parent_advisor",
+                    tenant_id=TENANT,
+                    family_id=FAMILY,
+                    allowed_use_cases=frozenset({"assessment_interpretation"}),
+                    allowed_tools=frozenset({"read_context"}),
+                    issued_by=PARENT,
+                    issued_at=now - timedelta(minutes=5),
+                    expires_at=now + timedelta(hours=1),
+                    revoked_at=None,
+                    budget=AuthorizationBudget(max_steps=1),
+                    policy_version="assessment-http-authorization-v1",
+                    reason="guardian requested an assessment perspective",
+                    audit_ref="audit:assessment-http-agent-authorization",
+                )
+            )
+            await SqlAlchemyExecutionMaterialRegistry(session).register_policy(
+                SystemPolicyMaterial.build(
+                    policy_ref="assessment-http-policy-v1",
+                    use_case="assessment_interpretation",
+                    agent_id="parent_advisor",
+                    content="Return a reviewable family perspective, never a diagnosis or fact.",
+                    locale="zh-CN",
+                    status="PUBLISHED",
+                    reviewer="test-reviewer",
+                    effective_at=now - timedelta(days=1),
+                )
+            )
+            await session.commit()
 
 
 @pytest.mark.asyncio
@@ -376,3 +625,240 @@ async def test_assessment_http_postgres_restart_readback_and_scope(
             f"/families/{FAMILY}/ui/03/growth-hypothesis", headers=headers
         )
         assert withdrawn_readback.status_code == 403, withdrawn_readback.text
+
+
+@pytest.mark.asyncio
+async def test_assessment_human_task_decision_survives_restart_and_confirms_downstream(
+    database_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _seed(database_url)
+    await _seed_governed_ai_controls(database_url)
+    monkeypatch.setenv("AIFAMILY_ENV", "test")
+    monkeypatch.setenv(DATABASE_URL_ENV_VAR, database_url)
+    clear_engine_cache()
+
+    app, engine, _, provider = _production_assessment_app(database_url)
+    with _production_client(app, engine) as client:
+        started = client.post(
+            f"/families/{FAMILY}/assessments/sessions",
+            headers=_headers("human-gate-start"),
+            json={"subject_person_id": CHILD},
+        )
+        assert started.status_code == 200, started.text
+        session_id = started.json()["session"]["assessment_session_id"]
+        saved = client.post(
+            f"/families/{FAMILY}/assessments/sessions/{session_id}/responses",
+            headers=_headers("human-gate-response"),
+            json={
+                "item_ref": "FOCUS",
+                "response_type": "SINGLE_CHOICE",
+                "response_value": "PARENT_CHILD_COMMUNICATION",
+            },
+        )
+        assert saved.status_code == 200, saved.text
+        submitted = client.post(
+            f"/families/{FAMILY}/assessments/sessions/{session_id}/submit",
+            headers=_headers("human-gate-submit"),
+        )
+        assert submitted.status_code == 200, submitted.text
+        projection = client.get(
+            f"/families/{FAMILY}/ui/03/growth-hypothesis",
+            headers=_headers("human-gate-draft"),
+        )
+        assert projection.status_code == 200, projection.text
+        projection_body = projection.json()
+        task_id = projection_body["hypothesis"]["scorecard"]["human_task_ref"]
+        first = client.post(
+            f"/families/{FAMILY}/assessment/human-tasks/{task_id}/decisions",
+            headers=_headers("stable-human-decision"),
+            json={"outcome": "ACCEPT", "reason": "监护人确认这是一项待验证假设"},
+        )
+        assert first.status_code == 200, first.text
+        first_receipt = first.json()
+        assert first_receipt["outcome"] == "ACCEPT"
+        assert first_receipt["decision_id"].startswith("assessment-decision:")
+        assert len(first_receipt["decision_id"]) == len("assessment-decision:") + 64
+        first_binding = first_receipt["binding"]
+        assert first_binding["subject_person_id"] == CHILD
+        assert first_binding["assessment_session_id"] == session_id
+        assert first_binding["hypothesis_ref"] == projection_body["hypothesis"]["hypothesis_ref"]
+        assert first_binding["scope_ref"] == f"family://{TENANT}/{FAMILY}/assessment"
+        assert (
+            first_binding["signal_version"]
+            == (projection_body["hypothesis"]["source_refs"]["tool_version"])
+        )
+        assert first_binding["reviewed_draft_ref"].startswith("agent-draft:")
+        assert first_binding["draft_version"] == 1
+        assert first_binding["provenance_ref"].startswith("agent-provenance:")
+        assert first_binding["human_gate_receipt_ref"] == task_id
+    await _assert_no_application_connections(database_url)
+
+    restarted_app, restarted_engine, _, restarted_provider = _production_assessment_app(
+        database_url
+    )
+    with _production_client(restarted_app, restarted_engine) as restarted:
+        replay = restarted.post(
+            f"/families/{FAMILY}/assessment/human-tasks/{task_id}/decisions",
+            headers={
+                **_headers("stable-human-decision"),
+                "X-Correlation-Id": "human-gate-after-process-restart",
+            },
+            json={"outcome": "ACCEPT", "reason": "监护人确认这是一项待验证假设"},
+        )
+        assert replay.status_code == 200, replay.text
+        assert replay.json() == first_receipt
+
+        changed_payload = restarted.post(
+            f"/families/{FAMILY}/assessment/human-tasks/{task_id}/decisions",
+            headers=_headers("stable-human-decision"),
+            json={"outcome": "REJECT", "reason": "同 key 不同 payload"},
+        )
+        assert changed_payload.status_code == 409
+
+        binding = replay.json()["binding"]
+        confirmation = restarted.post(
+            f"/families/{FAMILY}/growth-hypotheses/decisions",
+            headers=_headers("human-gate-downstream-confirm"),
+            json={
+                "assessment_session_id": binding["assessment_session_id"],
+                "hypothesis_ref": binding["hypothesis_ref"],
+                "decision_type": "CONFIRM",
+                "scope_ref": binding["scope_ref"],
+                "signal_version": binding["signal_version"],
+                "reviewed_draft_ref": binding["reviewed_draft_ref"],
+                "draft_version": binding["draft_version"],
+                "provenance_ref": binding["provenance_ref"],
+                "human_gate_receipt_ref": binding["human_gate_receipt_ref"],
+            },
+        )
+        assert confirmation.status_code == 200, confirmation.text
+        assert confirmation.json()["intent"]["boundary"] == ("HUMAN_CONFIRMED_INTENT_NOT_OUTCOME")
+    await _assert_no_application_connections(database_url)
+
+    assert len(provider.invocations) == 1
+    assert restarted_provider.invocations == []
+    async with _engine(database_url) as verification_engine, verification_engine.connect() as conn:
+        task_row = (
+            await conn.execute(
+                text(
+                    "select decision_id,decision_payload,action_request_payload "
+                    "from ai_human_tasks where task_id=:task_id"
+                ),
+                {"task_id": task_id},
+            )
+        ).one()
+        audit_count = int(
+            await conn.scalar(
+                text(
+                    "select count(*) from platform_audit_events "
+                    "where action='DECIDE_HUMAN_TASK' and resource_id=:task_id"
+                ),
+                {"task_id": task_id},
+            )
+        )
+        downstream_count = int(
+            await conn.scalar(
+                text(
+                    "select count(*) from family_growth_hypothesis_decisions "
+                    "where family_id=cast(:family_id as uuid) "
+                    "and assessment_session_id=cast(:session_id as uuid)"
+                ),
+                {"family_id": FAMILY, "session_id": session_id},
+            )
+        )
+    assert task_row.decision_id == first_receipt["decision_id"]
+    assert task_row.decision_payload["actor_id"] == PARENT
+    assert task_row.action_request_payload["scope"]["subject_ids"] == [CHILD]
+    assert audit_count == 1
+    assert downstream_count == 1
+    clear_engine_cache()
+
+
+@pytest.mark.asyncio
+async def test_assessment_reject_without_reason_is_audited_and_replays_after_restart(
+    database_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _seed(database_url)
+    await _seed_governed_ai_controls(database_url)
+    monkeypatch.setenv("AIFAMILY_ENV", "test")
+    monkeypatch.setenv(DATABASE_URL_ENV_VAR, database_url)
+    clear_engine_cache()
+
+    app, engine, _, provider = _production_assessment_app(database_url)
+    with _production_client(app, engine) as client:
+        started = client.post(
+            f"/families/{FAMILY}/assessments/sessions",
+            headers=_headers("reasonless-reject-start"),
+            json={"subject_person_id": CHILD},
+        )
+        assert started.status_code == 200, started.text
+        session_id = started.json()["session"]["assessment_session_id"]
+        saved = client.post(
+            f"/families/{FAMILY}/assessments/sessions/{session_id}/responses",
+            headers=_headers("reasonless-reject-response"),
+            json={
+                "item_ref": "FOCUS",
+                "response_type": "SINGLE_CHOICE",
+                "response_value": "PARENT_CHILD_COMMUNICATION",
+            },
+        )
+        assert saved.status_code == 200, saved.text
+        submitted = client.post(
+            f"/families/{FAMILY}/assessments/sessions/{session_id}/submit",
+            headers=_headers("reasonless-reject-submit"),
+        )
+        assert submitted.status_code == 200, submitted.text
+        projection = client.get(
+            f"/families/{FAMILY}/ui/03/growth-hypothesis",
+            headers=_headers("reasonless-reject-draft"),
+        )
+        assert projection.status_code == 200, projection.text
+        task_id = projection.json()["hypothesis"]["scorecard"]["human_task_ref"]
+        rejected = client.post(
+            f"/families/{FAMILY}/assessment/human-tasks/{task_id}/decisions",
+            headers=_headers("stable-reasonless-reject"),
+            json={"outcome": "REJECT"},
+        )
+        assert rejected.status_code == 200, rejected.text
+        receipt = rejected.json()
+        assert receipt["outcome"] == "REJECT"
+        assert receipt["reason"] == ASSESSMENT_REJECTION_REASON_UNSPECIFIED
+        assert receipt["binding"] is None
+    await _assert_no_application_connections(database_url)
+
+    restarted_app, restarted_engine, _, restarted_provider = _production_assessment_app(
+        database_url
+    )
+    with _production_client(restarted_app, restarted_engine) as restarted:
+        replay = restarted.post(
+            f"/families/{FAMILY}/assessment/human-tasks/{task_id}/decisions",
+            headers=_headers("stable-reasonless-reject"),
+            json={"outcome": "REJECT"},
+        )
+        assert replay.status_code == 200, replay.text
+        assert replay.json() == receipt
+    await _assert_no_application_connections(database_url)
+
+    assert len(provider.invocations) == 1
+    assert restarted_provider.invocations == []
+    async with _engine(database_url) as verification_engine, verification_engine.connect() as conn:
+        task_row = (
+            await conn.execute(
+                text("select decision_payload from ai_human_tasks where task_id=:task_id"),
+                {"task_id": task_id},
+            )
+        ).one()
+        audit_rows = (
+            await conn.execute(
+                text(
+                    "select reason from platform_audit_events "
+                    "where action='DECIDE_HUMAN_TASK' and resource_id=:task_id"
+                ),
+                {"task_id": task_id},
+            )
+        ).all()
+    assert task_row.decision_payload["reason"] == ASSESSMENT_REJECTION_REASON_UNSPECIFIED
+    assert [row.reason for row in audit_rows] == [ASSESSMENT_REJECTION_REASON_UNSPECIFIED]
+    clear_engine_cache()

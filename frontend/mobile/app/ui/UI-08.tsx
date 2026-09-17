@@ -10,6 +10,7 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { getGrowthFocus } from "@/lib/family/core-growth";
 import { familyApi } from "@/lib/family/family-api-client";
 import { useFamilyApiSession } from "@/lib/family/family-api-session";
+import { ui03FlowContextForFamily } from "@/lib/family/family-state-core";
 import { useFamilyMobile } from "@/lib/family/family-state";
 
 interface RemoteReview {
@@ -19,11 +20,16 @@ interface RemoteReview {
 
 export default function GrowthReviewScreen() {
   const session = useFamilyApiSession();
-  const { selectedGrowthFocus, lastReceipt, campCompletedDays, activeOnboardingId } = useFamilyMobile();
+  const { selectedGrowthFocus, lastReceipt, campCompletedDays, ui03FlowContext } = useFamilyMobile();
+  const activeOnboardingId = ui03FlowContextForFamily(
+    ui03FlowContext,
+    session.selectedFamily?.family_id ?? null,
+  )?.onboardingId ?? null;
   const focus = getGrowthFocus(selectedGrowthFocus);
   const [remote, setRemote] = useState<RemoteReview | null>(null);
 
   useEffect(() => {
+    setRemote(null);
     if (session.status !== "connected" || !session.token || !session.selectedFamily || !activeOnboardingId) return;
     let active = true;
     familyApi

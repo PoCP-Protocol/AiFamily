@@ -7,6 +7,7 @@ import type { AssessmentAnswer, GrowthFocusId } from "./core-growth";
 import type { ChildChoice, PrivateGrowthStoryDraft } from "./child-growth";
 import type { ConsultationChannel } from "./service-support";
 import type { CommunityAiTagDraft, CommunityPostKind } from "./community-content";
+import type { Ui03FlowContext } from "./ui03-human-task-flow";
 
 const STORAGE_KEY = "family-ai-mobile-state-v1";
 
@@ -23,7 +24,7 @@ interface FamilyMobileContextValue extends FamilyMobileState {
   answerAssessment(questionId: string, answer: AssessmentAnswer): void;
   setAssessmentSyncState(state: FamilyMobileState["assessmentSyncState"]): void;
   setAssessmentSubject(subjectId: string | null): void;
-  setActiveOnboardingId(onboardingId: string | null): void;
+  setUi03FlowContext(context: Ui03FlowContext | null): void;
   recordChildChoice(promptId: string, choice: ChildChoice): void;
   savePrivateGrowthStory(draft: PrivateGrowthStoryDraft): void;
   saveCommerceIntentDraft(productRef: string, productVersion: number, productTitle: string): void;
@@ -102,7 +103,7 @@ export function FamilyMobileProvider({ children }: PropsWithChildren) {
     answerAssessment: (questionId, answer) => dispatch({ type: "answer_assessment", questionId, answer }),
     setAssessmentSyncState: (nextState) => dispatch({ type: "set_assessment_sync", state: nextState }),
     setAssessmentSubject: (subjectId) => dispatch({ type: "set_assessment_subject", subjectId }),
-    setActiveOnboardingId: (onboardingId) => dispatch({ type: "set_active_onboarding", onboardingId }),
+    setUi03FlowContext: (context) => dispatch({ type: "set_ui03_flow_context", context }),
     recordChildChoice: (promptId, choice) => dispatch({ type: "record_child_choice", promptId, choice }),
     savePrivateGrowthStory: (draft) => dispatch({ type: "save_private_growth_story", draft }),
     saveCommerceIntentDraft: (productRef, productVersion, productTitle) => dispatch({ type: "save_commerce_intent_draft", productRef, productVersion, productTitle }),

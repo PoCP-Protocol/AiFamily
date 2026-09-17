@@ -54,6 +54,9 @@ from backend.apps.family_api.production_vertical_family_growth_wiring import (
 )
 from backend.domains.assessment.application.ports import AssessmentRepositoryPort
 from backend.intelligence.context_engine.async_port import AsyncContextBrokerPort
+from backend.intelligence.experience.execution_materials import (
+    SessionPerCallExecutionMaterialResolver,
+)
 from backend.intelligence.model_gateway.gateway import ModelGateway
 
 
@@ -97,16 +100,10 @@ def build_production_ai_platform_wiring(
     if context_broker.durability_mode != "DURABLE":
         raise ValueError("production AI platform requires a durable Context Broker")
     if environment not in {"test", "staging", "production"}:
-        raise ValueError(
-            "production AI platform environment must be test, staging or production"
-        )
-    if prompt_registry_factory is None and not callable(
-        getattr(prompt_registry, "resolve", None)
-    ):
+        raise ValueError("production AI platform environment must be test, staging or production")
+    if prompt_registry_factory is None and not callable(getattr(prompt_registry, "resolve", None)):
         raise ValueError("production AI platform requires a Prompt Registry")
-    if schema_registry_factory is None and not callable(
-        getattr(schema_registry, "resolve", None)
-    ):
+    if schema_registry_factory is None and not callable(getattr(schema_registry, "resolve", None)):
         raise ValueError("production AI platform requires a Schema Registry")
     if not all(
         callable(value)
@@ -150,6 +147,7 @@ def build_production_ai_platform_wiring(
             schema_registry=schema_registry,
             prompt_registry_factory=prompt_registry_factory,
             schema_registry_factory=schema_registry_factory,
+            execution_material_resolver=SessionPerCallExecutionMaterialResolver(session_factory),
             clock=clock,
         )
         return ProductionGrowthPlanAiComposition(

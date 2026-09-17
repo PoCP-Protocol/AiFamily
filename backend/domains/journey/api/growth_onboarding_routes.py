@@ -8,11 +8,11 @@ boundary.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..application.growth_onboarding import (
     GrowthOnboardingApplication,
@@ -26,6 +26,29 @@ from ..domain.errors import (
 )
 
 router = APIRouter()
+
+_REQUIRED_HEADER_OPENAPI_PARAMETERS = [
+    {
+        "name": "Authorization",
+        "in": "header",
+        "required": True,
+        "schema": {
+            "type": "string",
+            "minLength": 8,
+            "pattern": r"^Bearer \S+$",
+        },
+    },
+    {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": True,
+        "schema": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+        },
+    },
+]
 
 
 @dataclass(frozen=True)
@@ -42,6 +65,58 @@ class StartGrowthOnboardingRequest(BaseModel):
     intent_id: str = Field(min_length=1, max_length=128)
 
 
+class GrowthOnboardingIntentBindingResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    binding_id: str
+    tenant_id: str
+    family_id: str
+    intent_id: str
+    onboarding_id: str
+    subject_person_id: str
+
+
+class GrowthOnboardingResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    onboarding_id: str
+    tenant_id: str
+    family_id: str
+    intent_id: str
+    subject_person_id: str
+    journey_type: Literal["PARENT_CHILD_COMMUNICATION_CONFLICT"]
+    phase: Literal["ONBOARDING"]
+    status: Literal["ACTIVE"]
+    started_by_actor_id: str
+    started_at: str
+    version: int
+    intent_binding: GrowthOnboardingIntentBindingResponse
+
+
+class GrowthOnboardingStartedEventResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str
+    event_name: Literal["GrowthOnboardingStarted"]
+    event_version: int
+    tenant_id: str
+    family_id: str
+    actor_id: str
+    intent_id: str
+    onboarding_id: str
+    subject_person_id: str
+    occurred_at: str
+
+
+class StartGrowthOnboardingResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    onboarding: GrowthOnboardingResponse
+    event: GrowthOnboardingStartedEventResponse
+    created: bool
+    replayed: bool
+
+
 async def get_growth_onboarding_application() -> GrowthOnboardingApplication:
     """Fail closed until production or test wiring installs the application."""
 
@@ -53,37 +128,48 @@ async def get_growth_onboarding_application() -> GrowthOnboardingApplication:
 
 async def get_growth_onboarding_actor_context(
     family_id: str,
-    authorization: Annotated[str | None, Header()] = None,
 ) -> GrowthOnboardingActorContext:
     """Fail closed until a trusted identity resolver is installed."""
 
-    del family_id, authorization
+    del family_id
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         detail="growth_onboarding_identity_not_configured",
     )
 
 
-@router.post("/families/{family_id}/growth/onboardings")
+async def get_growth_onboarding_idempotency_key(request: Request) -> str:
+    """Read the required key while preserving the domain's stable 400 response.
+
+    Declaring this as a required ``Header`` parameter would make FastAPI return
+    422 before the route can preserve its existing ``invalid_idempotency_key``
+    boundary. The route therefore publishes the required header explicitly in
+    OpenAPI and validates it here.
+    """
+
+    value = request.headers.get("Idempotency-Key")
+    if value is None or not value.strip() or len(value) > 128:
+        raise HTTPException(status_code=400, detail="invalid_idempotency_key")
+    return value
+
+
+@router.post(
+    "/families/{family_id}/growth/onboardings",
+    response_model=StartGrowthOnboardingResponse,
+    openapi_extra={"parameters": _REQUIRED_HEADER_OPENAPI_PARAMETERS},
+)
 async def start_growth_onboarding(
     family_id: str,
     body: StartGrowthOnboardingRequest,
-    actor: Annotated[
-        GrowthOnboardingActorContext, Depends(get_growth_onboarding_actor_context)
-    ],
-    application: Annotated[
-        GrowthOnboardingApplication, Depends(get_growth_onboarding_application)
-    ],
-    idempotency_key: Annotated[str | None, Header()] = None,
+    actor: Annotated[GrowthOnboardingActorContext, Depends(get_growth_onboarding_actor_context)],
+    application: Annotated[GrowthOnboardingApplication, Depends(get_growth_onboarding_application)],
+    idempotency_key: Annotated[str, Depends(get_growth_onboarding_idempotency_key)],
     x_correlation_id: Annotated[str | None, Header()] = None,
 ) -> dict:
     if actor.family_id != family_id:
         raise HTTPException(status_code=403, detail="family_access_denied")
     if actor.actor_type.upper() != "HUMAN":
         raise HTTPException(status_code=403, detail="human_actor_required")
-    if idempotency_key is None or not idempotency_key.strip() or len(idempotency_key) > 128:
-        raise HTTPException(status_code=400, detail="invalid_idempotency_key")
-
     command = StartGrowthOnboardingCommand(
         tenant_id=actor.tenant_id,
         family_id=actor.family_id,
@@ -108,8 +194,10 @@ async def start_growth_onboarding(
 
 __all__ = [
     "GrowthOnboardingActorContext",
+    "StartGrowthOnboardingResponse",
     "StartGrowthOnboardingRequest",
     "get_growth_onboarding_actor_context",
     "get_growth_onboarding_application",
+    "get_growth_onboarding_idempotency_key",
     "router",
 ]

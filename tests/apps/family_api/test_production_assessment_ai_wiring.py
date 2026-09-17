@@ -6,13 +6,14 @@ from hashlib import sha256
 from pathlib import Path
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from backend.apps.family_api.assessment_ai_wiring import AssessmentAiAssets
+from backend.apps.family_api.main import create_app
 from backend.apps.family_api.production_agent_wiring import ProductionAgentRuntimeResolver
 from backend.apps.family_api.production_assessment_ai_wiring import (
     ProductionAssessmentAiComposition,
@@ -23,8 +24,6 @@ from backend.apps.family_api.production_assessment_http_wiring import (
     SqlAlchemyAssessmentIdentityResolver,
     install_production_assessment_http_wiring,
 )
-from backend.domains.assessment.api import register_exception_handlers
-from backend.domains.assessment.api import router as assessment_router
 from backend.domains.assessment.api.dependencies import FamilyContext
 from backend.domains.assessment.application.commands import (
     AssessmentCommandHandler,
@@ -50,6 +49,7 @@ from backend.intelligence.context_engine.sql_store import (
     AsyncSqlContextBroker,
     ContextPersistenceBase,
 )
+from backend.intelligence.human_gate.persistence import HumanGateBase, SqlAlchemyHumanGate
 from backend.intelligence.model_gateway.attempt_persistence import (
     AttemptPersistenceBase,
     SqlAlchemyAttemptSink,
@@ -67,6 +67,7 @@ from backend.intelligence.safety.persistence import (
 from backend.intelligence.safety.runtime import SafetyRuntime
 from backend.intelligence.schema_registry.contracts import SchemaDefinition
 from backend.intelligence.schema_registry.registry import SchemaRegistry
+from backend.platform.audit.store import AuditBase, read_all_events
 
 NOW = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
 ROOT = Path(__file__).resolve().parents[3]
@@ -106,6 +107,8 @@ async def dependencies():
         await connection.run_sync(AttemptPersistenceBase.metadata.create_all)
         await connection.run_sync(SafetyDecisionPersistenceBase.metadata.create_all)
         await connection.run_sync(TelemetryPersistenceBase.metadata.create_all)
+        await connection.run_sync(HumanGateBase.metadata.create_all)
+        await connection.run_sync(AuditBase.metadata.create_all)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     broker = AsyncSqlContextBroker(session_factory)
     try:
@@ -437,7 +440,9 @@ async def test_http_composition_resolver_builds_subject_scoped_production_runtim
 @pytest.mark.asyncio
 async def test_http_ui03_to_guardian_confirmation_reuses_same_model_draft(
     dependencies,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("AIFAMILY_ENV", "production")
     engine, session_factory, broker = dependencies
     child_id = "11111111-1111-4111-8111-111111111111"
     repository = FakeAssessmentRepository()
@@ -502,15 +507,16 @@ async def test_http_ui03_to_guardian_confirmation_reuses_same_model_draft(
         assert authorization == "Bearer guardian-session"
         return composition
 
-    app = FastAPI()
-    app.include_router(assessment_router, prefix="/families")
-    register_exception_handlers(app)
-    install_production_assessment_http_wiring(
-        app,
-        engine=engine,
-        identity_resolver=identity_resolver,
-        composition_resolver=composition_resolver,
-        repository_factory=lambda connection: repository,
+    app = create_app(
+        assessment_production_ai_wiring=lambda application: (
+            install_production_assessment_http_wiring(
+                application,
+                engine=engine,
+                identity_resolver=identity_resolver,
+                composition_resolver=composition_resolver,
+                repository_factory=lambda connection: repository,
+            )
+        )
     )
     headers = {
         "Authorization": "Bearer guardian-session",
@@ -532,22 +538,125 @@ async def test_http_ui03_to_guardian_confirmation_reuses_same_model_draft(
         body = projection.json()
         assert body["ai_state"] == "MODEL_DRAFT_READY"
         assert body["hypothesis"]["subject_person_id"] == child_id
+        assert set(body["hypothesis"]["scorecard"]) == {
+            "generator",
+            "agent_run_ref",
+            "provider_ref",
+            "model_ref",
+            "model_version",
+            "prompt_version",
+            "schema_version",
+            "context_snapshot_ref",
+            "input_refs",
+            "draft_status",
+            "human_task_ref",
+            "review_status",
+        }
+        assert body["hypothesis"]["scorecard"]["generator"] == "MODEL_GATEWAY"
+        assert all(isinstance(item, str) for item in body["hypothesis"]["scorecard"]["input_refs"])
 
+        human_task_ref = body["hypothesis"]["scorecard"]["human_task_ref"]
+        async with session_factory() as session:
+            pending_task = await SqlAlchemyHumanGate(session).get(human_task_ref)
+        pending_payload = {
+            "assessment_session_id": session_id,
+            "hypothesis_ref": body["hypothesis"]["hypothesis_ref"],
+            "decision_type": "CONFIRM",
+            "scope_ref": "family://tenant-1/family-1/assessment",
+            "signal_version": body["hypothesis"]["source_refs"]["tool_version"],
+            "reviewed_draft_ref": pending_task.proposal.draft_id,
+            "draft_version": 1,
+            "provenance_ref": pending_task.proposal.provenance_ref,
+            "human_gate_receipt_ref": human_task_ref,
+        }
+        undecided = await client.post(
+            "/families/family-1/growth-hypotheses/decisions",
+            headers={**headers, "Idempotency-Key": "idem:undecided"},
+            json=pending_payload,
+        )
+        assert undecided.status_code == 409
+        assert undecided.json()["detail"] == "human_task_acceptance_required"
+
+        missing_key = await client.post(
+            f"/families/family-1/assessment/human-tasks/{human_task_ref}/decisions",
+            headers=headers,
+            json={"outcome": "ACCEPT"},
+        )
+        assert missing_key.status_code == 422
+
+        decision_headers = {**headers, "Idempotency-Key": "idem:http-human-gate"}
+        accepted = await client.post(
+            f"/families/family-1/assessment/human-tasks/{human_task_ref}/decisions",
+            headers=decision_headers,
+            json={"outcome": "ACCEPT"},
+        )
+        accepted_replay = await client.post(
+            f"/families/family-1/assessment/human-tasks/{human_task_ref}/decisions",
+            headers=decision_headers,
+            json={"outcome": "ACCEPT"},
+        )
+        changed_payload = await client.post(
+            f"/families/family-1/assessment/human-tasks/{human_task_ref}/decisions",
+            headers=decision_headers,
+            json={"outcome": "REJECT", "reason": "不同意这份草案"},
+        )
+        occupied = await client.post(
+            f"/families/family-1/assessment/human-tasks/{human_task_ref}/decisions",
+            headers={**headers, "Idempotency-Key": "idem:another-decision"},
+            json={"outcome": "ACCEPT"},
+        )
+
+        assert accepted.status_code == 200, accepted.text
+        assert accepted_replay.status_code == 200, accepted_replay.text
+        assert accepted_replay.json() == accepted.json()
+        assert changed_payload.status_code == 409
+        assert occupied.status_code == 409
+        binding = accepted.json()["binding"]
+        assert binding == {
+            "subject_person_id": child_id,
+            "assessment_session_id": session_id,
+            "hypothesis_ref": body["hypothesis"]["hypothesis_ref"],
+            "scope_ref": "family://tenant-1/family-1/assessment",
+            "signal_version": body["hypothesis"]["source_refs"]["tool_version"],
+            "reviewed_draft_ref": pending_task.proposal.draft_id,
+            "draft_version": 1,
+            "provenance_ref": pending_task.proposal.provenance_ref,
+            "human_gate_receipt_ref": human_task_ref,
+        }
+
+        confirmation_payload = {
+            "assessment_session_id": binding["assessment_session_id"],
+            "hypothesis_ref": binding["hypothesis_ref"],
+            "decision_type": "CONFIRM",
+            "scope_ref": binding["scope_ref"],
+            "signal_version": binding["signal_version"],
+            "reviewed_draft_ref": binding["reviewed_draft_ref"],
+            "draft_version": binding["draft_version"],
+            "provenance_ref": binding["provenance_ref"],
+            "human_gate_receipt_ref": binding["human_gate_receipt_ref"],
+        }
         confirmation = await client.post(
             "/families/family-1/growth-hypotheses/decisions",
             headers={**headers, "Idempotency-Key": "idem:http-confirm"},
-            json={
-                "assessment_session_id": session_id,
-                "hypothesis_ref": body["hypothesis"]["hypothesis_ref"],
-                "decision_type": "CONFIRM",
-            },
+            json=confirmation_payload,
+        )
+        replay = await client.post(
+            "/families/family-1/growth-hypotheses/decisions",
+            headers={**headers, "Idempotency-Key": "different-client-key"},
+            json=confirmation_payload,
         )
 
     assert confirmation.status_code == 200, confirmation.text
     receipt = confirmation.json()
     assert receipt["outcome"] == "INTENT_CREATED"
     assert receipt["intent"]["boundary"] == "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME"
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["replayed"] is True
+    assert replay.json()["intent"]["intent_id"] == receipt["intent"]["intent_id"]
     assert len(provider.invocations) == 1
+    async with session_factory() as session:
+        events = await read_all_events(session, tenant_id="tenant-1")
+    assert [event.action for event in events].count("DECIDE_HUMAN_TASK") == 1
 
 
 @pytest.mark.asyncio

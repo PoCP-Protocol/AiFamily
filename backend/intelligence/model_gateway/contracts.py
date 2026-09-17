@@ -61,6 +61,33 @@ MediaType = Literal["IMAGE", "AUDIO", "VIDEO", "DOCUMENT"]
 
 
 @dataclass(frozen=True, slots=True)
+class ModelSafetyReview:
+    """Output-safety metadata that must survive the Gateway boundary.
+
+    The Safety Runtime owns the decision. This provider-neutral projection is
+    carried by ``ModelDraft`` so an application composition root can create a
+    durable HumanTask without querying an eventually-consistent safety ledger.
+    It represents REVIEW only: ALLOW needs no task and BLOCK returns no draft.
+    """
+
+    risk_level: Literal["MEDIUM", "HIGH"]
+    reasons: tuple[str, ...]
+    policy_version: str
+    status: Literal["REVIEW"] = "REVIEW"
+    requires_human_gate: bool = True
+
+    def __post_init__(self) -> None:
+        if self.status != "REVIEW" or self.requires_human_gate is not True:
+            raise ValueError("ModelSafetyReview must require human review")
+        if self.risk_level not in {"MEDIUM", "HIGH"}:
+            raise ValueError("ModelSafetyReview risk level must be MEDIUM or HIGH")
+        if not self.reasons or any(not reason.strip() for reason in self.reasons):
+            raise ValueError("ModelSafetyReview reasons are required")
+        if not self.policy_version.strip():
+            raise ValueError("ModelSafetyReview policy_version is required")
+
+
+@dataclass(frozen=True, slots=True)
 class MediaInput:
     """A governed media reference passed to a multimodal model.
 
@@ -188,9 +215,11 @@ class PromptExecutionPlan:
             raise ValueError("PromptExecutionPlan knowledge refs cannot be blank")
         if len(set(self.knowledge_refs)) != len(self.knowledge_refs):
             raise ValueError("PromptExecutionPlan knowledge refs must be unique")
-        if self.knowledge_materials and tuple(
-            item.knowledge_ref for item in self.knowledge_materials
-        ) != self.knowledge_refs:
+        if (
+            self.knowledge_materials
+            and tuple(item.knowledge_ref for item in self.knowledge_materials)
+            != self.knowledge_refs
+        ):
             raise ValueError("PromptExecutionPlan knowledge material order mismatch")
         has_any_material = bool(
             self.system_policy
@@ -378,9 +407,7 @@ class AiProvenance:
         if has_release_evidence and (
             self.deployment_sequence is None
             or self.deployment_sequence <= 0
-            or not all(
-            isinstance(value, str) and value.strip() for value in release_refs
-            )
+            or not all(isinstance(value, str) and value.strip() for value in release_refs)
         ):
             raise ValueError("AiProvenance release binding must be complete or absent")
 
@@ -402,6 +429,7 @@ class ModelDraft:
     output: dict[str, Any]
     provenance: AiProvenance
     status: DraftStatus = "DRAFT"
+    safety_review: ModelSafetyReview | None = None
 
     def __post_init__(self) -> None:
         # ``Literal["DRAFT"]`` protects static callers only.  Python does not
@@ -424,3 +452,7 @@ class ModelDraft:
     @property
     def requires_human_confirmation(self) -> bool:
         return True
+
+    @property
+    def requires_safety_review(self) -> bool:
+        return self.safety_review is not None

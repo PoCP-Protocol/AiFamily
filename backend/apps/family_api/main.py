@@ -101,6 +101,7 @@ from backend.domains.membership.api.routes import router as membership_router
 from backend.domains.product_intelligence.api.course_routes import (
     configure_course_content_gate,
     configure_course_content_repository,
+    configure_course_release_baseline_repository,
     configure_course_system_repository,
 )
 from backend.domains.product_intelligence.api.course_routes import (
@@ -441,6 +442,7 @@ def _mount_course_content(application: FastAPI, *, database_url: str | None = No
     configure_course_content_repository(InMemoryCourseContentRepository())
     configure_course_system_repository(development_course_system_repository())
     configure_course_content_gate(InMemoryHumanGate())
+    configure_course_release_baseline_repository(None)
     configure_courseware_gateway(
         build_gateway(
             environment="development",

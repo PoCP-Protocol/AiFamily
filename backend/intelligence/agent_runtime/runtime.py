@@ -15,7 +15,15 @@ from backend.intelligence.agent_runtime.contracts import (
     AgentRun,
     AgentTask,
 )
-from backend.intelligence.model_gateway.contracts import StructuredRequest
+from backend.intelligence.experience.asset_digest import (
+    family_experience_contract_asset_digest,
+)
+from backend.intelligence.experience.execution_materials import ExecutionMaterialError
+from backend.intelligence.model_gateway.contracts import (
+    KnowledgeExecutionPayload,
+    PromptExecutionPlan,
+    StructuredRequest,
+)
 from backend.intelligence.prompt_registry.registry import PromptRegistryError
 from backend.intelligence.schema_registry.registry import SchemaRegistryError
 
@@ -41,6 +49,7 @@ class AgentRuntime:
         clock: Callable[[], datetime] | None = None,
         prompt_registry: object | None = None,
         schema_registry: object | None = None,
+        execution_material_resolver: object | None = None,
         require_registries: bool = False,
     ) -> None:
         self._generation_port = generation_port
@@ -49,8 +58,13 @@ class AgentRuntime:
         self._clock = clock if clock is not None else lambda: datetime.now(UTC)
         self._prompt_registry = prompt_registry
         self._schema_registry = schema_registry
+        self._execution_material_resolver = execution_material_resolver
         if require_registries and (prompt_registry is None or schema_registry is None):
             raise AgentRuntimeError("prompt_and_schema_registries_required_for_production")
+        if execution_material_resolver is not None and not callable(
+            getattr(execution_material_resolver, "resolve", None)
+        ):
+            raise AgentRuntimeError("execution_material_resolver_invalid")
 
     def register(self, definition: AgentDefinition) -> None:
         if definition.agent_id in self._definitions:
@@ -62,6 +76,7 @@ class AgentRuntime:
         now = self._clock()
         self._authorizer.require(definition, authorization, task, now=now)
         output_schema = task.output_schema
+        prompt_execution_plan = None
         if self._prompt_registry is not None or self._schema_registry is not None:
             if self._prompt_registry is None or self._schema_registry is None:
                 raise AgentRuntimeError("prompt_and_schema_registries_are_required_together")
@@ -88,9 +103,49 @@ class AgentRuntime:
                 raise AgentRuntimeError("prompt_or_schema_must_be_published")
             if prompt.output_schema_ref != schema.schema_ref:
                 raise AgentRuntimeError("prompt_schema_binding_mismatch")
-            output_schema = dict(schema.json_schema)
+            output_schema = _jsonable(schema.json_schema)
             if not output_schema:
                 raise AgentRuntimeError("published_schema_json_schema_required")
+            if self._execution_material_resolver is not None:
+                try:
+                    materials = await _resolve_execution_materials(
+                        self._execution_material_resolver,
+                        system_policy_ref=prompt.system_policy_ref,
+                        knowledge_refs=prompt.knowledge_refs,
+                        use_case=task.use_case,
+                        agent_id=task.agent_id,
+                        at=now,
+                    )
+                except (ExecutionMaterialError, TypeError, ValueError) as error:
+                    raise AgentRuntimeError("execution_material_resolution_failed") from error
+                prompt_execution_plan = PromptExecutionPlan(
+                    prompt_ref=prompt.prompt_ref,
+                    prompt_version=prompt.version,
+                    template=prompt.template,
+                    system_policy_ref=prompt.system_policy_ref,
+                    safety_policy_version=prompt.safety_policy_version,
+                    knowledge_refs=prompt.knowledge_refs,
+                    asset_digest=family_experience_contract_asset_digest(
+                        prompt=prompt,
+                        schema=schema,
+                        system_policy=materials.system_policy,
+                        knowledge=materials.knowledge,
+                    ),
+                    system_policy=materials.system_policy.content,
+                    system_policy_digest=materials.system_policy.content_digest,
+                    knowledge_materials=tuple(
+                        KnowledgeExecutionPayload(
+                            knowledge_ref=item.knowledge_ref,
+                            content=item.content,
+                            source_ref=item.source_ref,
+                            license_ref=item.license_ref,
+                            evidence_level=item.evidence_level,
+                            content_digest=item.content_digest,
+                        )
+                        for item in materials.knowledge
+                    ),
+                    material_digest=materials.material_digest,
+                )
         started = now
         request = StructuredRequest(
             use_case=task.use_case,
@@ -104,6 +159,7 @@ class AgentRuntime:
             request_id=task.request_id,
             tenant_id=task.tenant_id,
             family_id=task.family_id,
+            prompt_execution_plan=prompt_execution_plan,
         )
         draft = await self._generation_port.generate_structured(request)
         if draft.status != "DRAFT" or draft.may_mutate_business_state is not False:
@@ -132,3 +188,22 @@ async def _resolve_registry(
         raise AgentRuntimeError("prompt_or_schema_registry_invalid")
     resolved = resolver(use_case, agent_id, **kwargs)
     return await resolved if inspect.isawaitable(resolved) else resolved
+
+
+async def _resolve_execution_materials(
+    resolver: object,
+    **kwargs: object,
+) -> object:
+    resolve = getattr(resolver, "resolve", None)
+    if not callable(resolve):
+        raise AgentRuntimeError("execution_material_resolver_invalid")
+    resolved = resolve(**kwargs)
+    return await resolved if inspect.isawaitable(resolved) else resolved
+
+
+def _jsonable(value: object) -> object:
+    if isinstance(value, dict) or hasattr(value, "items"):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list, set, frozenset)):
+        return [_jsonable(item) for item in value]
+    return value

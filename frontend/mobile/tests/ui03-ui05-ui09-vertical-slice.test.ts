@@ -19,14 +19,14 @@ describe("UI-03 → UI-05 → UI-09 family need vertical experience", () => {
     expect(ui09).toContain("完成、暂停、跳过或稍后再来");
   });
 
-  it("renders loading, empty, denied, error, review/paused and confirmation states", () => {
+  it("renders loading, empty, denied, error, contract-blocked and review states", () => {
     for (const state of ["loading", "empty", "denied", "error"]) {
-      expect(ui03).toContain(`remoteState === "${state}"`);
+      expect(ui03).toContain(`setRemoteState("${state}")`);
       expect(ui05).toContain(`loadState === "${state}"`);
       if (state !== "empty") expect(ui09).toContain(`remoteState === "${state}"`);
     }
-    expect(ui03).toContain('remoteState === "review_required"');
-    expect(ui03).toContain("CONSENT_REQUIRED");
+    expect(ui03).toContain('remoteState === "contract_blocked"');
+    expect(ui03).toContain("服务端没有返回可核验的人工任务凭据");
     expect(ui05).toContain('setReviewOutcome(decision === "CONTINUE" ? "success" : "paused")');
     expect(ui09).toContain('setSyncState("success")');
     expect(ui09).toContain('setSyncState(action === "PAUSE" ? "paused" : "idle")');

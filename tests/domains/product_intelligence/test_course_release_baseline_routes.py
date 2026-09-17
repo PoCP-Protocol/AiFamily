@@ -2,7 +2,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.apps.family_api.main import create_app
-from backend.domains.product_intelligence.api.course_routes import get_actor_context
+from backend.domains.product_intelligence.api.course_routes import (
+    configure_course_release_baseline_repository,
+    get_actor_context,
+)
 from backend.domains.product_intelligence.application.context import ActorContext
 
 
@@ -28,6 +31,30 @@ def _payload() -> dict:
     }
 
 
+class _StaleReleaseBaselineRepository:
+    async def save(self, _tenant_scope, _baseline) -> None:
+        raise AssertionError("dev app inherited a stale release-baseline repository")
+
+
+def test_dev_app_resets_stale_release_baseline_repository(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configure_course_release_baseline_repository(_StaleReleaseBaselineRepository())
+    monkeypatch.setenv("AIFAMILY_ENV", "test")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    try:
+        response = TestClient(create_app()).post(
+            "/product-intelligence/courses/release-baselines",
+            json={"payload": _payload()},
+            headers={"x-tenant-scope": "tenant-reset", "x-actor-id": "operator-reset"},
+        )
+    finally:
+        configure_course_release_baseline_repository(None)
+
+    assert response.status_code == 200
+
+
 def test_release_baseline_route_persists_approves_and_restores(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -49,12 +76,14 @@ def test_release_baseline_route_persists_approves_and_restores(
             "action": "APPROVE",
             "decision_id": "decision:1",
             "task_id": "task:1",
-            "evidence": [{
-                "evidence_id": "receipt:course",
-                "kind": "QA",
-                "reference": "qa://course",
-                "summary": "通过",
-            }],
+            "evidence": [
+                {
+                    "evidence_id": "receipt:course",
+                    "kind": "QA",
+                    "reference": "qa://course",
+                    "summary": "通过",
+                }
+            ],
         },
         headers=headers,
     )
@@ -70,6 +99,7 @@ def test_release_baseline_lifecycle_requires_release_review_permission(
     monkeypatch.setenv("AIFAMILY_ENV", "test")
     app = create_app()
     from backend.domains.product_intelligence.api.course_routes import get_actor_context
+
     app.dependency_overrides[get_actor_context] = lambda: ActorContext(
         actor_id="human-author",
         actor_type="HUMAN",
@@ -87,12 +117,14 @@ def test_release_baseline_lifecycle_requires_release_review_permission(
                 "action": "APPROVE",
                 "decision_id": "decision:1",
                 "task_id": "task:1",
-                "evidence": [{
-                    "evidence_id": "receipt:course",
-                    "kind": "QA",
-                    "reference": "qa://course",
-                    "summary": "通过",
-                }],
+                "evidence": [
+                    {
+                        "evidence_id": "receipt:course",
+                        "kind": "QA",
+                        "reference": "qa://course",
+                        "summary": "通过",
+                    }
+                ],
             },
         )
     assert response.status_code == 403
@@ -115,12 +147,14 @@ def test_release_baseline_lifecycle_rejects_unknown_action_at_http_boundary(
             "action": "PUBLISH_NOW",
             "decision_id": "decision:invalid",
             "task_id": "task:invalid",
-            "evidence": [{
-                "evidence_id": "receipt:course",
-                "kind": "QA",
-                "reference": "qa://course",
-                "summary": "通过",
-            }],
+            "evidence": [
+                {
+                    "evidence_id": "receipt:course",
+                    "kind": "QA",
+                    "reference": "qa://course",
+                    "summary": "通过",
+                }
+            ],
         },
         headers=headers,
     )
@@ -149,12 +183,14 @@ def test_release_baseline_lifecycle_rejects_ai_context(
                 "action": "APPROVE",
                 "decision_id": "decision:ai",
                 "task_id": "task:ai",
-                "evidence": [{
-                    "evidence_id": "receipt:course",
-                    "kind": "QA",
-                    "reference": "qa://course",
-                    "summary": "通过",
-                }],
+                "evidence": [
+                    {
+                        "evidence_id": "receipt:course",
+                        "kind": "QA",
+                        "reference": "qa://course",
+                        "summary": "通过",
+                    }
+                ],
             },
         )
     assert response.status_code == 403

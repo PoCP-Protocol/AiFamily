@@ -35,7 +35,11 @@ export interface Ui02AssessmentProjection {
   projection_version: "UI02_FAMILY_ASSESSMENT_V1";
   tenant_id: string;
   family_id: string;
-  availability: "AVAILABLE" | "CONSENT_REQUIRED" | "NO_SUBJECT" | "POLICY_BLOCKED";
+  availability:
+    | "AVAILABLE"
+    | "CONSENT_REQUIRED"
+    | "NO_SUBJECT"
+    | "POLICY_BLOCKED";
   subjects: Array<{
     person_id: string;
     display_name: string;
@@ -79,90 +83,582 @@ export interface AssessmentMutationReceipt {
   boundary: "FAMILY_PERSPECTIVE_NOT_SCORE_OR_DIAGNOSIS";
 }
 
-export interface Ui03ScoreDimension {
-  dimension_ref: string;
-  label: string;
-  score: number;
-  peer_reference: number;
+export interface Ui03DeterministicScorecard {
+  generator: "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC";
 }
 
-export interface Ui03Scorecard {
-  generated_by: "FAMILI_PRINCIPAL_FAMILY_EDUCATION_MODEL";
-  overall_score: number;
-  overall_band: string;
-  dimensions: Ui03ScoreDimension[];
-  core_issue_tags: string[];
-  recommendations: string[];
-  score_boundary: "SUPPORT_ORIENTATION_SCORE_NOT_CHILD_DIAGNOSIS_OR_RANKING";
+export interface Ui03ModelGatewayScorecard {
+  generator: "MODEL_GATEWAY";
+  agent_run_ref: string;
+  provider_ref: string;
+  model_ref: string;
+  model_version: string;
+  prompt_version: string;
+  schema_version: string;
+  context_snapshot_ref: string;
+  input_refs: string[];
+  draft_status: "DRAFT";
+  human_task_ref: string | null;
+  review_status: "REVIEW_REQUIRED" | "DRAFT_ONLY";
 }
 
-export interface Ui03EvidenceCoverage {
-  source_response_count: number;
-  interpreted_response_count: number;
-  coverage_ratio: number;
-  mapped_item_refs: string[];
-  evidence_summaries: string[];
-  uninterpreted_item_refs: string[];
-  uncertainty_item_refs: string[];
-  uncertainty_reasons: string[];
-  support_direction_refs: string[];
-  support_direction_labels: string[];
-  next_questions?: string[];
+export type Ui03Scorecard =
+  | Ui03DeterministicScorecard
+  | Ui03ModelGatewayScorecard;
+
+interface Ui03GrowthHypothesisCommon {
+  hypothesis_ref: string;
+  subject_person_id: string;
+  subject_display_name: string;
+  focus_ref: string;
+  need_type_ref: string;
+  need_type_version: number;
+  title: string;
+  statement: string;
+  required_capability_keys: string[];
+  source_refs: {
+    assessment_session_id: string;
+    assessment_response_id: string;
+    assessment_evidence_id: string;
+    tool_ref: string;
+    tool_version: number;
+    assessment_submitted_at: string | null;
+  };
+  limitations: string[];
+  generator:
+    | "DETERMINISTIC_CATALOG_POLICY_NOT_MODEL"
+    | "FAMILY_EDUCATION_ASSESSMENT_MODEL_V0_1";
+  model_draft_ref: string;
+  model_component_ref: string;
+  model_boundary_labels: string[];
+  need_refs: string[];
+  construct_refs: string[];
+  action_candidate_refs: string[];
+  fact_boundary: "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS";
 }
+
+export type Ui03GrowthHypothesis = Ui03GrowthHypothesisCommon &
+  (
+    | {
+        model_generator: "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC";
+        scorecard: Ui03DeterministicScorecard;
+      }
+    | {
+        model_generator: "MODEL_GATEWAY";
+        scorecard: Ui03ModelGatewayScorecard;
+      }
+  );
 
 export interface Ui03GrowthHypothesisProjection {
   projection_version: "UI03_GROWTH_HYPOTHESIS_V1";
   tenant_id: string;
   family_id: string;
-  availability:
-    | "READY"
-    | "CONSENT_REQUIRED"
-    | "NO_SUBMITTED_ASSESSMENT"
-    | "POLICY_BLOCKED"
-    | "CONSENT_WITHDRAWN"
-    | "SUBMITTED"
-    | "ANALYZING"
-    | "ACKNOWLEDGED"
-    | "DISMISSED"
-    | "ANALYSIS_FAILED";
-  ai_state:
-    | "NOT_INVOKED"
-    | "MODEL_DRAFT_READY"
-    | "MODEL_GATEWAY_BLOCKED"
-    | "READ_ONLY_PERSISTED";
-  latest_assessment_session_id?: string | null;
+  availability: "READY" | "NO_SUBMITTED_ASSESSMENT" | "POLICY_BLOCKED";
+  ai_state: "NOT_INVOKED" | "MODEL_DRAFT_READY" | "MODEL_GATEWAY_BLOCKED";
+  latest_assessment_session_id: string | null;
   named_actions: {
-    generate?: "GENERATE_GROWTH_HYPOTHESIS";
     confirm: "CONFIRM_GROWTH_HYPOTHESIS";
-    dismiss?: "DISMISS_GROWTH_HYPOTHESIS";
+    dismiss: "DISMISS_GROWTH_HYPOTHESIS";
   };
-  hypothesis: null | {
-    hypothesis_ref: string;
-    subject_person_id: string;
-    subject_display_name: string;
-    focus_ref: string;
-    title: string;
-    statement: string;
-    source_refs: {
-      assessment_session_id: string;
-      assessment_response_id: string;
-      assessment_evidence_id: string;
-      tool_ref: string;
-      tool_version: number;
-      assessment_submitted_at?: string | null;
-    };
-    limitations: string[];
-    fact_boundary: "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS";
-    safety_gate?: { required: boolean; reason_refs: string[]; mode: "HUMAN_REVIEW_REQUIRED" };
-    evidence_coverage?: Ui03EvidenceCoverage;
-    scorecard?: Ui03Scorecard;
+  hypothesis: Ui03GrowthHypothesis | null;
+}
+
+export type Ui03ReviewOpenHypothesis = Ui03GrowthHypothesis & {
+  model_generator: "MODEL_GATEWAY";
+  scorecard: Ui03ModelGatewayScorecard & {
+    human_task_ref: string;
+    review_status: "REVIEW_REQUIRED";
   };
+};
+
+export type Ui03ReviewOpenProjection = Ui03GrowthHypothesisProjection & {
+  availability: "READY";
+  hypothesis: Ui03ReviewOpenHypothesis;
+};
+
+export interface AssessmentHumanTaskDecisionBody {
+  outcome: "ACCEPT" | "REJECT";
+  reason?: string;
+}
+
+export interface AssessmentHumanTaskConfirmationBinding {
+  subject_person_id: string;
+  assessment_session_id: string;
+  hypothesis_ref: string;
+  scope_ref: string;
+  signal_version: number;
+  reviewed_draft_ref: string;
+  draft_version: number;
+  provenance_ref: string;
+  human_gate_receipt_ref: string;
+}
+
+export interface AssessmentHumanTaskDecisionReceipt {
+  task_id: string;
+  decision_id: string;
+  status: "DECIDED";
+  outcome: "ACCEPT" | "REJECT";
+  reason: string | null;
+  decided_at: string;
+  binding: AssessmentHumanTaskConfirmationBinding | null;
+}
+
+export interface ConfirmGrowthHypothesisBody extends Omit<
+  AssessmentHumanTaskConfirmationBinding,
+  "subject_person_id"
+> {
+  decision_type: "CONFIRM";
 }
 
 export interface GrowthHypothesisDecisionReceipt {
-  action: "CONFIRM_GROWTH_HYPOTHESIS" | "DISMISS_GROWTH_HYPOTHESIS";
-  outcome: "INTENT_CREATED" | "NO_ACTION";
+  action:
+    | "CONFIRM_GROWTH_HYPOTHESIS"
+    | "CALIBRATE_GROWTH_HYPOTHESIS"
+    | "DISMISS_GROWTH_HYPOTHESIS";
+  outcome: "INTENT_CREATED" | "FEEDBACK_RECORDED" | "NO_ACTION";
   hypothesis_ref: string;
-  intent: { intent_id: string } | null;
+  intent: {
+    intent_id: string;
+    need_type: string;
+    status: "OPEN";
+    required_capability_keys: string[];
+    evidence_refs: string[];
+    boundary: "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME";
+  } | null;
   replayed: boolean;
+  parent_note?: string | null;
+}
+
+export class AssessmentApiContractError extends Error {
+  readonly code = "UI03_CONTRACT_BLOCKED";
+
+  constructor(
+    message: string,
+    readonly payload: unknown,
+  ) {
+    super(message);
+    this.name = "AssessmentApiContractError";
+  }
+}
+
+export function parseUi03GrowthHypothesisProjection(
+  payload: unknown,
+  expectedFamilyId: string,
+): Ui03GrowthHypothesisProjection {
+  const projection = record(payload, "UI-03 projection");
+  assertExactKeys(
+    projection,
+    [
+      "projection_version",
+      "tenant_id",
+      "family_id",
+      "availability",
+      "latest_assessment_session_id",
+      "hypothesis",
+      "named_actions",
+      "ai_state",
+    ],
+    "UI-03 projection",
+    payload,
+  );
+  assertEqual(
+    projection.projection_version,
+    "UI03_GROWTH_HYPOTHESIS_V1",
+    payload,
+  );
+  assertText(projection.tenant_id, "tenant_id", payload);
+  assertEqual(projection.family_id, expectedFamilyId, payload);
+  assertOneOf(
+    projection.availability,
+    ["READY", "NO_SUBMITTED_ASSESSMENT", "POLICY_BLOCKED"],
+    payload,
+  );
+  assertOneOf(
+    projection.ai_state,
+    ["NOT_INVOKED", "MODEL_DRAFT_READY", "MODEL_GATEWAY_BLOCKED"],
+    payload,
+  );
+  assertNullableText(
+    projection.latest_assessment_session_id,
+    "latest_assessment_session_id",
+    payload,
+  );
+
+  const actions = record(projection.named_actions, "named_actions");
+  assertExactKeys(actions, ["confirm", "dismiss"], "named_actions", payload);
+  assertEqual(actions.confirm, "CONFIRM_GROWTH_HYPOTHESIS", payload);
+  assertEqual(actions.dismiss, "DISMISS_GROWTH_HYPOTHESIS", payload);
+
+  if (projection.availability !== "READY") {
+    if (
+      projection.latest_assessment_session_id !== null ||
+      projection.hypothesis !== null
+    ) {
+      fail(
+        "unavailable UI-03 projection must not expose a hypothesis",
+        payload,
+      );
+    }
+    return projection as unknown as Ui03GrowthHypothesisProjection;
+  }
+
+  assertText(
+    projection.latest_assessment_session_id,
+    "latest_assessment_session_id",
+    payload,
+  );
+  const hypothesis = record(projection.hypothesis, "hypothesis");
+  assertExactKeys(
+    hypothesis,
+    [
+      "hypothesis_ref",
+      "subject_person_id",
+      "subject_display_name",
+      "focus_ref",
+      "need_type_ref",
+      "need_type_version",
+      "title",
+      "statement",
+      "required_capability_keys",
+      "source_refs",
+      "limitations",
+      "generator",
+      "model_draft_ref",
+      "model_generator",
+      "model_component_ref",
+      "model_boundary_labels",
+      "need_refs",
+      "construct_refs",
+      "action_candidate_refs",
+      "fact_boundary",
+      "scorecard",
+    ],
+    "hypothesis",
+    payload,
+  );
+  for (const field of [
+    "hypothesis_ref",
+    "subject_person_id",
+    "subject_display_name",
+    "focus_ref",
+    "need_type_ref",
+    "title",
+    "statement",
+    "model_draft_ref",
+    "model_component_ref",
+  ] as const) {
+    assertText(hypothesis[field], field, payload);
+  }
+  assertPositiveInteger(
+    hypothesis.need_type_version,
+    "need_type_version",
+    payload,
+  );
+  assertOneOf(
+    hypothesis.generator,
+    [
+      "DETERMINISTIC_CATALOG_POLICY_NOT_MODEL",
+      "FAMILY_EDUCATION_ASSESSMENT_MODEL_V0_1",
+    ],
+    payload,
+  );
+  assertOneOf(
+    hypothesis.model_generator,
+    ["FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC", "MODEL_GATEWAY"],
+    payload,
+  );
+  assertEqual(
+    hypothesis.fact_boundary,
+    "HYPOTHESIS_NOT_FACT_OR_DIAGNOSIS",
+    payload,
+  );
+  const sourceRefs = record(hypothesis.source_refs, "source_refs");
+  assertExactKeys(
+    sourceRefs,
+    [
+      "assessment_session_id",
+      "assessment_response_id",
+      "assessment_evidence_id",
+      "tool_ref",
+      "tool_version",
+      "assessment_submitted_at",
+    ],
+    "source_refs",
+    payload,
+  );
+  for (const field of [
+    "assessment_session_id",
+    "assessment_response_id",
+    "assessment_evidence_id",
+    "tool_ref",
+  ] as const) {
+    assertText(sourceRefs[field], field, payload);
+  }
+  assertPositiveInteger(sourceRefs.tool_version, "tool_version", payload);
+  assertNullableText(
+    sourceRefs.assessment_submitted_at,
+    "assessment_submitted_at",
+    payload,
+  );
+  if (
+    sourceRefs.assessment_session_id !== projection.latest_assessment_session_id
+  ) {
+    fail("latest assessment session does not match hypothesis source", payload);
+  }
+  assertStringArray(
+    hypothesis.required_capability_keys,
+    "required_capability_keys",
+    payload,
+  );
+  assertStringArray(hypothesis.limitations, "limitations", payload);
+  for (const requiredRefs of [
+    "model_boundary_labels",
+    "need_refs",
+    "construct_refs",
+    "action_candidate_refs",
+  ] as const) {
+    assertStringArray(hypothesis[requiredRefs], requiredRefs, payload);
+  }
+
+  const scorecard = record(hypothesis.scorecard, "scorecard");
+  if (scorecard.generator === "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC") {
+    assertExactKeys(
+      scorecard,
+      ["generator"],
+      "deterministic scorecard",
+      payload,
+    );
+    assertEqual(
+      hypothesis.model_generator,
+      "FAMILY_EDUCATION_MODEL_RUNTIME_DETERMINISTIC",
+      payload,
+    );
+    return projection as unknown as Ui03GrowthHypothesisProjection;
+  }
+  assertEqual(scorecard.generator, "MODEL_GATEWAY", payload);
+  assertEqual(hypothesis.model_generator, "MODEL_GATEWAY", payload);
+  assertExactKeys(
+    scorecard,
+    [
+      "generator",
+      "agent_run_ref",
+      "provider_ref",
+      "model_ref",
+      "model_version",
+      "prompt_version",
+      "schema_version",
+      "context_snapshot_ref",
+      "input_refs",
+      "draft_status",
+      "human_task_ref",
+      "review_status",
+    ],
+    "model gateway scorecard",
+    payload,
+  );
+  assertEqual(scorecard.draft_status, "DRAFT", payload);
+  assertOneOf(
+    scorecard.review_status,
+    ["REVIEW_REQUIRED", "DRAFT_ONLY"],
+    payload,
+  );
+  assertStringArray(scorecard.input_refs, "scorecard.input_refs", payload);
+  for (const field of [
+    "agent_run_ref",
+    "provider_ref",
+    "model_ref",
+    "model_version",
+    "prompt_version",
+    "schema_version",
+    "context_snapshot_ref",
+  ] as const) {
+    assertText(scorecard[field], field, payload);
+  }
+  assertNullableText(scorecard.human_task_ref, "human_task_ref", payload);
+  if (
+    (scorecard.review_status === "REVIEW_REQUIRED" &&
+      !isNonBlankText(scorecard.human_task_ref)) ||
+    (scorecard.review_status === "DRAFT_ONLY" &&
+      scorecard.human_task_ref !== null)
+  ) {
+    fail("gateway scorecard review state and human_task_ref disagree", payload);
+  }
+  return projection as unknown as Ui03GrowthHypothesisProjection;
+}
+
+export function isUi03ReviewOpen(
+  projection: Ui03GrowthHypothesisProjection,
+): projection is Ui03ReviewOpenProjection {
+  const scorecard = projection.hypothesis?.scorecard;
+  return (
+    projection.availability === "READY" &&
+    scorecard?.generator === "MODEL_GATEWAY" &&
+    scorecard.review_status === "REVIEW_REQUIRED" &&
+    isNonBlankText(scorecard.human_task_ref)
+  );
+}
+
+export function parseAssessmentHumanTaskDecisionReceipt(
+  payload: unknown,
+  expected: {
+    familyId: string;
+    tenantId: string;
+    taskId: string;
+    outcome: "ACCEPT" | "REJECT";
+    hypothesisRef: string;
+    assessmentSessionId: string;
+    subjectPersonId: string;
+    signalVersion: number;
+  },
+): AssessmentHumanTaskDecisionReceipt {
+  const receipt = record(payload, "human-task decision receipt");
+  assertEqual(receipt.task_id, expected.taskId, payload);
+  assertText(receipt.decision_id, "decision_id", payload);
+  assertEqual(receipt.status, "DECIDED", payload);
+  assertEqual(receipt.outcome, expected.outcome, payload);
+  assertText(receipt.decided_at, "decided_at", payload);
+  if (receipt.reason !== null && typeof receipt.reason !== "string") {
+    fail("human-task receipt reason must be string or null", payload);
+  }
+
+  if (expected.outcome === "REJECT") {
+    if (receipt.binding !== null) {
+      fail(
+        "rejection receipt must not contain a confirmation binding",
+        payload,
+      );
+    }
+    return receipt as unknown as AssessmentHumanTaskDecisionReceipt;
+  }
+
+  const binding = record(receipt.binding, "confirmation binding");
+  assertEqual(binding.subject_person_id, expected.subjectPersonId, payload);
+  assertEqual(
+    binding.assessment_session_id,
+    expected.assessmentSessionId,
+    payload,
+  );
+  assertEqual(binding.hypothesis_ref, expected.hypothesisRef, payload);
+  assertEqual(
+    binding.scope_ref,
+    `family://${expected.tenantId}/${expected.familyId}/assessment`,
+    payload,
+  );
+  assertEqual(binding.human_gate_receipt_ref, expected.taskId, payload);
+  assertPositiveInteger(binding.signal_version, "signal_version", payload);
+  if (binding.signal_version !== expected.signalVersion) {
+    fail("signal_version does not match the reviewed projection", payload);
+  }
+  assertPositiveInteger(binding.draft_version, "draft_version", payload);
+  assertText(binding.reviewed_draft_ref, "reviewed_draft_ref", payload);
+  assertText(binding.provenance_ref, "provenance_ref", payload);
+  return receipt as unknown as AssessmentHumanTaskDecisionReceipt;
+}
+
+export function parseConfirmedGrowthHypothesisReceipt(
+  payload: unknown,
+  expectedHypothesisRef: string,
+): GrowthHypothesisDecisionReceipt {
+  const receipt = record(payload, "growth-hypothesis decision receipt");
+  assertEqual(receipt.action, "CONFIRM_GROWTH_HYPOTHESIS", payload);
+  assertEqual(receipt.outcome, "INTENT_CREATED", payload);
+  assertEqual(receipt.hypothesis_ref, expectedHypothesisRef, payload);
+  if (typeof receipt.replayed !== "boolean")
+    fail("replayed must be boolean", payload);
+  const intent = record(receipt.intent, "growth intent");
+  assertText(intent.intent_id, "intent_id", payload);
+  assertText(intent.need_type, "need_type", payload);
+  assertEqual(intent.status, "OPEN", payload);
+  assertEqual(intent.boundary, "HUMAN_CONFIRMED_INTENT_NOT_OUTCOME", payload);
+  assertStringArray(
+    intent.required_capability_keys,
+    "intent.required_capability_keys",
+    payload,
+  );
+  assertStringArray(intent.evidence_refs, "intent.evidence_refs", payload);
+  return receipt as unknown as GrowthHypothesisDecisionReceipt;
+}
+
+function record(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    fail(`${label} must be an object`, value);
+  }
+  return value as Record<string, unknown>;
+}
+
+function assertText(
+  value: unknown,
+  field: string,
+  payload: unknown,
+): asserts value is string {
+  if (!isNonBlankText(value))
+    fail(`${field} must be a non-empty string`, payload);
+}
+
+function assertNullableText(
+  value: unknown,
+  field: string,
+  payload: unknown,
+): asserts value is string | null {
+  if (value !== null && !isNonBlankText(value)) {
+    fail(`${field} must be a non-empty string or null`, payload);
+  }
+}
+
+function assertExactKeys(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+  field: string,
+  payload: unknown,
+): void {
+  const actual = Object.keys(value).sort();
+  const required = [...expected].sort();
+  if (
+    actual.length !== required.length ||
+    actual.some((key, index) => key !== required[index])
+  ) {
+    fail(`${field} fields do not match the governed contract`, payload);
+  }
+}
+
+function assertPositiveInteger(
+  value: unknown,
+  field: string,
+  payload: unknown,
+): asserts value is number {
+  if (!Number.isInteger(value) || (value as number) < 1) {
+    fail(`${field} must be a positive integer`, payload);
+  }
+}
+
+function assertStringArray(
+  value: unknown,
+  field: string,
+  payload: unknown,
+): asserts value is string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    fail(`${field} must be an array of strings`, payload);
+  }
+}
+
+function assertEqual(value: unknown, expected: string, payload: unknown): void {
+  if (value !== expected) fail(`expected ${expected}`, payload);
+}
+
+function assertOneOf(
+  value: unknown,
+  expected: readonly string[],
+  payload: unknown,
+): void {
+  if (typeof value !== "string" || !expected.includes(value)) {
+    fail(`expected one of ${expected.join(", ")}`, payload);
+  }
+}
+
+function isNonBlankText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function fail(message: string, payload: unknown): never {
+  throw new AssessmentApiContractError(message, payload);
 }
